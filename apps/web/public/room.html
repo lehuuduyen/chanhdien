@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#05070a">
+  <title>Cinema #1 · Chánh Điện Online</title>
+  <link rel="stylesheet" href="/room.css">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div class="room-shell">
+
+    <main class="room-layout">
+      <!-- Khán phòng. Các thanh giao diện (lớp .hud) báo kích thước cho bộ vẽ để màn chiếu luôn nằm trong phần giữa:
+           không nút nào đè lên khung YouTube. -->
+      <section class="stage" id="stage" aria-label="Khán phòng Cinema: chạm sàn để đi, chạm ghế có vòng sáng để tới ngồi">
+        <!-- Màn tải: hiện ngay khi mở trang, che khung nhập tên trong lúc tự vào rạp (boot-loader.js). -->
+        <div class="boot" id="boot" role="status" aria-live="polite">
+          <div class="boot-card">
+            <p class="boot-title">🎬 Cinema</p>
+            <p class="boot-step">Đang tải…</p>
+            <div class="boot-bar"><i></i></div>
+            <small class="boot-pct">0%</small>
+          </div>
+        </div>
+        <canvas id="scene"></canvas>
+        <canvas id="scene3d" hidden></canvas>
+        <div class="screen-slot" id="screenSlot">
+          <div id="player"></div>
+          <div class="screen-idle" id="screenIdle">
+            <strong>Chưa có video</strong>
+            <span>Bấm "Gửi video" rồi dán link YouTube để chiếu cho cả rạp</span>
+          </div>
+        </div>
+
+        <div class="hud hud-top" id="hudTop">
+          <div class="hud-bar">
+            <h1 class="room-chip"><span class="connection" id="connection" title="Chưa tham gia"><i></i><span class="sr-only">Chưa tham gia</span></span>Cinema #1</h1>
+            <div class="quick-travel">
+              <button type="button" class="quick-travel-toggle" id="travelToggle" aria-haspopup="menu" aria-expanded="false">📍 Đi nhanh ▾</button>
+              <div class="quick-travel-panel" id="travelPanel" role="menu" hidden>
+                <button type="button" role="menuitem" data-destination="hall">🛕 Chánh điện</button>
+                <button type="button" role="menuitem" data-destination="courtyard">🌳 Ngoài sân</button>
+                <button type="button" role="menuitem" data-destination="garden">🌱 Khu vườn</button>
+                <button type="button" role="menuitem" data-destination="cinema" aria-current="true">🎬 Rạp phim</button>
+                <button type="button" role="menuitem" data-destination="games">🎲 Phòng game</button>
+              </div>
+            </div>
+            <div class="hud-status" id="hudStatus">
+              <span class="live" id="liveState">● Chờ chiếu</span>
+              <span id="onlineCount">0 đang online · 0/100 ghế</span>
+            </div>
+          </div>
+          <div class="hud-now">
+            <p class="kicker">Trên màn ảnh</p>
+            <p class="now-title" id="nowTitle">Chưa có video</p>
+            <p class="now-meta" id="nowMeta"></p>
+            <div class="vote-row">
+              <button type="button" class="skip" id="skipButton" disabled>⏭ Vote bỏ qua</button>
+              <small id="voteInfo"></small>
+            </div>
+            <div class="skip-bar" aria-hidden="true"><i id="skipBar"></i></div>
+          </div>
+          <div class="hud-actions">
+            <button type="button" class="coin" id="coinChip" title="Xu Vườn Công Đức (bán trái cây, dùng ở phòng game)">🪙 <b id="coinCount">—</b></button>
+            <button type="button" id="support" title="Góp ý / Báo lỗi" aria-label="Góp ý / Báo lỗi">🛟</button>
+            <button type="button" id="copyLink" title="Chép link phòng" aria-label="Chép link phòng">🔗</button>
+            <button type="button" id="fullscreen" title="Xem ngang, phóng to màn chiếu" aria-label="Xem ngang, phóng to màn chiếu">⛶</button>
+            <button type="button" id="hideHud" title="Ẩn giao diện" aria-label="Ẩn giao diện">👁</button>
+          </div>
+        </div>
+
+        <nav class="hud hud-tools" id="hudTools" aria-label="Công cụ">
+          <button type="button" data-tool="seat"><b>💺</b><span>Đổi ghế</span></button>
+          <button type="button" data-tool="send"><b>➕</b><span>Gửi video</span></button>
+          <button type="button" data-tool="queue"><b>📃</b><span>Hàng chờ</span><i class="badge" id="queueBadge" hidden></i></button>
+          <button type="button" data-tool="chat"><b>💬</b><span>Trò chuyện</span><i class="badge" id="chatBadge" hidden></i></button>
+          <button type="button" data-tool="react"><b>✨</b><span>Tương tác</span></button>
+          <button type="button" data-tool="people"><b>👥</b><span>Người xem</span></button>
+          <button type="button" data-tool="donate"><b>💝</b><span>Ủng hộ</span></button>
+        </nav>
+        <div class="reaction-picker" id="reactionPicker" role="menu" hidden>
+          <button type="button" data-reaction="clap" aria-label="Vỗ tay">👏</button>
+          <button type="button" data-reaction="laugh" aria-label="Cười">😂</button>
+          <button type="button" data-reaction="heart" aria-label="Thích">❤️</button>
+          <button type="button" data-reaction="wow" aria-label="Ngạc nhiên">😮</button>
+          <button type="button" data-reaction="cry" aria-label="Xúc động">😢</button>
+          <button type="button" data-reaction="fire" aria-label="Quá đỉnh">🔥</button>
+        </div>
+
+        <div class="hud hud-bottom" id="hudBottom">
+          <div class="cameras" id="cameras" role="group" aria-label="Góc nhìn">
+            <button type="button" data-camera="follow" aria-pressed="false" title="Nhân vật của tôi">🧍<span>Nhân vật</span></button>
+            <button type="button" data-camera="overview" aria-pressed="true" title="Toàn cảnh">🎦<span>Toàn cảnh</span></button>
+            <button type="button" data-camera="seat" aria-pressed="false" title="Ghế của tôi">💺<span>Ghế tôi</span></button>
+            <button type="button" data-camera="screen" aria-pressed="false" title="Màn chiếu">🖥<span>Màn chiếu</span></button>
+            <button type="button" data-camera="audience" aria-pressed="false" title="Khán giả">👀<span>Khán giả</span></button>
+          </div>
+          <div class="volume">
+            <button type="button" class="unmute" id="unmute" hidden>🔇 Bật tiếng</button>
+            <button type="button" id="muteToggle" aria-label="Tắt/bật tiếng">🔈</button>
+            <input type="range" id="volume" min="0" max="100" value="100" aria-label="Âm lượng">
+            <small id="volumeLabel">100%</small>
+          </div>
+        </div>
+        <!-- Cần điều khiển (máy cảm ứng): kéo để đi trong rạp. -->
+        <div class="joystick" id="joystick" hidden aria-label="Kéo để đi"><i></i></div>
+        <button type="button" class="near-sit" id="nearSit" hidden>💺 Ngồi</button>
+        <button type="button" class="show-hud" id="showHud" hidden aria-label="Hiện giao diện">👁</button>
+        <!-- Xem ngang: chỉ còn vài nút ở dải trống bên phải màn chiếu (bộ vẽ chừa chỗ, không đè lên video). -->
+        <div class="zoom-bar" id="zoomBar" hidden>
+          <button type="button" id="zoomExit" aria-label="Thoát xem ngang">✕</button>
+          <button type="button" id="zoomMute" aria-label="Tắt/bật tiếng">🔇</button>
+          <button type="button" id="zoomReact" aria-label="Thả cảm xúc">✨</button>
+        </div>
+        <p class="rotate-hint" id="rotateHint" hidden>↻ Xoay ngang điện thoại để xem to</p>
+        <p class="room-notice" id="notice" role="status" aria-live="polite"></p>
+
+        <!-- Ngăn kéo: hàng chờ, trò chuyện, người xem. Máy tính: cột bên phải; điện thoại: tấm dưới đáy. -->
+        <aside class="drawer" id="drawer" hidden>
+          <div class="drawer-head">
+            <h2 id="drawerTitle">Hàng chờ</h2>
+            <button type="button" id="drawerClose" aria-label="Đóng">✕</button>
+          </div>
+          <section class="drawer-part" data-part="seats" hidden>
+            <p class="part-meta">Chạm ghế trống để đi tới ngồi · <b class="legend free">trống</b> <b class="legend taken">có người</b> <b class="legend mine">ghế bạn</b> <b class="legend love">❤ ghế đôi</b></p>
+            <div class="seat-map-screen">MÀN CHIẾU</div>
+            <div class="seat-map" id="seatMap" role="grid" aria-label="Sơ đồ ghế"></div>
+          </section>
+          <section class="drawer-part" data-part="queue">
+            <form id="queueForm" class="inline-form">
+              <label class="sr-only" for="queueInput">Link YouTube</label>
+              <input id="queueInput" placeholder="Dán link YouTube…" autocomplete="off" disabled>
+              <button type="submit" disabled aria-label="Thêm vào hàng chờ">+</button>
+            </form>
+            <p class="part-meta" id="queueCount">0 video</p>
+            <ol class="queue-list" id="queueList"></ol>
+          </section>
+          <section class="drawer-part" data-part="chat" hidden>
+            <div class="messages" id="messages" role="log" aria-label="Nội dung trò chuyện" aria-live="polite">
+              <p class="empty">Tin nhắn hiện trên đầu nhân vật trong rạp và ở đây.</p>
+            </div>
+            <form id="chatForm" class="chat-compose">
+              <label class="sr-only" for="chatInput">Nhắn với cả rạp</label>
+              <input id="chatInput" maxlength="160" placeholder="Nhắn với cả rạp…" autocomplete="off" disabled>
+              <small id="chatCount">0/160</small>
+              <button type="submit" disabled aria-label="Gửi tin nhắn">➤</button>
+            </form>
+          </section>
+          <section class="drawer-part" data-part="people" hidden>
+            <p class="part-meta"><span id="participantCount">0 người</span> · <span id="seatLabel">Chạm ghế có vòng sáng để ngồi</span></p>
+            <div class="people" id="people"><p class="empty">Chưa có ai trong phòng.</p></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div class="join-layer" id="joinLayer" hidden>
+    <form class="join-card" id="joinForm">
+      <p class="kicker">Cinema #1</p>
+      <h2>Vào rạp</h2>
+      <p>Nhập tên hiển thị rồi đi vào rạp, chọn ghế và cùng xem video YouTube với mọi người.</p>
+      <label for="displayName">Tên hiển thị</label>
+      <input id="displayName" name="displayName" maxlength="40" autocomplete="nickname" placeholder="Ví dụ: Minh An" required>
+      <p class="form-error" id="formError" role="alert"></p>
+      <button type="submit">Vào rạp</button>
+      <a href="/">Quay lại sảnh</a>
+    </form>
+  </div>
+
+  <script type="module" src="/room.js"></script>
+</body>
+</html>

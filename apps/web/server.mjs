@@ -1,0 +1,204 @@
+import http from 'node:http';
+import { createReadStream, statSync } from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const PUBLIC_DIR = path.join(import.meta.dirname, 'public');
+const LEGACY_DIR = path.resolve(import.meta.dirname, '../../legacy');
+const SCENES_DIR = path.resolve(import.meta.dirname, '../../scenes');
+const ENGINE_DIR = path.resolve(import.meta.dirname, '../../packages/scene-engine/src');
+const SEAT_EDITOR_DIR = path.resolve(import.meta.dirname, '../../tools/seat-editor');
+const ROOM_RULES_FILE = path.resolve(import.meta.dirname, '../../packages/room-rules/src/index.mjs');
+const PRAYER_SLIP_FILE = path.resolve(import.meta.dirname, '../../packages/prayer-slip/src/index.mjs');
+const THREE_DIR = path.resolve(import.meta.dirname, '../../node_modules/three');
+
+const CONTENT_TYPES = Object.freeze({
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.glb': 'model/gltf-binary',
+});
+
+// Một đoạn duy nhất "bytes=a-b", "bytes=a-" hoặc "bytes=-n". Nhiều đoạn thì bỏ qua, trả cả file.
+export function parseRange(header, size) {
+  if (typeof header !== 'string') return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) return null;
+  let start;
+  let end;
+  if (!match[1]) {
+    start = Math.max(0, size - Number(match[2]));
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return 'invalid';
+  return { start, end };
+}
+
+function resolveFile(root, requested) {
+  const file = path.resolve(root, requested);
+  if (file !== root && !file.startsWith(`${root}${path.sep}`)) return null;
+  try {
+    return statSync(file).isFile() ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolvePublicFile(pathname) {
+  const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
+  return resolveFile(PUBLIC_DIR, requested);
+}
+
+export function resolveWebFile(pathname) {
+  if (pathname === '/thien' || pathname === '/thien/') return resolveFile(LEGACY_DIR, 'index.html');
+  if (pathname.startsWith('/thien/assets/')) {
+    return resolveFile(path.join(LEGACY_DIR, 'assets'), pathname.slice('/thien/assets/'.length));
+  }
+  // Scene engine chạy thẳng trong trình duyệt (ES module, không bundler) cùng dữ liệu cảnh.
+  if (pathname.startsWith('/engine/')) return resolveFile(ENGINE_DIR, pathname.slice('/engine/'.length));
+  if (pathname === '/shared/room-rules.mjs') return ROOM_RULES_FILE;
+  if (pathname === '/shared/prayer-slip.mjs') return PRAYER_SLIP_FILE;
+  // Three.js (ghim 0.160.0 trong package.json) phục vụ từ chính server: chỉ bản build và addons.
+  if (pathname.startsWith('/vendor/three/build/') || pathname.startsWith('/vendor/three/examples/jsm/')) {
+    return resolveFile(THREE_DIR, pathname.slice('/vendor/three/'.length));
+  }
+  if (pathname.startsWith('/scenes/')) return resolveFile(SCENES_DIR, pathname.slice('/scenes/'.length));
+  if (pathname === '/tools/seat-editor/') return resolveFile(SEAT_EDITOR_DIR, 'index.html');
+  if (pathname.startsWith('/tools/seat-editor/')) return resolveFile(SEAT_EDITOR_DIR, pathname.slice('/tools/seat-editor/'.length));
+  return resolvePublicFile(pathname);
+}
+
+// Web server cũng là cổng vào chung: /api/* → API, /ws → máy realtime. Nhờ vậy client chỉ cần một origin
+// (chạy sau tunnel hoặc load balancer với https/wss mà không phải mở thêm cổng).
+function proxyHeaders(req, upstream) {
+  const headers = { ...req.headers, host: req.headers.host || upstream.host };
+  headers['x-forwarded-for'] = req.socket.remoteAddress || '';
+  headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
+  return headers;
+}
+
+function proxyHttp(req, res, upstream) {
+  const forward = http.request({
+    host: upstream.hostname,
+    port: upstream.port,
+    method: req.method,
+    path: req.url,
+    headers: proxyHeaders(req, upstream),
+  }, (response) => {
+    res.writeHead(response.statusCode, response.headers);
+    response.pipe(res);
+  });
+  forward.on('error', () => {
+    if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'upstream_unavailable' }));
+  });
+  req.pipe(forward);
+}
+
+function proxyUpgrade(req, socket, head, upstream) {
+  const forward = http.request({
+    host: upstream.hostname,
+    port: upstream.port,
+    method: req.method,
+    path: req.url,
+    headers: proxyHeaders(req, upstream),
+  });
+  forward.on('upgrade', (response, upstreamSocket, upstreamHead) => {
+    const lines = [`HTTP/1.1 ${response.statusCode} ${response.statusMessage}`];
+    for (let index = 0; index < response.rawHeaders.length; index += 2) {
+      lines.push(`${response.rawHeaders[index]}: ${response.rawHeaders[index + 1]}`);
+    }
+    socket.write(`${lines.join('\r\n')}\r\n\r\n`);
+    if (upstreamHead.length) socket.write(upstreamHead);
+    if (head.length) upstreamSocket.write(head);
+    upstreamSocket.pipe(socket).pipe(upstreamSocket);
+    // Một đầu ngắt (kể cả ngắt ngang không báo lỗi) thì đóng luôn đầu kia, để máy realtime biết người đã rời.
+    const close = () => { socket.destroy(); upstreamSocket.destroy(); };
+    for (const side of [socket, upstreamSocket]) {
+      side.on('error', close);
+      side.on('close', close);
+    }
+  });
+  // Upstream từ chối nâng cấp (401/409/403…): trả nguyên mã cho client.
+  forward.on('response', (response) => {
+    socket.end(`HTTP/1.1 ${response.statusCode} ${response.statusMessage}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    response.resume();
+  });
+  forward.on('error', () => socket.destroy());
+  forward.end();
+}
+
+export function createWebServer(options = {}) {
+  const apiUpstream = new URL(options.apiUpstream || 'http://127.0.0.1:4000');
+  const realtimeUpstream = new URL(options.realtimeUpstream || 'http://127.0.0.1:4001');
+  const server = http.createServer((req, res) => {
+    const pathname = new URL(req.url, 'http://local').pathname;
+    if (pathname.startsWith('/api/')) {
+      proxyHttp(req, res, apiUpstream);
+      return;
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405).end();
+      return;
+    }
+    if (pathname === '/thien') {
+      res.writeHead(308, { Location: '/thien/' }).end();
+      return;
+    }
+    const file = resolveWebFile(pathname);
+    if (!file) {
+      res.writeHead(404).end('not found');
+      return;
+    }
+    const size = statSync(file).size;
+    const headers = {
+      'Content-Type': CONTENT_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+      'X-Content-Type-Options': 'nosniff',
+      'Accept-Ranges': 'bytes',
+    };
+    // Safari (nhất là iPhone) chỉ phát audio/video khi server trả đúng đoạn được hỏi (206).
+    const range = parseRange(req.headers.range, size);
+    if (range === 'invalid') {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}` }).end();
+      return;
+    }
+    if (range) {
+      res.writeHead(206, { ...headers, 'Content-Range': `bytes ${range.start}-${range.end}/${size}`, 'Content-Length': range.end - range.start + 1 });
+      if (req.method === 'HEAD') res.end();
+      else createReadStream(file, range).pipe(res);
+      return;
+    }
+    res.writeHead(200, { ...headers, 'Content-Length': size });
+    if (req.method === 'HEAD') res.end();
+    else createReadStream(file).pipe(res);
+  });
+  server.on('upgrade', (req, socket, head) => {
+    if (new URL(req.url, 'http://local').pathname !== '/ws') {
+      socket.destroy();
+      return;
+    }
+    proxyUpgrade(req, socket, head, realtimeUpstream);
+  });
+  return server;
+}
+
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  const host = process.env.WEB_HOST || '127.0.0.1';
+  const port = Number(process.env.WEB_PORT) || 3000;
+  createWebServer({
+    apiUpstream: process.env.API_UPSTREAM,
+    realtimeUpstream: process.env.REALTIME_UPSTREAM,
+  }).listen(port, host, () => console.log(`Web: http://${host}:${port}`));
+}

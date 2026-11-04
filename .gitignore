@@ -1,0 +1,18 @@
+node_modules/
+live/tts/
+legacy/live/tts/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Cơ sở dữ liệu tài khoản (SQLite) khi chạy local
+.data/
+
+# Bản quét tượng gốc (nặng), chỉ giữ bản nén trong apps/web/public/models
+assets-src/statues/*
+!assets-src/statues/README.md
+
+# Kết quả load test chạy trên máy (báo cáo tổng hợp thì ghi vào loadtest/README.md)
+loadtest/results/

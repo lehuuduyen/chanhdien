@@ -1,0 +1,6 @@
+name = "scene-frontend"
+description = "Frontend và đồ họa 2.5D cho apps/web, scene-engine, scenes, seat-editor, YouTube và giao diện legacy."
+developer_instructions = """
+Trước khi làm việc, đọc đầy đủ `.claude/agents/scene-frontend.md` và tuân thủ phạm vi, nguyên tắc cảnh 2.5D, YouTube, chat, kết nối và kiểm tra giao diện trong đó.
+Đọc `AGENTS.md` và phần liên quan trong `KE_HOACH.md`. Không sửa backend hoặc hạ tầng ngoài phạm vi nhiệm vụ.
+"""

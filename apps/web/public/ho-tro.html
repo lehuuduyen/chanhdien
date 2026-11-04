@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2a0f06">
+  <title>Góp ý & Báo lỗi · Chánh Điện Online</title>
+  <style>
+    /* Trang Hỗ trợ: người dùng gửi báo lỗi / góp ý nâng cấp (API /api/v1/support); quản trị xem ở trang admin.
+       Kèm trang vừa mở và tên trình duyệt để dễ tìm lỗi. */
+    :root {
+      color-scheme: dark;
+      --bg: #170904;
+      --panel: rgba(54, 24, 12, .86);
+      --line: rgba(255, 214, 140, .2);
+      --gold: #f3c969;
+      --fg: #fff4e2;
+      --muted: #d6b998;
+      font-family: Inter, "Be Vietnam Pro", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { min-height: 100dvh; margin: 0; color: var(--fg); background: radial-gradient(circle at 50% 0%, #5a1e0c 0%, #2a0f06 50%, var(--bg) 100%) fixed; }
+    button, input, textarea { font: inherit; color: inherit; }
+    [hidden] { display: none !important; }
+    .page { max-width: 560px; margin: 0 auto; padding: max(12px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom)); display: grid; gap: 14px; }
+    .bar { display: flex; align-items: center; gap: 6px; }
+    .chip { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 14px; white-space: nowrap; text-decoration: none; }
+    .room { font-family: Georgia, serif; }
+    .back { color: var(--gold); }
+
+    h1 { margin: 6px 0 4px; color: var(--gold); font-family: Georgia, serif; font-size: clamp(24px, 7vw, 30px); font-weight: 600; }
+    .lead { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
+
+    form, .done { display: grid; gap: 14px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+    fieldset { margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    legend, label > span { margin-bottom: 6px; color: var(--muted); font-size: 13px; }
+    .kind input { position: absolute; opacity: 0; pointer-events: none; }
+    .kind span { display: grid; justify-items: center; gap: 4px; padding: 12px 6px; text-align: center; background: rgba(0, 0, 0, .25); border: 2px solid var(--line); border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .kind span b { font-size: 24px; }
+    .kind input:checked + span { color: #2a1404; background: var(--gold); border-color: var(--gold); }
+    .kind input:focus-visible + span { outline: 2px solid #fff; outline-offset: 2px; }
+    label { display: grid; }
+    textarea, input[type="text"] { width: 100%; padding: 12px; background: rgba(0, 0, 0, .3); border: 1px solid var(--line); border-radius: 12px; outline: 0; font-size: 15px; }
+    textarea { min-height: 150px; resize: vertical; line-height: 1.5; }
+    textarea:focus, input[type="text"]:focus { border-color: var(--gold); }
+    .count { justify-self: end; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .meta { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .error { min-height: 18px; margin: 0; color: #ff9a8a; font-size: 13px; }
+    .send { height: 50px; color: #2a1404; background: linear-gradient(180deg, #ffe08a, #f2b632); border: 0; border-radius: 14px; font-size: 17px; font-weight: 800; cursor: pointer; }
+    .send:disabled { opacity: .55; cursor: wait; }
+    .done { text-align: center; }
+    .done .big { font-size: 46px; }
+    .done h2 { margin: 0; color: var(--gold); font-family: Georgia, serif; font-weight: 500; }
+    .done p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .done code { color: var(--fg); }
+    .done button { justify-self: center; padding: 10px 18px; color: var(--fg); background: rgba(255, 255, 255, .08); border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="bar">
+      <a class="chip back" id="back" href="/">‹ Quay lại</a>
+      <span class="chip room">🛟 Hỗ trợ</span>
+    </div>
+
+    <header>
+      <h1>Góp ý & Báo lỗi</h1>
+      <p class="lead">Gặp lỗi, muốn thêm tính năng hay có điều muốn nhắn? Viết vài dòng, nhóm phát triển sẽ đọc từng phiếu.</p>
+    </header>
+
+    <form id="form" novalidate>
+      <fieldset>
+        <legend>Bạn muốn gửi gì?</legend>
+        <label class="kind"><input type="radio" name="kind" value="bug" checked><span><b>🐞</b>Báo lỗi</span></label>
+        <label class="kind"><input type="radio" name="kind" value="idea"><span><b>💡</b>Góp ý nâng cấp</span></label>
+        <label class="kind"><input type="radio" name="kind" value="other"><span><b>💬</b>Khác</span></label>
+      </fieldset>
+      <label>
+        <span id="messageLabel">Lỗi xảy ra thế nào? (ở đâu, bấm gì, thấy gì)</span>
+        <textarea id="message" maxlength="1000" required placeholder="Ví dụ: Vào rạp phim, xoay ngang điện thoại thì video bị che…"></textarea>
+        <small class="count" id="count">0/1000</small>
+      </label>
+      <label>
+        <span>Email hoặc cách liên hệ (không bắt buộc, để báo lại cho bạn)</span>
+        <input type="text" id="contact" maxlength="120" autocomplete="email" placeholder="ban@example.com">
+      </label>
+      <p class="meta" id="meta"></p>
+      <p class="error" id="error" role="alert"></p>
+      <button type="submit" class="send" id="send">Gửi</button>
+    </form>
+
+    <section class="done" id="done" hidden>
+      <div class="big" aria-hidden="true">🙏</div>
+      <h2>Đã gửi, cảm ơn bạn!</h2>
+      <p>Mã phiếu: <code id="ticketId"></code></p>
+      <p id="doneNote">Nhóm phát triển sẽ xem sớm nhất có thể.</p>
+      <button type="button" id="again">Gửi phiếu khác</button>
+    </section>
+  </main>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+    // Trang người dùng vừa ở (để biết lỗi xảy ra đâu): ?from=/room.html…, không có thì lấy từ referrer cùng origin.
+    const from = (() => {
+      const param = new URLSearchParams(location.search).get('from');
+      if (param && param.startsWith('/')) return param.slice(0, 200);
+      try {
+        const referrer = new URL(document.referrer);
+        if (referrer.origin === location.origin && referrer.pathname !== location.pathname) return `${referrer.pathname}${referrer.search}`.slice(0, 200);
+      } catch {}
+      return '';
+    })();
+    if (from) $('back').href = from;
+    $('meta').textContent = `Phiếu sẽ kèm${from ? ` trang bạn vừa mở (${from.split('?')[0]}) và` : ''} tên trình duyệt để dễ tìm lỗi.`;
+
+    const LABELS = {
+      bug: ['Lỗi xảy ra thế nào? (ở đâu, bấm gì, thấy gì)', 'Ví dụ: Vào rạp phim, xoay ngang điện thoại thì video bị che…'],
+      idea: ['Bạn muốn thêm hoặc sửa gì?', 'Ví dụ: Thêm phòng nghe nhạc, cho đổi màu áo nhân vật…'],
+      other: ['Bạn muốn nhắn gì?', 'Viết điều bạn muốn gửi tới nhóm phát triển…'],
+    };
+    const kind = () => document.querySelector('input[name="kind"]:checked').value;
+    $('form').addEventListener('change', () => {
+      const [label, placeholder] = LABELS[kind()];
+      $('messageLabel').textContent = label;
+      $('message').placeholder = placeholder;
+    });
+    $('message').addEventListener('input', () => { $('count').textContent = `${$('message').value.length}/1000`; });
+
+    $('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const message = $('message').value.trim();
+      $('error').textContent = '';
+      if (message.length < 5) {
+        $('error').textContent = 'Viết thêm vài chữ nữa nhé (ít nhất 5 ký tự).';
+        $('message').focus();
+        return;
+      }
+      $('send').disabled = true;
+      $('send').textContent = 'Đang gửi…';
+      try {
+        const response = await fetch('/api/v1/support', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ kind: kind(), message, contact: $('contact').value.trim(), page: from }),
+        });
+        if (response.status === 429) throw new Error('Bạn gửi hơi nhiều phiếu, chờ vài phút rồi gửi tiếp nhé.');
+        if (!response.ok) throw new Error('Chưa gửi được, kiểm tra nội dung rồi thử lại.');
+        const result = await response.json();
+        $('ticketId').textContent = result.id.slice(0, 11);
+        $('doneNote').textContent = $('contact').value.trim()
+          ? 'Nhóm phát triển sẽ xem và liên hệ lại với bạn khi cần.'
+          : 'Nhóm phát triển sẽ xem sớm nhất có thể.';
+        $('form').hidden = true;
+        $('done').hidden = false;
+      } catch (error) {
+        $('error').textContent = error instanceof TypeError ? 'Mất kết nối, thử lại sau giây lát.' : error.message;
+      } finally {
+        $('send').disabled = false;
+        $('send').textContent = 'Gửi';
+      }
+    });
+
+    $('again').addEventListener('click', () => {
+      $('message').value = '';
+      $('count').textContent = '0/1000';
+      $('done').hidden = true;
+      $('form').hidden = false;
+      $('message').focus();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Be Vietnam Pro", system-ui, sans-serif;
+  color: #edf2f8;
+  background: #05070a;
+  --line: rgba(171, 194, 222, .16);
+  --muted: #8d9aaa;
+  --accent: #e7b85e;
+}
+
+* { box-sizing: border-box; }
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; min-height: 100vh; background: #05070a; }
+button, input, select { font: inherit; }
+
+.demo { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+.stage { position: relative; min-height: 100vh; overflow: hidden; background: #05070a; }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: manipulation; cursor: pointer; }
+.screen-slot { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #9fb6d6; background: radial-gradient(circle at 50% 40%, #1d3047, #0b111a 70%); pointer-events: none; }
+.screen-slot[hidden] { display: none; }
+.screen-slot span { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+.screen-slot small { color: #6d7f96; font-size: 11px; }
+.fps { position: absolute; top: 12px; left: 12px; padding: 4px 8px; color: #b9c6d6; font: 600 11px/1.4 ui-monospace, monospace; background: rgba(0, 0, 0, .55); border-radius: 6px; }
+
+.controls { display: flex; flex-direction: column; gap: 16px; padding: 20px; background: #0c1118; border-left: 1px solid var(--line); }
+.controls h1 { margin: 0; font-family: Georgia, serif; font-size: 20px; font-weight: 500; }
+.controls label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
+.controls label b { color: #edf2f8; }
+.controls select { padding: 8px; color: #edf2f8; background: #141c27; border: 1px solid var(--line); border-radius: 8px; }
+.controls .check { flex-direction: row; align-items: center; }
+.cameras { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0; padding: 0; border: 0; }
+.cameras legend { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.cameras button { min-height: 40px; color: #cfd8e3; background: #141c27; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.cameras button[aria-pressed="true"] { color: #1a1206; background: var(--accent); border-color: var(--accent); }
+.cameras button:disabled { opacity: .4; cursor: default; }
+.hint { margin: 0; color: var(--muted); font-size: 12px; }
+
+@media (max-width: 760px) {
+  .demo { grid-template-columns: 1fr; grid-template-rows: 70vh auto; }
+  .stage { min-height: 70vh; }
+  .controls { border-left: 0; border-top: 1px solid var(--line); padding: 16px; }
+}

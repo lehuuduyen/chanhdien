@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#120a06">
+  <title>Chánh điện · Chánh Điện Online</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@500;600&family=Be+Vietnam+Pro:wght@400;600&display=swap">
+  <link rel="stylesheet" href="/chanh-dien.css">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="wrap">
+    <div id="stage" class="in-hall">
+      <!-- Màn tải: hiện ngay khi mở trang, che cổng trong lúc kiểm tra đăng nhập / nối lại phòng (boot-loader.js). -->
+      <div class="boot" id="boot" role="status" aria-live="polite">
+        <div class="boot-card">
+          <p class="boot-title">☸ Chánh Điện Online</p>
+          <p class="boot-step">Đang tải…</p>
+          <div class="boot-bar"><i></i></div>
+          <small class="boot-pct">0%</small>
+        </div>
+      </div>
+      <canvas id="scene" data-i18n-aria="scene.aria" aria-label="Chánh điện; chạm vào bồ đoàn trống để đổi chỗ ngồi"></canvas>
+      <canvas id="scene3d" hidden data-i18n-aria="scene3d.aria" aria-label="Chánh điện 3D; kéo để xoay và chạm bồ đoàn để ngồi"></canvas>
+      <div class="view-tools" id="viewTools">
+        <button type="button" class="chip" id="viewMode" data-i18n-title="view.toggle" title="Chuyển 3D / 2D">2D</button>
+        <button type="button" class="chip" id="viewReset" data-i18n-title="view.reset" title="Về góc nhìn mặc định">↺</button>
+      </div>
+      <p class="hint3d" id="hint3d" hidden data-i18n="view.hint">Kéo để xoay · góc nhìn đã được khóa · chạm bồ đoàn để ngồi</p>
+
+      <div class="hud top">
+        <a class="chip back" href="/" data-i18n-aria="hud.back" aria-label="Về sảnh">←</a>
+        <span class="chip" id="presence"><i></i><span id="statusText" data-i18n="hud.notIn">Chưa vào</span><b id="count">0</b> <span data-i18n="hud.people">phật tử</span></span>
+        <!-- Xu Vườn Công Đức (bán trái cây; dùng cược ở phòng game): luôn hiện, bấm để mở ví. -->
+        <button type="button" class="chip coin-chip" id="coinChip" data-i18n-title="coins.title" title="Xu Vườn Công Đức">🪙 <b id="coinCount">—</b></button>
+        <!-- Nhiệm vụ hằng ngày: luôn hiện, bấm để mở phần nhiệm vụ ở Quầy (đếm số đã nhận / tổng). -->
+        <button type="button" class="chip coin-chip quest-chip" id="questChip" data-i18n-title="quest.title" title="Nhiệm vụ hôm nay">📜 <b id="questCount">0/4</b></button>
+        <span class="spacer"></span>
+        <button type="button" class="chip me-chip" id="meChip" hidden></button>
+        <span class="tools" id="tools" hidden>
+          <button type="button" class="chip" id="nextTrack" data-i18n-title="hud.nextTrack" title="Bài nhạc kế tiếp">♪ <span id="nowPlaying" data-i18n="hud.music">Nhạc thiền</span> ›</button>
+          <button type="button" class="chip" id="mute" aria-pressed="false" data-i18n-title="hud.mute" title="Tắt/bật tiếng">🔈</button>
+          <button type="button" class="chip" id="leave" data-i18n="hud.leave">Rời</button>
+        </span>
+      </div>
+      <div class="room-bar" id="roomBar" hidden>
+        <span class="chip" id="roomName"></span>
+        <button type="button" class="chip" id="copyRoom" data-i18n-title="room.copy" title="Sao chép mã phòng">🔗 <span data-i18n="room.copy">Sao chép mã phòng</span></button>
+        <button type="button" class="chip hall-only" id="eventChip"></button>
+      </div>
+      <!-- Bài giảng YouTube lúc 18:00 giờ tiểu bang. Điều khoản YouTube: khung phát phải hiện (tối thiểu 200×200),
+           không vẽ gì đè lên khung. -->
+      <section class="lecture hall-only" id="lecture" hidden>
+        <header><b id="lectureTitle"></b><button type="button" class="chip" id="lectureClose" data-i18n-aria="event.hide" aria-label="Tắt bài giảng">✕</button></header>
+        <div id="lecturePlayer"></div>
+        <p id="lectureNote"></p>
+      </section>
+      <button type="button" class="board hall-only" id="boardPanel" data-i18n-aria="board.aria" aria-label="Tấm lòng thành, bấm để xem sổ công đức">
+        <h2><span data-i18n="board.title">Tấm lòng thành</span> <small data-i18n="board.open">Xem sổ ›</small></h2>
+        <ol id="board"></ol>
+        <p class="board-empty" id="boardEmpty" data-i18n="board.empty">Chưa có ai dâng lễ. Hãy là người đầu tiên.</p>
+        <p class="board-me" id="boardMe" hidden></p>
+      </button>
+      <div class="ledger" id="ledger" hidden role="dialog" aria-modal="true" aria-labelledby="ledgerTitle">
+        <div class="ledger-card">
+          <header>
+            <h2 id="ledgerTitle" data-i18n="ledger.title">Sổ công đức</h2>
+            <button type="button" class="chip" id="ledgerClose" data-i18n-aria="close" aria-label="Đóng">✕</button>
+          </header>
+          <p class="ledger-note" data-i18n="ledger.note">Điểm công đức: cánh sen +1 · dâng hương +5 · hoa sen +20 · thỉnh chuông +99</p>
+          <ol class="ledger-list" id="ledgerList"></ol>
+          <button type="button" class="link-button" data-open-ranking data-i18n="ledger.community">Bảng xếp hạng cộng đồng ›</button>
+        </div>
+      </div>
+
+      <div class="ledger" id="shareDialog" hidden role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+        <div class="ledger-card share-card">
+          <header>
+            <h2 id="shareTitle" data-i18n="room.inviteTitle">Mã mời phòng</h2>
+            <button type="button" class="chip" id="shareClose" data-i18n-aria="close" aria-label="Đóng">✕</button>
+          </header>
+          <p class="ledger-note" data-i18n="room.copyManual">Trình duyệt đang chặn sao chép tự động. Link đã được chọn; hãy giữ vào link hoặc nhấn Ctrl/Cmd+C để sao chép.</p>
+          <input id="shareLink" readonly data-i18n-aria="room.inviteTitle" aria-label="Mã mời phòng">
+          <button type="button" class="primary" id="shareCopy" data-i18n="room.copy">Sao chép mã phòng</button>
+        </div>
+      </div>
+
+      <div class="ledger" id="authDialog" hidden role="dialog" aria-modal="true" aria-labelledby="authTitle">
+        <form class="ledger-card account-card" id="authForm">
+          <header>
+            <h2 id="authTitle" data-i18n="acct.signIn">Đăng nhập</h2>
+            <button type="button" class="chip" data-close data-i18n-aria="close" aria-label="Đóng">✕</button>
+          </header>
+          <p class="ledger-note" data-i18n="acct.note">Tài khoản giữ tổng công đức, chuỗi ngày và tên bạn trên bảng xếp hạng.</p>
+          <div class="tabs" id="authTabs" role="tablist">
+            <button type="button" role="tab" data-mode="login" aria-selected="true" data-i18n="acct.signIn">Đăng nhập</button>
+            <button type="button" role="tab" data-mode="register" aria-selected="false" data-i18n="acct.register">Đăng ký</button>
+          </div>
+          <div class="google" id="googleBox" hidden>
+            <div id="googleButton"></div>
+            <p class="or"><span data-i18n="acct.or">hoặc</span></p>
+          </div>
+          <label for="authUser" data-i18n="acct.username">Tên đăng nhập</label>
+          <input id="authUser" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" data-i18n-placeholder="acct.usernamePlaceholder" placeholder="vd: dieu.hanh" required>
+          <label for="authPass" data-i18n="acct.password">Mật khẩu</label>
+          <input id="authPass" type="password" minlength="8" maxlength="200" autocomplete="current-password" data-i18n-placeholder="acct.passwordPlaceholder" placeholder="Ít nhất 8 ký tự" required>
+          <div class="field" id="authNameRow" hidden>
+            <label for="authName" data-i18n="acct.displayName">Pháp danh hoặc tên hiển thị</label>
+            <input id="authName" maxlength="40" autocomplete="nickname" data-i18n-placeholder="gate.namePlaceholder" placeholder="Ví dụ: Diệu Hạnh">
+          </div>
+          <p class="error" id="authError" role="alert"></p>
+          <button type="submit" class="primary" id="authSubmit" data-i18n="acct.signIn">Đăng nhập</button>
+        </form>
+      </div>
+
+      <div class="ledger" id="profileDialog" hidden role="dialog" aria-modal="true" data-i18n-aria="acct.profile" aria-label="Hồ sơ công đức">
+        <div class="ledger-card account-card">
+          <header>
+            <div class="profile-head" id="profileHead"></div>
+            <button type="button" class="chip" id="profileClose" data-close data-i18n-aria="close" aria-label="Đóng">✕</button>
+          </header>
+          <div class="level">
+            <p><b id="levelName"></b><small id="levelNext"></small></p>
+            <div class="level-track"><i id="levelBar"></i></div>
+          </div>
+          <div class="stats" id="profileStats"></div>
+          <h3 data-i18n="acct.history">Lịch sử hoạt động</h3>
+          <ol class="history" id="historyList"></ol>
+          <button type="button" class="link-button" id="historyMore" hidden data-i18n="acct.more">Xem thêm</button>
+          <div class="row">
+            <button type="button" class="ghost" data-open-ranking data-i18n="acct.ranking">Bảng xếp hạng</button>
+            <button type="button" class="ghost" id="logout" data-i18n="acct.signOut">Đăng xuất</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ledger" id="rankDialog" hidden role="dialog" aria-modal="true" aria-labelledby="rankTitle">
+        <div class="ledger-card account-card">
+          <header>
+            <h2 id="rankTitle" data-i18n="rank.community">Bảng xếp hạng cộng đồng</h2>
+            <button type="button" class="chip" id="rankClose" data-close data-i18n-aria="close" aria-label="Đóng">✕</button>
+          </header>
+          <div class="tabs" id="rankTabs" role="tablist">
+            <button type="button" role="tab" data-metric="merit" data-i18n="rank.merit">Công đức</button>
+            <button type="button" role="tab" data-metric="incense" data-i18n="rank.incense">Dâng hương</button>
+            <button type="button" role="tab" data-metric="streak" data-i18n="rank.streak">Chuỗi ngày</button>
+          </div>
+          <div class="tabs small" id="rankPeriod" role="tablist">
+            <button type="button" role="tab" data-period="all" data-i18n="rank.all">Mọi lúc</button>
+            <button type="button" role="tab" data-period="week" data-i18n="rank.week">7 ngày qua</button>
+          </div>
+          <ol class="rank-list" id="rankList"></ol>
+          <p class="ledger-note rank-me" id="rankMe"></p>
+        </div>
+      </div>
+
+      <div class="ledger" id="prayerDialog" hidden role="dialog" aria-modal="true" aria-labelledby="prayerTitle">
+        <form class="ledger-card prayer-card" id="prayerForm">
+          <header>
+            <div>
+              <p class="prayer-kicker" data-i18n="prayer.kicker">SỚ GỬI NHÀ CHÙA</p>
+              <h2 id="prayerTitle" data-i18n="prayer.title">Cầu an và Cầu siêu</h2>
+            </div>
+            <button type="button" class="chip" id="prayerClose" data-i18n-aria="close" aria-label="Đóng">✕</button>
+          </header>
+          <div class="tabs prayer-tabs" id="prayerTabs" role="tablist">
+            <button type="button" role="tab" data-prayer-type="peace" aria-selected="true" data-i18n="prayer.peace">Cầu an</button>
+            <button type="button" role="tab" data-prayer-type="memorial" aria-selected="false" data-i18n="prayer.memorial">Cầu siêu</button>
+          </div>
+          <p class="ledger-note" id="prayerIntro"></p>
+          <p class="prayer-requester"><span data-i18n="prayer.requester">Người viết sớ</span>: <b id="prayerRequester"></b></p>
+          <div class="prayer-people" id="prayerPeople"></div>
+          <button type="button" class="ghost prayer-add" id="prayerAdd" data-i18n="prayer.addPerson">+ Thêm người</button>
+          <label class="prayer-note"><span data-i18n="prayer.note">Lời khấn nguyện hoặc ghi chú</span><textarea id="prayerNote" maxlength="500" data-i18n-placeholder="prayer.notePlaceholder" placeholder="Ví dụ: Cầu sức khỏe, bình an cho gia đình…"></textarea></label>
+          <details class="star-table-box">
+            <summary data-i18n="prayer.starTable">Xem bảng sao Cửu Diệu tuổi 1–100 năm nay</summary>
+            <p id="starYearNote"></p>
+            <div class="star-table-scroll">
+              <table>
+                <thead><tr><th data-i18n="prayer.age">Tuổi âm</th><th data-i18n="prayer.male">Nam</th><th data-i18n="prayer.female">Nữ</th></tr></thead>
+                <tbody id="starTableBody"></tbody>
+              </table>
+            </div>
+            <p class="folk-note" data-i18n="prayer.folkNote">Bảng sao là tập tục Cửu Diệu dân gian để tham khảo; việc cầu an hướng đến sống thiện lành và nương tựa Tam bảo.</p>
+          </details>
+          <p class="error" id="prayerError" role="alert"></p>
+          <button type="submit" class="primary" id="prayerSubmit" data-i18n="prayer.submit">Gửi sớ đến nhà chùa</button>
+        </form>
+      </div>
+      <p class="toast" id="toast" role="status" aria-live="polite"></p>
+      <div class="feed hall-only" id="feed" aria-live="polite"></div>
+
+      <div class="hud bottom" id="controls" hidden>
+        <div class="offerings hall-only" id="offerings" role="group" data-i18n-aria="offer.group" aria-label="Dâng lễ vật">
+          <button type="button" data-kind="petal"><b data-i18n="offer.petal">Cánh sen</b><small>+1</small></button>
+          <button type="button" data-kind="incense"><b data-i18n="offer.incense">Dâng hương</b><small>+5</small></button>
+          <button type="button" data-kind="lotus"><b data-i18n="offer.lotus">Hoa sen</b><small>+20</small></button>
+          <button type="button" data-kind="bell"><b data-i18n="offer.bell">Thỉnh chuông</b><small>+99</small></button>
+        </div>
+        <button type="button" class="prayer-open" id="prayerOpen"><span>🙏</span><b data-i18n="prayer.open">Viết sớ Cầu an · Cầu siêu</b></button>
+        <form class="chat" id="chatForm">
+          <label class="sr-only" for="chatInput" data-i18n="chat.label">Lời nguyện hoặc lời nhắn</label>
+          <input id="chatInput" maxlength="120" data-i18n-placeholder="chat.placeholder" placeholder="Gõ lời nguyện rồi bấm lễ vật, hoặc gửi lời nhắn…" autocomplete="off">
+          <button type="submit" data-i18n="chat.send">Gửi</button>
+        </form>
+      </div>
+
+      <div class="gate" id="gate">
+        <form id="gateForm">
+          <p class="kicker">Chánh Điện Online</p>
+          <h1 data-i18n="gate.title">Vào chánh điện</h1>
+          <p class="lead" data-i18n="gate.lead">Cùng mọi người ngồi tụng kinh, dâng hương và gửi lời nguyện.</p>
+          <div class="row place" id="placeRow">
+            <label class="field"><span data-i18n="gate.state">Tiểu bang</span><select id="stateSelect"></select></label>
+            <label class="field"><span data-i18n="gate.lang">Ngôn ngữ</span><select id="langSelect"></select></label>
+          </div>
+          <p class="event-info" id="eventInfo"></p>
+          <div class="account-box" id="gateSignedOut" hidden>
+            <p data-i18n="gate.signInHint">Đăng nhập để lưu công đức, chuỗi ngày và có tên trên bảng xếp hạng.</p>
+            <div class="row">
+              <button type="button" class="ghost" data-auth="login" data-i18n="acct.signIn">Đăng nhập</button>
+              <button type="button" class="ghost" data-auth="register" data-i18n="acct.register">Đăng ký</button>
+            </div>
+          </div>
+          <div class="account-box signed-in" id="gateSignedIn" hidden>
+            <span id="gateAvatar"></span>
+            <div><b id="gateName"></b><small id="gateLevel"></small></div>
+            <button type="button" class="link-button" id="gateLogout" data-i18n="gate.change">Đổi</button>
+          </div>
+          <div class="field" id="guestName">
+            <label for="dharma" data-i18n="gate.guestName">Pháp danh hoặc tên (vào với tư cách khách)</label>
+            <input id="dharma" maxlength="40" autocomplete="nickname" data-i18n-placeholder="gate.namePlaceholder" placeholder="Ví dụ: Diệu Hạnh" required>
+          </div>
+          <fieldset class="skins" id="skins">
+            <legend data-i18n="gate.skins">Hình nhân vật</legend>
+            <!-- Chọn Nam/Nữ: ảnh dựng từ mô hình 3D (chibi-preview.js); ở chùa mặc áo tràng, sang rạp phim mặc đồ thường ngày. -->
+            <button type="button" data-skin="man" aria-pressed="true">
+              <span class="skin-looks"><img data-look="robe" src="/thien/assets/c_man.png" alt=""><img data-look="casual" alt="" hidden></span>
+              <span class="skin-name" data-i18n="skin.man">Nam</span>
+            </button>
+            <button type="button" data-skin="woman" aria-pressed="false">
+              <span class="skin-looks"><img data-look="robe" src="/thien/assets/c_woman.png" alt=""><img data-look="casual" alt="" hidden></span>
+              <span class="skin-name" data-i18n="skin.woman">Nữ</span>
+            </button>
+            <p class="skin-note" data-i18n="skin.note">Ở chùa mặc áo tràng · vào rạp phim mặc đồ thường ngày</p>
+          </fieldset>
+          <p class="error" id="gateError" role="alert"></p>
+          <button type="submit" class="primary" data-i18n="gate.enter">Vào chánh điện</button>
+          <p class="voice" id="sceneLoading" hidden></p>
+          <p class="event-info" id="openRooms" hidden></p>
+          <button type="button" class="link-button" data-open-ranking data-i18n="gate.ranking">Xem bảng xếp hạng cộng đồng</button>
+          <p class="voice" id="voiceInfo"></p>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/chanh-dien.js"></script>
+</body>
+</html>

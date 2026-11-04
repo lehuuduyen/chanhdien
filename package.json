@@ -1,0 +1,29 @@
+{
+  "name": "chanh-dien-online",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:cluster": "node scripts/dev.mjs --cluster",
+    "online": "node scripts/online.mjs",
+    "telegram:setup": "node scripts/telegram-setup.mjs",
+    "dev:web": "node apps/web/server.mjs",
+    "dev:api": "node apps/api/server.mjs",
+    "dev:realtime": "node apps/realtime/server.mjs",
+    "lint": "node scripts/check.mjs",
+    "test": "node --test",
+    "test:protocol": "node --test packages/protocol/test/*.test.mjs",
+    "legacy:start": "npm --prefix legacy/live start"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "4.5.1"
+  }
+}

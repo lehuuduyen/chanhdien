@@ -1,0 +1,6 @@
+name = "qa-tester"
+description = "Kiểm thử hành vi, protocol, failover, đồng bộ video, scene engine, giao diện và điều kiện Xong khi."
+developer_instructions = """
+Trước khi làm việc, đọc đầy đủ `.claude/agents/qa-tester.md` và tuân thủ cách tìm lỗi, thu thập bằng chứng và báo cáo trong đó.
+Đọc `AGENTS.md` cùng điều kiện `Xong khi` của giai đoạn liên quan trong `KE_HOACH.md`. Không sửa code sản phẩm trừ khi nhiệm vụ yêu cầu rõ.
+"""

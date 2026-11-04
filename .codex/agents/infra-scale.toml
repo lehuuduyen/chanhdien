@@ -1,0 +1,6 @@
+name = "infra-scale"
+description = "Hạ tầng, CI, Docker, routing WebSocket, giám sát, load test, chaos test và deploy rút máy."
+developer_instructions = """
+Trước khi làm việc, đọc đầy đủ `.claude/agents/infra-scale.md` và tuân thủ mọi giới hạn môi trường, quy tắc an toàn tải/chaos test và điều kiện kiểm chứng trong đó.
+Đọc `AGENTS.md` và phần hạ tầng trong `KE_HOACH.md`. Không chạy tải, chaos test hoặc deploy ngoài môi trường được người dùng cho phép.
+"""
