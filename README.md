@@ -68,6 +68,20 @@ Thử bài giảng ngay mà không chờ đến 18:00 bằng URL kiểm thử:
 1. Vào một phòng từ `http://127.0.0.1:3000/chanh-dien.html`.
 2. Giữ nguyên URL có `?invite=...`, rồi thêm `&event=now` vào cuối URL.
 
+## Cập nhật tổng quyên góp bằng Telegram
+
+Tổng USD tháng hiện tại được lưu trong SQLite ở `DATA_DIR`; `DONATE_MONTH_RAISED` chỉ là số khởi tạo khi bảng
+chưa có dữ liệu. Đặt ba biến `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET` (tạo khóa bằng
+`openssl rand -hex 32`), khởi động lại API, rồi đăng ký webhook:
+
+```bash
+npm run telegram:setup -- --webhook https://lotusgather.online/api/v1/telegram/donate
+```
+
+Trong đúng chat quản trị, gửi `donate 1` để cộng 1 USD hoặc `donate 25` để cộng 25 USD. Bot trả tổng mới; cùng
+một Telegram `update_id` gửi lại sẽ không bị cộng hai lần. Chat khác và request không có secret đều không sửa được
+số tiền. Trang `/ung-ho.html` tự lấy số mới trong tối đa 15 giây.
+
 ## Mã mời phòng
 
 Sau khi vào chánh điện, bấm **Sao chép mã phòng** để sao chép link mời. Link chỉ chứa mã `invite` đã mã hóa,

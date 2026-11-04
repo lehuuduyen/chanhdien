@@ -800,6 +800,9 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     },
     setParticipants,
     setCeremony,
+    setCommunityProject(project) {
+      courtyard?.setCommunityProject(project);
+    },
     setCeremonyActive(active) {
       ceremonyActive = Boolean(active);
     },

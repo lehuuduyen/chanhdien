@@ -39,6 +39,17 @@ export function validateWorld(scene) {
     if (follow.lockZoom !== undefined && typeof follow.lockZoom !== 'boolean') errors.push('world.camera.follow.lockZoom phải là boolean');
     if (follow.lockPan !== undefined && typeof follow.lockPan !== 'boolean') errors.push('world.camera.follow.lockPan phải là boolean');
   }
+  const bodhi = world.courtyard?.bodhi;
+  if (bodhi?.projectId !== undefined) {
+    if (typeof bodhi.projectId !== 'string' || !/^[a-z0-9-]{1,64}$/.test(bodhi.projectId)) {
+      errors.push('world.courtyard.bodhi.projectId không hợp lệ');
+    }
+    const scales = bodhi.stageScales;
+    if (!Array.isArray(scales) || scales.length !== 5 || scales.some((value) => !Number.isFinite(value) || value < 0 || value > 1)
+      || scales.some((value, index) => index > 0 && value < scales[index - 1])) {
+      errors.push('world.courtyard.bodhi.stageScales cần 5 số tăng dần từ 0 đến 1');
+    }
+  }
   errors.push(...validateWalk(world.walk));
   return { ok: errors.length === 0, errors };
 }

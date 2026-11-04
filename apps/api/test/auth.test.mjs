@@ -148,6 +148,35 @@ test('trang Ủng hộ: thông tin Zelle lấy từ biến môi trường, thi�
   assert.equal((await request(setup({ donate: config }), 'POST', '/api/v1/donate')).status, 405);
 });
 
+test('Telegram donate 1: chỉ chat và secret đã cấu hình được cộng USD, update gửi lại không cộng hai lần', async () => {
+  const { createDonateStore, donateConfig } = await import('../donate.mjs');
+  const accounts = createAccountStore();
+  const donate = donateConfig({ DONATE_MONTHLY_GOAL: '40', DONATE_MONTH_RAISED: '12' });
+  const options = setup({
+    accounts,
+    donate,
+    donateStore: createDonateStore({ db: accounts.database, config: donate, now: () => Date.parse('2026-11-04T12:00:00Z') }),
+    telegramWebhookSecret: 'telegram-secret-123',
+    telegramChatId: '-100123',
+  });
+  const update = { update_id: 9001, message: { chat: { id: -100123 }, text: 'donate 1' } };
+  const denied = await request(options, 'POST', '/api/v1/telegram/donate', { body: update, headers: { 'x-telegram-bot-api-secret-token': 'wrong' } });
+  assert.equal(denied.status, 403);
+  const added = await request(options, 'POST', '/api/v1/telegram/donate', { body: update, headers: { 'x-telegram-bot-api-secret-token': 'telegram-secret-123' } });
+  assert.equal(added.status, 200);
+  assert.match(added.json.text, /Đã cộng \$1/);
+  assert.match(added.json.text, /\$13/);
+  const replay = await request(options, 'POST', '/api/v1/telegram/donate', { body: update, headers: { 'x-telegram-bot-api-secret-token': 'telegram-secret-123' } });
+  assert.match(replay.json.text, /đã được tính trước đó/i);
+  assert.equal((await request(options, 'GET', '/api/v1/donate')).json.raised, 13);
+  const otherChat = await request(options, 'POST', '/api/v1/telegram/donate', {
+    body: { update_id: 9002, message: { chat: { id: 777 }, text: 'donate 100' } },
+    headers: { 'x-telegram-bot-api-secret-token': 'telegram-secret-123' },
+  });
+  assert.deepEqual(otherChat.json, { ok: true });
+  assert.equal((await request(options, 'GET', '/api/v1/donate')).json.raised, 13);
+});
+
 test('hỗ trợ: gửi báo lỗi/góp ý (kiểm tra kiểu, cắt độ dài, giới hạn), quản trị xem và đổi trạng thái', async () => {
   const { createMemorySupportStore } = await import('../support.mjs');
   const options = setup({ adminSecret: 'khoa-quan-tri', supportStore: createMemorySupportStore() });

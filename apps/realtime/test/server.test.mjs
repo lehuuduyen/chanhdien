@@ -1003,6 +1003,32 @@ test('vườn: /internal/garden cần khóa nội bộ, kiểm tra schema rồi 
   thien.close();
 });
 
+test('công trình chung: endpoint nội bộ kiểm tra schema rồi phát cho phòng chánh điện', async () => {
+  const registry = new RoomRegistry();
+  const inbox = [];
+  const thien = new Room('thien-1', { botCount: 0 });
+  thien.join({ readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} }, { participantId: 'u-1', displayName: 'An' });
+  registry.rooms.set('thien-1', thien);
+  const call = async (body, key) => {
+    const { Readable } = await import('node:stream');
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+    Object.assign(req, { method: 'POST', url: '/internal/community-project', headers: key ? { 'x-internal-key': key } : {} });
+    const res = response();
+    res.writeHead = function writeHead(status) { this.status = status; return this; };
+    await new Promise((resolve) => {
+      res.end = function end(text = '') { this.body += text; resolve(); };
+      handleRealtimeRequest(req, res, registry, { secret: SECRET });
+    });
+    return res;
+  };
+  const project = { id: 'bodhi-global-1', kind: 'bodhi', stage: 'sprout', stageIndex: 1, progress: 30, target: 1_000, percent: 3, completed: false, contributors: 4, contributions: 8, updatedAt: 100 };
+  assert.equal((await call({ project })).status, 403);
+  assert.equal((await call({ project: { ...project, progress: 2_000 } }, internalKey(SECRET))).status, 400);
+  assert.equal((await call({ project }, internalKey(SECRET))).status, 200);
+  assert.equal(inbox.find((message) => message.type === 'community.project').project.progress, 30);
+  thien.close();
+});
+
 test('phòng đông: chánh điện và sân tách riêng, mỗi người chỉ nhận người gần mình; số người cả phòng có tính bot', () => {
   const room = new Room('thien-1', { botCount: 4 });
   const inbox = new Map();

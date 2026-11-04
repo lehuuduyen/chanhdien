@@ -9,8 +9,9 @@ import { corsHeaders, json, readJson } from './http.mjs';
 import { currentAccount, handleAuthRequest, openAccountStore } from './auth.mjs';
 import { handleThienRequest } from './thien.mjs';
 import { handleGardenRequest, openGardenStore } from './garden.mjs';
+import { handleCommunityProjectRequest, openCommunityProjectStore } from './community-project.mjs';
 import { handleGameRequest } from './games.mjs';
-import { donateConfig, handleDonateRequest } from './donate.mjs';
+import { donateConfig, handleDonateRequest, handleTelegramDonateRequest, openDonateStore } from './donate.mjs';
 import { handleSupportRequest, openSupportStore } from './support.mjs';
 import { createTelegramNotifier } from './notify.mjs';
 import { openThienEventStore } from './thien-event.mjs';
@@ -157,8 +158,10 @@ export async function handleApiRequest(req, res, options = {}) {
     return;
   }
   if (await handleAuthRequest(req, res, pathname, options)) return;
+  if (await handleCommunityProjectRequest(req, res, pathname, options)) return;
   if (await handleGardenRequest(req, res, pathname, options)) return;
   if (await handleGameRequest(req, res, pathname, options)) return;
+  if (await handleTelegramDonateRequest(req, res, pathname, options)) return;
   if (handleDonateRequest(req, res, pathname, options)) return;
   if (await handleSupportRequest(req, res, pathname, options)) return;
   if (await handleThienRequest(req, res, pathname, options, roomSeatCounts)) return;
@@ -184,6 +187,8 @@ if (isMain) {
   const prayerSlipStore = openPrayerSlipStore(process.env.DATA_DIR || '.data');
   // Vườn Công Đức: chung file SQLite với tài khoản; mốc tưới 8/24 giờ do đồng hồ server quyết định.
   const garden = openGardenStore(accounts);
+  // Một cây Bồ Đề chung cho toàn hệ thống, không nhân bản dữ liệu theo tiểu bang / ngôn ngữ / phòng.
+  const communityProject = openCommunityProjectStore(accounts);
   const googleClientId = process.env.GOOGLE_CLIENT_ID || null;
   // Một máy realtime (không Redis): API hỏi thẳng máy realtime số người từng phòng để tự mở phòng kế tiếp.
   const realtimeInternalUrl = process.env.REALTIME_INTERNAL_URL || 'http://127.0.0.1:4001';
@@ -191,6 +196,7 @@ if (isMain) {
   const adminSecret = process.env.ADMIN_SECRET || secret;
   // Trang Ủng hộ: thông tin Zelle từ biến môi trường DONATE_* (xem donate.mjs), không ghi trong repo.
   const donate = donateConfig();
+  const donateStore = openDonateStore(accounts, donate);
   // Phiếu hỗ trợ (báo lỗi / góp ý): file support.json ở DATA_DIR.
   const supportStore = openSupportStore(process.env.DATA_DIR || '.data');
   // Báo phiếu hỗ trợ mới qua Telegram: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (tùy chọn SUPPORT_ADMIN_URL để kèm link).
@@ -200,6 +206,12 @@ if (isMain) {
     adminUrl: process.env.SUPPORT_ADMIN_URL || null,
   });
   if (notifySupport) console.log('Phiếu hỗ trợ mới sẽ báo qua Telegram');
-  const server = createApiServer({ secret, adminSecret, realtimeUrl, directory: shared ? directory : null, accounts, garden, googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, donate, supportStore, notifySupport });
+  const server = createApiServer({
+    secret, adminSecret, realtimeUrl, directory: shared ? directory : null, accounts, garden, communityProject,
+    googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, donate, donateStore,
+    telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
+    telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
+    supportStore, notifySupport,
+  });
   server.listen(port, host, () => console.log(`API: http://${host}:${port} (${shared ? 'danh bạ Redis' : 'một máy realtime'})`));
 }

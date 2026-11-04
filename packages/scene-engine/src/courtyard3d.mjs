@@ -179,7 +179,8 @@ function bakedCourtyardShadows(data) {
     for (const item of data.arhats || []) pole(item.x, item.z, 1.7 * (item.scale || 1), 0.55 * (item.scale || 1), 0.26);
     for (const item of data.planters || []) pole(item.x, item.z, 1.25, 0.42, 0.22);
     for (const item of data.benches || []) pole(item.x, item.z, 1.25 * (item.scale || 1), 1.05 * (item.scale || 1), 0.2);
-    if (data.bodhi) pole(data.bodhi.x, data.bodhi.z, 7.5 * (data.bodhi.size || 1), 2.2 * (data.bodhi.size || 1), 0.42);
+    // Cây công trình đổi kích thước theo tiến độ nên dùng bóng thật của mesh, không nướng bóng cây hoàn chỉnh từ đầu.
+    if (data.bodhi && !data.bodhi.projectId) pole(data.bodhi.x, data.bodhi.z, 7.5 * (data.bodhi.size || 1), 2.2 * (data.bodhi.size || 1), 0.42);
     if (data.guanyin) pole(data.guanyin.x, data.guanyin.z, 4.1 * (data.guanyin.scale || 1), 1.2 * (data.guanyin.scale || 1), 0.38);
     if (data.fountain) pole(data.fountain.x, data.fountain.z, 2.2, data.fountain.radius || 2.6, 0.18);
     const wallX = ground.x[1] - 0.2;
@@ -707,7 +708,7 @@ function addGuanyin(batch, m, item) {
 }
 
 // Cây bồ đề: thân lớn nhiều múi, tán rộng xanh tươi, bệ đá tròn quanh gốc, vài dải vải đỏ buộc cầu nguyện.
-function addBodhi(treeBatch, batch, m, item) {
+function addBodhi(treeBatch, batch, m, item, { foundation = true, ribbons = true } = {}) {
   const size = item.size || 1;
   for (let lobe = 0; lobe < 5; lobe += 1) {
     const angle = (lobe / 5) * Math.PI * 2;
@@ -731,15 +732,55 @@ function addBodhi(treeBatch, batch, m, item) {
       scale: [1.1, 0.7, 1.1],
     });
   }
-  // Bệ đá tròn quanh gốc làm chỗ ngồi.
-  batch.add(new THREE.CylinderGeometry(1.55 * size, 1.65 * size, 0.42, 28, 1, true), m.stone, { position: [item.x, 0.21, item.z] });
-  batch.add(new THREE.TorusGeometry(1.6 * size, 0.1, 6, 32), m.darkStone, { position: [item.x, 0.44, item.z], rotation: [Math.PI / 2, 0, 0] });
-  for (let ribbon = 0; ribbon < 6; ribbon += 1) {
-    const angle = ribbon * 1.1 + 0.4;
-    batch.add(new THREE.BoxGeometry(0.06, 0.7, 0.012), m.lantern, {
-      position: [item.x + Math.cos(angle) * 1.5 * size, 3.2 * size, item.z + Math.sin(angle) * 1.5 * size], rotation: [0, -angle, 0.08],
-    });
+  if (foundation) {
+    // Bệ đá tròn quanh gốc chỉ mở khóa khi công trình hoàn thành.
+    batch.add(new THREE.CylinderGeometry(1.55 * size, 1.65 * size, 0.42, 28, 1, true), m.stone, { position: [item.x, 0.21, item.z] });
+    batch.add(new THREE.TorusGeometry(1.6 * size, 0.1, 6, 32), m.darkStone, { position: [item.x, 0.44, item.z], rotation: [Math.PI / 2, 0, 0] });
   }
+  if (ribbons) {
+    for (let ribbon = 0; ribbon < 6; ribbon += 1) {
+      const angle = ribbon * 1.1 + 0.4;
+      batch.add(new THREE.BoxGeometry(0.06, 0.7, 0.012), m.lantern, {
+        position: [item.x + Math.cos(angle) * 1.5 * size, 3.2 * size, item.z + Math.sin(angle) * 1.5 * size], rotation: [0, -angle, 0.08],
+      });
+    }
+  }
+}
+
+// Năm nhóm mesh tĩnh riêng vẫn ít draw call nhưng có thể bật/tắt tức thì theo snapshot công trình.
+// Tọa độ và tỉ lệ từng giai đoạn lấy từ scene JSON; engine không chứa vị trí riêng của chánh điện.
+function buildCommunityBodhi({ root, casters, materials, item }) {
+  const defaults = [0, 0.18, 0.42, 0.72, 1];
+  const scales = Array.isArray(item.stageScales) && item.stageScales.length === 5 ? item.stageScales : defaults;
+  const groups = scales.map((scale, stageIndex) => {
+    const group = new THREE.Group();
+    group.name = `community-bodhi-stage-${stageIndex}`;
+    const decoration = new StaticBatch();
+    const trees = new StaticBatch();
+    if (stageIndex === 0) {
+      decoration.add(new THREE.CylinderGeometry(1.25, 1.45, 0.18, 24), materials.soil, { position: [item.x, 0.09, item.z] });
+      decoration.add(new THREE.CylinderGeometry(0.07, 0.09, 0.8, 6), materials.bark, { position: [item.x + 0.65, 0.4, item.z + 0.25], rotation: [0, 0, -0.08] });
+      decoration.add(new THREE.BoxGeometry(0.72, 0.42, 0.06), materials.wood, { position: [item.x + 0.68, 0.82, item.z + 0.25], rotation: [0, -0.3, 0] });
+    } else {
+      addBodhi(trees, decoration, materials, { ...item, size: (item.size || 1) * scale }, {
+        foundation: stageIndex === 4,
+        ribbons: stageIndex === 4,
+      });
+    }
+    trees.build(group, { castShadow: true });
+    decoration.build(group, { castShadow: true, receiveShadow: true });
+    group.visible = stageIndex === 0;
+    group.traverse((child) => { if (child.isMesh) casters.push(child); });
+    root.add(group);
+    return group;
+  });
+  return {
+    set(project) {
+      const requested = Number.isSafeInteger(project?.stageIndex) ? project.stageIndex : 0;
+      const active = Math.max(0, Math.min(groups.length - 1, requested));
+      groups.forEach((group, index) => { group.visible = index === active; });
+    },
+  };
 }
 
 // Chậu hoa kiểng: chậu sành, khóm lá, hoa điểm màu.
@@ -1025,11 +1066,14 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       treeBatch.add(new THREE.ConeGeometry(1.1 - tier * 0.22, 1.2, 8), tier % 2 ? m.leaf : m.leafDark, { position: [x, 1.5 + tier * 0.75, z] });
     }
   }
-  if (data.bodhi) addBodhi(treeBatch, batch, m, data.bodhi);
+  if (data.bodhi && !data.bodhi.projectId) addBodhi(treeBatch, batch, m, data.bodhi);
   const trees = new THREE.Group();
   treeBatch.build(trees, { castShadow: true });
   root.add(trees);
   trees.traverse((item) => { if (item.isMesh) casters.push(item); });
+  const communityBodhi = data.bodhi?.projectId
+    ? buildCommunityBodhi({ root, casters, materials: m, item: data.bodhi })
+    : null;
   for (const [x, z] of data.bushes || []) {
     batch.add(new THREE.IcosahedronGeometry(0.75, 1), m.leaf, { position: [x, 0.5, z], scale: [1.3, 0.75, 1] });
   }
@@ -1314,6 +1358,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     animals,
     benchPickables,
     gardenPickables,
+    setCommunityProject(project) {
+      if (project?.id === data.bodhi?.projectId) communityBodhi?.set(project);
+    },
     // Bật bóng đổ (thử trên điện thoại), hoặc tắt khi máy yếu. Tắt không đổi số đèn đổ bóng (đổi là mọi vật liệu
     // biên dịch lại shader, đứng hình vài giây): thu khung chụp bóng về rỗng, vẽ một lần cho sạch bóng rồi thôi vẽ.
     setShadows(on, mapSize = touch ? 512 : 1024) {

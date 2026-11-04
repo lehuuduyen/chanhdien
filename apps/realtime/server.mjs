@@ -1353,6 +1353,19 @@ export class RoomRegistry {
     return count;
   }
 
+  // Công trình chung không chia shard: mọi phòng chánh điện đang mở trên node đều nhận cùng một snapshot.
+  broadcastCommunityProject(input) {
+    const message = { v: PROTOCOL_VERSION, type: 'community.project', epoch: 0, project: input?.project };
+    if (!parseServerMessage(message).ok) return null;
+    let count = 0;
+    for (const room of this.rooms.values()) {
+      if (room.type !== 'thien' || room.closed) continue;
+      room.broadcast({ ...message, epoch: room.epoch });
+      count += 1;
+    }
+    return count;
+  }
+
   constructor(options = {}) {
     this.rooms = new Map();
     this.opening = new Map();
@@ -1826,6 +1839,27 @@ export function handleRealtimeRequest(req, res, registry = new RoomRegistry(), o
       try { input = JSON.parse(raw); } catch {}
       const sent = registry.broadcastGarden(input);
       res.writeHead(sent === null ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(sent === null ? { error: 'invalid_garden' } : { rooms: sent }));
+    });
+    return;
+  }
+  // API đã commit một đóng góp: phát snapshot công trình cho mọi phòng chánh điện trên node này.
+  if (req.method === 'POST' && req.url === '/internal/community-project') {
+    const allowed = options.secret && req.headers?.['x-internal-key'] === internalKey(options.secret);
+    if (!allowed) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"forbidden"}');
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 16 * 1_024) req.destroy();
+    });
+    req.on('end', () => {
+      let input = null;
+      try { input = JSON.parse(raw); } catch {}
+      const sent = registry.broadcastCommunityProject(input);
+      res.writeHead(sent === null ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(sent === null ? { error: 'invalid_community_project' } : { rooms: sent }));
     });
     return;
   }

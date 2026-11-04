@@ -533,6 +533,38 @@ button.chip { cursor: pointer; }
 .garden-main:disabled { color: #4b4b40; background: #8a8f7d; box-shadow: none; cursor: default; }
 .garden-link { align-self: center; padding: 4px 0; color: #b9de8f; background: none; border: 0; font: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .garden-note .garden-main { align-self: stretch; }
+
+/* Công trình Bồ Đề chung: một tiến độ cho mọi tiểu bang, ngôn ngữ và shard phòng. */
+.community-project-chip { color: #dff2bd; border-color: rgba(157, 211, 108, .45); }
+.community-project-sheet { position: absolute; z-index: 14; inset: 0; display: flex; flex-direction: column; gap: 14px; padding: max(18px, env(safe-area-inset-top, 0)) 18px max(22px, env(safe-area-inset-bottom, 0)); overflow-y: auto; color: #eef6e4; background: radial-gradient(circle at 50% 18%, rgba(69, 94, 42, .98), rgba(13, 20, 10, .99) 72%); }
+.community-project-sheet[hidden] { display: none; }
+.community-project-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.community-project-head small { color: #b9de8f; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.community-project-head h2 { margin: 4px 0 0; font-family: var(--display); font-size: clamp(28px, 8cqw, 38px); font-weight: 600; }
+.community-project-note { margin: 0; color: #cad9b9; font-size: 14px; line-height: 1.55; }
+.community-project-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin: 4px 0; padding: 0; list-style: none; }
+.community-project-steps li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; color: #718166; font-size: 10px; text-align: center; }
+.community-project-steps li::before { content: ''; position: absolute; z-index: 0; top: 18px; right: 50%; width: 100%; height: 3px; background: rgba(185, 222, 143, .18); }
+.community-project-steps li:first-child::before { display: none; }
+.community-project-steps li.done::before, .community-project-steps li.now::before { background: #91c969; }
+.community-project-stage-icon { position: relative; z-index: 1; display: grid; place-items: center; width: 38px; height: 38px; background: #172111; border: 2px solid rgba(185, 222, 143, .18); border-radius: 50%; font-size: 20px; filter: grayscale(1); opacity: .55; }
+.community-project-steps li.done .community-project-stage-icon, .community-project-steps li.now .community-project-stage-icon { filter: none; opacity: 1; border-color: #91c969; }
+.community-project-steps li.now { color: #fff1b5; font-weight: 700; }
+.community-project-progress, .community-project-stats { display: flex; justify-content: space-between; gap: 12px; }
+.community-project-progress b { font-family: var(--display); font-size: 22px; }
+.community-project-progress span { color: #d9b453; font-weight: 700; }
+.community-project-bar { height: 14px; overflow: hidden; background: rgba(0, 0, 0, .38); border: 1px solid rgba(185, 222, 143, .2); border-radius: 999px; }
+.community-project-bar i { display: block; height: 100%; background: linear-gradient(90deg, #659b43, #b8db73, #e3bd58); border-radius: inherit; transition: width .45s ease-out; }
+.community-project-stats { color: #aebf9d; font-size: 12px; }
+.community-project-sheet h3 { margin: 6px 0 -4px; color: #dcebc8; font-size: 14px; }
+.community-project-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.community-project-actions button { min-height: 72px; padding: 10px 6px; color: #17200f; background: linear-gradient(180deg, #dff0ad, #9bc96c); border: 0; border-radius: 14px; font: inherit; cursor: pointer; }
+.community-project-actions button b, .community-project-actions button small { display: block; }
+.community-project-actions button small { margin-top: 5px; opacity: .72; }
+.community-project-actions button:disabled { color: #aeb8a4; background: #4a5742; cursor: default; }
+.community-project-actions button.done { color: #d5e3ca; background: #314329; }
+.community-project-signin { min-height: 50px; color: #1b140c; background: var(--gold); border: 0; border-radius: 14px; font: inherit; font-weight: 700; cursor: pointer; }
+.community-project-mine, .community-project-complete { margin: 0; padding: 12px 14px; color: #ffe9a2; background: rgba(217, 164, 65, .14); border: 1px solid rgba(217, 164, 65, .3); border-radius: 14px; font-size: 14px; }
 .garden-wallet { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 12px 14px; background: rgba(0, 0, 0, .25); border: 1px solid rgba(255, 210, 122, .3); border-radius: 14px; }
 .garden-wallet b { color: #ffd27a; font-family: var(--display); font-size: 26px; }
 .garden-wallet small { flex-basis: 100%; color: #a9b897; font-size: 12px; }

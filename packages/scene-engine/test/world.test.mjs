@@ -42,3 +42,12 @@ test('camera nhập vai khóa khoảng cách gần như bố cục mobile', () =
   assert.deepEqual(follow, { distance: 3.8, height: 2.7, targetHeight: 0.95, lockZoom: true, lockPan: true });
   assert.ok(Math.hypot(follow.distance, follow.height - follow.targetHeight) < 4.3, 'nhân vật đủ lớn trong khung dọc');
 });
+
+test('cây Bồ Đề công trình có đủ năm tỉ lệ cảnh tăng dần', () => {
+  const bodhi = scene.world.courtyard.bodhi;
+  assert.equal(bodhi.projectId, 'bodhi-global-1');
+  assert.deepEqual(bodhi.stageScales, [0, 0.18, 0.42, 0.72, 1]);
+  const broken = structuredClone(scene);
+  broken.world.courtyard.bodhi.stageScales = [0, 0.7, 0.3];
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('stageScales')));
+});
