@@ -100,6 +100,8 @@
     .chips button[data-chip="10"] { background: #d63031; }
     .chips button[data-chip="50"] { background: #8e44ad; }
     .chips button[aria-pressed="true"] { outline: 3px solid var(--gold); outline-offset: 3px; transform: translateY(-2px); }
+    .chips { align-items: center; }
+    .chips .cancel-bets { width: auto; height: 40px; padding: 0 12px; color: var(--fg); background: rgba(255, 255, 255, .1); border: 1px solid var(--line); border-radius: 999px; box-shadow: none; font-size: 13px; font-weight: 700; white-space: nowrap; }
 
     /* Đĩa xúc xắc. */
     .plate { display: grid; justify-items: center; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
@@ -164,6 +166,7 @@
       <button type="button" data-chip="5" aria-pressed="false">5</button>
       <button type="button" data-chip="10" aria-pressed="false">10</button>
       <button type="button" data-chip="50" aria-pressed="false">50</button>
+      <button type="button" class="cancel-bets" id="cancelBets" hidden>↩ Hủy cược</button>
     </div>
 
     <section class="plate" aria-label="Đĩa xúc xắc">
@@ -214,7 +217,7 @@
     const $ = (id) => document.getElementById(id);
     const elements = {
       board: $('board'), balance: $('balance'), dice: $('dice'), message: $('message'), winners: $('winners'), history: $('history'),
-      signIn: $('signIn'), chips: $('chips'), phaseLabel: $('phaseLabel'), players: $('players'), timerBar: $('timerBar'), roomChip: $('roomChip'),
+      signIn: $('signIn'), chips: $('chips'), cancelBets: $('cancelBets'), phaseLabel: $('phaseLabel'), players: $('players'), timerBar: $('timerBar'), roomChip: $('roomChip'),
     };
 
     // ---- Giao diện ----
@@ -267,9 +270,11 @@
       }
       elements.board.classList.toggle('closed', table?.phase !== 'betting');
       elements.signIn.hidden = signedIn;
-      for (const button of elements.chips.querySelectorAll('button')) {
+      for (const button of elements.chips.querySelectorAll('[data-chip]')) {
         button.setAttribute('aria-pressed', String(Number(button.dataset.chip) === chip));
       }
+      // Hủy cược: chỉ trong pha đặt cược, khi mình đang có cược trong ván.
+      elements.cancelBets.hidden = !(table?.phase === 'betting' && Object.values(myBets).some(Boolean));
       elements.players.textContent = `👥 ${people} người${table ? ` · ${table.bettors} đang cược` : ''}`;
     }
 
@@ -308,16 +313,17 @@
       }
     }
 
-    // Chip bay từ nút mệnh giá đang chọn xuống ô vừa chạm.
-    function flyChip(tile, amount) {
+    // Chip bay từ nút mệnh giá đang chọn xuống ô vừa chạm (back: bay ngược về khi hủy cược).
+    function flyChip(tile, amount, back = false) {
       const from = elements.chips.querySelector('[aria-pressed="true"]')?.getBoundingClientRect();
       const to = tile.querySelector('.stack.mine').getBoundingClientRect();
       if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       const chipEl = document.createElement('i');
       chipEl.className = `flying coin d${DENOMS.find((denom) => amount >= denom) || 1}`;
       document.body.append(chipEl);
-      const start = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
-      const end = { x: to.left + 13, y: to.bottom - 10 };
+      let start = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+      let end = { x: to.left + 13, y: to.bottom - 10 };
+      if (back) [start, end] = [end, start];
       chipEl.style.left = `${start.x}px`;
       chipEl.style.top = `${start.y}px`;
       chipEl.animate([
@@ -414,6 +420,8 @@
         render();
       } else if (message.type === 'game.state') onState(message);
       else if (message.type === 'game.mine') {
+        const before = mineRound === message.roundId ? Object.values(mine).reduce((sum, value) => sum + value, 0) : 0;
+        if (before && !Object.keys(message.mine).length && message.requestId) say(`Đã hủy cược · hoàn ${money(before)}`);
         mine = message.mine;
         mineRound = message.roundId;
         if (message.coins !== undefined) coins = message.coins;
@@ -497,7 +505,7 @@
     // ---- Thao tác ----
     elements.chips.addEventListener('click', (event) => {
       const button = event.target.closest('[data-chip]');
-      if (!button) return;
+      if (!button || !button.dataset.chip) return;
       chip = Number(button.dataset.chip);
       render();
     });
@@ -530,6 +538,14 @@
       socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'bet.place', requestId: `bet-${crypto.randomUUID()}`, roundId: table.roundId, animal: tile.dataset.id, amount }));
       flyChip(tile, amount);
       say(`Đặt ${money(amount)} vào ${nameOf(tile.dataset.id)}`);
+    });
+
+    // Hủy toàn bộ cược của mình trong ván (máy chủ hoàn xu); chip trên bàn bay ngược về hàng mệnh giá.
+    elements.cancelBets.addEventListener('click', () => {
+      if (table?.phase !== 'betting' || socket?.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'bet.cancel', requestId: `cancel-${crypto.randomUUID()}`, roundId: table.roundId }));
+      for (const [id, amount] of Object.entries(mine)) if (amount) flyChip(tiles.get(id).tile, amount, true);
+      say('Đang hủy cược…');
     });
 
     elements.signIn.addEventListener('click', () => travelTo('hall'));

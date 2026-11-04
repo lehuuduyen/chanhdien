@@ -256,6 +256,10 @@ test('Bầu Cua chơi chung: bet.place chỉ cho thành viên, đúng linh vật
   assert.equal(parseClientMessage({ ...bet, amount: 1_001 }, { role: 'member' }).ok, false);
   assert.equal(parseClientMessage({ ...bet, amount: '5' }, { role: 'member' }).ok, false, 'không ép kiểu');
   assert.equal(parseClientMessage({ ...bet, roundId: 'x' }, { role: 'member' }).ok, false);
+  const cancel = { v: 1, type: 'bet.cancel', requestId: 'cancel-1', roundId: 'bc-game-1-1-3-ab12' };
+  assert.equal(parseClientMessage(cancel, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage(cancel, { role: 'guest' }).ok, false);
+  assert.equal(parseClientMessage({ ...cancel, animal: 'cua' }, { role: 'member' }).ok, false, 'không trường lạ');
   const totals = { nai: 0, bau: 0, ga: 10, ca: 0, cua: 15, tom: 0 };
   const state = { v: 1, type: 'game.state', epoch: 1, game: 'bau-cua', roundId: 'bc-game-1-1-3-ab12', phase: 'betting', endsAt: 1_000, totals, bettors: 2 };
   assert.equal(parseServerMessage(state).ok, true);

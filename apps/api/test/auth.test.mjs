@@ -123,6 +123,11 @@ test('phòng game: chỉ máy realtime (khóa nội bộ) được đặt cượ
   assert.equal(staked.status, 200);
   assert.equal(staked.json.coins, start - 5);
   assert.equal((await request(options, 'POST', '/internal/games/bau-cua/stake', { body: { ...bet, amount: '5', key: 'stake-key-0002' }, headers: key })).status, 400, 'không ép kiểu');
+  // Hủy rồi đặt lại: hoàn đủ xu.
+  const unstaked = await request(options, 'POST', '/internal/games/bau-cua/unstake', { body: { accountId, roundId: bet.roundId, key: 'unstake-key-01' }, headers: key });
+  assert.deepEqual([unstaked.status, unstaked.json.refunded, unstaked.json.coins], [200, 5, start]);
+  assert.equal((await request(options, 'POST', '/internal/games/bau-cua/unstake', { body: { accountId, roundId: bet.roundId, key: 'unstake-key-02' } })).status, 403);
+  await request(options, 'POST', '/internal/games/bau-cua/stake', { body: { ...bet, key: 'stake-key-0004' }, headers: key });
   const settled = await request(options, 'POST', '/internal/games/bau-cua/settle', { body: { roundId: bet.roundId, dice: ['ca', 'ca', 'ca'] }, headers: key });
   assert.equal(settled.status, 200);
   assert.deepEqual(settled.json.results.map((item) => [item.accountId, item.payout, item.coins]), [[accountId, 20, start + 15]]);
