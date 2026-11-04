@@ -312,6 +312,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       ON CONFLICT(round_id, account_id, animal) DO UPDATE SET amount = amount + excluded.amount, at = excluded.at`),
     stakesOf: db.prepare('SELECT animal, amount FROM bau_cua_stakes WHERE round_id = ? AND account_id = ?'),
     roundStakes: db.prepare('SELECT account_id AS accountId, animal, amount FROM bau_cua_stakes WHERE round_id = ?'),
+    unstake: db.prepare('DELETE FROM bau_cua_stakes WHERE round_id = ? AND account_id = ?'),
     roundDone: db.prepare('SELECT status, dice, results FROM bau_cua_rounds WHERE round_id = ?'),
     closeRound: db.prepare('INSERT INTO bau_cua_rounds (round_id, status, dice, results, at) VALUES (?, ?, ?, ?, ?)'),
     staleRounds: db.prepare(`SELECT s.round_id AS roundId FROM bau_cua_stakes s LEFT JOIN bau_cua_rounds r ON r.round_id = s.round_id
@@ -584,6 +585,29 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         }
         q.closeRound.run(roundId, 'settled', JSON.stringify(dice), JSON.stringify(results), now());
         return { ok: true, results };
+      });
+    },
+
+    // Bầu Cua chơi chung — hủy cược (trong pha đặt cược): hoàn hết cược của người này trong ván, ván đã chốt thì từ
+    // chối. Cùng key gửi lại trả nguyên kết quả cũ. Trả { ok, removed: { linh vật: xu }, refunded, mine: {}, coins }.
+    unstakeBauCua({ accountId, roundId, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (typeof roundId !== 'string' || !ROUND_ID.test(roundId)) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const previous = q.request.get(accountId, key);
+        if (previous) return { ...JSON.parse(previous.response), replayed: true };
+        let result;
+        if (q.roundDone.get(roundId)) result = { ok: false, code: 'ROUND_CLOSED' };
+        else {
+          const removed = Object.fromEntries(q.stakesOf.all(roundId, accountId).map((row) => [row.animal, row.amount]));
+          const refunded = Object.values(removed).reduce((sum, value) => sum + value, 0);
+          q.unstake.run(roundId, accountId);
+          const coins = refunded ? changeCoins(accountId, refunded, 'game_refund', null, null) : ensureWallet(accountId);
+          result = { ok: true, removed, refunded, mine: {}, coins };
+        }
+        q.saveRequest.run(accountId, key, 'bau_cua_unstake', JSON.stringify(result), now());
+        return result;
       });
     },
 

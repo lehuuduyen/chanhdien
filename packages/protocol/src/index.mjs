@@ -74,6 +74,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   emote: { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
   'reaction.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây' },
   'bet.place': { roles: ['member', 'moderator', 'host'], rate: '10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván' },
+  'bet.cancel': { roles: ['member', 'moderator', 'host'], rate: '3/5 giây, chỉ trong pha đặt cược' },
   'prayer.announce': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'friend.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'friend.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
@@ -198,6 +199,12 @@ const clientSchemas = {
       && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
       && BAU_CUA_ANIMALS.includes(message.animal)
       && isInteger(message.amount) && message.amount >= 1 && message.amount <= MAX_STAKE;
+  },
+  // Hủy toàn bộ cược của mình trong ván (chỉ trong pha đặt cược); API hoàn xu.
+  'bet.cancel'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'roundId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId);
   },
   'reaction.send'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'kind'])

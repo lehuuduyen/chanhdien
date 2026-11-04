@@ -15,15 +15,17 @@ const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.
 
 export class BauCuaTable {
   // stake({ accountId, roundId, animal, amount, key }) → { ok, mine, coins } | { ok: false, code } | null (lỗi mạng)
+  // unstake({ accountId, roundId, key }) → { ok, removed, refunded, coins } | { ok: false, code } | null
   // settle({ roundId, dice }) → { ok, results: [{ accountId, staked, payout, net, coins }] } | { ok: false, code } | null
   // rules: room rules interaction (bettingMs, rollingMs, resultMs, maxStakePerRound); test có thể truyền nhịp ngắn.
-  constructor({ room, rules, stake, settle, now = Date.now, random = randomInt }) {
+  constructor({ room, rules, stake, unstake, settle, now = Date.now, random = randomInt }) {
     this.room = room;
     this.bettingMs = rules.bettingMs;
     this.rollingMs = rules.rollingMs;
     this.resultMs = rules.resultMs;
     this.maxStake = rules.maxStakePerRound;
     this.stake = stake || null;
+    this.unstake = unstake || null;
     this.settle = settle || null;
     this.now = now;
     this.random = random;
@@ -147,6 +149,39 @@ export class BauCuaTable {
     return { ok: true };
   }
 
+  // Hủy toàn bộ cược của một thành viên trong ván (chỉ trong pha đặt cược): API hoàn xu, bàn trừ khỏi tổng.
+  async cancelBets(participant, { requestId, roundId }) {
+    const round = this.round;
+    if (!participant?.accountId) return { ok: false, code: 'SIGN_IN_REQUIRED', message: 'Đăng nhập để cược bằng xu' };
+    if (!round || round.phase !== 'betting' || round.id !== roundId || this.now() >= round.endsAt) {
+      return { ok: false, code: 'BETTING_CLOSED', message: 'Đã hết giờ cược, không hủy được nữa' };
+    }
+    if (!this.unstake) return { ok: false, code: 'GAME_UNAVAILABLE', message: 'Chưa hủy được cược, thử lại sau' };
+    const key = createHash('sha256').update(`${participant.accountId}:cancel:${requestId}`).digest('base64url').slice(0, 40);
+    // Đặt cược đang dở của người này phải xong trước, để hủy đủ.
+    await Promise.allSettled([...round.pending]);
+    const call = Promise.resolve(this.unstake({ accountId: participant.accountId, roundId, key }));
+    round.pending.add(call);
+    let result = null;
+    try { result = await call; } catch {}
+    round.pending.delete(call);
+    if (!result?.ok) {
+      const closed = result?.code === 'ROUND_CLOSED';
+      return { ok: false, code: closed ? 'BETTING_CLOSED' : 'GAME_UNAVAILABLE', message: closed ? 'Đã hết giờ cược, không hủy được nữa' : 'Chưa hủy được cược, thử lại sau' };
+    }
+    if (this.round !== round) return { ok: true };
+    if (!result.replayed) {
+      for (const [animal, amount] of Object.entries(result.removed || {})) round.totals[animal] = Math.max(0, round.totals[animal] - amount);
+      round.bettors.delete(participant.accountId);
+    }
+    round.mine.delete(participant.accountId);
+    this.sendToAccount(participant.accountId, {
+      v: PROTOCOL_VERSION, type: 'game.mine', epoch: this.room.epoch, roundId: round.id, mine: {}, coins: result.coins, requestId,
+    });
+    this.scheduleState();
+    return { ok: true };
+  }
+
   stateMessage() {
     const round = this.round;
     if (!round) return null;
@@ -209,5 +244,9 @@ export function bauCuaBank(apiInternalUrl, key) {
     console.warn(`Bầu Cua: không gọi được API (${path}): ${error.message}`);
     return null;
   });
-  return { stake: call('/internal/games/bau-cua/stake'), settle: call('/internal/games/bau-cua/settle') };
+  return {
+    stake: call('/internal/games/bau-cua/stake'),
+    unstake: call('/internal/games/bau-cua/unstake'),
+    settle: call('/internal/games/bau-cua/settle'),
+  };
 }

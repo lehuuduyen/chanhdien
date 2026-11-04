@@ -15,6 +15,7 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `travel.go` | mọi người trong chánh điện 3D | 3/10 giây | `requestId`, `destination` (`hall`, `courtyard`, `garden`); server tự tra tọa độ cố định |
 | `reaction.send` | mọi người | 6/10 giây | `requestId`, `kind` (`clap`, `laugh`, `heart`, `wow`, `cry`, `fire`); rạp phim: biểu tượng bay trên đầu nhân vật |
 | `bet.place` | thành viên đã đăng nhập (phòng game) | 10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván | `requestId`, `roundId`, `animal` (`nai`, `bau`, `ga`, `ca`, `cua`, `tom`), `amount` (1–1.000 xu); API trừ xu ngay |
+| `bet.cancel` | thành viên đã đăng nhập (phòng game) | 3/5 giây, chỉ trong pha đặt cược | `requestId`, `roundId`; hủy toàn bộ cược của mình trong ván, API hoàn xu (trả lời bằng `game.mine` với `mine` rỗng) |
 | `room.command` | moderator, host | 10/10 giây | `requestId`, `command` (`pause`, `resume`, `skip`) |
 | `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự) |
 | `vote.skip` | mọi người | 5/60 giây | `requestId`, `itemId` (bài đang chiếu) |

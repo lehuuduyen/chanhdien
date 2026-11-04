@@ -174,6 +174,14 @@ test('Bầu Cua chơi chung: cược trừ xu ngay, cộng dồn theo ván; ch�
   assert.equal(stake(binh, 'ga', 40, 'stake-binh-003').code, 'INSUFFICIENT_COINS');
   assert.equal(stake(binh, 'rong', 5, 'stake-binh-004').code, 'INVALID');
   assert.equal(garden.stakeBauCua({ accountId: an, roundId: 'khong-hop-le', animal: 'ga', amount: 5, key: 'stake-an-0009' }).code, 'INVALID');
+  // Hủy cược trong pha đặt: hoàn đủ xu, gửi lại cùng khóa không hoàn hai lần; đặt lại được.
+  const cancelled = garden.unstakeBauCua({ accountId: an, roundId: round, key: 'unstake-an-01' });
+  assert.deepEqual([cancelled.refunded, cancelled.removed], [20, { cua: 15, tom: 5 }]);
+  assert.equal(coins(an), STARTING_COINS);
+  assert.equal(garden.unstakeBauCua({ accountId: an, roundId: round, key: 'unstake-an-01' }).replayed, true);
+  assert.equal(coins(an), STARTING_COINS, 'không hoàn hai lần');
+  stake(an, 'cua', 15, 'stake-an-0004');
+  stake(an, 'tom', 5, 'stake-an-0005');
   // Lắc ra Cua, Cua, Gà: An Cua 15 → nhận 15 + 30, Tôm mất; Bình Gà 20 → nhận 20 + 20.
   const settled = garden.settleBauCuaRound({ roundId: round, dice: ['cua', 'cua', 'ga'] });
   assert.equal(settled.ok, true);
@@ -185,6 +193,7 @@ test('Bầu Cua chơi chung: cược trừ xu ngay, cộng dồn theo ván; ch�
   assert.equal(garden.settleBauCuaRound({ roundId: round, dice: ['nai', 'nai', 'nai'] }).replayed, true, 'chốt lại không trả hai lần');
   assert.equal(coins(an), STARTING_COINS + 25);
   assert.equal(stake(an, 'ca', 5, 'stake-an-0010').code, 'ROUND_CLOSED', 'ván đã chốt không nhận cược');
+  assert.equal(garden.unstakeBauCua({ accountId: binh, roundId: round, key: 'unstake-binh-1' }).code, 'ROUND_CLOSED', 'ván đã chốt không hủy được');
   // Ván treo (máy realtime chết, không ai chốt): quá hạn thì hoàn cược, chốt muộn bị từ chối.
   const lost = 'bc-game-1-1-2-efgh';
   garden.stakeBauCua({ accountId: an, roundId: lost, animal: 'nai', amount: 7, key: 'stake-an-0011' });

@@ -1582,6 +1582,20 @@ function handleRoomMessage(socket, context, raw) {
     });
     return;
   }
+  if (message.type === 'bet.cancel') {
+    if (!room.table) {
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Bầu Cua', message.requestId);
+      return;
+    }
+    if (!room.allow(`${context.participantId}:bet-cancel`, 3, 5_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn hủy cược quá nhanh', message.requestId);
+      return;
+    }
+    room.table.cancelBets(room.participants.get(context.participantId), message).then((result) => {
+      if (!result.ok) protocolError(socket, room.epoch, result.code, result.message, message.requestId);
+    });
+    return;
+  }
   if (message.type === 'chat.send') {
     if (!room.allow(`${context.participantId}:chat`, 5, 10_000)) {
       protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn đang gửi tin quá nhanh', message.requestId);

@@ -1,6 +1,7 @@
 // API phòng game. Bầu Cua chơi chung theo thời gian thực: máy realtime giữ nhịp ván và lắc xúc xắc, rồi gọi hai đường
 // nội bộ dưới đây (khóa x-internal-key); ví xu (xu bán trái cây, 1 xu cược = 1 xu ví) chỉ đổi ở đây:
 //   POST /internal/games/bau-cua/stake   { accountId, roundId, animal, amount, key } → trừ xu, ghi cược của ván
+//   POST /internal/games/bau-cua/unstake { accountId, roundId, key }                → hủy cược của người đó trong ván, hoàn xu
 //   POST /internal/games/bau-cua/settle  { roundId, dice }                          → trả thưởng cả ván một lần
 // Trình duyệt không gọi trực tiếp được (không có khóa nội bộ).
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
@@ -17,7 +18,7 @@ function internalAllowed(req, options) {
 }
 
 export async function handleGameRequest(req, res, pathname, options) {
-  const match = pathname.match(/^\/internal\/games\/bau-cua\/(stake|settle)$/);
+  const match = pathname.match(/^\/internal\/games\/bau-cua\/(stake|unstake|settle)$/);
   if (!match && !pathname.startsWith('/api/v1/games')) return false;
   if (!match || req.method !== 'POST') {
     json(req, res, 404, { error: 'not_found' });
@@ -35,7 +36,9 @@ export async function handleGameRequest(req, res, pathname, options) {
   if (!input) return true;
   const result = match[1] === 'stake'
     ? options.garden.stakeBauCua({ accountId: input.accountId, roundId: input.roundId, animal: input.animal, amount: input.amount, key: input.key })
-    : options.garden.settleBauCuaRound({ roundId: input.roundId, dice: input.dice });
+    : match[1] === 'unstake'
+      ? options.garden.unstakeBauCua({ accountId: input.accountId, roundId: input.roundId, key: input.key })
+      : options.garden.settleBauCuaRound({ roundId: input.roundId, dice: input.dice });
   json(req, res, result.ok ? 200 : STATUS[result.code] || 400, result);
   return true;
 }

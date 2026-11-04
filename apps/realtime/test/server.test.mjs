@@ -1168,3 +1168,51 @@ test('phòng game: API không chốt được ván thì ván bị hủy (void), 
   assert.equal(inbox.some((message) => message.type === 'game.payout'), false);
   room.close();
 });
+
+test('phòng game: hủy cược trong pha đặt — hoàn xu, trừ khỏi tổng cả bàn; hết giờ thì không hủy được', async () => {
+  const wallet = new Map([['a-an-00000001', 50], ['a-binh-0000001', 50]]);
+  const stakes = [];
+  const bank = {
+    rules: { bettingMs: 150, rollingMs: 20, resultMs: 1_000, maxStakePerRound: 1_000 },
+    stake: async ({ accountId, roundId, animal, amount }) => {
+      wallet.set(accountId, wallet.get(accountId) - amount);
+      stakes.push({ accountId, roundId, animal, amount });
+      const mine = {};
+      for (const item of stakes) if (item.accountId === accountId && item.roundId === roundId) mine[item.animal] = (mine[item.animal] || 0) + item.amount;
+      return { ok: true, mine, coins: wallet.get(accountId) };
+    },
+    unstake: async ({ accountId, roundId }) => {
+      const removed = {};
+      for (let index = stakes.length - 1; index >= 0; index -= 1) {
+        const item = stakes[index];
+        if (item.accountId !== accountId || item.roundId !== roundId) continue;
+        removed[item.animal] = (removed[item.animal] || 0) + item.amount;
+        stakes.splice(index, 1);
+      }
+      const refunded = Object.values(removed).reduce((sum, value) => sum + value, 0);
+      wallet.set(accountId, wallet.get(accountId) + refunded);
+      return { ok: true, removed, refunded, mine: {}, coins: wallet.get(accountId) };
+    },
+    settle: async () => ({ ok: true, results: [] }),
+  };
+  const room = new Room('game-1', { bauCua: bank });
+  const inbox = [];
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} }, { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
+  room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'binh', displayName: 'Bình', accountId: 'a-binh-0000001' });
+  const roundId = room.table.stateMessage().roundId;
+  await room.table.placeBet(room.participants.get('an'), { requestId: 'b-1', roundId, animal: 'cua', amount: 10 });
+  await room.table.placeBet(room.participants.get('an'), { requestId: 'b-2', roundId, animal: 'tom', amount: 5 });
+  await room.table.placeBet(room.participants.get('binh'), { requestId: 'b-3', roundId, animal: 'cua', amount: 3 });
+  assert.equal(wallet.get('a-an-00000001'), 35);
+  assert.deepEqual(await room.table.cancelBets(room.participants.get('an'), { requestId: 'c-1', roundId }), { ok: true });
+  assert.equal(wallet.get('a-an-00000001'), 50, 'hoàn đủ xu');
+  const state = room.table.stateMessage();
+  assert.deepEqual([state.totals.cua, state.totals.tom, state.bettors], [3, 0, 1], 'chỉ còn cược của Bình');
+  const mine = inbox.filter((message) => message.type === 'game.mine').at(-1);
+  assert.deepEqual([mine.mine, mine.coins], [{}, 50]);
+  assert.equal(parseServerMessage(mine).ok, true);
+  assert.equal((await room.table.cancelBets(room.participants.get('khach') || { displayName: 'Khách' }, { requestId: 'c-2', roundId })).code, 'SIGN_IN_REQUIRED');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal((await room.table.cancelBets(room.participants.get('binh'), { requestId: 'c-3', roundId })).code, 'BETTING_CLOSED');
+  room.close();
+});
