@@ -1,0 +1,28 @@
+[Unit]
+Description=Lotus Gather API
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lotusgather
+Group=lotusgather
+WorkingDirectory=/opt/lotusgather/current
+EnvironmentFile=/etc/lotusgather/common.env
+Environment=NODE_ENV=production
+Environment=API_HOST=127.0.0.1
+Environment=API_PORT=4000
+ExecStart=/usr/bin/node apps/api/server.mjs
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lotusgather
+CapabilityBoundingSet=
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

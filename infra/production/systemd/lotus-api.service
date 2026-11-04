@@ -1,0 +1,26 @@
+# /etc/systemd/system/lotus-api.service
+# Sửa 3 chỗ cho đúng máy của bạn: User/Group, WorkingDirectory (thư mục code), đường dẫn node trong ExecStart
+# (xem bằng: command -v node — với nvm thường là /home/<user>/.nvm/versions/node/v22.x.x/bin/node).
+[Unit]
+Description=Chánh Điện Online — API (tài khoản, vườn, phòng game, hỗ trợ)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lotus
+Group=lotus
+WorkingDirectory=/opt/chanh-dien-online
+EnvironmentFile=/etc/lotus/lotus.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node apps/api/server.mjs
+Restart=always
+RestartSec=3
+# Chờ tối đa 20 giây cho tiến trình tự dừng (realtime bắt SIGTERM để đóng phòng gọn) rồi mới buộc dừng.
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/lotus
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+[Unit]
+Description=Lotus Gather web gateway
+After=network-online.target lotusgather-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lotusgather
+Group=lotusgather
+WorkingDirectory=/opt/lotusgather/current
+EnvironmentFile=/etc/lotusgather/common.env
+Environment=NODE_ENV=production
+Environment=WEB_HOST=127.0.0.1
+Environment=WEB_PORT=3000
+Environment=API_UPSTREAM=http://127.0.0.1:4000
+Environment=REALTIME_UPSTREAM=http://127.0.0.1:4001
+ExecStart=/usr/bin/node apps/web/server.mjs
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

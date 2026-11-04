@@ -49,6 +49,11 @@ export const GARDEN_EFFECTS = Object.freeze(['plant', 'water', 'harvest']);
 export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
 export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 'fire']);
+// Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
+export const BAU_CUA_ANIMALS = Object.freeze(['nai', 'bau', 'ga', 'ca', 'cua', 'tom']);
+export const GAME_PHASES = Object.freeze(['betting', 'rolling', 'result']);
+const ROUND_ID = /^bc-[a-z0-9-]{4,76}$/;
+const MAX_STAKE = 1_000;
 export const WORLD_LIMIT = 1_000;
 export const MOVES_PER_BATCH = 500;
 
@@ -68,6 +73,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   move: { roles: ['guest', 'member', 'moderator', 'host'], rate: '8/giây, chỉ khi đang đi; server gom 200 ms rồi phát' },
   emote: { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
   'reaction.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây' },
+  'bet.place': { roles: ['member', 'moderator', 'host'], rate: '10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván' },
   'prayer.announce': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'friend.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'friend.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
@@ -92,6 +98,12 @@ const isString = (value, max, pattern) => typeof value === 'string'
   && value.length > 0
   && value.length <= max
   && (!pattern || pattern.test(value));
+
+// Số xu theo linh vật Bầu Cua: full = đủ 6 linh vật (tổng cả bàn), không thì chỉ các linh vật có cược.
+const animalAmounts = (value, full) => isRecord(value)
+  && Object.keys(value).every((key) => BAU_CUA_ANIMALS.includes(key))
+  && (!full || BAU_CUA_ANIMALS.every((key) => Object.hasOwn(value, key)))
+  && Object.values(value).every((amount) => isInteger(amount) && amount >= 0);
 
 function exactKeys(value, required, optional = []) {
   const allowed = new Set([...required, ...optional]);
@@ -178,6 +190,14 @@ const clientSchemas = {
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && EMOTES.includes(message.kind)
       && (message.sutra === undefined || (message.kind === 'chant' && typeof message.sutra === 'string' && SUTRA_ID.test(message.sutra)));
+  },
+  // Đặt cược Bầu Cua (phòng game): một lần chạm = một khoản cược vào một linh vật; API trừ xu ngay.
+  'bet.place'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'roundId', 'animal', 'amount'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
+      && BAU_CUA_ANIMALS.includes(message.animal)
+      && isInteger(message.amount) && message.amount >= 1 && message.amount <= MAX_STAKE;
   },
   'reaction.send'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'kind'])
@@ -346,6 +366,37 @@ const serverSchemas = {
       && EMOTES.includes(message.kind)
       && (message.sutra === undefined || (typeof message.sutra === 'string' && SUTRA_ID.test(message.sutra)))
       && isInteger(message.at) && message.at >= 0;
+  },
+  // Trạng thái bàn Bầu Cua (phát cả phòng khi đổi pha, và khi tổng cược đổi — tối đa ~3 lần/giây).
+  'game.state'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'game', 'roundId', 'phase', 'endsAt', 'totals', 'bettors'], ['dice', 'winners', 'void'])
+      && message.game === 'bau-cua'
+      && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
+      && GAME_PHASES.includes(message.phase)
+      && isInteger(message.endsAt) && message.endsAt >= 0
+      && animalAmounts(message.totals, true)
+      && isInteger(message.bettors) && message.bettors >= 0
+      && (message.dice === undefined || (Array.isArray(message.dice) && message.dice.length === 3 && message.dice.every((item) => BAU_CUA_ANIMALS.includes(item))))
+      && (message.winners === undefined || (Array.isArray(message.winners) && message.winners.length <= 5 && message.winners.every((item) => isRecord(item)
+        && exactKeys(item, ['displayName', 'net']) && isString(item.displayName, LIMITS.displayName) && isInteger(item.net) && item.net > 0)))
+      && (message.void === undefined || message.void === true);
+  },
+  // Cược của chính mình trong ván (sau mỗi lần đặt được, và khi vào lại giữa ván); coins: số dư ví sau khi trừ.
+  'game.mine'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'mine'], ['coins', 'requestId'])
+      && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
+      && animalAmounts(message.mine, false)
+      && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
+      && (message.requestId === undefined || isString(message.requestId, LIMITS.requestId, ID_PATTERN));
+  },
+  // Kết quả của chính mình sau khi lắc (chỉ gửi người có cược trong ván).
+  'game.payout'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'staked', 'payout', 'net', 'coins'])
+      && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
+      && isInteger(message.staked) && message.staked > 0
+      && isInteger(message.payout) && message.payout >= 0
+      && isInteger(message.net) && message.net === message.payout - message.staked
+      && isInteger(message.coins) && message.coins >= 0;
   },
   reaction(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'participantId', 'kind', 'at'])

@@ -246,3 +246,25 @@ test('thả cảm xúc: chỉ nhận loại cố định, không trường lạ'
   assert.equal(parseServerMessage(event).ok, true);
   assert.equal(parseServerMessage({ ...event, kind: 'x' }).error, 'INVALID_MESSAGE');
 });
+
+test('Bầu Cua chơi chung: bet.place chỉ cho thành viên, đúng linh vật / số xu / mã ván; game.state, game.mine, game.payout đúng dạng', () => {
+  const bet = { v: 1, type: 'bet.place', requestId: 'bet-1', roundId: 'bc-game-1-1-3-ab12', animal: 'cua', amount: 5 };
+  assert.equal(parseClientMessage(bet, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage(bet, { role: 'guest' }).ok, false, 'khách không cược');
+  assert.equal(parseClientMessage({ ...bet, animal: 'rong' }, { role: 'member' }).ok, false);
+  assert.equal(parseClientMessage({ ...bet, amount: 0 }, { role: 'member' }).ok, false);
+  assert.equal(parseClientMessage({ ...bet, amount: 1_001 }, { role: 'member' }).ok, false);
+  assert.equal(parseClientMessage({ ...bet, amount: '5' }, { role: 'member' }).ok, false, 'không ép kiểu');
+  assert.equal(parseClientMessage({ ...bet, roundId: 'x' }, { role: 'member' }).ok, false);
+  const totals = { nai: 0, bau: 0, ga: 10, ca: 0, cua: 15, tom: 0 };
+  const state = { v: 1, type: 'game.state', epoch: 1, game: 'bau-cua', roundId: 'bc-game-1-1-3-ab12', phase: 'betting', endsAt: 1_000, totals, bettors: 2 };
+  assert.equal(parseServerMessage(state).ok, true);
+  assert.equal(parseServerMessage({ ...state, phase: 'result', dice: ['cua', 'cua', 'ga'], winners: [{ displayName: 'An', net: 25 }] }).ok, true);
+  assert.equal(parseServerMessage({ ...state, phase: 'result', dice: ['cua', 'ga'] }).ok, false, 'đủ 3 xúc xắc');
+  assert.equal(parseServerMessage({ ...state, totals: { cua: 15 } }).ok, false, 'tổng cả bàn đủ 6 linh vật');
+  assert.equal(parseServerMessage({ ...state, phase: 'result', void: true }).ok, true);
+  assert.equal(parseServerMessage({ v: 1, type: 'game.mine', epoch: 1, roundId: 'bc-game-1-1-3-ab12', mine: { cua: 15 }, coins: 35, requestId: 'bet-1' }).ok, true);
+  const payout = { v: 1, type: 'game.payout', epoch: 1, roundId: 'bc-game-1-1-3-ab12', staked: 20, payout: 45, net: 25, coins: 75 };
+  assert.equal(parseServerMessage(payout).ok, true);
+  assert.equal(parseServerMessage({ ...payout, net: 30 }).ok, false, 'net = payout − staked');
+});

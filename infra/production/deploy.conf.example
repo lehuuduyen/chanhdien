@@ -1,0 +1,8 @@
+APP_ROOT=/opt/lotusgather
+APP_USER=lotusgather
+WEB_UNIT=lotusgather-web.service
+WEB_HEALTH_URL=http://127.0.0.1:3000/
+API_UNIT=lotusgather-api.service
+API_HEALTH_URL=http://127.0.0.1:4000/health
+REALTIME_UNITS=(lotusgather-realtime@1.service lotusgather-realtime@2.service)
+REALTIME_HEALTH_URLS=(http://127.0.0.1:4001/health http://127.0.0.1:4002/health)

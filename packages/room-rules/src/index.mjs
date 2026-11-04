@@ -157,12 +157,31 @@ export const MERIT_LEVELS = deepFreeze([
   { level: 7, name: 'Bồ đề tâm', min: 50_000 },
 ]);
 
-export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES });
+// Phòng game: Bầu Cua chơi chung theo thời gian thực. Máy realtime giữ nhịp ván (đặt cược → lắc → kết quả) và lắc
+// xúc xắc; ví xu (xu bán trái cây) do API giữ: cược trừ ngay, lắc xong API trả thưởng cả bàn trong một giao dịch.
+// Chỉ thành viên đã đăng nhập mới cược được; khách vào xem.
+export const GAME_RULES = defineRoomRules({
+  id: 'game',
+  activity: 'play-together',
+  maxParticipants: 500,
+  lang: 'vi',
+  moderation: 'standard',
+  interaction: {
+    game: 'bau-cua',
+    bettingMs: 20_000,
+    rollingMs: 3_000,
+    resultMs: 6_000,
+    maxStakePerRound: 1_000,
+  },
+});
+
+export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES });
 
 // Danh mục phòng công khai. API và máy realtime cùng đọc để biết phòng nào thuộc loại nào.
 export const ROOM_CATALOG = deepFreeze([
   { id: 'thien-1', type: 'thien', name: 'Chánh điện' },
   { id: 'cinema-1', type: 'cinema', name: 'Cinema #1' },
+  { id: 'game-1', type: 'game', name: 'Bầu Cua #1' },
 ]);
 
 export function getRoomRules(type) {
