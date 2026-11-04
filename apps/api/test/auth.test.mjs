@@ -106,32 +106,27 @@ test('thành viên vào phòng bằng tên tài khoản; lễ vật nội bộ c
   assert.deepEqual(board.json.rows.map((row) => [row.displayName, row.value, row.level]), [['Diệu Thiện', 1, 1]]);
 });
 
-test('phòng game: Bầu Cua cần đăng nhập, cùng origin, Idempotency-Key; server lắc và trừ/cộng xu của ví', async () => {
+test('phòng game: chỉ máy realtime (khóa nội bộ) được đặt cược / chốt ván Bầu Cua; xu của ví đổi đúng', async () => {
   const { createGardenStore } = await import('@chanh-dien/garden');
   const accounts = createAccountStore();
-  // Xúc xắc cố định: Cá, Cá, Cá.
-  const garden = createGardenStore({ db: accounts.database, random: () => 3 });
+  const garden = createGardenStore({ db: accounts.database });
   const options = setup({ accounts, garden });
-  const url = '/api/v1/games/bau-cua/roll';
-  assert.equal((await request(options, 'POST', url, { body: { bets: { ca: 5 } } })).status, 401);
-  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'choi_bau_cua', password: 'matkhau123', displayName: 'Bé Na' } });
-  const cookie = cookieOf(registered);
-  const headers = { cookie, 'idempotency-key': 'roll-key-0001' };
-  assert.equal((await request(options, 'POST', url, { body: { bets: { ca: 5 } }, headers: { cookie } })).status, 400, 'thiếu Idempotency-Key');
-  assert.equal((await request(options, 'POST', url, { body: { bets: { ca: 5 } }, headers: { ...headers, origin: 'https://evil.example' } })).status, 403);
-  const start = garden.me(registered.json.account.id).coins;
-  const won = await request(options, 'POST', url, { body: { bets: { ca: 5, cua: 2 } }, headers });
-  assert.equal(won.status, 200);
-  assert.deepEqual(won.json.dice, ['ca', 'ca', 'ca']);
-  // Cá 5 ra 3 lần: nhận lại 5 + 15; Cua 2 mất.
-  assert.equal(won.json.coins, start - 7 + 20);
-  const replay = await request(options, 'POST', url, { body: { bets: { ca: 5, cua: 2 } }, headers });
-  assert.equal(replay.json.replayed, true);
-  assert.equal(garden.me(registered.json.account.id).coins, start + 13, 'gửi lại cùng khóa không cộng lần hai');
-  const broke = await request(options, 'POST', url, { body: { bets: { ca: 999 } }, headers: { cookie, 'idempotency-key': 'roll-key-0002' } });
-  assert.equal(broke.status, 409);
-  assert.equal(broke.json.code, 'INSUFFICIENT_COINS');
-  assert.equal((await request(options, 'POST', url, { body: { bets: { ca: '5' } }, headers: { cookie, 'idempotency-key': 'roll-key-0003' } })).status, 400, 'không ép kiểu');
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'choi_ban_chung', password: 'matkhau123', displayName: 'Bé Na' } });
+  const accountId = registered.json.account.id;
+  const start = garden.me(accountId).coins;
+  const key = { 'x-internal-key': internalKey(SECRET) };
+  const bet = { accountId, roundId: 'bc-game-1-1-1-wxyz', animal: 'ca', amount: 5, key: 'stake-key-0001' };
+  assert.equal((await request(options, 'POST', '/internal/games/bau-cua/stake', { body: bet })).status, 403, 'không có khóa nội bộ');
+  assert.equal((await request(options, 'POST', '/internal/games/bau-cua/stake', { body: bet, headers: { cookie: cookieOf(registered) } })).status, 403, 'cookie người dùng không đủ');
+  assert.equal((await request(options, 'POST', '/api/v1/games/bau-cua/roll', { body: { bets: { ca: 5 } }, headers: { cookie: cookieOf(registered) } })).status, 404, 'không còn lắc riêng một mình');
+  const staked = await request(options, 'POST', '/internal/games/bau-cua/stake', { body: bet, headers: key });
+  assert.equal(staked.status, 200);
+  assert.equal(staked.json.coins, start - 5);
+  assert.equal((await request(options, 'POST', '/internal/games/bau-cua/stake', { body: { ...bet, amount: '5', key: 'stake-key-0002' }, headers: key })).status, 400, 'không ép kiểu');
+  const settled = await request(options, 'POST', '/internal/games/bau-cua/settle', { body: { roundId: bet.roundId, dice: ['ca', 'ca', 'ca'] }, headers: key });
+  assert.equal(settled.status, 200);
+  assert.deepEqual(settled.json.results.map((item) => [item.accountId, item.payout, item.coins]), [[accountId, 20, start + 15]]);
+  assert.equal((await request(options, 'POST', '/internal/games/bau-cua/stake', { body: { ...bet, key: 'stake-key-0003' }, headers: key })).status, 409, 'ván đã chốt');
 });
 
 test('trang Ủng hộ: thông tin Zelle lấy từ biến môi trường, thiếu thì báo chưa có; số tiền chỉ nhận số nguyên', async () => {

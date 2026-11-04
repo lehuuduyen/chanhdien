@@ -6,9 +6,9 @@
   <meta name="theme-color" content="#2a0606">
   <title>Phòng game · Bầu Cua Tôm Cá · Chánh Điện Online</title>
   <style>
-    /* Phòng game: Bầu Cua Tôm Cá. Một file, HTML/CSS/JS thuần. Cược bằng xu của ví Vườn Công Đức (xu bán trái cây,
-       1 xu cược = 1 xu ví); server lắc xúc xắc và giữ số dư (API /api/v1/games/bau-cua/roll). Xu ảo, không đổi ra
-       tiền thật. */
+    /* Phòng game: Bầu Cua Tôm Cá chơi chung theo thời gian thực. Một file, HTML/CSS/JS thuần. Cả phòng cùng một bàn:
+       máy realtime giữ nhịp ván (đặt cược → lắc → kết quả) và lắc xúc xắc; cược bằng xu của ví Vườn Công Đức (xu bán
+       trái cây, 1 xu cược = 1 xu ví), API trừ xu ngay khi đặt và trả thưởng sau khi lắc. Xu ảo, không đổi ra tiền thật. */
     :root {
       color-scheme: dark;
       --bg: #1c0505;
@@ -35,6 +35,8 @@
     .bar { display: flex; align-items: center; gap: 6px; }
     .chip { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 14px; white-space: nowrap; }
     .room { font-family: Georgia, serif; }
+    .room i { width: 8px; height: 8px; background: #8a6f5a; border-radius: 50%; }
+    .room.online i { background: #6ee7a0; box-shadow: 0 0 8px #6ee7a0; }
     .travel { position: relative; }
     .travel > button { color: var(--gold); }
     .travel-panel { position: absolute; z-index: 10; left: 0; top: calc(100% + 6px); width: 190px; display: grid; gap: 5px; padding: 6px; background: #2b0909; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 34px rgba(0, 0, 0, .6); }
@@ -45,21 +47,54 @@
 
     h1 { margin: 2px 0 0; text-align: center; font-family: Georgia, serif; font-size: clamp(22px, 6vw, 30px); font-weight: 600; letter-spacing: .02em; color: var(--gold); text-shadow: 0 2px 12px rgba(255, 180, 60, .35); }
 
-    /* Bàn cược 2 × 3. */
+    /* Dải trạng thái ván: pha + đồng hồ đếm ngược (theo giờ server, ai cũng thấy như nhau) + người chơi. */
+    .phase { display: grid; gap: 6px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+    .phase-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .phase-label { font-weight: 800; font-size: 16px; }
+    .phase-label.betting { color: var(--gold); }
+    .phase-label.rolling { color: #ffb36b; }
+    .phase-label.result { color: var(--win); }
+    .players { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .timer { height: 6px; overflow: hidden; background: rgba(255, 255, 255, .08); border-radius: 999px; }
+    .timer i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #c8901f, #ffe08a); border-radius: 999px; transform-origin: left; }
+
+    /* Bàn cược 2 × 3: mỗi ô có cược của mình và tổng cả bàn. */
     .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .tile { position: relative; display: grid; justify-items: center; gap: 2px; padding: 10px 6px 8px; background: linear-gradient(180deg, #fff6e4, #f3dcb4); color: #3b1408; border: 3px solid #b8862e; border-radius: 16px; box-shadow: 0 6px 0 #7a4a12, 0 10px 20px rgba(0, 0, 0, .35); transition: transform .08s ease; }
+    .tile { position: relative; display: grid; justify-items: center; gap: 2px; padding: 8px 6px 7px; background: linear-gradient(180deg, #fff6e4, #f3dcb4); color: #3b1408; border: 3px solid #b8862e; border-radius: 16px; box-shadow: 0 6px 0 #7a4a12, 0 10px 20px rgba(0, 0, 0, .35); transition: transform .08s ease; }
     .tile:active { transform: translateY(3px); box-shadow: 0 3px 0 #7a4a12, 0 6px 14px rgba(0, 0, 0, .35); }
-    .tile .icon { font-size: clamp(34px, 11vw, 48px); line-height: 1.1; }
+    .tile .icon { font-size: clamp(32px, 10vw, 46px); line-height: 1.1; }
     .tile .name { font-weight: 800; font-size: 14px; }
     .tile .bet { min-width: 64px; padding: 2px 8px; color: #fff4e2; background: #7a1515; border-radius: 999px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; }
     .tile .bet.zero { background: rgba(122, 21, 21, .25); color: #7a4a30; }
+    .tile .table { color: #7a4a30; font-size: 11px; font-variant-numeric: tabular-nums; }
     .tile .plus { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; display: grid; place-items: center; color: #2a1404; background: var(--gold); border: 0; border-radius: 50%; font-weight: 900; font-size: 16px; box-shadow: 0 2px 0 var(--gold-deep); }
-    .tile.hit { border-color: #2fbf71; background: linear-gradient(180deg, #eafff2, #c6f3d8); }
+    .board.closed .tile { filter: saturate(.6) brightness(.9); }
+    .board.closed .tile .plus { display: none; }
+    .tile.hit { border-color: #2fbf71; background: linear-gradient(180deg, #eafff2, #c6f3d8); filter: none !important; }
+    /* Chip nằm trên bàn: chồng chip của mình (màu theo mệnh giá) bên trái, chip người khác (nhạt) bên phải. */
+    .stack { position: absolute; bottom: 44px; width: 26px; height: 46px; pointer-events: none; }
+    .stack.mine { left: 6px; }
+    .stack.others { right: 6px; opacity: .78; }
+    .stack .coin { position: absolute; left: 0; width: 26px; height: 12px; border-radius: 50%; border: 2px dashed rgba(255, 255, 255, .7); box-shadow: 0 2px 0 rgba(0, 0, 0, .35); }
+    .stack.others .coin { width: 22px; height: 10px; left: 2px; border-style: solid; border-color: rgba(255, 255, 255, .35); }
+    .stack .more { position: absolute; left: -2px; top: -8px; padding: 0 4px; color: #fff; background: rgba(40, 10, 6, .85); border-radius: 999px; font-size: 9px; font-weight: 800; }
+    .coin.d1 { background: #2f80ed; }
+    .coin.d5 { background: #27ae60; }
+    .coin.d10 { background: #d63031; }
+    .coin.d50 { background: #8e44ad; }
+    .coin.other { background: #a07a5a; }
+    .stack.drop .coin:last-of-type { animation: drop .35s ease-out; }
+    @keyframes drop { from { transform: translateY(-18px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .tile.hit .stack.mine { animation: winBounce .6s ease-in-out 3; filter: drop-shadow(0 0 6px #ffe08a); }
+    @keyframes winBounce { 50% { transform: translateY(-8px); } }
+    .board.settled .tile:not(.hit) .stack { transition: transform .5s ease-in, opacity .5s ease-in; transform: translateY(-30px) scale(.6); opacity: 0; }
+    /* Chip bay từ hàng mệnh giá xuống ô vừa chạm. */
+    .flying { position: fixed; z-index: 30; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 3px dashed rgba(255, 255, 255, .75); box-shadow: 0 4px 10px rgba(0, 0, 0, .45); pointer-events: none; }
     .tile.hit::after { content: attr(data-hits); position: absolute; top: -8px; left: -8px; min-width: 26px; height: 26px; padding: 0 6px; display: grid; place-items: center; color: #fff; background: #1f9d55; border-radius: 999px; font-size: 13px; font-weight: 800; box-shadow: 0 3px 8px rgba(0, 0, 0, .35); }
 
     /* Mệnh giá chip. */
     .chips { display: flex; justify-content: center; gap: 8px; }
-    .chips button { width: 54px; height: 54px; border-radius: 50%; border: 4px dashed rgba(255, 255, 255, .55); font-weight: 800; font-size: 14px; color: #fff; box-shadow: 0 4px 10px rgba(0, 0, 0, .4); }
+    .chips button { width: 52px; height: 52px; border-radius: 50%; border: 4px dashed rgba(255, 255, 255, .55); font-weight: 800; font-size: 14px; color: #fff; box-shadow: 0 4px 10px rgba(0, 0, 0, .4); }
     .chips button[data-chip="1"] { background: #2f80ed; }
     .chips button[data-chip="5"] { background: #27ae60; }
     .chips button[data-chip="10"] { background: #d63031; }
@@ -68,8 +103,8 @@
 
     /* Đĩa xúc xắc. */
     .plate { display: grid; justify-items: center; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
-    .dice { display: flex; gap: 12px; padding: 14px 18px; background: radial-gradient(circle, #fffaf0, #e9d3a8); border: 4px solid #b8862e; border-radius: 999px; box-shadow: inset 0 4px 14px rgba(0, 0, 0, .25), 0 8px 18px rgba(0, 0, 0, .35); }
-    .die { width: clamp(54px, 16vw, 68px); aspect-ratio: 1; display: grid; place-items: center; font-size: clamp(32px, 10vw, 42px); background: #fff; border-radius: 14px; box-shadow: 0 4px 0 #c9b28a, 0 6px 12px rgba(0, 0, 0, .25); }
+    .dice { display: flex; gap: 12px; padding: 12px 18px; background: radial-gradient(circle, #fffaf0, #e9d3a8); border: 4px solid #b8862e; border-radius: 999px; box-shadow: inset 0 4px 14px rgba(0, 0, 0, .25), 0 8px 18px rgba(0, 0, 0, .35); }
+    .die { width: clamp(52px, 15vw, 64px); aspect-ratio: 1; display: grid; place-items: center; font-size: clamp(30px, 9.5vw, 40px); background: #fff; border-radius: 14px; box-shadow: 0 4px 0 #c9b28a, 0 6px 12px rgba(0, 0, 0, .25); }
     .rolling .die { animation: shake .12s linear infinite; }
     .rolling .die:nth-child(2) { animation-delay: -.04s; }
     .rolling .die:nth-child(3) { animation-delay: -.08s; }
@@ -77,34 +112,28 @@
     .message { min-height: 22px; margin: 0; text-align: center; font-weight: 700; font-size: 15px; }
     .message.win { color: var(--win); }
     .message.lose { color: var(--lose); }
+    .winners { min-height: 18px; margin: 0; color: var(--gold); font-size: 12.5px; text-align: center; }
     .history { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; min-height: 18px; color: var(--muted); font-size: 12px; }
-
-    .actions { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: auto; }
-    .actions button { height: 54px; border: 0; border-radius: 14px; font-size: 17px; font-weight: 800; }
-    .clear { color: var(--fg); background: rgba(255, 255, 255, .08); border: 1px solid var(--line) !important; }
-    .roll { color: #2a1404; background: linear-gradient(180deg, #ffe08a, #f2b632); box-shadow: 0 5px 0 var(--gold-deep); }
-    .roll:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--gold-deep); }
-    button:disabled { opacity: .5; cursor: not-allowed; }
     .sign-in { justify-self: center; padding: 8px 16px; color: #2a1404; background: var(--gold); border: 0; border-radius: 999px; font-weight: 800; }
-    .note { margin: 0; color: var(--muted); font-size: 10.5px; text-align: center; }
+    .note { margin: auto 0 0; color: var(--muted); font-size: 10.5px; text-align: center; }
     .note a { color: var(--gold); }
 
     /* Màn thấp (điện thoại nhỏ / xoay ngang): thu gọn khoảng cách. */
-    @media (max-height: 700px) {
+    @media (max-height: 740px) {
       .app { gap: 6px; }
-      .tile { padding: 6px 4px; }
-      .tile .icon { font-size: 30px; }
-      .chips button { width: 44px; height: 44px; font-size: 12px; }
+      h1 { font-size: 20px; }
+      .tile { padding: 5px 4px; }
+      .tile .icon { font-size: 28px; }
+      .chips button { width: 42px; height: 42px; font-size: 12px; }
       .dice { padding: 8px 12px; }
-      .die { width: 48px; font-size: 28px; }
-      .actions button { height: 46px; }
+      .die { width: 46px; font-size: 26px; }
     }
   </style>
 </head>
 <body>
   <main class="app">
     <div class="bar">
-      <span class="chip room">🎲 Phòng game</span>
+      <span class="chip room" id="roomChip"><i></i>🎲 Bầu Cua</span>
       <div class="travel">
         <button type="button" class="chip" id="travelToggle" aria-haspopup="menu" aria-expanded="false">📍 Đi nhanh ▾</button>
         <div class="travel-panel" id="travelPanel" role="menu" hidden>
@@ -120,7 +149,15 @@
 
     <h1>Bầu Cua Tôm Cá</h1>
 
-    <section class="board" id="board" aria-label="Bàn cược: chạm linh vật để đặt cược"></section>
+    <section class="phase" aria-live="polite">
+      <div class="phase-top">
+        <span class="phase-label" id="phaseLabel">Đang vào bàn…</span>
+        <span class="players" id="players"></span>
+      </div>
+      <div class="timer" aria-hidden="true"><i id="timerBar"></i></div>
+    </section>
+
+    <section class="board" id="board" aria-label="Bàn cược chung: chạm linh vật để đặt cược"></section>
 
     <div class="chips" id="chips" role="group" aria-label="Mệnh giá mỗi lần đặt">
       <button type="button" data-chip="1" aria-pressed="true">1</button>
@@ -134,19 +171,18 @@
         <span class="die">🦌</span><span class="die">🍈</span><span class="die">🐓</span>
       </div>
       <p class="message" id="message" role="status" aria-live="polite">Chọn mệnh giá rồi chạm linh vật để đặt cược</p>
+      <p class="winners" id="winners"></p>
       <div class="history" id="history" aria-label="Các ván trước"></div>
-      <button type="button" class="sign-in" id="signIn" hidden>🛕 Về chùa đăng nhập</button>
+      <button type="button" class="sign-in" id="signIn" hidden>🛕 Về chùa đăng nhập để cược</button>
     </section>
 
-    <div class="actions">
-      <button type="button" class="clear" id="clear">Xóa cược</button>
-      <button type="button" class="roll" id="roll">🎲 Lắc</button>
-    </div>
-    <p class="note">Cược bằng xu Vườn Công Đức (xu bán trái cây). Xu ảo, không quy đổi ra tiền thật. · <a href="/ung-ho.html">💝 Góp duy trì server</a> · <a href="/ho-tro.html?from=/game.html">🛟 Góp ý / Báo lỗi</a></p>
+    <p class="note">Cả phòng chơi chung một bàn. Cược bằng xu Vườn Công Đức (xu bán trái cây), đặt là trừ xu ngay; mỗi ván tối đa 1.000 xu. Xu ảo, không quy đổi ra tiền thật. · <a href="/ung-ho.html">💝 Góp duy trì server</a> · <a href="/ho-tro.html?from=/game.html">🛟 Góp ý / Báo lỗi</a></p>
   </main>
 
   <script type="module">
     // ---- Dữ liệu ----
+    const PROTOCOL_VERSION = 1;
+    const ROOM_ID = 'game-1';
     const ANIMALS = [
       { id: 'nai', name: 'Nai', icon: '🦌' },
       { id: 'bau', name: 'Bầu', icon: '🍈' },
@@ -155,28 +191,31 @@
       { id: 'cua', name: 'Cua', icon: '🦀' },
       { id: 'tom', name: 'Tôm', icon: '🦐' },
     ];
-    const ROLL_MS = 1000;
+    const PHASE_LABELS = { betting: 'Đặt cược', rolling: 'Đang lắc…', result: 'Kết quả' };
 
     const randomAnimal = () => ANIMALS[Math.floor(Math.random() * ANIMALS.length)].id;
     const iconOf = (id) => ANIMALS.find((animal) => animal.id === id).icon;
+    const nameOf = (id) => ANIMALS.find((animal) => animal.id === id).name;
     const money = (value) => `${value < 0 ? '-' : ''}${Math.abs(value).toLocaleString('vi-VN')} xu`;
 
     // ---- Trạng thái ----
-    // coins: số dư ví trên server (null = chưa biết / chưa đăng nhập). Cược đặt trên bàn chỉ là dự định ở máy mình,
-    // tới lúc bấm Lắc mới gửi server; số dư hiện ra = ví − tổng cược đang đặt.
-    let coins = null;
+    let coins = null; // số dư ví (null = chưa đăng nhập / chưa biết)
     let signedIn = false;
-    let bets = Object.fromEntries(ANIMALS.map((animal) => [animal.id, 0]));
     let chip = 1;
-    let rolling = false;
-    // Khóa idempotency của ván đang gửi: mạng lỗi bấm Lắc lại thì gửi lại đúng ván đó (server không trừ hai lần).
-    let pendingKey = null;
+    let table = null; // game.state mới nhất của bàn
+    let mine = {}; // cược của mình trong ván đang chạy
+    let mineRound = null;
+    let people = 0;
+    let clockOffset = 0; // giờ server − giờ máy
+    let socket = null;
     const history = [];
-    const staked = () => Object.values(bets).reduce((sum, value) => sum + value, 0);
-    const available = () => (coins ?? 0) - staked();
+    const serverNow = () => Date.now() + clockOffset;
 
     const $ = (id) => document.getElementById(id);
-    const elements = { board: $('board'), balance: $('balance'), dice: $('dice'), message: $('message'), history: $('history'), roll: $('roll'), clear: $('clear'), signIn: $('signIn'), chips: $('chips') };
+    const elements = {
+      board: $('board'), balance: $('balance'), dice: $('dice'), message: $('message'), winners: $('winners'), history: $('history'),
+      signIn: $('signIn'), chips: $('chips'), phaseLabel: $('phaseLabel'), players: $('players'), timerBar: $('timerBar'), roomChip: $('roomChip'),
+    };
 
     // ---- Giao diện ----
     const tiles = new Map();
@@ -194,27 +233,19 @@
       name.textContent = animal.name;
       const bet = document.createElement('span');
       bet.className = 'bet';
+      const total = document.createElement('span');
+      total.className = 'table';
       const plus = document.createElement('span');
       plus.className = 'plus';
       plus.textContent = '+';
       plus.setAttribute('aria-hidden', 'true');
-      tile.append(plus, icon, name, bet);
+      const mineStack = document.createElement('span');
+      mineStack.className = 'stack mine';
+      const othersStack = document.createElement('span');
+      othersStack.className = 'stack others';
+      tile.append(othersStack, mineStack, plus, icon, name, bet, total);
       elements.board.append(tile);
-      tiles.set(animal.id, { tile, bet });
-    }
-
-    // Số dư ví (xu bán trái cây) từ server; chưa đăng nhập thì không có ví.
-    async function loadWallet() {
-      try {
-        const response = await fetch('/api/v1/garden/me', { cache: 'no-store' });
-        signedIn = response.ok;
-        coins = response.ok ? (await response.json()).me.coins : null;
-      } catch {
-        signedIn = false;
-      }
-      if (!signedIn) say('Đăng nhập ở cổng chùa để chơi bằng xu Vườn Công Đức', 'lose');
-      else if (!coins) say('Ví đang hết xu: ra Khu vườn bán trái cây để có xu nhé');
-      render();
+      tiles.set(animal.id, { tile, bet, total, mineStack, othersStack, shown: { mine: 0, others: 0 } });
     }
 
     function say(text, tone = '') {
@@ -223,18 +254,99 @@
     }
 
     function render() {
-      elements.balance.textContent = coins === null ? '—' : available().toLocaleString('vi-VN');
-      for (const [id, { bet }] of tiles) {
-        bet.textContent = money(bets[id]);
-        bet.classList.toggle('zero', !bets[id]);
+      elements.balance.textContent = coins === null ? '—' : coins.toLocaleString('vi-VN');
+      const myBets = table && mineRound === table.roundId ? mine : {};
+      for (const [id, entry] of tiles) {
+        const { bet, total } = entry;
+        bet.textContent = `Bạn ${money(myBets[id] || 0)}`;
+        bet.classList.toggle('zero', !myBets[id]);
+        total.textContent = `Cả bàn ${money(table?.totals?.[id] || 0)}`;
+        const others = Math.max(0, (table?.totals?.[id] || 0) - (myBets[id] || 0));
+        drawStack(entry, 'mine', myBets[id] || 0);
+        drawStack(entry, 'others', others);
       }
-      elements.roll.disabled = rolling || !staked();
-      elements.clear.disabled = rolling || !staked();
-      elements.signIn.hidden = signedIn || coins !== null;
+      elements.board.classList.toggle('closed', table?.phase !== 'betting');
+      elements.signIn.hidden = signedIn;
       for (const button of elements.chips.querySelectorAll('button')) {
         button.setAttribute('aria-pressed', String(Number(button.dataset.chip) === chip));
-        button.disabled = rolling;
       }
+      elements.players.textContent = `👥 ${people} người${table ? ` · ${table.bettors} đang cược` : ''}`;
+    }
+
+    // Chồng chip: tách số xu thành mệnh giá 50/10/5/1 (chip của mình) — tối đa 6 chip, nhiều hơn thì ghi "+n".
+    // Chip người khác chỉ cần cho thấy có bao nhiêu: mỗi chip nhạt ~ một phần tổng, tối đa 5.
+    const DENOMS = [50, 10, 5, 1];
+    function chipsOf(amount) {
+      const list = [];
+      let left = amount;
+      for (const denom of DENOMS) while (left >= denom) { list.push(denom); left -= denom; }
+      return list.reverse();
+    }
+    function drawStack(entry, kind, amount) {
+      if (entry.shown[kind] === amount) return;
+      const grew = amount > entry.shown[kind];
+      entry.shown[kind] = amount;
+      const stack = kind === 'mine' ? entry.mineStack : entry.othersStack;
+      const coinsList = kind === 'mine' ? chipsOf(amount) : Array.from({ length: Math.min(5, Math.ceil(amount / 10)) }, () => 'other');
+      const visible = coinsList.slice(-6);
+      stack.replaceChildren(...visible.map((denom, index) => {
+        const coin = document.createElement('i');
+        coin.className = `coin ${denom === 'other' ? 'other' : `d${denom}`}`;
+        coin.style.bottom = `${index * 5}px`;
+        return coin;
+      }));
+      if (coinsList.length > visible.length) {
+        const more = document.createElement('b');
+        more.className = 'more';
+        more.textContent = `+${coinsList.length - visible.length}`;
+        stack.append(more);
+      }
+      stack.classList.remove('drop');
+      if (grew) {
+        void stack.offsetWidth;
+        stack.classList.add('drop');
+      }
+    }
+
+    // Chip bay từ nút mệnh giá đang chọn xuống ô vừa chạm.
+    function flyChip(tile, amount) {
+      const from = elements.chips.querySelector('[aria-pressed="true"]')?.getBoundingClientRect();
+      const to = tile.querySelector('.stack.mine').getBoundingClientRect();
+      if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const chipEl = document.createElement('i');
+      chipEl.className = `flying coin d${DENOMS.find((denom) => amount >= denom) || 1}`;
+      document.body.append(chipEl);
+      const start = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+      const end = { x: to.left + 13, y: to.bottom - 10 };
+      chipEl.style.left = `${start.x}px`;
+      chipEl.style.top = `${start.y}px`;
+      chipEl.animate([
+        { transform: 'translate(0, 0) scale(1)' },
+        { transform: `translate(${(end.x - start.x) / 2}px, ${(end.y - start.y) / 2 - 50}px) scale(1.1)`, offset: 0.5 },
+        { transform: `translate(${end.x - start.x}px, ${end.y - start.y}px) scale(.85)` },
+      ], { duration: 420, easing: 'ease-in-out' }).finished.then(() => chipEl.remove(), () => chipEl.remove());
+    }
+
+    // Đồng hồ: pha + giây còn lại theo giờ server (mọi máy thấy như nhau).
+    function tick() {
+      if (table) {
+        const left = Math.max(0, table.endsAt - serverNow());
+        const length = { betting: 20_000, rolling: 3_000, result: 6_000 }[table.phase] || 1;
+        elements.phaseLabel.textContent = table.phase === 'betting' ? `${PHASE_LABELS.betting} · ${Math.ceil(left / 1000)}s` : PHASE_LABELS[table.phase];
+        elements.phaseLabel.className = `phase-label ${table.phase}`;
+        elements.timerBar.style.transform = `scaleX(${Math.min(1, left / length)})`;
+      }
+    }
+
+    let spin = null;
+    function showDice(phase, dice) {
+      const faces = [...elements.dice.children];
+      clearInterval(spin);
+      spin = null;
+      elements.dice.classList.toggle('rolling', phase === 'rolling');
+      if (phase === 'rolling') {
+        spin = setInterval(() => { for (const face of faces) face.textContent = iconOf(randomAnimal()); }, 70);
+      } else if (dice) faces.forEach((face, index) => { face.textContent = iconOf(dice[index]); });
     }
 
     function clearHits() {
@@ -242,6 +354,144 @@
         tile.classList.remove('hit');
         delete tile.dataset.hits;
       }
+    }
+
+    // ---- Tin từ bàn ----
+    let lastPhase = null;
+    let lastRound = null;
+    function onState(state) {
+      const newRound = state.roundId !== lastRound;
+      const newPhase = newRound || state.phase !== lastPhase;
+      table = state;
+      if (newRound) {
+        lastRound = state.roundId;
+        elements.board.classList.remove('settled');
+        clearHits();
+        elements.winners.textContent = '';
+        if (state.phase === 'betting') say(signedIn ? 'Ván mới! Chạm linh vật để đặt cược' : 'Ván mới! Bạn đang xem — đăng nhập để cược');
+      }
+      if (newPhase) {
+        lastPhase = state.phase;
+        showDice(state.phase, state.dice);
+        if (state.phase === 'rolling') say('Hết giờ cược · đang lắc…');
+        if (state.phase === 'result') {
+          // Mở bát: chip ở ô trúng sáng và nảy, chip ở ô trượt bị nhà cái gom đi.
+          if (!state.void) elements.board.classList.add('settled');
+          const hits = {};
+          for (const face of state.dice || []) hits[face] = (hits[face] || 0) + 1;
+          for (const [id, count] of Object.entries(hits)) {
+            const { tile } = tiles.get(id);
+            tile.classList.add('hit');
+            tile.dataset.hits = `×${count}`;
+          }
+          if (state.void) say('Ván bị hủy do lỗi máy chủ · cược sẽ được hoàn lại', 'lose');
+          else if (!mineRound || mineRound !== state.roundId) say(`Ra ${state.dice.map(nameOf).join(' · ')}`);
+          elements.winners.textContent = state.winners?.length ? `🏆 ${state.winners.map((item) => `${item.displayName} +${item.net}`).join(' · ')}` : '';
+          if (state.dice) {
+            history.unshift(state.dice.map(iconOf).join(''));
+            history.length = Math.min(history.length, 8);
+            elements.history.replaceChildren(...history.map((item) => {
+              const span = document.createElement('span');
+              span.textContent = item;
+              return span;
+            }));
+          }
+        }
+      }
+      render();
+      tick();
+    }
+
+    function onMessage(event) {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message.v !== PROTOCOL_VERSION) return;
+      if (message.type === 'welcome') {
+        clockOffset = message.serverTime - Date.now();
+        elements.roomChip.classList.add('online');
+      } else if (message.type === 'room.state') {
+        people = message.participants.filter((person) => person.connected !== false).length;
+        render();
+      } else if (message.type === 'game.state') onState(message);
+      else if (message.type === 'game.mine') {
+        mine = message.mine;
+        mineRound = message.roundId;
+        if (message.coins !== undefined) coins = message.coins;
+        render();
+      } else if (message.type === 'game.payout') {
+        coins = message.coins;
+        if (message.net > 0) say(`Thắng ${money(message.net)}! 🎉`, 'win');
+        else if (message.net < 0) say(`Thua ${money(-message.net)}`, 'lose');
+        else say('Hòa vốn');
+        render();
+      } else if (message.type === 'protocol.error') {
+        if (message.code === 'INSUFFICIENT_COINS') say('Không đủ xu · ra Khu vườn bán trái cây để có thêm', 'lose');
+        else if (message.code === 'INVALID_TICKET' || message.code === 'INVALID_RESUME_TOKEN') socket?.close();
+        else say(message.message, 'lose');
+      }
+    }
+
+    // ---- Kết nối bàn (vé vào phòng từ API, WebSocket realtime) ----
+    function realtimeEndpoint(url) {
+      if (!url.startsWith('/')) return new URL(url);
+      return new URL(url, `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`);
+    }
+    const rememberedName = () => {
+      try { return (localStorage.getItem('displayName') || localStorage.getItem('phapdanh') || '').trim().slice(0, 40); } catch { return ''; }
+    };
+    let retry = 0;
+    let joinMissing = false;
+    async function connect() {
+      elements.roomChip.classList.remove('online');
+      try {
+        const response = await fetch('/api/v1/rooms/join', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ roomId: ROOM_ID, displayName: rememberedName() || 'Khách' }),
+        });
+        if (!response.ok) {
+          // Máy chủ chưa có phòng game (đang chạy bản cũ): báo rõ thay vì cứ thử lại.
+          if (response.status === 404) {
+            elements.phaseLabel.textContent = 'Chưa vào được bàn';
+            say('Máy chủ chưa có bàn Bầu Cua chơi chung · cần khởi động lại server', 'lose');
+            joinMissing = true;
+            return;
+          }
+          throw new Error('join');
+        }
+        const session = await response.json();
+        const url = realtimeEndpoint(session.realtimeUrl);
+        url.searchParams.set('ticket', session.ticket);
+        socket = new WebSocket(url);
+        socket.addEventListener('open', () => {
+          retry = 0;
+          socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', roomId: session.roomId, displayName: session.displayName }));
+        });
+        socket.addEventListener('message', onMessage);
+        socket.addEventListener('close', scheduleReconnect);
+      } catch {
+        scheduleReconnect();
+      }
+    }
+    let reconnectTimer = null;
+    function scheduleReconnect() {
+      elements.roomChip.classList.remove('online');
+      if (reconnectTimer) return;
+      retry += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, Math.min(5_000, 800 * retry));
+    }
+
+    // Số dư ví và đã đăng nhập chưa (khách được xem, không cược).
+    async function loadWallet() {
+      try {
+        const response = await fetch('/api/v1/garden/me', { cache: 'no-store' });
+        signedIn = response.ok;
+        coins = response.ok ? (await response.json()).me.coins : null;
+      } catch {}
+      render();
     }
 
     // ---- Thao tác ----
@@ -252,106 +502,37 @@
       render();
     });
 
-    // Đặt cược (trên bàn, chưa trừ ví): không vượt số xu đang có; hết xu thì đặt nốt phần còn lại.
+    // Một lần chạm = một khoản cược gửi lên bàn; máy chủ trừ xu ngay và báo lại cược của mình (game.mine).
     elements.board.addEventListener('click', (event) => {
       const tile = event.target.closest('.tile');
-      if (!tile || rolling) return;
+      if (!tile) return;
       if (!signedIn) {
-        say('Đăng nhập ở cổng chùa để chơi bằng xu Vườn Công Đức', 'lose');
+        say('Đăng nhập ở cổng chùa để cược bằng xu Vườn Công Đức', 'lose');
         return;
       }
-      if (available() <= 0) {
+      if (!table) {
+        say(joinMissing ? 'Máy chủ chưa có bàn Bầu Cua chơi chung · cần khởi động lại server' : 'Đang vào bàn, chờ một chút…', 'lose');
+        return;
+      }
+      if (table.phase !== 'betting' || serverNow() >= table.endsAt) {
+        say('Đã hết giờ cược · chờ ván sau nhé', 'lose');
+        return;
+      }
+      if (!coins) {
         say('Hết xu rồi! Ra Khu vườn bán trái cây để có thêm xu', 'lose');
         return;
       }
-      const amount = Math.min(chip, available());
-      bets[tile.dataset.id] += amount;
-      pendingKey = null;
-      clearHits();
-      say(`Đặt ${money(amount)} vào ${ANIMALS.find((animal) => animal.id === tile.dataset.id).name}`);
-      render();
-    });
-
-    elements.clear.addEventListener('click', () => {
-      if (rolling) return;
-      for (const id of Object.keys(bets)) bets[id] = 0;
-      pendingKey = null;
-      clearHits();
-      say('Đã xóa cược');
-      render();
+      const amount = Math.min(chip, coins);
+      if (socket?.readyState !== WebSocket.OPEN) {
+        say('Đang kết nối lại bàn…', 'lose');
+        return;
+      }
+      socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'bet.place', requestId: `bet-${crypto.randomUUID()}`, roundId: table.roundId, animal: tile.dataset.id, amount }));
+      flyChip(tile, amount);
+      say(`Đặt ${money(amount)} vào ${nameOf(tile.dataset.id)}`);
     });
 
     elements.signIn.addEventListener('click', () => travelTo('hall'));
-
-    // Lắc: gửi cược lên server (server lắc, trừ/cộng xu). Trong lúc chờ, xúc xắc nhảy mặt ít nhất 1 giây rồi chốt
-    // đúng kết quả server trả về; cược về 0 sau mỗi ván.
-    elements.roll.addEventListener('click', async () => {
-      if (rolling || !staked()) return;
-      rolling = true;
-      clearHits();
-      say('Đang lắc…');
-      render();
-      const faces = [...elements.dice.children];
-      elements.dice.classList.add('rolling');
-      const spin = setInterval(() => {
-        for (const face of faces) face.textContent = iconOf(randomAnimal());
-      }, 70);
-      pendingKey ||= crypto.randomUUID();
-      const sent = Object.fromEntries(Object.entries(bets).filter(([, amount]) => amount));
-      let result = null;
-      const [response] = await Promise.all([
-        fetch('/api/v1/games/bau-cua/roll', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'idempotency-key': pendingKey },
-          body: JSON.stringify({ bets: sent }),
-        }).catch(() => null),
-        new Promise((resolve) => setTimeout(resolve, ROLL_MS)),
-      ]);
-      try { result = response ? await response.json() : null; } catch {}
-      clearInterval(spin);
-      elements.dice.classList.remove('rolling');
-      rolling = false;
-      if (!result) {
-        // Không rõ server đã nhận chưa: giữ cược và khóa, bấm Lắc lại sẽ gửi đúng ván này.
-        say('Mất kết nối, bấm Lắc lại (không bị trừ xu hai lần)', 'lose');
-        render();
-        return;
-      }
-      pendingKey = null;
-      if (!result.ok) {
-        if (result.code === 'NOT_SIGNED_IN') {
-          signedIn = false;
-          coins = null;
-          say('Phiên đăng nhập đã hết, về chùa đăng nhập lại nhé', 'lose');
-        } else if (result.code === 'INSUFFICIENT_COINS') {
-          coins = result.coins ?? coins;
-          say('Không đủ xu cho ván này', 'lose');
-        } else if (result.code === 'RATE_LIMITED') say('Lắc chậm lại một chút nhé', 'lose');
-        else say('Ván này không hợp lệ, thử lại nhé', 'lose');
-        bets = Object.fromEntries(ANIMALS.map((animal) => [animal.id, 0]));
-        render();
-        return;
-      }
-      faces.forEach((face, index) => { face.textContent = iconOf(result.dice[index]); });
-      coins = result.coins;
-      for (const [id, count] of Object.entries(result.hits)) {
-        const { tile } = tiles.get(id);
-        tile.classList.add('hit');
-        tile.dataset.hits = `×${count}`;
-      }
-      if (result.net > 0) say(`Thắng ${money(result.net)}! 🎉`, 'win');
-      else if (result.net < 0) say(`Thua ${money(-result.net)}`, 'lose');
-      else say('Hòa vốn');
-      history.unshift(result.dice.map(iconOf).join(''));
-      history.length = Math.min(history.length, 8);
-      elements.history.replaceChildren(...history.map((item) => {
-        const span = document.createElement('span');
-        span.textContent = item;
-        return span;
-      }));
-      bets = Object.fromEntries(ANIMALS.map((animal) => [animal.id, 0]));
-      render();
-    });
 
     // ---- Đi nhanh sang map khác (chùa: quay về đúng phòng vừa ở, như rạp phim) ----
     const travelToggle = $('travelToggle');
@@ -383,9 +564,11 @@
     }
 
     render();
-    loadWallet();
+    loadWallet().then(connect);
+    // Hẹn giờ thường (không dùng requestAnimationFrame): tab nằm nền vẫn cập nhật đồng hồ ván.
+    setInterval(tick, 200);
     // Quay lại tab (vd: vừa bán trái cây ở chùa): đọc lại số xu.
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && !rolling) loadWallet(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadWallet(); });
   </script>
 </body>
 </html>

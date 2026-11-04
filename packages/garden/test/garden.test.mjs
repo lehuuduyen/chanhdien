@@ -153,44 +153,51 @@ test('ràng buộc cơ sở dữ liệu: không thể có hai vụ đang trồng
     VALUES (9, ?, 'apple', 'growing', '2026-11-03', 1)`).run(an), /UNIQUE/);
 });
 
-test('Bầu Cua: cược bằng xu của ví, server lắc và trả thưởng, ghi sổ; gửi lại cùng khóa không trừ/cộng lần hai', async () => {
-  const { BAU_CUA_ANIMALS, settleBauCua } = await import('../src/index.mjs');
-  const { createAccountStore: accountsOf } = await import('@chanh-dien/accounts');
-  const accounts = accountsOf({});
-  // Xúc xắc cố định: Cua, Cua, Gà.
-  const rolls = [4, 4, 2];
-  let next = 0;
-  const garden = createGardenStore({ db: accounts.database, random: () => rolls[next++ % rolls.length] });
-  const an = accounts.register({ username: 'an_bc', password: 'matkhau123', displayName: 'An' }).account.id;
-  assert.equal(garden.me(an).coins, STARTING_COINS);
-  // Cua 10 (ra 2 lần: nhận lại 10 + 20), Tôm 5 (thua).
-  const round = garden.playBauCua(an, { cua: 10, tom: 5, nai: 0 }, 'round-000001');
-  assert.equal(round.ok, true);
-  assert.deepEqual(round.dice, ['cua', 'cua', 'ga']);
-  assert.equal(round.staked, 15);
-  assert.equal(round.payout, 30);
-  assert.equal(round.net, 15);
-  assert.equal(round.coins, STARTING_COINS + 15);
-  assert.equal(garden.me(an).coins, STARTING_COINS + 15);
-  const again = garden.playBauCua(an, { cua: 10, tom: 5 }, 'round-000001');
+test('Bầu Cua chơi chung: cược trừ xu ngay, cộng dồn theo ván; chốt ván trả thưởng cả bàn một lần; ván treo thì hoàn cược', async () => {
+  const { BAU_CUA_STALE_MS, settleBauCua } = await import('../src/index.mjs');
+  const { garden, user, tick } = setup();
+  const an = user('an_ban_chung');
+  const binh = user('binh_ban_chung');
+  const coins = (id) => garden.me(id).coins;
+  const round = 'bc-game-1-1-1-abcd';
+  const stake = (accountId, animal, amount, key) => garden.stakeBauCua({ accountId, roundId: round, animal, amount, key });
+  // An: Cua 10 rồi thêm Cua 5 (cộng dồn), Tôm 5. Bình: Gà 20.
+  assert.deepEqual(stake(an, 'cua', 10, 'stake-an-0001').mine, { cua: 10 });
+  assert.equal(coins(an), STARTING_COINS - 10, 'trừ xu ngay khi đặt');
+  const again = stake(an, 'cua', 10, 'stake-an-0001');
   assert.equal(again.replayed, true);
-  assert.deepEqual(again.dice, ['cua', 'cua', 'ga'], 'không lắc lại');
-  assert.equal(garden.me(an).coins, STARTING_COINS + 15, 'không cộng lần hai');
-  const kinds = garden.history(an).map((item) => [item.kind, item.amount]);
-  assert.deepEqual(kinds.slice(0, 2), [['game_win', 30], ['game_bet', -15]]);
-  // Không đủ xu / cược sai: từ chối, số dư không đổi.
-  assert.equal(garden.playBauCua(an, { cua: 999 }, 'round-000002').code, 'INSUFFICIENT_COINS');
-  assert.equal(garden.playBauCua(an, { rong: 5 }, 'round-000003').code, 'INVALID');
-  assert.equal(garden.playBauCua(an, { cua: 1.5 }, 'round-000004').code, 'INVALID');
-  assert.equal(garden.playBauCua(an, { cua: -5, tom: 10 }, 'round-000005').code, 'INVALID');
-  assert.equal(garden.playBauCua(an, {}, 'round-000006').code, 'INVALID');
-  assert.equal(garden.playBauCua(an, { cua: 5 }, 'x').code, 'IDEMPOTENCY_KEY_REQUIRED');
-  assert.equal(garden.me(an).coins, STARTING_COINS + 15);
+  assert.equal(coins(an), STARTING_COINS - 10, 'gửi lại cùng khóa không trừ hai lần');
+  stake(an, 'cua', 5, 'stake-an-0002');
+  assert.deepEqual(stake(an, 'tom', 5, 'stake-an-0003').mine, { cua: 15, tom: 5 });
+  stake(binh, 'ga', 20, 'stake-binh-001');
+  assert.equal(stake(binh, 'ga', 999, 'stake-binh-002').code, 'STAKE_LIMIT');
+  assert.equal(stake(binh, 'ga', 40, 'stake-binh-003').code, 'INSUFFICIENT_COINS');
+  assert.equal(stake(binh, 'rong', 5, 'stake-binh-004').code, 'INVALID');
+  assert.equal(garden.stakeBauCua({ accountId: an, roundId: 'khong-hop-le', animal: 'ga', amount: 5, key: 'stake-an-0009' }).code, 'INVALID');
+  // Lắc ra Cua, Cua, Gà: An Cua 15 → nhận 15 + 30, Tôm mất; Bình Gà 20 → nhận 20 + 20.
+  const settled = garden.settleBauCuaRound({ roundId: round, dice: ['cua', 'cua', 'ga'] });
+  assert.equal(settled.ok, true);
+  const byId = Object.fromEntries(settled.results.map((item) => [item.accountId, item]));
+  assert.deepEqual([byId[an].staked, byId[an].payout, byId[an].net], [20, 45, 25]);
+  assert.deepEqual([byId[binh].staked, byId[binh].payout, byId[binh].net], [20, 40, 20]);
+  assert.equal(coins(an), STARTING_COINS + 25);
+  assert.equal(coins(binh), STARTING_COINS + 20);
+  assert.equal(garden.settleBauCuaRound({ roundId: round, dice: ['nai', 'nai', 'nai'] }).replayed, true, 'chốt lại không trả hai lần');
+  assert.equal(coins(an), STARTING_COINS + 25);
+  assert.equal(stake(an, 'ca', 5, 'stake-an-0010').code, 'ROUND_CLOSED', 'ván đã chốt không nhận cược');
+  // Ván treo (máy realtime chết, không ai chốt): quá hạn thì hoàn cược, chốt muộn bị từ chối.
+  const lost = 'bc-game-1-1-2-efgh';
+  garden.stakeBauCua({ accountId: an, roundId: lost, animal: 'nai', amount: 7, key: 'stake-an-0011' });
+  assert.equal(coins(an), STARTING_COINS + 18);
+  tick(BAU_CUA_STALE_MS + 1_000);
+  assert.equal(garden.refundStaleBauCua(), 1);
+  assert.equal(coins(an), STARTING_COINS + 25, 'hoàn đủ cược');
+  assert.equal(garden.settleBauCuaRound({ roundId: lost, dice: ['nai', 'ga', 'ca'] }).code, 'ROUND_VOID');
+  assert.ok(garden.history(an).some((item) => item.kind === 'game_refund' && item.amount === 7));
   // Luật trả thưởng: trúng 1/2/3 lần, không trúng.
-  assert.deepEqual(settleBauCua({ nai: 10 }, ['nai', 'ga', 'ca']).payout, 20);
-  assert.deepEqual(settleBauCua({ ga: 10 }, ['ga', 'ga', 'ga']).payout, 40);
-  assert.deepEqual(settleBauCua({ bau: 10 }, ['ga', 'ga', 'ca']).payout, 0);
-  assert.equal(BAU_CUA_ANIMALS.length, 6);
+  assert.equal(settleBauCua({ nai: 10 }, ['nai', 'ga', 'ca']).payout, 20);
+  assert.equal(settleBauCua({ ga: 10 }, ['ga', 'ga', 'ga']).payout, 40);
+  assert.equal(settleBauCua({ bau: 10 }, ['ga', 'ga', 'ca']).payout, 0);
 });
 
 test('nhiệm vụ hằng ngày: làm xong mới nhận được, mỗi nhiệm vụ một lần mỗi ngày; sang ngày mới làm lại', async () => {

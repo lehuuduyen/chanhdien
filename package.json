@@ -18,6 +18,7 @@
     "dev:web": "node apps/web/server.mjs",
     "dev:api": "node apps/api/server.mjs",
     "dev:realtime": "node apps/realtime/server.mjs",
+    "build:web": "node scripts/build-web.mjs",
     "lint": "node scripts/check.mjs",
     "test": "node --test",
     "test:protocol": "node --test packages/protocol/test/*.test.mjs",

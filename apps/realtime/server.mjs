@@ -18,6 +18,7 @@ import {
   verifyResumeToken,
 } from '@chanh-dien/session-token';
 import { WebSocket, WebSocketServer } from 'ws';
+import { bauCuaBank, BauCuaTable } from './bau-cua.mjs';
 
 const HEARTBEAT_MS = 15_000;
 const MAX_PAYLOAD = 64 * 1_024;
@@ -175,6 +176,10 @@ export class Room {
     this.onReport = options.onReport || (() => {});
     this.friendRequests = new Map();
     this.challenges = new Map();
+    // Phòng game: bàn Bầu Cua chơi chung (chạy khi có người trong phòng). options.bauCua: { stake, settle } gọi API.
+    this.table = this.rules.interaction?.game === 'bau-cua'
+      ? new BauCuaTable({ room: this, rules: this.rules.interaction, ...(options.bauCua || {}) })
+      : null;
   }
 
   snapshot() {
@@ -1168,6 +1173,7 @@ export class Room {
       ...this.personalization(claims.participantId, previous),
     };
     this.participants.set(claims.participantId, participant);
+    this.table?.start();
     this.trimBotsForPeople();
     this.ensureBots();
     if (this.view) {
@@ -1205,6 +1211,7 @@ export class Room {
     if (this.realCount === 0) {
       this.removeBots();
       this.stopViews();
+      this.table?.stop();
     }
     this.revision += 1;
     this.broadcastState();
@@ -1317,6 +1324,7 @@ export class Room {
   close(code = CLOSE_ROOM_MOVED, reason = 'Phòng đã chuyển máy') {
     if (this.closed) return;
     this.closed = true;
+    this.table?.stop();
     clearTimeout(this.playback.timer);
     clearTimeout(this.moveTimer);
     clearInterval(this.botTimer);
@@ -1359,6 +1367,7 @@ export class RoomRegistry {
     this.onOffering = options.onOffering;
     this.onFriend = options.onFriend;
     this.onReport = options.onReport;
+    this.bauCua = options.bauCua;
     this.ticker = null;
     this.ticking = false;
   }
@@ -1386,6 +1395,7 @@ export class RoomRegistry {
       onOffering: this.onOffering,
       onFriend: this.onFriend,
       onReport: this.onReport,
+      bauCua: this.bauCua,
     });
     try {
       const record = await this.directory.loadSnapshot(roomId);
@@ -1539,6 +1549,13 @@ function handleRoomMessage(socket, context, raw) {
     room.broadcastState();
     if (room.view) room.sendCounts();
     send(socket, room.playbackState());
+    // Phòng game: trạng thái bàn Bầu Cua và cược của mình trong ván đang chạy (vào lại giữa ván).
+    if (room.table) {
+      const state = room.table.stateMessage();
+      if (state) send(socket, state);
+      const mine = room.table.mineMessage(joined.participant.accountId);
+      if (mine) send(socket, mine);
+    }
     return;
   }
 
@@ -1548,6 +1565,21 @@ function handleRoomMessage(socket, context, raw) {
   }
   if (message.type === 'ping') {
     send(socket, { v: PROTOCOL_VERSION, type: 'pong', epoch: room.epoch, sentAt: message.sentAt, serverTime: Date.now() });
+    return;
+  }
+  if (message.type === 'bet.place') {
+    if (!room.table) {
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Bầu Cua', message.requestId);
+      return;
+    }
+    if (!room.allow(`${context.participantId}:bet`, 10, 5_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn đặt cược quá nhanh', message.requestId);
+      return;
+    }
+    const participant = room.participants.get(context.participantId);
+    room.table.placeBet(participant, message).then((result) => {
+      if (!result.ok) protocolError(socket, room.epoch, result.code, result.message, message.requestId);
+    });
     return;
   }
   if (message.type === 'chat.send') {
@@ -1865,6 +1897,8 @@ export function createRealtimeServer(options = {}) {
     onOffering: options.recordOffering || (options.apiInternalUrl ? offeringRecorder(options.apiInternalUrl, secret) : undefined),
     onFriend: options.recordFriend || (options.apiInternalUrl ? friendRecorder(options.apiInternalUrl, secret) : undefined),
     onReport: options.recordReport || (options.apiInternalUrl ? reportRecorder(options.apiInternalUrl, secret) : undefined),
+    // Bầu Cua: đặt cược / chốt ván qua ví xu ở API.
+    bauCua: options.bauCua || (options.apiInternalUrl ? bauCuaBank(options.apiInternalUrl, internalKey(secret)) : undefined),
   });
   const server = http.createServer((req, res) => handleRealtimeRequest(req, res, registry, { secret }));
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });

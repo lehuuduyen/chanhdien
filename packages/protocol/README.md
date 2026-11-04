@@ -14,6 +14,7 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `bench.select` | mọi người trong chánh điện | 3/10 giây | `requestId`, `benchId`; server cấp `benchSpot` trống, tối đa theo room rules |
 | `travel.go` | mọi người trong chánh điện 3D | 3/10 giây | `requestId`, `destination` (`hall`, `courtyard`, `garden`); server tự tra tọa độ cố định |
 | `reaction.send` | mọi người | 6/10 giây | `requestId`, `kind` (`clap`, `laugh`, `heart`, `wow`, `cry`, `fire`); rạp phim: biểu tượng bay trên đầu nhân vật |
+| `bet.place` | thành viên đã đăng nhập (phòng game) | 10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván | `requestId`, `roundId`, `animal` (`nai`, `bau`, `ga`, `ca`, `cua`, `tom`), `amount` (1–1.000 xu); API trừ xu ngay |
 | `room.command` | moderator, host | 10/10 giây | `requestId`, `command` (`pause`, `resume`, `skip`) |
 | `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự) |
 | `vote.skip` | mọi người | 5/60 giây | `requestId`, `itemId` (bài đang chiếu) |
@@ -43,6 +44,9 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 | `challenge.state` | trận khiêu chiến (chỉ gửi hai người chơi); server làm trọng tài, lựa chọn chỉ lộ ra ở `last` khi lượt xong | `epoch`, `challengeId`, `game`, `fromId`, `toId`, `status` (`pending`, `declined`, `cancelled`, `expired`, `playing`, `finished`), `round`, `fromScore`, `toScore`, `target` (số lượt thắng để thắng trận), `deadline?`, `moved?` (`from`, `to`), `last?` (`from`, `to`, `winner`), `winner?` (`from`, `to`, `draw`) |
 | `garden.plot` | luống Vườn Công Đức vừa đổi (phát cho mọi phòng chánh điện; thao tác thật đi qua API `/api/v1/garden/*`) | `epoch`, `plots` (1–10 `{ id, crop }`; `crop` là `null` khi luống trống, hoặc `plantType`, `ownerName`, `stage` (`seed`, `sprout`, `young`, `fruiting`), `waterDays`, `waterNeeded`, `wateredToday` (tương thích client cũ), `canWater?`, `wilted?`, `lastWateredAt?`, `nextWaterAt?`, `wiltsAt?`, `fruitsLeft`, `fruitsTotal`, `plantedAt`), `effect?` (`plotId`, `kind`: `plant`/`water`/`harvest`, `by`) |
 | `reaction` | một người vừa thả cảm xúc (phát cả phòng, không lưu vào snapshot) | `epoch`, `participantId`, `kind`, `at` |
+| `game.state` | bàn Bầu Cua chung: đổi pha và khi tổng cược đổi (tối đa ~3 lần/giây); gửi cả khi vào phòng | `epoch`, `game` (`bau-cua`), `roundId`, `phase` (`betting`, `rolling`, `result`), `endsAt` (giờ server), `totals` (đủ 6 linh vật), `bettors`, `dice?` (3 linh vật), `winners?` (≤ 5 `{ displayName, net }`), `void?` (ván hủy, cược được hoàn) |
+| `game.mine` | cược của chính mình trong ván (sau mỗi lần đặt được, và khi vào lại giữa ván) | `epoch`, `roundId`, `mine` (`{ linh vật: xu }`), `coins?` (số dư ví), `requestId?` |
+| `game.payout` | kết quả của chính mình sau khi lắc (chỉ người có cược) | `epoch`, `roundId`, `staked`, `payout`, `net` (= payout − staked), `coins` |
 | `pong` | đo giờ server và độ trễ | `epoch`, `sentAt`, `serverTime` |
 | `protocol.error` | lỗi có mã ổn định | `epoch`, `code`, `message`, `requestId?` |
 

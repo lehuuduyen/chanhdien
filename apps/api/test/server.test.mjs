@@ -25,13 +25,16 @@ test('API công bố trạng thái và protocol version', async () => {
   assert.deepEqual(JSON.parse(response.body), { status: 'ok', service: 'api', protocolVersion: 1 });
 });
 
-test('sảnh công bố chánh điện và Cinema với sức chứa theo room rules', () => {
+test('sảnh công bố chánh điện, Cinema và phòng game với sức chứa theo room rules', () => {
   assert.deepEqual(listPublicRooms(), [{
     id: 'thien-1', type: 'thien', name: 'Chánh điện', status: 'open', participantCount: 0,
     maxParticipants: 500, seats: THIEN_RULES.seats, lang: 'vi',
   }, {
     id: 'cinema-1', type: 'cinema', name: 'Cinema #1', status: 'open', participantCount: 0,
     maxParticipants: 500, seats: 100, lang: 'vi',
+  }, {
+    id: 'game-1', type: 'game', name: 'Bầu Cua #1', status: 'open', participantCount: 0,
+    maxParticipants: 500, seats: undefined, lang: 'vi',
   }]);
 });
 

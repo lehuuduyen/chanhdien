@@ -1075,3 +1075,96 @@ test('rạp phim: đi lại trong rạp, ngồi ghế; thả cảm xúc phát c�
   assert.equal(room.reaction('ghost', 'clap').error, 'NOT_IN_ROOM');
   room.close();
 });
+
+test('phòng game: Bầu Cua chơi chung — cả bàn cùng một ván, cược qua ví (API), lắc xong trả thưởng từng người; khách không cược được', async () => {
+  const wallet = new Map([['a-an-00000001', 50], ['a-binh-0000001', 50]]);
+  const stakes = [];
+  const bank = {
+    rules: { bettingMs: 120, rollingMs: 40, resultMs: 60, maxStakePerRound: 1_000 },
+    random: () => 4, // luôn ra Cua
+    stake: async ({ accountId, roundId, animal, amount }) => {
+      if (wallet.get(accountId) < amount) return { ok: false, code: 'INSUFFICIENT_COINS' };
+      wallet.set(accountId, wallet.get(accountId) - amount);
+      stakes.push({ accountId, roundId, animal, amount });
+      const mine = {};
+      for (const item of stakes) if (item.accountId === accountId && item.roundId === roundId) mine[item.animal] = (mine[item.animal] || 0) + item.amount;
+      return { ok: true, mine, coins: wallet.get(accountId) };
+    },
+    settle: async ({ roundId, dice }) => {
+      const results = [];
+      for (const accountId of new Set(stakes.filter((item) => item.roundId === roundId).map((item) => item.accountId))) {
+        let staked = 0;
+        let payout = 0;
+        for (const item of stakes.filter((entry) => entry.roundId === roundId && entry.accountId === accountId)) {
+          const hits = dice.filter((face) => face === item.animal).length;
+          staked += item.amount;
+          if (hits) payout += item.amount * (1 + hits);
+        }
+        wallet.set(accountId, wallet.get(accountId) + payout);
+        results.push({ accountId, staked, payout, net: payout - staked, coins: wallet.get(accountId) });
+      }
+      return { ok: true, results };
+    },
+  };
+  const room = new Room('game-1', { bauCua: bank });
+  const inbox = new Map();
+  const socketFor = (id) => {
+    inbox.set(id, []);
+    return { readyState: WebSocket.OPEN, send: (raw) => inbox.get(id).push(JSON.parse(raw)), close() {} };
+  };
+  room.join(socketFor('an'), { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
+  room.join(socketFor('binh'), { participantId: 'binh', displayName: 'Bình', accountId: 'a-binh-0000001' });
+  room.join(socketFor('khach'), { participantId: 'khach', displayName: 'Khách' });
+  const state = () => room.table.stateMessage();
+  assert.equal(state().phase, 'betting');
+  const roundId = state().roundId;
+  const bet = (id, animal, amount, requestId) => room.table.placeBet(room.participants.get(id), { requestId, roundId, animal, amount });
+  assert.deepEqual(await bet('an', 'cua', 10, 'b-1'), { ok: true });
+  assert.deepEqual(await bet('an', 'tom', 5, 'b-2'), { ok: true });
+  assert.deepEqual(await bet('binh', 'ga', 20, 'b-3'), { ok: true });
+  assert.equal((await bet('binh', 'ga', 999, 'b-4')).code, 'STAKE_LIMIT');
+  assert.equal((await bet('khach', 'cua', 5, 'b-5')).code, 'SIGN_IN_REQUIRED');
+  assert.equal(wallet.get('a-an-00000001'), 35, 'trừ xu ngay khi đặt');
+  const mine = inbox.get('an').filter((message) => message.type === 'game.mine').at(-1);
+  assert.deepEqual(mine.mine, { cua: 10, tom: 5 });
+  assert.equal(parseServerMessage(mine).ok, true);
+  await new Promise((resolve) => setTimeout(resolve, 360));
+  // Mọi người (kể cả khách) nhận cùng một bàn: tổng cược, số người cược, xúc xắc, người thắng.
+  const shared = inbox.get('khach').filter((message) => message.type === 'game.state' && message.roundId === roundId);
+  for (const message of shared) assert.equal(parseServerMessage(message).ok, true, JSON.stringify(message));
+  const result = shared.find((message) => message.phase === 'result');
+  assert.deepEqual(result.dice, ['cua', 'cua', 'cua']);
+  assert.deepEqual(result.totals, { nai: 0, bau: 0, ga: 20, ca: 0, cua: 10, tom: 5 });
+  assert.equal(result.bettors, 2);
+  assert.deepEqual(result.winners, [{ displayName: 'An', net: 25 }]);
+  // An: Cua 10 ra 3 lần → nhận 40, Tôm mất 5 → lời 25. Bình: Gà mất 20.
+  const payoutAn = inbox.get('an').find((message) => message.type === 'game.payout');
+  assert.deepEqual([payoutAn.staked, payoutAn.payout, payoutAn.net, payoutAn.coins], [15, 40, 25, 75]);
+  assert.equal(parseServerMessage(payoutAn).ok, true);
+  assert.equal(inbox.get('binh').find((message) => message.type === 'game.payout').net, -20);
+  assert.equal(inbox.get('khach').some((message) => message.type === 'game.payout'), false);
+  // Ván mới tự bắt đầu; cược vào ván cũ bị từ chối.
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.notEqual(state().roundId, roundId);
+  assert.equal(state().phase, 'betting');
+  assert.equal((await bet('an', 'cua', 5, 'b-6')).code, 'BETTING_CLOSED');
+  room.close();
+});
+
+test('phòng game: API không chốt được ván thì ván bị hủy (void), không trả thưởng sai', async () => {
+  const bank = {
+    rules: { bettingMs: 60, rollingMs: 20, resultMs: 1_000, maxStakePerRound: 1_000 },
+    stake: async ({ amount }) => ({ ok: true, mine: { nai: amount }, coins: 10 }),
+    settle: async () => null,
+  };
+  const room = new Room('game-1', { bauCua: bank });
+  const inbox = [];
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} }, { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
+  await room.table.placeBet(room.participants.get('an'), { requestId: 'b-1', roundId: room.table.stateMessage().roundId, animal: 'nai', amount: 5 });
+  await new Promise((resolve) => setTimeout(resolve, 1_400));
+  const result = inbox.filter((message) => message.type === 'game.state').find((message) => message.phase === 'result');
+  assert.equal(result.void, true);
+  assert.equal(result.winners, undefined);
+  assert.equal(inbox.some((message) => message.type === 'game.payout'), false);
+  room.close();
+});

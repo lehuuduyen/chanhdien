@@ -12,3 +12,8 @@ npm run dev:cluster   # web, API, realtime rt-1 (:4001), rt-2 (:4002) dùng REDI
 ```
 
 Biến môi trường: `REDIS_URL`, `REDIS_PREFIX` (mặc định `cdo:`), `NODE_ID`, `REALTIME_PUBLIC_URL`, `SESSION_SECRET` (dùng chung cho API và mọi máy realtime).
+
+## Production
+
+Mẫu triển khai toàn bộ web/API/realtime trên VPS, Cloudflare đứng trước, cùng systemd, Nginx và GitHub Actions nằm trong
+[`production/`](production/README.md). Pipeline chỉ phát hành commit `main` sau khi workflow CI đạt.

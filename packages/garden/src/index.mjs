@@ -1,5 +1,3 @@
-import { randomInt } from 'node:crypto';
-
 // Vườn Công Đức: 10 luống trồng chung cho mọi phòng chánh điện, xu ảo (không đổi ra tiền thật), hạt giống, quả.
 // Mọi thay đổi số dư / kho / luống chạy trong một giao dịch SQLite (BEGIN IMMEDIATE) trên cùng file với tài khoản;
 // ràng buộc duy nhất trong cơ sở dữ liệu chặn hai người cùng chiếm một luống. Mốc tưới lấy từ đồng hồ
@@ -24,9 +22,13 @@ export const PLANTS = Object.freeze({
   peach: Object.freeze({ seedPrice: 20, fruitPrice: 10 }),
 });
 const STAGES = ['seed', 'sprout', 'young'];
-// Bầu Cua Tôm Cá ở phòng game: cược bằng xu của ví (xu bán trái cây), 1 xu cược = 1 xu trong ví.
+// Bầu Cua Tôm Cá ở phòng game (chơi chung, thời gian thực): cược bằng xu của ví (xu bán trái cây), 1 xu cược = 1 xu
+// ví. Máy realtime giữ nhịp ván và lắc; API (ở đây) giữ tiền: đặt cược trừ ngay, trả thưởng cả ván một lần. Ván treo
+// quá BAU_CUA_STALE_MS (máy realtime chết giữa ván) thì hoàn cược.
 export const BAU_CUA_ANIMALS = Object.freeze(['nai', 'bau', 'ga', 'ca', 'cua', 'tom']);
 export const BAU_CUA_MAX_STAKE = 1_000;
+export const BAU_CUA_STALE_MS = 3 * 60_000;
+const ROUND_ID = /^bc-[a-z0-9-]{4,76}$/;
 // Nhiệm vụ hằng ngày (theo ngày của vườn): làm xong thì bấm nhận xu, mỗi nhiệm vụ một lần mỗi ngày. Server tự kiểm
 // tra trong lịch sử tưới / hái / dâng quả; điểm danh thì chỉ cần đăng nhập.
 export const DAILY_QUESTS = Object.freeze([
@@ -198,6 +200,37 @@ const MIGRATIONS = [
     at INTEGER NOT NULL,
     PRIMARY KEY (account_id, day, quest)
   );`,
+  // Bầu Cua chơi chung: cược theo ván (cộng dồn theo linh vật), ván đã chốt (trả thưởng hoặc hủy), loại giao dịch hoàn cược.
+  `CREATE TABLE coin_transactions_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('grant', 'buy_seed', 'sell_fruit', 'game_bet', 'game_win', 'game_refund', 'quest')),
+    plant_type TEXT,
+    quantity INTEGER,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO coin_transactions_new SELECT * FROM coin_transactions;
+  DROP TABLE coin_transactions;
+  ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
+  CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);
+  CREATE TABLE IF NOT EXISTS bau_cua_stakes (
+    round_id TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    animal TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (round_id, account_id, animal)
+  );
+  CREATE INDEX IF NOT EXISTS bau_cua_stakes_time ON bau_cua_stakes(at);
+  CREATE TABLE IF NOT EXISTS bau_cua_rounds (
+    round_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('settled', 'void')),
+    dice TEXT,
+    results TEXT NOT NULL,
+    at INTEGER NOT NULL
+  );`,
 ];
 
 // Trả thưởng một ván Bầu Cua. bets: { linh vật: xu }, dice: 3 linh vật. Linh vật có cược xuất hiện k lần: nhận lại
@@ -215,8 +248,7 @@ export function settleBauCua(bets, dice) {
 }
 
 // db: kết nối DatabaseSync đã có bảng accounts (dùng chung với @chanh-dien/accounts).
-// random(n): số nguyên ngẫu nhiên 0…n−1 cho xúc xắc (mặc định crypto.randomInt; test truyền hàm cố định).
-export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_Angeles', random = randomInt }) {
+export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_Angeles' }) {
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('CREATE TABLE IF NOT EXISTS garden_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
   const version = Number(db.prepare("SELECT value FROM garden_meta WHERE key = 'schema_version'").get()?.value || 0);
@@ -276,6 +308,14 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     wateredOn: db.prepare('SELECT 1 FROM crop_watering_events WHERE account_id = ? AND day = ? LIMIT 1'),
     harvestsSince: db.prepare('SELECT at FROM crop_harvest_events WHERE account_id = ? AND at >= ?'),
     offeringsSince: db.prepare('SELECT at FROM fruit_offerings WHERE account_id = ? AND at >= ?'),
+    stake: db.prepare(`INSERT INTO bau_cua_stakes (round_id, account_id, animal, amount, at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(round_id, account_id, animal) DO UPDATE SET amount = amount + excluded.amount, at = excluded.at`),
+    stakesOf: db.prepare('SELECT animal, amount FROM bau_cua_stakes WHERE round_id = ? AND account_id = ?'),
+    roundStakes: db.prepare('SELECT account_id AS accountId, animal, amount FROM bau_cua_stakes WHERE round_id = ?'),
+    roundDone: db.prepare('SELECT status, dice, results FROM bau_cua_rounds WHERE round_id = ?'),
+    closeRound: db.prepare('INSERT INTO bau_cua_rounds (round_id, status, dice, results, at) VALUES (?, ?, ?, ?, ?)'),
+    staleRounds: db.prepare(`SELECT s.round_id AS roundId FROM bau_cua_stakes s LEFT JOIN bau_cua_rounds r ON r.round_id = s.round_id
+      WHERE r.round_id IS NULL GROUP BY s.round_id HAVING MAX(s.at) < ?`),
     gameRound: db.prepare('INSERT INTO game_rounds (account_id, game, bets, dice, staked, payout, balance_after, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
   };
 
@@ -353,6 +393,16 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     q.setBalance.run(balance, now(), accountId);
     q.coinTx.run(accountId, amount, balance, kind, plantType, quantity, now());
     return balance;
+  }
+
+  // Ván Bầu Cua treo quá hạn (máy realtime chết giữa ván): hoàn từng cược, đánh dấu ván hủy. Chạy trong giao dịch.
+  function refundStale() {
+    const stale = q.staleRounds.all(now() - BAU_CUA_STALE_MS);
+    for (const { roundId } of stale) {
+      for (const row of q.roundStakes.all(roundId)) changeCoins(row.accountId, row.amount, 'game_refund', null, null);
+      q.closeRound.run(roundId, 'void', null, '[]', now());
+    }
+    return stale.length;
   }
 
   // Nhiệm vụ hôm nay của một người: đã làm chưa (từ lịch sử), đã nhận xu chưa.
@@ -484,40 +534,62 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       return q.transactions.all(accountId, Math.min(Math.max(1, limit), 100));
     },
 
-    // Một ván Bầu Cua: kiểm tra cược, trừ xu, server lắc 3 xúc xắc, cộng thưởng, ghi sổ — cùng một giao dịch.
-    // Cùng idempotencyKey gửi lại: trả nguyên kết quả cũ (không lắc lại, không trừ/cộng lần hai).
-    // Trả { ok, dice, hits, staked, payout, net, coins } hoặc { ok: false, code, coins }.
-    playBauCua(accountId, bets, idempotencyKey) {
-      if (typeof idempotencyKey !== 'string' || !IDEMPOTENCY_KEY.test(idempotencyKey)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+    // Bầu Cua chơi chung — đặt cược (máy realtime gọi qua /internal): trừ xu ngay, cộng dồn vào cược của ván.
+    // Ván đã chốt thì từ chối. Cùng key gửi lại trả nguyên kết quả cũ. Trả { ok, mine: { linh vật: xu }, coins }.
+    stakeBauCua({ accountId, roundId, animal, amount, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (typeof roundId !== 'string' || !ROUND_ID.test(roundId) || !BAU_CUA_ANIMALS.includes(animal)
+        || !Number.isSafeInteger(amount) || amount < 1 || amount > BAU_CUA_MAX_STAKE) return { ok: false, code: 'INVALID' };
       if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
-      // Chỉ nhận đúng 6 linh vật, số xu nguyên dương; tổng cược 1…BAU_CUA_MAX_STAKE.
-      const clean = {};
-      const valid = bets && typeof bets === 'object' && !Array.isArray(bets) && Object.entries(bets).every(([id, amount]) => {
-        if (!BAU_CUA_ANIMALS.includes(id) || !Number.isSafeInteger(amount) || amount < 0) return false;
-        if (amount) clean[id] = amount;
-        return true;
-      });
-      const total = Object.values(clean).reduce((sum, amount) => sum + amount, 0);
-      if (!valid || total < 1 || total > BAU_CUA_MAX_STAKE) return { ok: false, code: 'INVALID' };
       return transaction(() => {
-        const previous = q.request.get(accountId, idempotencyKey);
-        if (previous) {
-          if (previous.action !== 'bau_cua') return { ok: false, code: 'IDEMPOTENCY_KEY_REUSED' };
-          return { ...JSON.parse(previous.response), replayed: true };
-        }
+        refundStale();
+        const previous = q.request.get(accountId, key);
+        if (previous) return { ...JSON.parse(previous.response), replayed: true };
+        const mineBefore = Object.fromEntries(q.stakesOf.all(roundId, accountId).map((row) => [row.animal, row.amount]));
+        const total = Object.values(mineBefore).reduce((sum, value) => sum + value, 0);
         let result;
-        if (ensureWallet(accountId) < total) result = { ok: false, code: 'INSUFFICIENT_COINS', coins: ensureWallet(accountId) };
+        if (q.roundDone.get(roundId)) result = { ok: false, code: 'ROUND_CLOSED' };
+        else if (total + amount > BAU_CUA_MAX_STAKE) result = { ok: false, code: 'STAKE_LIMIT' };
+        else if (ensureWallet(accountId) < amount) result = { ok: false, code: 'INSUFFICIENT_COINS', coins: ensureWallet(accountId) };
         else {
-          const dice = [0, 1, 2].map(() => BAU_CUA_ANIMALS[random(BAU_CUA_ANIMALS.length)]);
-          const { staked, payout, net, hits } = settleBauCua(clean, dice);
-          let coins = changeCoins(accountId, -staked, 'game_bet', null, null);
-          if (payout) coins = changeCoins(accountId, payout, 'game_win', null, null);
-          q.gameRound.run(accountId, 'bau_cua', JSON.stringify(clean), JSON.stringify(dice), staked, payout, coins, now());
-          result = { ok: true, dice, hits, staked, payout, net, coins };
+          const coins = changeCoins(accountId, -amount, 'game_bet', null, null);
+          q.stake.run(roundId, accountId, animal, amount, now());
+          result = { ok: true, mine: { ...mineBefore, [animal]: (mineBefore[animal] || 0) + amount }, coins };
         }
-        q.saveRequest.run(accountId, idempotencyKey, 'bau_cua', JSON.stringify(result), now());
+        q.saveRequest.run(accountId, key, 'bau_cua_stake', JSON.stringify(result), now());
         return result;
       });
+    },
+
+    // Bầu Cua chơi chung — chốt ván (máy realtime gọi sau khi lắc): trả thưởng mọi cược của ván trong một giao dịch.
+    // Gọi lại cùng ván: trả nguyên kết quả cũ. Ván đã bị hủy (quá hạn, đã hoàn cược): { ok: false, code: 'ROUND_VOID' }.
+    // Trả { ok, results: [{ accountId, staked, payout, net, coins }] }.
+    settleBauCuaRound({ roundId, dice }) {
+      if (typeof roundId !== 'string' || !ROUND_ID.test(roundId) || !Array.isArray(dice) || dice.length !== 3
+        || !dice.every((item) => BAU_CUA_ANIMALS.includes(item))) return { ok: false, code: 'INVALID' };
+      return transaction(() => {
+        const done = q.roundDone.get(roundId);
+        if (done) return done.status === 'void' ? { ok: false, code: 'ROUND_VOID' } : { ok: true, results: JSON.parse(done.results), replayed: true };
+        const byAccount = new Map();
+        for (const row of q.roundStakes.all(roundId)) {
+          if (!byAccount.has(row.accountId)) byAccount.set(row.accountId, {});
+          byAccount.get(row.accountId)[row.animal] = row.amount;
+        }
+        const results = [];
+        for (const [accountId, bets] of byAccount) {
+          const { staked, payout, net } = settleBauCua(bets, dice);
+          const coins = payout ? changeCoins(accountId, payout, 'game_win', null, null) : ensureWallet(accountId);
+          q.gameRound.run(accountId, 'bau_cua', JSON.stringify(bets), JSON.stringify(dice), staked, payout, coins, now());
+          results.push({ accountId, staked, payout, net, coins });
+        }
+        q.closeRound.run(roundId, 'settled', JSON.stringify(dice), JSON.stringify(results), now());
+        return { ok: true, results };
+      });
+    },
+
+    // Hoàn cược các ván treo (không được chốt sau BAU_CUA_STALE_MS). Trả số ván đã hủy.
+    refundStaleBauCua() {
+      return transaction(refundStale);
     },
 
     // Thực hiện một thao tác kinh tế / luống. idempotencyKey bắt buộc: gửi lại cùng khóa trả nguyên kết quả cũ.
