@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@chanh-dien/accounts": "0.1.0",
+    "@chanh-dien/community-project": "0.1.0",
     "@chanh-dien/garden": "0.1.0",
     "@chanh-dien/protocol": "0.1.0",
     "@chanh-dien/room-directory": "0.1.0",

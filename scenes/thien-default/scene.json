@@ -2226,7 +2226,9 @@
       "bodhi": {
         "x": -22,
         "z": 50,
-        "size": 1.75
+        "size": 1.75,
+        "projectId": "bodhi-global-1",
+        "stageScales": [0, 0.18, 0.42, 0.72, 1]
       },
       "guanyin": {
         "x": 22,

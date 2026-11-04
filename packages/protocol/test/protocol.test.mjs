@@ -220,6 +220,18 @@ test('garden.plot: luống trống hoặc có vụ hợp lệ; từ chối luố
   assert.equal(parseServerMessage({ v: 1, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop }], effect: { plotId: 1, kind: 'harvest', by: 'An' } }).ok, true);
 });
 
+test('community.project chỉ nhận snapshot công trình chung hợp lệ', () => {
+  const project = {
+    id: 'bodhi-global-1', kind: 'bodhi', stage: 'young', stageIndex: 2,
+    progress: 520, target: 1_000, percent: 52, completed: false,
+    contributors: 18, contributions: 74, updatedAt: 1_000,
+  };
+  assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project }).ok, true);
+  assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project: { ...project, stageIndex: 4 } }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project: { ...project, progress: 1_200 } }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project: { ...project, state: 'AZ' } }).error, 'INVALID_MESSAGE');
+});
+
 test('phòng đông: room.count (tổng có bot, bảng công đức, hạng) và tên người gửi tùy chọn', () => {
   const count = { v: 1, type: 'room.count', epoch: 1, total: 523, bots: 8, top: [{ id: 'p-1', displayName: 'An', merit: 40, level: 2 }], rank: 1 };
   assert.equal(parseServerMessage(count).ok, true);

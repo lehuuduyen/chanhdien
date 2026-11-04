@@ -14,6 +14,7 @@ import { sutraById, sutraLines } from '/sutras.js';
 import { createMala } from '/mala.js';
 import { createPlayerSocial } from '/player-social.js';
 import { createGardenUI } from '/garden-ui.js';
+import { createCommunityProjectUI } from '/community-project-ui.js';
 import { limitThienScene } from '/thien-scene.js';
 import { createBootLoader, waitFor } from '/boot-loader.js';
 import { renderChibiPortraits } from '/chibi-preview.js';
@@ -157,6 +158,7 @@ function goToCinema() {
 }
 // Vườn Công Đức (luống trồng chung, xu ảo). Tạo sau khi có tài khoản (bên dưới).
 let garden = null;
+let communityProject = null;
 // Bấm vào người khác: thẻ thông tin, kết bạn, khiêu chiến kéo búa bao. Tạo sau khi có âm thanh (bên dưới).
 let social = null;
 
@@ -468,6 +470,7 @@ function showGuestName(account) {
 function accountChanged(account) {
   showGuestName(account);
   garden?.accountChanged();
+  communityProject?.accountChanged();
   if (!session.participantId) return;
   const name = account?.displayName || elements.dharma.value.trim() || session.displayName;
   // Đổi tài khoản là vào lại phòng: giữ nhân vật ở chỗ đang đứng (vd: trước quầy hạt giống).
@@ -576,6 +579,7 @@ async function setViewMode(mode) {
     setCurrentPlace('hall');
   }
   renderer.setParticipants(sceneParticipants());
+  renderer.setCommunityProject?.(communityProject?.state());
   renderer.setCeremony?.(ceremonySettings());
   renderer.setCeremonyActive?.(!lecture.active);
   updateInsets();
@@ -709,6 +713,7 @@ function showToast(text, badges = {}) {
 function handleMessage(message) {
   if (social?.onMessage(message)) return;
   if (garden?.onMessage(message)) return;
+  if (communityProject?.onMessage(message)) return;
   if (message.type === 'welcome') {
     seatAttempts = 0;
     for (const button of elements.offerings.querySelectorAll('button')) button.disabled = false;
@@ -1161,6 +1166,15 @@ $('coinChip').addEventListener('click', () => {
 // Quay lại tab (vd: vừa chơi ở phòng game tab khác): đọc lại số xu.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) garden?.refreshCoins(); });
 garden.start();
+communityProject = createCommunityProjectUI({
+  stage: elements.stage,
+  chip: $('communityProjectChip'),
+  account: () => accountUI.account,
+  openSignIn: () => $('meChip').click(),
+  showToast,
+  applyProject: (project) => renderer?.setCommunityProject?.(project),
+});
+communityProject.start();
 try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienGarden = garden; } catch {}
 social = createPlayerSocial({
   stage: elements.stage,

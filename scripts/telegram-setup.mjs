@@ -4,6 +4,7 @@
 //   npm run telegram:setup            # xem bot, liệt kê các chat đã nhắn cho bot (lấy chat ID)
 //   npm run telegram:setup -- --save  # có đúng một chat: ghi TELEGRAM_CHAT_ID vào .env.online
 //   npm run telegram:setup -- --test  # gửi tin thử tới TELEGRAM_CHAT_ID
+//   npm run telegram:setup -- --webhook https://lotusgather.online/api/v1/telegram/donate
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
 const ENV_FILE = '.env.online';
@@ -19,6 +20,7 @@ const fileEnv = (() => {
 })();
 const token = process.env.TELEGRAM_BOT_TOKEN || fileEnv.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID || fileEnv.TELEGRAM_CHAT_ID;
+const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || fileEnv.TELEGRAM_WEBHOOK_SECRET;
 const args = process.argv.slice(2);
 
 if (!token) {
@@ -50,6 +52,31 @@ try {
 } catch (error) {
   console.error(`Token không dùng được: ${error.message}. Kiểm tra lại TELEGRAM_BOT_TOKEN.`);
   process.exit(1);
+}
+
+const webhookIndex = args.indexOf('--webhook');
+if (webhookIndex >= 0) {
+  const url = args[webhookIndex + 1];
+  if (!/^https:\/\/[^\s]+$/i.test(url || '') || !/^[A-Za-z0-9_-]{16,256}$/.test(webhookSecret || '')) {
+    console.error(`Thiếu URL https hoặc TELEGRAM_WEBHOOK_SECRET hợp lệ.
+Tạo khóa: openssl rand -hex 32
+Thêm TELEGRAM_WEBHOOK_SECRET=<khóa> vào .env.online (hoặc file env VPS), rồi chạy lại.`);
+    process.exit(1);
+  }
+  try {
+    await call('setWebhook', { url, secret_token: webhookSecret, allowed_updates: ['message'] });
+    console.log(`Đã đặt webhook: ${url}\nTrong đúng chat quản trị, gửi: donate 1`);
+  } catch (error) {
+    console.error(`Không đặt được webhook: ${error.message}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+if (args.includes('--delete-webhook')) {
+  await call('deleteWebhook', { drop_pending_updates: false });
+  console.log('Đã tắt webhook Telegram.');
+  process.exit(0);
 }
 
 if (args.includes('--test')) {

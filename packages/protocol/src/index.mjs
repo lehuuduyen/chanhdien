@@ -45,6 +45,8 @@ const RESULT_SIDES = ['from', 'to', 'draw'];
 export const GARDEN_PLANTS = Object.freeze(['apple', 'orange', 'peach']);
 export const GARDEN_STAGES = Object.freeze(['seed', 'sprout', 'young', 'fruiting']);
 export const GARDEN_EFFECTS = Object.freeze(['plant', 'water', 'harvest']);
+// Công trình Bồ Đề dùng chung toàn hệ thống. Đóng góp đi qua REST có đăng nhập; realtime chỉ phát snapshot công khai.
+export const COMMUNITY_PROJECT_STAGES = Object.freeze(['ground', 'sprout', 'young', 'mature', 'complete']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
 export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
@@ -466,6 +468,24 @@ const serverSchemas = {
       && (message.effect === undefined || (isRecord(message.effect) && exactKeys(message.effect, ['plotId', 'kind', 'by'])
         && isInteger(message.effect.plotId) && message.effect.plotId >= 1 && message.effect.plotId <= 10
         && GARDEN_EFFECTS.includes(message.effect.kind) && isString(message.effect.by, LIMITS.displayName)));
+  },
+  'community.project'(message) {
+    const project = message.project;
+    return exactKeys(message, ['v', 'type', 'epoch', 'project'])
+      && isRecord(project)
+      && exactKeys(project, ['id', 'kind', 'stage', 'stageIndex', 'progress', 'target', 'percent', 'completed', 'contributors', 'contributions', 'updatedAt'])
+      && project.id === 'bodhi-global-1'
+      && project.kind === 'bodhi'
+      && COMMUNITY_PROJECT_STAGES.includes(project.stage)
+      && isInteger(project.stageIndex) && project.stageIndex === COMMUNITY_PROJECT_STAGES.indexOf(project.stage)
+      && isInteger(project.progress) && project.progress >= 0
+      && isInteger(project.target) && project.target > 0 && project.progress <= project.target
+      && isInteger(project.percent) && project.percent >= 0 && project.percent <= 100
+      && typeof project.completed === 'boolean'
+      && project.completed === (project.stage === 'complete')
+      && isInteger(project.contributors) && project.contributors >= 0
+      && isInteger(project.contributions) && project.contributions >= 0
+      && isInteger(project.updatedAt) && project.updatedAt >= 0;
   },
   pong(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'sentAt', 'serverTime'])

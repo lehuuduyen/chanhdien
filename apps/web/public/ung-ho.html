@@ -209,6 +209,9 @@
     });
 
     load();
+    // Quản trị có thể cộng tiền bằng Telegram `donate 1`; trang đang mở tự lấy số mới, không cần tải lại tay.
+    setInterval(load, 15_000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   </script>
 </body>
 </html>
