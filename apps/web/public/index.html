@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#120b08">
+  <meta name="description" content="Chọn một không gian và cùng tham gia tại Chánh Điện Online." data-home-i18n-content="meta.description">
+  <title>Chánh Điện Online</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Chánh Điện Online, trang chủ" data-home-i18n-aria="brand.aria">
+        <span class="brand-mark" aria-hidden="true">蓮</span>
+        <span>Chánh Điện Online</span>
+      </a>
+      <div class="top-actions">
+        <label class="language-picker">
+          <span aria-hidden="true">🌐</span>
+          <select id="homeLanguage" aria-label="Ngôn ngữ" data-home-i18n-aria="language.label">
+            <option value="vi">Tiếng Việt</option>
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+            <option value="es">Español</option>
+          </select>
+        </label>
+        <span class="status"><i aria-hidden="true"></i><span data-home-i18n="status.local">Bản thử cục bộ</span></span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow" data-home-i18n="hero.eyebrow">Không gian chung, khoảnh khắc chung</p>
+          <h1 data-home-i18n="hero.title">Chọn một phòng\nvà cùng tham gia.</h1>
+        </div>
+        <p class="intro" data-home-i18n="hero.intro">Bước vào không gian 2.5D, chọn chỗ ngồi và trải nghiệm các tương tác đang được phát triển cho nền tảng nhiều phòng.</p>
+      </section>
+
+      <section class="rooms" aria-labelledby="room-title" data-home-i18n-aria="rooms.aria">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow" data-home-i18n="rooms.open">Đang mở</p>
+            <h2 id="room-title" data-home-i18n="rooms.title">Phòng trải nghiệm</h2>
+          </div>
+          <p class="room-count" data-home-i18n="rooms.count">01 phòng</p>
+        </div>
+
+        <article class="room-card">
+          <div class="room-visual" aria-hidden="true">
+            <span class="live-pill"><i></i><span data-home-i18n="rooms.live">Đang mở</span></span>
+            <span class="lotus">✦</span>
+          </div>
+          <div class="room-copy">
+            <div>
+              <p class="room-type" data-home-i18n="temple.type">Thiền · Tụng kinh</p>
+              <h3 data-home-i18n="temple.name">Chánh điện Tịnh Tâm</h3>
+              <p data-home-i18n="temple.description">Nhập pháp danh, chọn y phục, cùng mọi người an tọa, nghe chuông mõ chung nhịp, dâng hương và gửi lời nguyện.</p>
+            </div>
+            <ul class="features" aria-label="Tính năng" data-home-i18n-aria="features.aria">
+              <li data-home-i18n="features.people">Nhiều người thật</li>
+              <li data-home-i18n="features.seats">Bồ đoàn theo cấu hình</li>
+              <li data-home-i18n="features.sync">Chuông mõ cùng nhịp</li>
+            </ul>
+            <a class="enter-button" href="/chanh-dien.html">
+              <span data-home-i18n="temple.enter">Vào chánh điện</span>
+              <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </article>
+
+        <div class="coming-grid" aria-label="Phòng sắp ra mắt" data-home-i18n-aria="coming.aria">
+          <a class="coming-card coming-card-active" href="/room.html?room=cinema-1">
+            <span aria-hidden="true">▶</span>
+            <div><small data-home-i18n="cinema.label">Phòng thử realtime</small><h3>Cinema</h3></div>
+            <b aria-hidden="true">→</b>
+          </a>
+          <article class="coming-card">
+            <span aria-hidden="true">♫</span>
+            <div><small data-home-i18n="coming.soon">Sắp ra mắt</small><h3>Music</h3></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Protocol v1</span>
+      <span data-home-i18n="footer.stage">Giai đoạn nền móng</span>
+      <a href="/ung-ho.html" data-home-i18n="footer.donate">💝 Góp duy trì server</a>
+      <a href="/ho-tro.html?from=/" data-home-i18n="footer.support">🛟 Góp ý / Báo lỗi</a>
+    </footer>
+  </div>
+  <script type="module" src="/home.js"></script>
+</body>
+</html>

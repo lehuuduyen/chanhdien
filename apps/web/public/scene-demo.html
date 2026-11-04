@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#05070a">
+  <title>Thử cảnh 2.5D · Chánh Điện Online</title>
+  <link rel="stylesheet" href="/scene-demo.css">
+</head>
+<body>
+  <main class="demo">
+    <div class="stage" id="stage">
+      <canvas id="scene" aria-label="Cảnh 2.5D, bấm vào ghế để ngồi"></canvas>
+      <div class="screen-slot" id="screenSlot" hidden><span>Màn chiếu</span><small>YouTube gắn vào đây ở giai đoạn 3</small></div>
+      <output class="fps" id="fps">— FPS</output>
+    </div>
+
+    <form class="controls" id="controls">
+      <h1>Thử cảnh 2.5D</h1>
+      <label>Cảnh
+        <select id="sceneId">
+          <option value="cinema-default">Rạp chiếu (vẽ bằng code)</option>
+          <option value="thien-default">Chánh điện (ảnh có sẵn)</option>
+        </select>
+      </label>
+      <label>Số người <b id="countLabel">0</b>
+        <input id="count" type="range" min="0" max="100" value="60">
+      </label>
+      <fieldset class="cameras" id="cameras">
+        <legend>Góc nhìn</legend>
+        <button type="button" data-camera="overview" aria-pressed="true">Toàn cảnh</button>
+        <button type="button" data-camera="seat" aria-pressed="false">Ghế của tôi</button>
+        <button type="button" data-camera="screen" aria-pressed="false">Màn chiếu</button>
+        <button type="button" data-camera="audience" aria-pressed="false">Khán giả</button>
+      </fieldset>
+      <label class="check"><input id="chatter" type="checkbox" checked> Chat ngẫu nhiên</label>
+      <p class="hint" id="hint">Bấm vào ghế trống để ngồi.</p>
+    </form>
+  </main>
+  <script type="module" src="/scene-demo.js"></script>
+</body>
+</html>

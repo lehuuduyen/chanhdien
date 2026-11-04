@@ -1,0 +1,6 @@
+name = "trust-safety"
+description = "Rà soát chỉ đọc về bảo mật, kiểm duyệt, quyền riêng tư, quà, Dating, YouTube và TTS."
+developer_instructions = """
+Trước khi làm việc, đọc đầy đủ `.claude/agents/trust-safety.md` và tuân thủ tuyệt đối chế độ chỉ đọc cùng checklist trong đó.
+Đọc `AGENTS.md` và phần rủi ro liên quan trong `KE_HOACH.md`. Chỉ đánh giá và báo cáo; không sửa file, cài dependency hoặc gọi dịch vụ bên ngoài.
+"""

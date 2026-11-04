@@ -1,0 +1,163 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+import { resolvePublicFile, resolveWebFile } from '../server.mjs';
+
+test('web resolve sảnh phòng', () => {
+  const file = resolvePublicFile('/');
+  assert.ok(file);
+  assert.match(readFileSync(file, 'utf8'), /Phòng trải nghiệm/);
+  assert.ok(resolveWebFile('/home-i18n.js'));
+  assert.ok(resolveWebFile('/home.js'));
+  assert.ok(resolveWebFile('/thien-scene.js'));
+  assert.match(readFileSync(file, 'utf8'), /id="homeLanguage"/);
+});
+
+test('web phục vụ phòng Thiền và asset legacy trong cùng origin', () => {
+  const room = resolveWebFile('/thien/');
+  const background = resolveWebFile('/thien/assets/hall.jpg');
+  assert.ok(room);
+  assert.ok(background);
+  assert.match(readFileSync(room, 'utf8'), /Vào chánh điện/);
+});
+
+test('web có client phòng Cinema realtime', () => {
+  const room = resolveWebFile('/room.html');
+  const client = resolveWebFile('/room.js');
+  assert.ok(room);
+  assert.ok(client);
+  assert.match(readFileSync(room, 'utf8'), /Vào rạp/);
+  const source = readFileSync(client, 'utf8');
+  for (const type of ['seat.select', 'chat.send', 'queue.add', 'vote.skip', 'playback.report']) assert.ok(source.includes(`'${type}'`), type);
+});
+
+test('Cinema đặt ô nhập ngay dưới lịch sử trò chuyện và giữ tên người gửi từ máy khác', () => {
+  const markup = readFileSync(resolveWebFile('/room.html'), 'utf8');
+  const client = readFileSync(resolveWebFile('/room.js'), 'utf8');
+  assert.match(markup, /data-part="chat"[\s\S]*id="messages"[\s\S]*id="chatForm"[\s\S]*id="chatInput"/);
+  assert.match(markup, /id="messages"[^>]*role="log"/);
+  assert.match(client, /participants\.get\(message\.participantId\)\?\.displayName \|\| message\.displayName \|\| 'Khách'/);
+});
+
+test('web không cho thoát khỏi public directory', () => {
+  assert.equal(resolvePublicFile('/../../package.json'), null);
+  assert.equal(resolveWebFile('/thien/assets/../../../package.json'), null);
+});
+
+test('web phục vụ scene engine, dữ liệu cảnh, trang thử cảnh và công cụ đặt ghế', () => {
+  for (const pathname of ['/engine/index.mjs', '/engine/renderer.mjs', '/engine/cinema3d.mjs', '/scenes/cinema-default/scene.json',
+    '/scenes/thien-default/scene.json', '/scene-demo.html', '/tools/seat-editor/', '/game.html', '/ung-ho.html', '/ho-tro.html']) {
+    assert.ok(resolveWebFile(pathname), pathname);
+  }
+  assert.equal(resolveWebFile('/engine/../../room-rules/src/index.mjs'), null);
+  assert.equal(resolveWebFile('/scenes/../package.json'), null);
+  assert.equal(resolveWebFile('/tools/seat-editor/../../package.json'), null);
+});
+
+test('web làm cổng vào chung: /api tới API, /ws tới realtime, giữ mã lỗi khi bị từ chối', async (t) => {
+  const { once } = await import('node:events');
+  const { WebSocket } = await import('ws');
+  const { createApiServer } = await import('../../api/server.mjs');
+  const { createRealtimeServer } = await import('../../realtime/server.mjs');
+  const { createWebServer } = await import('../server.mjs');
+  const secret = 'test-secret-with-at-least-thirty-two-characters';
+  const api = createApiServer({ secret }).listen(0, '127.0.0.1');
+  const realtime = createRealtimeServer({ secret }).listen(0, '127.0.0.1');
+  await Promise.all([once(api, 'listening'), once(realtime, 'listening')]);
+  const web = createWebServer({
+    apiUpstream: `http://127.0.0.1:${api.address().port}`,
+    realtimeUpstream: `http://127.0.0.1:${realtime.address().port}`,
+  }).listen(0, '127.0.0.1');
+  await once(web, 'listening');
+  const origin = `http://127.0.0.1:${web.address().port}`;
+  const sockets = [];
+  t.after(async () => {
+    for (const socket of sockets) socket.terminate();
+    for (const server of [web, api, realtime]) await new Promise((resolve) => server.close(resolve));
+  });
+
+  const join = await (await fetch(`${origin}/api/v1/rooms/join`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId: 'cinema-1', displayName: 'An' }),
+  })).json();
+  assert.equal(join.realtimeUrl, '/ws');
+
+  // Origin là tên miền công khai (tunnel) và Host được giữ nguyên qua gateway.
+  const socket = new WebSocket(`ws://127.0.0.1:${web.address().port}/ws?ticket=${join.ticket}`, {
+    headers: { origin: 'https://demo.example.app', host: 'demo.example.app' },
+  });
+  sockets.push(socket);
+  await once(socket, 'open');
+  const welcome = new Promise((resolve) => socket.on('message', (raw) => {
+    const message = JSON.parse(raw);
+    if (message.type === 'welcome') resolve(message);
+  }));
+  socket.send(JSON.stringify({ v: 1, type: 'hello', roomId: 'cinema-1', displayName: 'An' }));
+  assert.equal((await welcome).epoch, 1);
+
+  const rejected = new WebSocket(`ws://127.0.0.1:${web.address().port}/ws?ticket=${join.ticket}`, {
+    headers: { origin: 'https://trang-la.example' },
+  });
+  rejected.on('error', () => {});
+  const [, response] = await once(rejected, 'unexpected-response');
+  assert.equal(response.statusCode, 403);
+});
+
+test('web trả đúng đoạn file khi được hỏi Range (Safari cần để phát nhạc)', async (t) => {
+  const { once } = await import('node:events');
+  const { createWebServer, parseRange } = await import('../server.mjs');
+  assert.deepEqual(parseRange('bytes=0-1', 10), { start: 0, end: 1 });
+  assert.deepEqual(parseRange('bytes=5-', 10), { start: 5, end: 9 });
+  assert.deepEqual(parseRange('bytes=-3', 10), { start: 7, end: 9 });
+  assert.deepEqual(parseRange('bytes=8-100', 10), { start: 8, end: 9 });
+  assert.equal(parseRange('bytes=10-', 10), 'invalid');
+  assert.equal(parseRange('bytes=0-1,4-5', 10), null);
+
+  const web = createWebServer().listen(0, '127.0.0.1');
+  await once(web, 'listening');
+  t.after(() => new Promise((resolve) => web.close(resolve)));
+  const url = `http://127.0.0.1:${web.address().port}/thien/assets/music/music1.mp3`;
+  const partial = await fetch(url, { headers: { range: 'bytes=0-1' } });
+  assert.equal(partial.status, 206);
+  assert.match(partial.headers.get('content-range'), /^bytes 0-1\/\d+$/);
+  assert.equal((await partial.arrayBuffer()).byteLength, 2);
+  const whole = await fetch(url, { method: 'HEAD' });
+  assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+  assert.equal((await fetch(url, { headers: { range: 'bytes=999999999-' } })).status, 416);
+});
+
+test('nhận link YouTube các dạng phổ biến, từ chối link lạ', async () => {
+  const { parseYouTubeId } = await import('../public/youtube.js');
+  for (const input of [
+    'dQw4w9WgXcQ',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s',
+    'youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://youtu.be/dQw4w9WgXcQ?si=abc',
+    'https://m.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/shorts/dQw4w9WgXcQ',
+    'https://www.youtube.com/embed/dQw4w9WgXcQ',
+    'https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=x',
+    '  https://www.youtube.com/live/dQw4w9WgXcQ  ',
+  ]) assert.equal(parseYouTubeId(input), 'dQw4w9WgXcQ', input);
+  for (const input of ['', 'https://vimeo.com/123', 'https://evil.com/watch?v=dQw4w9WgXcQ', 'https://youtu.be/ngan', 'xin chào']) {
+    assert.equal(parseYouTubeId(input), null, input);
+  }
+});
+
+test('web có trang chánh điện nhiều người và các module dùng chung', () => {
+  for (const pathname of ['/chanh-dien.html', '/chanh-dien.js', '/realtime-session.js', '/temple-audio.js', '/admin-thien.html', '/admin-thien.js', '/admin-thien.css', '/shared/room-rules.mjs', '/shared/prayer-slip.mjs']) {
+    assert.ok(resolveWebFile(pathname), pathname);
+  }
+  const client = readFileSync(resolveWebFile('/chanh-dien.js'), 'utf8');
+  for (const type of ['offering.send', 'avatar.set', 'seat.select', 'chat.send']) assert.ok(client.includes(`'${type}'`), type);
+  assert.match(readFileSync(resolvePublicFile('/'), 'utf8'), /href="\/chanh-dien\.html"/);
+});
+
+test('giao diện chặn double-tap phóng chữ nhưng không chặn thao tác con trỏ riêng của cảnh', () => {
+  for (const pathname of ['/chanh-dien.css', '/room.css', '/styles.css', '/admin-thien.css', '/scene-demo.css']) {
+    const source = readFileSync(resolveWebFile(pathname), 'utf8');
+    assert.match(source, /touch-action:\s*manipulation/, pathname);
+    assert.match(source, /text-size-adjust:\s*100%/, pathname);
+  }
+  assert.match(readFileSync(resolveWebFile('/chanh-dien.css'), 'utf8'), /#scene3d\s*\{[^}]*touch-action:\s*none/s);
+  assert.match(readFileSync(resolveWebFile('/room.css'), 'utf8'), /#scene3d\s*\{[^}]*touch-action:\s*none/s);
+});

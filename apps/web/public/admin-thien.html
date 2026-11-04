@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17110c">
+  <title>Quản trị bài giảng · Chánh Điện Online</title>
+  <link rel="stylesheet" href="/admin-thien.css">
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <div>
+        <a href="/" class="back">← Về sảnh</a>
+        <p class="eyebrow">CHÁNH ĐIỆN ONLINE</p>
+        <h1>Cấu hình bài giảng</h1>
+        <p>Đặt giờ phát theo giờ địa phương của từng tiểu bang và video riêng cho mỗi ngôn ngữ.</p>
+      </div>
+      <div class="save-state" id="saveState">Đang tải…</div>
+    </header>
+
+    <form id="configForm">
+      <section class="panel schedule">
+        <div>
+          <p class="step">01 · LỊCH PHÁT</p>
+          <h2>Giờ phát hằng ngày</h2>
+          <p>Ví dụ chọn 18:00: Arizona phát lúc 18:00 Arizona, California phát lúc 18:00 California.</p>
+        </div>
+        <label class="time-field">
+          <span>Giờ địa phương</span>
+          <input id="eventTime" type="time" required>
+        </label>
+        <div class="clocks" id="clocks"></div>
+      </section>
+
+      <section class="content-head">
+        <div>
+          <p class="step">02 · NỘI DUNG</p>
+          <h2>Bài giảng theo ngôn ngữ</h2>
+        </div>
+        <p>Dán link YouTube đầy đủ hoặc ID video 11 ký tự.</p>
+      </section>
+
+      <div class="lecture-grid" id="lectures">
+        <article class="lecture" data-lang="vi">
+          <div class="lang"><b>VI</b><span>Tiếng Việt</span></div>
+          <label>Tiêu đề<input name="vi-title" maxlength="160" required></label>
+          <label>Link YouTube hoặc Video ID<input name="vi-video" required spellcheck="false"></label>
+          <a class="preview" target="_blank" rel="noopener">Mở video ↗</a>
+        </article>
+        <article class="lecture" data-lang="en">
+          <div class="lang"><b>EN</b><span>English</span></div>
+          <label>Tiêu đề<input name="en-title" maxlength="160" required></label>
+          <label>Link YouTube hoặc Video ID<input name="en-video" required spellcheck="false"></label>
+          <a class="preview" target="_blank" rel="noopener">Mở video ↗</a>
+        </article>
+        <article class="lecture" data-lang="zh">
+          <div class="lang"><b>中文</b><span>Tiếng Trung</span></div>
+          <label>Tiêu đề<input name="zh-title" maxlength="160" required></label>
+          <label>Link YouTube hoặc Video ID<input name="zh-video" required spellcheck="false"></label>
+          <a class="preview" target="_blank" rel="noopener">Mở video ↗</a>
+        </article>
+        <article class="lecture" data-lang="es">
+          <div class="lang"><b>ES</b><span>Español</span></div>
+          <label>Tiêu đề<input name="es-title" maxlength="160" required></label>
+          <label>Link YouTube hoặc Video ID<input name="es-video" required spellcheck="false"></label>
+          <a class="preview" target="_blank" rel="noopener">Mở video ↗</a>
+        </article>
+      </div>
+
+      <section class="content-head prayer-head">
+        <div>
+          <p class="step">03 · SỚ CẦU NGUYỆN</p>
+          <h2>Sớ Cầu an và Cầu siêu</h2>
+          <p>Danh sách sớ người dùng đã gửi đến nhà chùa.</p>
+        </div>
+        <button type="button" class="secondary" id="loadPrayers">Tải danh sách sớ</button>
+      </section>
+      <div class="prayer-admin-list" id="prayerSlips"><p class="empty">Nhập khóa quản trị rồi tải danh sách sớ.</p></div>
+
+      <section class="content-head prayer-head">
+        <div>
+          <p class="step">04 · GÓP Ý & BÁO LỖI</p>
+          <h2>Phiếu hỗ trợ</h2>
+          <p>Báo lỗi và góp ý nâng cấp người dùng gửi từ trang Hỗ trợ.</p>
+        </div>
+        <button type="button" class="secondary" id="loadSupport">Tải phiếu hỗ trợ</button>
+      </section>
+      <div class="prayer-admin-list" id="supportTickets"><p class="empty">Nhập khóa quản trị rồi tải phiếu hỗ trợ.</p></div>
+
+      <section class="panel access">
+        <div>
+          <p class="step">05 · XÁC NHẬN</p>
+          <h2>Khóa quản trị</h2>
+          <p>Khóa được gửi khi lưu và chỉ được giữ trong tab hiện tại.</p>
+        </div>
+        <label>
+          <span>ADMIN_SECRET</span>
+          <input id="adminKey" type="password" autocomplete="current-password" required placeholder="Nhập khóa quản trị">
+        </label>
+      </section>
+
+      <p class="message" id="message" role="status" aria-live="polite"></p>
+      <footer class="actions">
+        <button type="button" class="secondary" id="reload">Tải lại</button>
+        <button type="button" class="danger" id="reset">Khôi phục mặc định</button>
+        <button type="submit" class="primary" id="save">Lưu cấu hình</button>
+      </footer>
+    </form>
+  </main>
+  <script type="module" src="/admin-thien.js"></script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+{
+  "version": 1,
+  "id": "cinema-default",
+  "name": "Rạp chiếu mặc định",
+  "stage": {
+    "width": 1080,
+    "height": 1920
+  },
+  "backdrop": "#05070a",
+  "background": {
+    "type": "procedural",
+    "theme": "cinema"
+  },
+  "seatbacks": {
+    "type": "procedural"
+  },
+  "screen": {
+    "x": 36,
+    "y": 200,
+    "width": 1008,
+    "height": 567
+  },
+  "characters": {
+    "style": "silhouette",
+    "height": 120,
+    "nameTags": "me"
+  },
+  "seatLayout": {
+    "type": "rows",
+    "rows": 10,
+    "columns": 10,
+    "yBack": 980,
+    "yFront": 1810,
+    "halfWidthBack": 330,
+    "halfWidthFront": 490,
+    "scaleBack": 0.46,
+    "scaleFront": 1,
+    "aisleGap": 0.1
+  },
+  "cameras": {
+    "overview": {
+      "x": 0,
+      "y": 170,
+      "width": 1080,
+      "height": 1680
+    },
+    "screen": {
+      "x": 20,
+      "y": 170,
+      "width": 1040,
+      "height": 640
+    },
+    "audience": {
+      "x": 0,
+      "y": 860,
+      "width": 1080,
+      "height": 1060
+    },
+    "seat": {
+      "width": 640,
+      "height": 1138
+    }
+  },
+  "theater3d": {
+    "screen": {
+      "width": 9.6,
+      "height": 5.4,
+      "bottom": 1.7
+    },
+    "seating": {
+      "firstRowZ": 6,
+      "rowSpacing": 1.05,
+      "rowRise": 0.3,
+      "seatSpacing": 0.72,
+      "aisle": 1.2,
+      "curve": 0.018,
+      "focusZ": -12,
+      "couples": {
+        "rows": [
+          0,
+          1
+        ],
+        "spacing": 0.62
+      }
+    },
+    "hall": {
+      "x": [
+        -6.4,
+        6.4
+      ],
+      "height": 9.6,
+      "backZ": 18.5
+    },
+    "cameras": {
+      "overview": {
+        "position": [
+          0,
+          8.6,
+          18.2
+        ],
+        "window": {
+          "x": [
+            -8,
+            8
+          ],
+          "y": [
+            -6.5,
+            8.8
+          ]
+        },
+        "windowPortrait": {
+          "x": [
+            -6,
+            6
+          ],
+          "y": [
+            -9,
+            8.6
+          ]
+        }
+      },
+      "screen": {
+        "position": [
+          0,
+          4.4,
+          11.5
+        ],
+        "window": {
+          "x": [
+            -5.05,
+            5.05
+          ],
+          "y": [
+            1.35,
+            7.45
+          ]
+        }
+      },
+      "seat": {
+        "eye": 2.0,
+        "back": 1.5,
+        "margin": 0.6,
+        "below": 3.6
+      },
+      "audience": {
+        "position": [
+          0,
+          4.6,
+          2.2
+        ],
+        "target": [
+          0,
+          1.6,
+          12
+        ],
+        "fov": 50,
+        "fovPortrait": 68
+      },
+      "follow": {
+        "height": 3.0,
+        "distance": 5.0,
+        "margin": 0.6,
+        "focus": 0.9
+      },
+      "zoom": {
+        "position": [
+          0,
+          4.4,
+          9
+        ],
+        "window": {
+          "x": [
+            -4.86,
+            4.86
+          ],
+          "y": [
+            1.64,
+            7.16
+          ]
+        }
+      }
+    },
+    "walk": {
+      "spawn": {
+        "x": 0,
+        "z": 17.3,
+        "ry": 0
+      },
+      "minZ": 1.3,
+      "seatRadius": 0.3,
+      "bodyRadius": 0.12,
+      "sideAisle": 5.15,
+      "legroom": 0.5
+    }
+  }
+}

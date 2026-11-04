@@ -1,0 +1,14 @@
+{
+  "name": "@chanh-dien/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@chanh-dien/accounts": "0.1.0",
+    "@chanh-dien/garden": "0.1.0",
+    "@chanh-dien/protocol": "0.1.0",
+    "@chanh-dien/room-directory": "0.1.0",
+    "@chanh-dien/room-rules": "0.1.0",
+    "@chanh-dien/session-token": "0.1.0"
+  }
+}

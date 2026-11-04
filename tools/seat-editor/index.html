@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đặt ghế · Chánh Điện Online</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; color: #e9eef5; background: #07090d; --line: rgba(171, 194, 222, .16); --muted: #8d9aaa; --accent: #e7b85e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
+    button, input, select, textarea { font: inherit; }
+    .board { position: relative; height: 100vh; display: grid; place-items: center; overflow: hidden; background: #040506; }
+    #board { height: 100vh; max-width: 100%; aspect-ratio: 9 / 16; cursor: crosshair; touch-action: none; }
+    aside { display: flex; flex-direction: column; gap: 14px; height: 100vh; overflow: auto; padding: 18px; background: #0c1118; border-left: 1px solid var(--line); }
+    h1 { margin: 0; font-size: 18px; }
+    h2 { margin: 0 0 6px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+    label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    input, select, textarea { width: 100%; padding: 7px 8px; color: #e9eef5; background: #141c27; border: 1px solid var(--line); border-radius: 7px; }
+    textarea { min-height: 160px; font: 11px/1.4 ui-monospace, monospace; }
+    button { padding: 8px 10px; color: #e9eef5; background: #1a2431; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+    button.primary { color: #1a1206; background: var(--accent); border-color: var(--accent); }
+    .row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .help { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .errors { margin: 0; padding-left: 18px; color: #ff9b8a; font-size: 12px; }
+    .ok { color: #8fd6a0; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="board"><canvas id="board" width="1080" height="1920" aria-label="Sơ đồ ghế trên ảnh nền"></canvas></div>
+  <aside>
+    <h1>Đặt ghế</h1>
+    <p class="help">Bấm chỗ trống để thêm ghế (dùng hàng và tỷ lệ bên dưới). Bấm ghế để chọn, kéo để di chuyển, phím mũi tên để chỉnh từng pixel, Delete để xóa.</p>
+    <section>
+      <h2>Cảnh</h2>
+      <div class="row">
+        <select id="sceneId"><option value="cinema-default">cinema-default</option><option value="thien-default">thien-default</option></select>
+        <button type="button" id="load">Mở</button>
+        <button type="button" id="expand" title="Đổi seatLayout thành danh sách ghế để chỉnh từng ghế">Mở rộng layout</button>
+      </div>
+    </section>
+    <section>
+      <h2>Ghế mới</h2>
+      <div class="grid">
+        <label>Hàng <input id="newRow" type="number" min="0" step="1" value="0"></label>
+        <label>Tỷ lệ <input id="newScale" type="number" min="0.05" max="3" step="0.01" value="0.6"></label>
+      </div>
+    </section>
+    <section>
+      <h2>Ghế đang chọn</h2>
+      <div class="grid">
+        <label>Id <input id="seatId" disabled></label>
+        <label>Hàng <input id="seatRow" type="number" min="0" step="1" disabled></label>
+        <label>Tỷ lệ <input id="seatScale" type="number" min="0.05" max="3" step="0.01" disabled></label>
+        <label>Nhóm <input id="seatGroup" placeholder="ghế đôi/ba" disabled></label>
+      </div>
+    </section>
+    <section>
+      <h2>Màn chiếu</h2>
+      <div class="grid">
+        <label>x <input id="screenX" type="number"></label>
+        <label>y <input id="screenY" type="number"></label>
+        <label>Rộng <input id="screenW" type="number"></label>
+        <label>Cao <input id="screenH" type="number"></label>
+      </div>
+    </section>
+    <section>
+      <h2>Kiểm tra và xuất</h2>
+      <div class="row">
+        <button type="button" id="renumber">Đánh số lại S-1…</button>
+        <button type="button" class="primary" id="export">Kiểm tra + xuất JSON</button>
+        <button type="button" id="download">Tải scene.json</button>
+      </div>
+      <p class="ok" id="status"></p>
+      <ul class="errors" id="errors"></ul>
+      <textarea id="output" spellcheck="false" aria-label="Scene JSON"></textarea>
+    </section>
+  </aside>
+  <script type="module" src="/tools/seat-editor/editor.js"></script>
+</body>
+</html>

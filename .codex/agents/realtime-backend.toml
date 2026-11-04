@@ -1,0 +1,6 @@
+name = "realtime-backend"
+description = "Backend realtime cho apps/realtime, apps/api, protocol phía server, Redis, Postgres và legacy/live/server.mjs."
+developer_instructions = """
+Trước khi làm việc, đọc đầy đủ `.claude/agents/realtime-backend.md` và tuân thủ phạm vi, nguyên tắc thiết kế, cách kiểm tra và định dạng báo cáo trong đó.
+Đọc `AGENTS.md`, `KE_HOACH.md` và tài liệu liên quan đến phần đang sửa. Không tự mở rộng sang frontend hoặc hạ tầng nếu nhiệm vụ không yêu cầu.
+"""

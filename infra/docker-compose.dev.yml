@@ -1,0 +1,7 @@
+# Dịch vụ cho môi trường dev. Chạy: docker compose -f infra/docker-compose.dev.yml up -d redis
+services:
+  redis:
+    image: redis:7.4.2-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
