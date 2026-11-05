@@ -82,7 +82,13 @@ export function resolveWebFile(pathname) {
 // (chạy sau tunnel hoặc load balancer với https/wss mà không phải mở thêm cổng).
 function proxyHeaders(req, upstream) {
   const headers = { ...req.headers, host: req.headers.host || upstream.host };
-  headers['x-forwarded-for'] = req.socket.remoteAddress || '';
+  // Sau tunnel chạy trên chính máy này (ngrok), kết nối tới từ loopback và IP thật nằm ở cuối X-Forwarded-For do
+  // tunnel thêm vào; kết nối thẳng thì dùng địa chỉ socket. X-Real-IP do gateway đặt lại, trình duyệt không tự khai được.
+  const remote = req.socket.remoteAddress || '';
+  const tunneled = /^(127\.|::1$|::ffff:127\.)/.test(remote)
+    && String(req.headers['x-forwarded-for'] || '').split(',').map((part) => part.trim()).filter(Boolean).at(-1);
+  headers['x-forwarded-for'] = tunneled || remote;
+  headers['x-real-ip'] = tunneled || remote;
   headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
   return headers;
 }

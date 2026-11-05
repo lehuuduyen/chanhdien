@@ -21,7 +21,7 @@ function validClaims(value) {
   return value !== null
     && typeof value === 'object'
     && !Array.isArray(value)
-    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'skins', 'skin', 'iat', 'exp'].includes(key))
+    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'skins', 'skin', 'fresh', 'iat', 'exp'].includes(key))
     && typeof value.participantId === 'string'
     && PARTICIPANT_ID.test(value.participantId)
     && typeof value.roomId === 'string'
@@ -38,6 +38,8 @@ function validClaims(value) {
       && value.skins.every((skin) => typeof skin === 'string' && SKIN_ID.test(skin))))
     // Hình chọn lần cuối của tài khoản (máy realtime vẫn tự kiểm tra quyền mặc).
     && (value.skin === undefined || (value.role === 'member' && typeof value.skin === 'string' && SKIN_ID.test(value.skin)))
+    // Tài khoản tạo chưa tới 24 giờ (dò nick clone nhắn trùng).
+    && (value.fresh === undefined || (value.role === 'member' && value.fresh === true))
     && Number.isSafeInteger(value.iat)
     && Number.isSafeInteger(value.exp)
     && value.exp > value.iat;
@@ -97,6 +99,7 @@ export function createJoinTicket(claims, secret, options = {}) {
     ...(claims.accountId && AVATAR_URL.test(claims.avatarUrl || '') ? { avatarUrl: claims.avatarUrl } : {}),
     ...(claims.accountId && claims.skins?.length ? { skins: [...claims.skins] } : {}),
     ...(claims.accountId && claims.skin ? { skin: claims.skin } : {}),
+    ...(claims.accountId && claims.fresh === true ? { fresh: true } : {}),
     iat: now,
     exp: now + ttlMs,
   };

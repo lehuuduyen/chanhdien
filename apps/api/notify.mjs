@@ -24,21 +24,28 @@ export function supportMessage(ticket, adminUrl = null) {
   return lines.join('\n').slice(0, TELEGRAM_LIMIT);
 }
 
-export function createTelegramNotifier({ token, chatId, adminUrl = null, fetchImpl = fetch } = {}) {
+// Gửi một tin chữ thường tới nhóm quản trị (dùng chung cho phiếu hỗ trợ và kiểm duyệt).
+export function createTelegramSender({ token, chatId, fetchImpl = fetch } = {}) {
   if (!token || !chatId) return null;
-  return async function notifySupport(ticket) {
+  return async function sendTelegram(text) {
     try {
       const response = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: supportMessage(ticket, adminUrl), disable_web_page_preview: true }),
+        body: JSON.stringify({ chat_id: chatId, text: String(text).slice(0, TELEGRAM_LIMIT), disable_web_page_preview: true }),
         signal: AbortSignal.timeout(8_000),
       });
-      if (!response.ok) console.warn(`Telegram từ chối thông báo phiếu hỗ trợ (HTTP ${response.status})`);
+      if (!response.ok) console.warn(`Telegram từ chối tin nhắn (HTTP ${response.status})`);
       return response.ok;
     } catch (error) {
       console.warn(`Không gửi được thông báo Telegram: ${error.message}`);
       return false;
     }
   };
+}
+
+export function createTelegramNotifier({ token, chatId, adminUrl = null, fetchImpl = fetch } = {}) {
+  const send = createTelegramSender({ token, chatId, fetchImpl });
+  if (!send) return null;
+  return (ticket) => send(supportMessage(ticket, adminUrl));
 }

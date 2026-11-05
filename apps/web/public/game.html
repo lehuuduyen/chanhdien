@@ -220,7 +220,6 @@
     let mine = {}; // cược của mình trong ván đang chạy
     let mineRound = null;
     let people = 0;
-    let bots = 0;
     let clockOffset = 0; // giờ server − giờ máy
     let socket = null;
     const history = [];
@@ -287,7 +286,7 @@
       }
       // Hủy cược: chỉ trong pha đặt cược, khi mình đang có cược trong ván.
       elements.cancelBets.hidden = !(table?.phase === 'betting' && Object.values(myBets).some(Boolean));
-      elements.players.textContent = `👥 ${Math.max(0, people - bots)} người thật${bots ? ` · 🤖 ${bots} máy` : ''}${table ? ` · ${table.bettors} đang cược` : ''}`;
+      elements.players.textContent = `👥 ${people} người${table ? ` · ${table.bettors} đang cược` : ''}`;
     }
 
     // Chồng chip: tách số xu thành mệnh giá 50/10/5/1 (chip của mình) — tối đa 6 chip, nhiều hơn thì ghi "+n".
@@ -431,7 +430,6 @@
       } else if (message.type === 'room.state') {
         const connected = message.participants.filter((person) => person.connected !== false);
         people = connected.length;
-        bots = connected.filter((person) => person.bot).length;
         render();
       } else if (message.type === 'game.state') onState(message);
       else if (message.type === 'game.mine') {
@@ -447,6 +445,11 @@
         else if (message.net < 0) say(`Thua ${money(-message.net)}`, 'lose');
         else say('Hòa vốn');
         render();
+      } else if (message.type === 'protocol.error' && message.code === 'BANNED') {
+        // Bị khóa (kiểm duyệt): thôi tự nối lại, hiện lý do.
+        sessionReplaced = true;
+        elements.phaseLabel.textContent = 'Đã bị khóa';
+        say(message.message, 'lose');
       } else if (message.type === 'protocol.error' && message.code === 'SESSION_REPLACED') {
         // Tài khoản vừa vào bàn từ trình duyệt / máy khác: tab này thôi tự nối lại (tải lại trang để chơi ở đây).
         sessionReplaced = true;
@@ -480,6 +483,16 @@
           body: JSON.stringify({ roomId: ROOM_ID, displayName: rememberedName() || 'Khách' }),
         });
         if (!response.ok) {
+          // Nick bị khóa: không thử lại, hiện lý do server gửi.
+          if (response.status === 403) {
+            const body = await response.json().catch(() => null);
+            if (body?.error === 'banned') {
+              sessionReplaced = true;
+              elements.phaseLabel.textContent = 'Đã bị khóa';
+              say(body.message, 'lose');
+              return;
+            }
+          }
           // Máy chủ chưa có phòng game (đang chạy bản cũ): báo rõ thay vì cứ thử lại.
           if (response.status === 404) {
             elements.phaseLabel.textContent = 'Chưa vào được bàn';

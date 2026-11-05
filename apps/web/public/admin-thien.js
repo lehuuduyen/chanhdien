@@ -412,7 +412,7 @@ function requireKey() {
     sessionStorage.setItem('thien-admin-key', key.value);
     return true;
   }
-  modelMessage('Nhập khóa quản trị (mục 07) trước.', true);
+  modelMessage('Nhập khóa quản trị (mục 08) trước.', true);
   key.focus();
   return false;
 }
@@ -527,3 +527,105 @@ $('#uploadModel').addEventListener('click', async () => {
     button.disabled = false;
   }
 });
+
+// ---- 07 · Kiểm duyệt: sổ khóa (mở khóa) và từ cấm quản trị thêm/bỏ ----
+const modBans = $('#modBans');
+const modStatus = $('#modStatus');
+const modWord = $('#modWord');
+function modMessage(text, error = false) {
+  modStatus.textContent = text;
+  modStatus.classList.toggle('error', error);
+}
+function modEmpty(text) {
+  const empty = document.createElement('p');
+  empty.className = 'empty';
+  empty.textContent = text;
+  modBans.replaceChildren(empty);
+}
+async function moderationRequest(path, body) {
+  const response = await fetch(`/api/v1/admin/moderation${path}`, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'x-admin-key': key.value, ...(body ? { 'content-type': 'application/json' } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (response.status === 403) throw new Error('Khóa quản trị không đúng.');
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Không thực hiện được.'), { data });
+  return data;
+}
+const when = (at) => (at ? new Date(at).toLocaleString('vi-VN') : 'khi mở khóa');
+function renderModeration({ bans = [], words = [] }) {
+  const blocked = words.filter((row) => row.action === 'block').map((row) => row.word);
+  const allowed = words.filter((row) => row.action === 'allow').map((row) => row.word);
+  $('#modWords').textContent = `Chặn thêm: ${blocked.join(', ') || '—'} · Bỏ chặn từ mặc định: ${allowed.join(', ') || '—'}`;
+  if (!bans.length) {
+    modEmpty('Chưa ai bị khóa hay tắt chat.');
+    return;
+  }
+  modBans.replaceChildren(...bans.map((ban) => {
+    const card = document.createElement('article');
+    card.className = `prayer-admin-card support-card${ban.active ? ' is-new' : ''}`;
+    const info = document.createElement('div');
+    const heading = document.createElement('h3');
+    heading.textContent = `${ban.kind === 'ban' ? '⛔ Khóa nick' : '🔇 Tắt chat'} · ${ban.name}${ban.ipBlocked ? ' · chặn IP' : ''}`;
+    const meta = document.createElement('p');
+    meta.textContent = [`${when(ban.createdAt)} → ${when(ban.expiresAt)}`, ban.roomId, ban.createdBy].filter(Boolean).join(' · ');
+    const code = document.createElement('p');
+    code.textContent = ban.liftedAt ? `${ban.id} · đã mở ${when(ban.liftedAt)} (${ban.liftedBy})` : ban.active ? ban.id : `${ban.id} · đã hết hạn`;
+    info.append(heading, meta, code);
+    const content = document.createElement('p');
+    content.className = 'support-message';
+    content.textContent = `${ban.reason}${ban.evidence ? `\nTin: "${ban.evidence}"` : ''}`;
+    card.append(info, content);
+    if (ban.active) {
+      const lift = document.createElement('button');
+      lift.type = 'button';
+      lift.className = 'secondary';
+      lift.textContent = 'Mở khóa';
+      lift.addEventListener('click', async () => {
+        lift.disabled = true;
+        try {
+          await moderationRequest('/unban', { target: ban.id });
+          modMessage(`Đã mở khóa ${ban.name}.`);
+          loadModeration();
+        } catch (error) {
+          modMessage(error.message, true);
+          lift.disabled = false;
+        }
+      });
+      card.append(lift);
+    }
+    return card;
+  }));
+}
+async function loadModeration() {
+  if (!key.value) {
+    modMessage('Nhập khóa quản trị (mục 08) trước.', true);
+    key.focus();
+    return;
+  }
+  sessionStorage.setItem('thien-admin-key', key.value);
+  try {
+    renderModeration(await moderationRequest(''));
+  } catch (error) {
+    modEmpty(error.message);
+    modMessage(error.message, true);
+  }
+}
+async function changeWord(action) {
+  const word = modWord.value.trim();
+  if (!word) return modWord.focus();
+  if (!key.value) return modMessage('Nhập khóa quản trị (mục 08) trước.', true);
+  try {
+    const result = await moderationRequest('/words', { word, action });
+    modMessage(action === 'block' ? (result.already ? `«${result.word}» đã có trong danh sách mặc định.` : `Đã chặn «${result.word}» (hiệu lực trong ~15 giây).`) : `Đã bỏ chặn «${result.word}».`);
+    modWord.value = '';
+    loadModeration();
+  } catch (error) {
+    const code = error.data?.error;
+    modMessage(code === 'INVALID_WORD' ? 'Từ không hợp lệ (1–40 ký tự chữ/số, * chỉ ở cuối).' : code === 'NOT_FOUND' ? 'Từ này chưa có trong danh sách quản trị thêm.' : error.message, true);
+  }
+}
+$('#loadModeration').addEventListener('click', loadModeration);
+$('#blockWord').addEventListener('click', () => changeWord('block'));
+$('#unblockWord').addEventListener('click', () => changeWord('remove'));

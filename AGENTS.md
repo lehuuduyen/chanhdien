@@ -55,6 +55,8 @@ Shop nhân vật (`/shop.html`): mua hình nhân vật (hiện có Bé Mũ Đỏ
 
 Báo phiếu Góp ý & Báo lỗi qua Telegram: đặt `TELEGRAM_BOT_TOKEN` (tạo bot với @BotFather) và `TELEGRAM_CHAT_ID`; tùy chọn `SUPPORT_ADMIN_URL` (link trang admin kèm trong tin). `npm run telegram:setup` kiểm tra bot, tìm chat ID (`-- --save` ghi vào `.env.online`) và gửi tin thử (`-- --test`). `npm run online` tự nạp các dòng `KEY=VALUE` trong `.env.online` (gitignore), biến đặt trên dòng lệnh được ưu tiên.
 
+Kiểm duyệt chat toàn hệ thống (`packages/moderation` lọc từ, `apps/api/moderation.mjs` sổ khóa, `apps/realtime/moderation.mjs` lọc từng tin): tin có từ cấm bị chặn; chửi 3 lần/giờ (phòng `strict`; phòng khác 4) thì tắt chat 10 phút, tái phạm trong 24 giờ khóa nick 24 giờ (khách: chặn IP băm); nick mới nhắn trùng hàng loạt bị khóa 7 ngày + chặn IP 24 giờ, chừa người nhắn đầu. Mỗi lần khóa và mỗi từ khả nghi báo về cùng nhóm Telegram (cần `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`; lệnh trong nhóm cần thêm `TELEGRAM_WEBHOOK_SECRET`): `/blockchattu <từ>`, `/boblockchattu <từ>`, `/dschattu`, `/unban <mã k-… | tên>`, `/ban <tên> [giờ]`, `/dsban`. Trang admin mục 07 xem sổ khóa, mở khóa, thêm/bỏ từ. Máy realtime đồng bộ sổ khóa + từ từ API mỗi 15 giây (`API_INTERNAL_URL`). Từ có dấu chỉ so chữ có dấu (tránh chặn "các", "đi", "đeo"); từ không dấu chỉ khớp khi người dùng gõ không dấu.
+
 Web server là cổng vào chung: `/api/*` chuyển tới API, `/ws` chuyển tới realtime; client dùng cùng origin với trang.
 
 Thử cảnh 2.5D và đặt ghế (khi `npm run dev` đang chạy):

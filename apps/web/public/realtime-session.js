@@ -35,7 +35,14 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId, displayName, ...(roomInvite ? { inviteCode: roomInvite } : {}) }),
     });
-    if (!response.ok) throw new Error('Không thể vào phòng lúc này, thử lại sau.');
+    if (!response.ok) {
+      // Lỗi có lời giải thích từ server (nick bị khóa, tên không phù hợp…): trang hiện đúng câu đó.
+      const body = await response.json().catch(() => null);
+      const error = new Error(body?.message || 'Không thể vào phòng lúc này, thử lại sau.');
+      error.code = body?.error || null;
+      if (body?.message) error.serverMessage = body.message;
+      throw error;
+    }
     return response.json();
   }
 
@@ -80,9 +87,9 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
       session.ticketRejected = true;
       reconnectAttempt = 0;
       save();
-    } else if (message.type === 'protocol.error' && (message.code === 'ROOM_FULL' || message.code === 'SESSION_REPLACED')) {
-      // Mã mời trỏ đúng phòng nhưng phòng đã kín, hoặc tài khoản vừa vào phòng từ trình duyệt / máy khác: dừng hẳn vòng
-      // nối lại để trang đưa người dùng về cổng vào (không giành qua giành lại giữa hai tab).
+    } else if (message.type === 'protocol.error' && ['ROOM_FULL', 'SESSION_REPLACED', 'BANNED'].includes(message.code)) {
+      // Mã mời trỏ đúng phòng nhưng phòng đã kín, tài khoản vừa vào phòng từ trình duyệt / máy khác, hoặc bị khóa: dừng
+      // hẳn vòng nối lại để trang đưa người dùng về cổng vào (không giành qua giành lại giữa hai tab).
       session = null;
       online = false;
       save();
@@ -135,7 +142,15 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
         session = await requestTicket(session.displayName);
         save();
         disconnectedAt = Date.now();
-      } catch {
+      } catch (error) {
+        // Bị khóa trong lúc rớt mạng: thôi nối lại, báo trang như lúc bị đá khỏi phòng.
+        if (error.code === 'banned') {
+          session = null;
+          online = false;
+          save();
+          onMessage({ v: PROTOCOL_VERSION, type: 'protocol.error', epoch: 0, code: 'BANNED', message: error.message });
+          return;
+        }
         scheduleReconnect();
         return;
       }

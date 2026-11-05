@@ -134,6 +134,13 @@ export async function handleThienRequest(req, res, pathname, options, roomCounts
       json(req, res, 400, { error: 'invalid_json' });
       return true;
     }
+    // Sớ đọc to trong chánh điện: tên / pháp danh / lời nhắn có từ cấm thì không nhận.
+    const words = input && typeof input === 'object' ? [input.requesterName, input.note,
+      ...(Array.isArray(input.people) ? input.people.flatMap((person) => [person?.name, person?.dharmaName]) : [])] : [];
+    if (options.moderation?.check(words.filter((value) => typeof value === 'string').join('\n')).action === 'block') {
+      json(req, res, 400, { error: 'text_not_allowed', message: 'Sớ có từ không phù hợp, xin sửa lại.' });
+      return true;
+    }
     const saved = prayerStore(options).create(input);
     json(req, res, saved ? 201 : 400, saved ? { id: saved.id, status: saved.status, submittedAt: saved.submittedAt } : { error: 'invalid_prayer_slip' });
     return true;

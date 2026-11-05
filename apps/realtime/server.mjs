@@ -20,12 +20,15 @@ import {
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
 import { LottoTable, lottoBank } from './loto.mjs';
+import { createModerationGuard, hasPromo, moderationRemote, repeatKey } from './moderation.mjs';
 
 const HEARTBEAT_MS = 15_000;
 const MAX_PAYLOAD = 64 * 1_024;
 export const RESUME_TTL_MS = 60_000;
 export const TICK_MS = 3_000;
 export const CLOSE_ROOM_MOVED = 4002;
+// Bị khóa (kiểm duyệt): client thôi tự nối lại.
+export const CLOSE_BANNED = 4004;
 const EMPTY_ROOM_GRACE_MS = 30_000;
 const HELLO_TIMEOUT_MS = 10_000;
 // Giới hạn chat cả phòng: 500 người × 5 tin/10 giây vẫn bị chặn ở mức này để bong bóng còn đọc được.
@@ -145,8 +148,10 @@ export class Room {
     this.type = options.type || roomTypeOf(id) || 'cinema';
     this.lang = roomLangOf(id);
     this.rules = getRoomRules(this.type);
-    // Hình chia cho người mới và bot: bỏ hình mua trong shop.
+    // Hình tự chia cho người thật mới: bỏ hình mua trong shop.
     this.freeSkins = (this.rules.skins || []).filter((skin) => !isPremiumSkin(skin));
+    // Người thật vẫn phải sở hữu hình shop; riêng bot được lấy thêm danh mục shop do API cấp khi mở phòng.
+    this.botSkins = [...new Set((options.botSkins || []).filter(isPremiumSkin))];
     this.seatIds = seatIdsFor(this.rules);
     this.benchIds = benchIdsFor(this.rules);
     this.seatsPerBench = this.rules.benches?.seatsPerBench || 0;
@@ -166,8 +171,10 @@ export class Room {
     this.openedAt = Date.now();
     this.resumeTtlMs = options.resumeTtlMs || RESUME_TTL_MS;
     // Chánh điện bị chặn theo số bồ đoàn; phòng game không có ghế nên dùng giới hạn bot riêng trong room rules.
-    const botLimit = this.rules.seats ?? this.rules.bots?.max ?? 0;
-    this.botCount = Math.max(0, Math.min(options.botCount ?? this.rules.bots?.count ?? 0, botLimit));
+    this.botLimit = this.rules.seats ?? this.rules.bots?.max ?? 0;
+    this.botCount = Math.max(0, Math.min(options.botCount ?? this.rules.bots?.count ?? 0, this.botLimit));
+    // Bot do `addbot N` quản lý vẫn giữ phòng và bàn game chạy khi chưa có người thật.
+    this.keepBotsAlive = false;
     this.botTimer = null;
     this.issueResumeToken = options.issueResumeToken || (() => `r-${randomUUID()}`);
     this.onEmpty = options.onEmpty || (() => {});
@@ -187,6 +194,8 @@ export class Room {
     this.onFriend = options.onFriend || null;
     // Chuyển báo cáo người chơi tới API để lưu.
     this.onReport = options.onReport || (() => {});
+    // Kiểm duyệt chữ (moderation.mjs): không có thì không lọc.
+    this.moderation = options.moderation || null;
     this.friendRequests = new Map();
     this.challenges = new Map();
     // Phòng game: bàn Bầu Cua chơi chung (chạy khi có người trong phòng). options.bauCua: { stake, settle } gọi API.
@@ -1090,7 +1099,7 @@ export class Room {
     return count;
   }
 
-  // ---- Bot: chỉ có khi phòng có người thật; một số ngồi bồ đoàn, một số đi dạo ngoài khuôn viên. ----
+  // ---- Bot: bot mặc định theo người thật; bot do Telegram quản lý có thể giữ phòng hoạt động. ----
   freeSeat(except) {
     const taken = new Set([...this.participants.values()].map((participant) => participant.seatId).filter(Boolean));
     return [...this.seatIds].find((seatId) => seatId !== except && !taken.has(seatId)) || null;
@@ -1105,7 +1114,7 @@ export class Room {
   get botSeatedTarget() {
     // Bot game là người xem bàn, không cần ghế hay vị trí 3D.
     // Tổng room.state vẫn phải nằm trong giới hạn protocol 500 người; người thật vào thì bot game rời trước.
-    if (this.rules.bots?.play === 'dice') return Math.min(this.botCount, Math.max(0, this.maxParticipants - this.realCount));
+    if (this.rules.bots?.play) return Math.min(this.botCount, Math.max(0, this.maxParticipants - this.realCount));
     const freeForBots = Math.max(0, (this.rules.seats || 0) - this.realCount);
     return Math.min(this.botCount - this.botWalkingTarget, freeForBots);
   }
@@ -1154,26 +1163,43 @@ export class Room {
     const config = this.rules.bots;
     const state = this.botState;
     const used = new Set([...this.participants.values()].map((participant) => participant.displayName));
-    const names = this.botWords().names.filter((name) => !used.has(name));
+    const allNames = this.botWords().names || config.names || ['Phật tử'];
+    const names = allNames.filter((name) => !used.has(name));
     const walkingNow = [...this.participants.values()].filter((participant) => participant.bot && participant.pos).length;
     const walkLimit = seeded ? (config.walk?.initial || 0) : (config.walk?.count || 0);
     const walking = Boolean(config.walk?.waypoints?.length && walkingNow < Math.min(walkLimit, this.botTargetCount));
     const needsSeat = Boolean(this.rules.seats);
     const seatId = walking || !needsSeat ? null : this.freeSeat();
-    if (!names.length || (!walking && needsSeat && !seatId)) return null;
+    if (!walking && needsSeat && !seatId) return null;
     state.serial += 1;
     const id = `bot-${state.serial}`;
-    const skins = config.skins?.length ? config.skins : this.freeSkins;
+    let displayName = names[Math.floor(Math.random() * names.length)];
+    if (!displayName) {
+      const base = allNames[Math.floor(Math.random() * allNames.length)] || 'Phật tử';
+      let suffix = 2;
+      while (used.has(`${base} ${suffix}`)) suffix += 1;
+      displayName = `${base} ${suffix}`;
+    }
+    const skins = [...new Set([...(config.skins?.length ? config.skins : this.freeSkins), ...this.botSkins])];
+    // Xáo một túi hình rồi rút dần: thứ tự bot mỗi phòng khác nhau nhưng chưa dùng hết danh mục thì không lặp hình.
+    if (!state.skinBag?.length) {
+      state.skinBag = [...skins];
+      for (let index = state.skinBag.length - 1; index > 0; index -= 1) {
+        const swap = Math.floor(Math.random() * (index + 1));
+        [state.skinBag[index], state.skinBag[swap]] = [state.skinBag[swap], state.skinBag[index]];
+      }
+    }
+    const skin = state.skinBag.pop();
     const bot = {
       id,
-      displayName: names[Math.floor(Math.random() * names.length)],
+      displayName,
       seatId,
       socket: null,
       connected: true,
       bot: true,
       resumeToken: null,
       expireTimer: null,
-      ...(skins.length ? { skin: skins[(state.serial - 1) % skins.length] } : {}),
+      ...(skin ? { skin } : {}),
       ...(this.rules.interaction?.offerings ? { merit: seeded ? [120, 80, 55, 30, 20, 12, 8, 5][state.serial - 1] || 0 : Math.floor(Math.random() * 40) } : {}),
       // Nhịp riêng: 0,6 → tụng nhiều; 1,8 → ít nói.
       pace: 0.6 + Math.random() * 1.2,
@@ -1231,8 +1257,30 @@ export class Room {
     }
   }
 
+  // Đổi số bot ngay trong lúc server đang chạy. Lệnh Telegram cần thấy kết quả ngay nên tạo đủ mục tiêu thay vì
+  // chờ từng bot vào theo nhịp arrivalMs; sau đó churn vẫn thay người dần như cũ.
+  setBotCount(count, options = {}) {
+    const next = Math.max(0, Math.min(Number.isSafeInteger(count) ? count : 0, this.botLimit));
+    this.botCount = next;
+    this.keepBotsAlive = options.managed !== false && next > 0;
+    if (!next) {
+      this.removeBots();
+      if (!this.realCount) this.table?.stop();
+    } else {
+      this.table?.start();
+      this.ensureBots();
+      let current = [...this.participants.values()].filter((participant) => participant.bot).length;
+      while (current < this.botTargetCount && this.addBot(true)) current += 1;
+      this.trimBotsForPeople();
+      if (this.botState) this.botState.nextArrivalAt = 0;
+    }
+    this.revision += 1;
+    this.broadcastState();
+    return [...this.participants.values()].filter((participant) => participant.bot).length;
+  }
+
   botTick() {
-    if (!this.connectedCount || !this.botState) return;
+    if ((!this.connectedCount && !this.keepBotsAlive) || !this.botState) return;
     const config = this.rules.bots;
     const state = this.botState;
     const now = Date.now();
@@ -1249,7 +1297,7 @@ export class Room {
     } else if (bots.length && now >= state.nextChurnAt) {
       const leaving = bots[Math.floor(Math.random() * bots.length)];
       // Bot đang chơi khiêu chiến thì không rời giữa trận.
-      const busy = this.activeChallengeOf(leaving.id) || this.table?.hasBotBet?.(leaving.id);
+      const busy = this.activeChallengeOf(leaving.id) || this.table?.hasBotBet?.(leaving.id) || this.table?.hasBotTicket?.(leaving.id);
       if (!busy) this.participants.delete(leaving.id);
       state.nextChurnAt = now + randomBetween(config.churnMs);
       state.nextArrivalAt = now + randomBetween(config.arrivalMs);
@@ -1279,6 +1327,10 @@ export class Room {
       });
       return;
     }
+    if (config.play === 'loto' && this.table?.placeBotTicket) {
+      this.table.placeBotTicket(bot);
+      return;
+    }
     const { lines } = this.botWords();
     const line = () => lines[Math.floor(Math.random() * lines.length)];
     // Bot đang đi ngoài sân chỉ trò chuyện/niệm Phật; lễ vật được dâng bởi bot đang ở chánh điện.
@@ -1296,7 +1348,7 @@ export class Room {
       return;
     }
     const roll = Math.random();
-    if (roll < 0.5) {
+    if (!this.rules.interaction?.offerings || roll < 0.5) {
       this.broadcast({
         v: PROTOCOL_VERSION,
         type: 'chat.message',
@@ -1351,6 +1403,9 @@ export class Room {
         // Hình đã mua (theo vé); nối lại bằng resume token thì giữ danh sách cũ.
         ownedSkins: claims.skins || previous?.ownedSkins || [],
       } : {}),
+      // "Nick mới" khi dò clone: khách, hoặc tài khoản tạo chưa tới 24 giờ (vé ghi).
+      fresh: claims.role === 'guest' || claims.fresh === true,
+      ipHash: previous?.ipHash || null,
       resumeExpiresAt: 0,
       expireTimer: null,
       // Danh sách người mình chặn (giữ khi nối lại).
@@ -1410,6 +1465,21 @@ export class Room {
     }
   }
 
+  // Đá một người khỏi phòng ngay (bị khóa): báo mã lỗi, đóng kết nối (client thôi nối lại), bỏ cả chỗ chờ nối lại.
+  kick(participantId, code, message) {
+    const participant = this.participants.get(participantId);
+    if (!participant || participant.bot) return false;
+    if (participant.expireTimer) clearTimeout(participant.expireTimer);
+    if (participant.socket?.readyState === WebSocket.OPEN) {
+      participant.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'protocol.error', epoch: this.epoch, code, message }));
+      participant.socket.close(CLOSE_BANNED, 'Bị khóa');
+    }
+    participant.connected = false;
+    participant.resumeToken = null;
+    this.expire(participantId, null);
+    return true;
+  }
+
   expire(participantId, resumeToken) {
     const participant = this.participants.get(participantId);
     if (!participant || participant.connected || participant.resumeToken !== resumeToken) return false;
@@ -1417,7 +1487,7 @@ export class Room {
     this.stopChore(participantId);
     this.dropSocial(participantId);
     for (const key of this.rates.keys()) if (key.startsWith(`${participantId}:`)) this.rates.delete(key);
-    if (this.realCount === 0) {
+    if (this.realCount === 0 && !this.keepBotsAlive) {
       this.removeBots();
       this.stopViews();
       this.table?.stop();
@@ -1586,6 +1656,20 @@ export class RoomRegistry {
     return count;
   }
 
+  // Đá mọi người đang bị khóa (theo tài khoản hoặc IP) khỏi các phòng trên máy này. Gọi sau mỗi lần đồng bộ sổ khóa.
+  enforceBans(guard = this.moderation) {
+    if (!guard) return 0;
+    let kicked = 0;
+    for (const room of this.rooms.values()) {
+      for (const participant of [...room.participants.values()]) {
+        if (participant.bot) continue;
+        const ban = guard.banned({ accountId: participant.accountId, ipHash: participant.ipHash });
+        if (ban && room.kick(participant.id, 'BANNED', bannedText(ban))) kicked += 1;
+      }
+    }
+    return kicked;
+  }
+
   constructor(options = {}) {
     this.rooms = new Map();
     this.opening = new Map();
@@ -1597,10 +1681,13 @@ export class RoomRegistry {
     this.resumeTtlMs = options.resumeTtlMs || RESUME_TTL_MS;
     this.issueResumeToken = options.issueResumeToken;
     this.botCounts = options.botCounts || {};
+    this.botManaged = false;
+    this.getBotSkins = options.getBotSkins || (async () => []);
     this.onOffering = options.onOffering;
     this.onChoreReward = options.onChoreReward;
     this.onFriend = options.onFriend;
     this.onReport = options.onReport;
+    this.moderation = options.moderation || null;
     this.bauCua = options.bauCua;
     this.lotto = options.lotto;
     this.ticker = null;
@@ -1617,12 +1704,59 @@ export class RoomRegistry {
     return this.opening.get(roomId);
   }
 
+  // `addbot N`: mở các phòng công khai nền tảng, dành tối thiểu hai bot cho từng trò rồi rải ngẫu nhiên phần còn
+  // lại vào mọi phòng có cấu hình bot đang nằm trên node. Bot vượt sức chứa được bỏ qua và báo lại `assigned`.
+  async setBotTotal(total, random = Math.random) {
+    if (!Number.isSafeInteger(total) || total < 0 || total > 1_000) return null;
+    this.botManaged = true;
+    for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto']) this.botCounts[type] = 0;
+    const baseRooms = ['thien-1', 'cinema-1', 'game-1', 'taixiu-1', 'loto-1'];
+    if (total > 0) await Promise.all(baseRooms.map((roomId) => this.open(roomId)));
+
+    const rooms = [...this.rooms.values()].filter((room) => room.rules.bots && !room.closed);
+    const allocations = new Map(rooms.map((room) => [room.id, 0]));
+    const capacity = (room) => Math.max(0, Math.min(room.botLimit, room.maxParticipants - room.realCount));
+    let remaining = total;
+    const games = ['game-1', 'taixiu-1', 'loto-1'].map((roomId) => this.rooms.get(roomId)).filter((room) => room?.rules.bots);
+    // Hai người là đủ để Lô Tô bắt đầu; Bầu Cua/Tài Xỉu cũng không còn cảnh bàn trống.
+    for (let pass = 0; pass < 2 && remaining > 0; pass += 1) {
+      for (const room of games) {
+        if (remaining <= 0 || allocations.get(room.id) >= capacity(room)) continue;
+        allocations.set(room.id, allocations.get(room.id) + 1);
+        remaining -= 1;
+      }
+    }
+    while (remaining > 0) {
+      const available = rooms.filter((room) => allocations.get(room.id) < capacity(room));
+      if (!available.length) break;
+      const room = available[Math.floor(random() * available.length) % available.length];
+      allocations.set(room.id, allocations.get(room.id) + 1);
+      remaining -= 1;
+    }
+
+    const result = [];
+    for (const room of rooms) {
+      const bots = allocations.get(room.id) || 0;
+      room.setBotCount(bots, { managed: true });
+      result.push({ roomId: room.id, type: room.type, name: this.roomName(room.id), bots });
+    }
+    // Phòng không được chia bot và không có người thật thì trả lease; addbot 0 cũng dọn sạch các phòng bot-only.
+    for (const room of [...rooms]) if (!allocations.get(room.id) && room.realCount === 0) this.removeIfEmpty(room.id);
+    return { requested: total, assigned: total - remaining, rooms: result.sort((a, b) => a.roomId.localeCompare(b.roomId)) };
+  }
+
+  roomName(roomId) {
+    return ({ 'thien-1': 'Chánh điện', 'cinema-1': 'Rạp phim', 'game-1': 'Bầu Cua', 'taixiu-1': 'Tài Xỉu', 'loto-1': 'Lô Tô' })[roomId] || roomId;
+  }
+
   async #open(roomId) {
     if (!roomTypeOf(roomId)) return { ok: false, error: 'UNKNOWN_ROOM' };
+    const botSkins = await this.getBotSkins().catch(() => []);
     const lease = await this.directory.acquireRoom(roomId, this.nodeId, this.leaseTtlMs);
     if (!lease.ok) return { ok: false, error: 'ROOM_ELSEWHERE', owner: lease.owner };
     const room = new Room(roomId, {
       botCount: this.botCounts[roomTypeOf(roomId)],
+      botSkins,
       epoch: lease.epoch,
       resumeTtlMs: this.resumeTtlMs,
       issueResumeToken: this.issueResumeToken,
@@ -1631,6 +1765,7 @@ export class RoomRegistry {
       onChoreReward: this.onChoreReward,
       onFriend: this.onFriend,
       onReport: this.onReport,
+      moderation: this.moderation,
       bauCua: this.bauCua,
       lotto: this.lotto,
     });
@@ -1647,7 +1782,7 @@ export class RoomRegistry {
 
   removeIfEmpty(roomId) {
     const room = this.rooms.get(roomId);
-    if (!room || room.realCount > 0) return;
+    if (!room || room.realCount > 0 || room.keepBotsAlive) return;
     this.rooms.delete(roomId);
     room.close();
     this.directory.releaseRoom(roomId, this.nodeId, room.epoch, { dropSnapshot: true }).catch(() => {});
@@ -1774,6 +1909,7 @@ function handleRoomMessage(socket, context, raw) {
       socket.close(1008, 'Phiên nối lại không hợp lệ');
       return;
     }
+    if (context.ipHash) joined.participant.ipHash = context.ipHash;
     send(socket, {
       v: PROTOCOL_VERSION,
       type: 'welcome',
@@ -1859,6 +1995,7 @@ function handleRoomMessage(socket, context, raw) {
       protocolError(socket, room.epoch, 'ROOM_BUSY', 'Phòng đang nhiều tin, thử lại sau giây lát', message.requestId);
       return;
     }
+    if (!screenText(socket, room, room.participants.get(context.participantId), message.text, message.requestId, { chat: true })) return;
     room.broadcast({
       v: PROTOCOL_VERSION,
       type: 'chat.message',
@@ -1960,6 +2097,7 @@ function handleRoomMessage(socket, context, raw) {
     return;
   }
   if (message.type === 'offering.send') {
+    if (message.text && !screenText(socket, room, room.participants.get(context.participantId), message.text, message.requestId)) return;
     const result = room.offer(context.participantId, message.kind, message.text);
     if (!result.ok) {
       const text = result.error === 'OFFERING_COOLDOWN'
@@ -2004,6 +2142,55 @@ function handleRoomMessage(socket, context, raw) {
     return;
   }
   protocolError(socket, room.epoch, 'UNSUPPORTED_COMMAND', 'Lệnh chưa được hỗ trợ', message.requestId);
+}
+
+const minutesLeft = (until) => Math.max(1, Math.ceil(((until ?? Date.now()) - Date.now()) / 60_000));
+const mutedText = (until) => (until && until < Date.now() + 365 * 24 * 60 * 60_000
+  ? `Bạn đang bị tạm khóa chat (còn ${minutesLeft(until) >= 120 ? `${Math.round(minutesLeft(until) / 60)} giờ` : `${minutesLeft(until)} phút`}) vì dùng từ không phù hợp.`
+  : 'Bạn đang bị khóa chat vì dùng từ không phù hợp.');
+function bannedText(ban) {
+  if (!ban?.until) return 'Tài khoản đã bị khóa vì vi phạm quy định trò chuyện. Nếu khóa nhầm, hãy gửi Góp ý & Báo lỗi.';
+  const minutes = minutesLeft(ban.until);
+  const left = minutes >= 2 * 24 * 60 ? `${Math.round(minutes / (24 * 60))} ngày` : minutes >= 120 ? `${Math.round(minutes / 60)} giờ` : `${minutes} phút`;
+  return `Tài khoản đang bị khóa (còn ${left}) vì vi phạm quy định trò chuyện. Nếu khóa nhầm, hãy gửi Góp ý & Báo lỗi.`;
+}
+
+// Kiểm duyệt chữ trước khi phát cho phòng: đang tắt chat, từ cấm (cộng điểm vi phạm), và với chat thì thêm: nick mới
+// gửi link / số điện thoại, gửi lặp cùng nội dung, nick clone nhắn trùng, từ khả nghi (vẫn gửi, báo Telegram).
+function screenText(socket, room, participant, text, requestId, { chat = false } = {}) {
+  const guard = room.moderation;
+  if (!guard || !participant || participant.bot || typeof text !== 'string') return true;
+  const mutedUntil = guard.mutedUntil(participant);
+  if (mutedUntil) {
+    protocolError(socket, room.epoch, 'CHAT_MUTED', mutedText(mutedUntil), requestId);
+    return false;
+  }
+  const result = guard.check(text);
+  if (result.action === 'block') {
+    protocolError(socket, room.epoch, 'CHAT_BLOCKED', 'Tin có từ ngữ không phù hợp nên không được gửi. Tái phạm nhiều lần sẽ bị khóa chat.', requestId);
+    guard.violation(participant, room, result).then((answer) => {
+      if (answer?.action === 'mute' && socket.readyState === WebSocket.OPEN) protocolError(socket, room.epoch, 'CHAT_MUTED', mutedText(answer.ban?.expiresAt));
+    }).catch(() => {});
+    return false;
+  }
+  if (chat) {
+    const promo = hasPromo(text);
+    if (promo && participant.fresh) {
+      protocolError(socket, room.epoch, 'CHAT_PROMO', 'Tài khoản mới chưa được gửi link, số điện thoại hay lời mời sang ứng dụng khác.', requestId);
+      return false;
+    }
+    if (!room.allow(`${participant.id}:same:${repeatKey(text)}`, 2, 30_000)) {
+      protocolError(socket, room.epoch, 'CHAT_REPEAT', 'Bạn vừa gửi tin này rồi, xin đợi một chút.', requestId);
+      return false;
+    }
+    const clones = guard.clones(participant, room, text, promo || result.action === 'suspect');
+    if (clones) {
+      for (const offender of clones.offenders) room.kick(offender.participantId, 'BANNED', 'Tài khoản bị khóa vì nhắn trùng hàng loạt (nick clone). Nếu khóa nhầm, hãy gửi Góp ý & Báo lỗi.');
+      if (clones.offenders.some((offender) => offender.participantId === participant.id)) return false;
+    }
+  }
+  if (result.action === 'suspect') guard.suspect(participant, room, result);
+  return true;
 }
 
 const SOCIAL_ERRORS = {
@@ -2061,7 +2248,7 @@ async function authorizeUpgrade(url, registry, secret) {
   // Hết hạn giữ chỗ: nhận kết nối để báo mã lỗi rõ ràng, client sẽ xin vé mới thay vì thử lại mãi.
   if (!participant) return { rejected: 'INVALID_RESUME_TOKEN', room: opened.room };
   const claims = participant.accountId
-    ? { participantId: participant.id, roomId, displayName: participant.displayName, role: 'member', accountId: participant.accountId, level: participant.level, avatarUrl: participant.avatarUrl, skins: participant.ownedSkins }
+    ? { participantId: participant.id, roomId, displayName: participant.displayName, role: 'member', accountId: participant.accountId, level: participant.level, avatarUrl: participant.avatarUrl, skins: participant.ownedSkins, fresh: participant.fresh }
     : { participantId: participant.id, roomId, displayName: participant.displayName, role: 'guest' };
   return { claims, room: opened.room };
 }
@@ -2076,6 +2263,35 @@ export function handleRealtimeRequest(req, res, registry = new RoomRegistry(), o
       : { error: 'forbidden' });
     res.writeHead(allowed ? 200 : 403, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(payload);
+    return;
+  }
+  // API đã xác thực lệnh Telegram `addbot N`: đặt tổng bot cho node và trả phân bổ thực tế từng phòng.
+  if (req.method === 'POST' && req.url === '/internal/bots') {
+    const allowed = options.secret && req.headers?.['x-internal-key'] === internalKey(options.secret);
+    if (!allowed) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"forbidden"}');
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1_024) req.destroy();
+    });
+    req.on('end', () => {
+      let input = null;
+      try { input = JSON.parse(raw); } catch {}
+      if (!input || !Number.isSafeInteger(input.total) || input.total < 0 || input.total > 1_000) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"invalid_bot_total"}');
+        return;
+      }
+      registry.setBotTotal(input.total).then((result) => {
+        res.writeHead(result ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+          .end(JSON.stringify(result || { error: 'invalid_bot_total' }));
+      }).catch(() => {
+        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+          .end('{"error":"bot_distribution_failed"}');
+      });
+    });
     return;
   }
   // API báo luống vườn vừa đổi: phát cho mọi phòng chánh điện đang mở trên máy này.
@@ -2206,9 +2422,45 @@ export function reportRecorder(apiInternalUrl, secret) {
   }).catch((error) => console.warn(`Không lưu được báo cáo: ${error.message}`));
 }
 
+// Danh mục hình bot lấy từ các nhân vật shop đang bật. Cache một phút để mở nhiều phòng không dồn request vào API;
+// khi API tạm mất kết nối, phòng vẫn mở ngay với các hình bot có sẵn trong room rules.
+export function shopBotSkinProvider(apiInternalUrl, fetcher = fetch) {
+  const url = new URL('/api/v1/shop', apiInternalUrl);
+  let cached = [];
+  let refreshAfter = 0;
+  let pending = null;
+  return async () => {
+    if (Date.now() < refreshAfter) return cached;
+    pending ||= (async () => {
+      try {
+        const response = await fetcher(url, { signal: AbortSignal.timeout(1_500) });
+        if (response.ok) {
+          const shop = await response.json();
+          cached = [...new Set((shop.items || [])
+            .filter((item) => item.kind === 'skin' && isPremiumSkin(item.skin))
+            .map((item) => item.skin))];
+        }
+      } catch {
+        // Danh mục shop không phải điều kiện để vào phòng; lần làm mới sau sẽ thử lại.
+      } finally {
+        refreshAfter = Date.now() + 60_000;
+        pending = null;
+      }
+      return cached;
+    })();
+    return pending;
+  };
+}
+
 export function createRealtimeServer(options = {}) {
   const secret = options.secret || DEFAULT_LOCAL_SECRET;
+  // Kiểm duyệt: danh sách từ + sổ khóa đồng bộ từ API (API_INTERNAL_URL); không có API thì chỉ lọc từ mặc định.
+  const moderation = options.moderation || createModerationGuard({
+    secret,
+    remote: options.apiInternalUrl ? moderationRemote(options.apiInternalUrl, internalKey(secret)) : null,
+  });
   const registry = options.registry || new RoomRegistry({
+    moderation,
     nodeId: options.nodeId,
     publicUrl: options.publicUrl,
     directory: options.directory,
@@ -2216,6 +2468,7 @@ export function createRealtimeServer(options = {}) {
     nodeTtlMs: options.nodeTtlMs,
     resumeTtlMs: options.resumeTtlMs,
     botCounts: options.botCounts,
+    getBotSkins: options.getBotSkins || (options.apiInternalUrl ? shopBotSkinProvider(options.apiInternalUrl) : undefined),
     issueResumeToken: (claims) => createResumeToken(claims, secret),
     onOffering: options.recordOffering || (options.apiInternalUrl ? offeringRecorder(options.apiInternalUrl, secret) : undefined),
     onChoreReward: options.recordChoreReward || (options.apiInternalUrl ? choreRewardRecorder(options.apiInternalUrl, secret) : undefined),
@@ -2225,6 +2478,8 @@ export function createRealtimeServer(options = {}) {
     bauCua: options.bauCua || (options.apiInternalUrl ? bauCuaBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     lotto: options.lotto || (options.apiInternalUrl ? lottoBank(options.apiInternalUrl, internalKey(secret)) : undefined),
   });
+  registry.moderation ||= moderation;
+  moderation.onEnforce = () => registry.enforceBans(moderation);
   const server = http.createServer((req, res) => handleRealtimeRequest(req, res, registry, { secret }));
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
 
@@ -2234,7 +2489,14 @@ export function createRealtimeServer(options = {}) {
       rejectUpgrade(socket, '403 Forbidden', 'forbidden');
       return;
     }
-    authorizeUpgrade(url, registry, secret).then((result) => {
+    authorizeUpgrade(url, registry, secret).then(async (result) => {
+      // Nick / IP đang bị khóa: hỏi lại API một lần (có thể vừa được mở khóa) rồi mới từ chối.
+      if (result.claims) {
+        result.ipHash = moderation.ipKey(req);
+        const who = { accountId: result.claims.accountId, ipHash: result.ipHash };
+        if (moderation.banned(who)) await moderation.refresh();
+        result.ban = moderation.banned(who);
+      }
       if (!result.claims && !result.rejected) {
         rejectUpgrade(socket, result.status, result.message);
         return;
@@ -2245,7 +2507,7 @@ export function createRealtimeServer(options = {}) {
     }).catch(() => rejectUpgrade(socket, '503 Service Unavailable', 'room directory unavailable'));
   });
 
-  sockets.on('connection', (socket, req, { claims, room, rejected }) => {
+  sockets.on('connection', (socket, req, { claims, room, rejected, ipHash: ipKey, ban }) => {
     // Kết nối chết (điện thoại mất sóng, trình duyệt bị tắt ngang) không báo ngắt: ping mức WebSocket mỗi nhịp,
     // hai nhịp không thấy pong thì cắt để người đó rời phòng (vẫn giữ chỗ trong thời hạn resume).
     socket.isAlive = true;
@@ -2255,7 +2517,13 @@ export function createRealtimeServer(options = {}) {
       socket.close(1008, 'Phiên nối lại hết hạn');
       return;
     }
-    const context = { claims, participantId: null, room, fetchVideoInfo: options.fetchVideoInfo || fetchYouTubeInfo };
+    // Nick / IP đang bị khóa: báo mã BANNED rồi đóng (vé cấp trước lúc khóa, hoặc nối lại bằng resume token).
+    if (ban) {
+      protocolError(socket, room.epoch, 'BANNED', bannedText(ban));
+      socket.close(CLOSE_BANNED, 'Bị khóa');
+      return;
+    }
+    const context = { claims, participantId: null, room, ipHash: ipKey, fetchVideoInfo: options.fetchVideoInfo || fetchYouTubeInfo };
     const helloTimer = setTimeout(() => {
       if (!context.participantId) socket.close(1008, 'Chưa gửi hello');
     }, options.helloTimeoutMs || HELLO_TIMEOUT_MS);
@@ -2268,7 +2536,10 @@ export function createRealtimeServer(options = {}) {
     socket.on('error', () => {});
   });
 
-  server.on('listening', () => registry.start(options.tickMs));
+  server.on('listening', () => {
+    registry.start(options.tickMs);
+    moderation.start(options.moderationSyncMs);
+  });
   const liveness = setInterval(() => {
     for (const client of sockets.clients) {
       if (!client.isAlive) {
@@ -2282,10 +2553,12 @@ export function createRealtimeServer(options = {}) {
   liveness.unref?.();
   server.on('close', () => {
     clearInterval(liveness);
+    moderation.stop();
     registry.stop();
   });
 
   server.roomRegistry = registry;
+  server.moderation = moderation;
   server.webSocketServer = sockets;
   return server;
 }
@@ -2298,9 +2571,9 @@ if (isMain) {
   const nodeId = process.env.NODE_ID || `rt-${port}`;
   const publicUrl = process.env.REALTIME_PUBLIC_URL || `ws://${host}:${port}/ws`;
   const { directory, shared } = await createDirectoryFromEnv();
-  // Số bot theo loại phòng: BOTS_THIEN / BOTS_GAME / BOTS_TAIXIU (0 để tắt). Không đặt thì theo room rules.
+  // Số bot theo loại phòng: BOTS_THIEN / BOTS_CINEMA / BOTS_GAME / BOTS_TAIXIU / BOTS_LOTO (0 để tắt).
   const botCounts = {};
-  for (const type of ['thien', 'cinema', 'game', 'taixiu']) {
+  for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto']) {
     const value = process.env[`BOTS_${type.toUpperCase()}`];
     if (value !== undefined && /^\d+$/.test(value)) botCounts[type] = Number(value);
   }
