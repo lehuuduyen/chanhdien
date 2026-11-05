@@ -66,8 +66,16 @@ export const GAME_PHASES = Object.freeze(['betting', 'rolling', 'result']);
 export const TAI_XIU_SPOTS = Object.freeze(['xiu', 'tai', ...Array.from({ length: 14 }, (_, index) => `t${index + 4}`), ...[1, 2, 3, 4, 5, 6].map((face) => `f${face}`)]);
 export const DICE_GAMES = Object.freeze(['bau-cua', 'tai-xiu']);
 const TAI_XIU_HISTORY = 10;
-// Mã ván: "bc-…" Bầu Cua, "tx-…" Tài Xỉu.
-const ROUND_ID = /^(bc|tx)-[a-z0-9-]{4,76}$/;
+// Mã ván: "bc-…" Bầu Cua, "tx-…" Tài Xỉu, "lt-…" Lô Tô.
+const ROUND_ID = /^(bc|tx|lt)-[a-z0-9-]{4,76}$/;
+const LOTTO_ROUND_ID = /^lt-[a-z0-9-]{4,76}$/;
+// Lô Tô: pha mua vé → gọi số → chờ kinh cùng nhịp (claiming) → kết quả. Tối đa 2 vé / người / ván.
+export const LOTTO_PHASES = Object.freeze(['buying', 'calling', 'claiming', 'result']);
+const LOTTO_MAX_TICKETS = 2;
+const lottoNumber = (value) => isInteger(value) && value >= 1 && value <= 90;
+// Vé: 3 hàng × 9 ô (0 = trống), mỗi hàng 5 số.
+const lottoRows = (rows) => Array.isArray(rows) && rows.length === 3 && rows.every((row) => Array.isArray(row) && row.length === 9
+  && row.every((value) => value === 0 || lottoNumber(value)) && row.filter(Boolean).length === 5);
 const MAX_STAKE = 1_000;
 export const WORLD_LIMIT = 1_000;
 export const MOVES_PER_BATCH = 500;
@@ -92,6 +100,8 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'reaction.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây' },
   'bet.place': { roles: ['member', 'moderator', 'host'], rate: '10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván' },
   'bet.cancel': { roles: ['member', 'moderator', 'host'], rate: '3/5 giây, chỉ trong pha đặt cược' },
+  'lotto.buy': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, chỉ trong pha mua vé, tối đa 2 vé mỗi ván' },
+  'lotto.claim': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây; kinh sai khóa nút 10 giây' },
   'prayer.announce': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'friend.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'friend.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
@@ -234,6 +244,22 @@ const clientSchemas = {
       && isInteger(message.amount) && message.amount >= 1 && message.amount <= MAX_STAKE;
   },
   // Hủy toàn bộ cược của mình trong ván (chỉ trong pha đặt cược); API hoàn xu.
+  // Mua vé Lô Tô (count 0–2; autoMark = mua thêm tự đánh dấu cho ván này).
+  'lotto.buy'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'roundId', 'count', 'autoMark'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && typeof message.roundId === 'string' && LOTTO_ROUND_ID.test(message.roundId)
+      && isInteger(message.count) && message.count >= 0 && message.count <= LOTTO_MAX_TICKETS
+      && typeof message.autoMark === 'boolean' && (message.count > 0 || message.autoMark);
+  },
+  // Kinh: vé số ticket (1–2), hàng row (0–2). Server kiểm tra theo vé gốc, không theo chỗ người chơi đánh dấu.
+  'lotto.claim'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'roundId', 'ticket', 'row'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && typeof message.roundId === 'string' && LOTTO_ROUND_ID.test(message.roundId)
+      && isInteger(message.ticket) && message.ticket >= 1 && message.ticket <= LOTTO_MAX_TICKETS
+      && isInteger(message.row) && message.row >= 0 && message.row <= 2;
+  },
   'bet.cancel'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'roundId'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
@@ -459,6 +485,34 @@ const serverSchemas = {
       && (message.requestId === undefined || isString(message.requestId, LIMITS.requestId, ID_PATTERN));
   },
   // Kết quả của chính mình sau khi lắc (chỉ gửi người có cược trong ván).
+  // Trạng thái bàn Lô Tô (cả phòng): số đã gọi theo thứ tự, quỹ, số vé đã bán, người đang đợi (thiếu 1 số), người kinh.
+  'lotto.state'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'phase', 'endsAt', 'called', 'pool', 'tickets', 'players'], ['nextCallAt', 'waiting', 'winners', 'void', 'claims'])
+      && typeof message.roundId === 'string' && LOTTO_ROUND_ID.test(message.roundId)
+      && LOTTO_PHASES.includes(message.phase)
+      && isInteger(message.endsAt) && message.endsAt >= 0
+      && Array.isArray(message.called) && message.called.length <= 90 && message.called.every(lottoNumber) && new Set(message.called).size === message.called.length
+      && isInteger(message.pool) && message.pool >= 0
+      && isInteger(message.tickets) && message.tickets >= 0
+      && isInteger(message.players) && message.players >= 0
+      && (message.nextCallAt === undefined || (isInteger(message.nextCallAt) && message.nextCallAt >= 0))
+      && (message.waiting === undefined || (Array.isArray(message.waiting) && message.waiting.length <= 8 && message.waiting.every((item) => isRecord(item)
+        && exactKeys(item, ['displayName', 'number']) && isString(item.displayName, LIMITS.displayName) && lottoNumber(item.number))))
+      && (message.winners === undefined || (Array.isArray(message.winners) && message.winners.length <= 20 && message.winners.every((item) => isRecord(item)
+        && exactKeys(item, ['displayName', 'share']) && isString(item.displayName, LIMITS.displayName) && isInteger(item.share) && item.share >= 0)))
+      && (message.claims === undefined || (isInteger(message.claims) && message.claims >= 0))
+      && (message.void === undefined || message.void === true);
+  },
+  // Vé của chính mình trong ván (sau khi mua, và khi vào lại giữa ván); coins: số dư ví sau khi trừ.
+  'lotto.tickets'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'tickets', 'autoMark'], ['coins', 'requestId'])
+      && typeof message.roundId === 'string' && LOTTO_ROUND_ID.test(message.roundId)
+      && Array.isArray(message.tickets) && message.tickets.length <= LOTTO_MAX_TICKETS
+      && message.tickets.every((ticket) => isRecord(ticket) && exactKeys(ticket, ['no', 'rows']) && isInteger(ticket.no) && ticket.no >= 1 && ticket.no <= LOTTO_MAX_TICKETS && lottoRows(ticket.rows))
+      && typeof message.autoMark === 'boolean'
+      && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
+      && (message.requestId === undefined || isString(message.requestId, LIMITS.requestId, ID_PATTERN));
+  },
   'game.payout'(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'staked', 'payout', 'net', 'coins'])
       && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)

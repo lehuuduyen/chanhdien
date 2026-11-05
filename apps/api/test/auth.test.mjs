@@ -252,14 +252,22 @@ test('hỗ trợ: gửi báo lỗi/góp ý (kiểm tra kiểu, cắt độ dài,
 test('hỗ trợ: nhận phiếu hỗ trợ xu và hiện đúng loại cho quản trị', async () => {
   const { createMemorySupportStore } = await import('../support.mjs');
   const options = setup({ adminSecret: 'khoa-quan-tri', supportStore: createMemorySupportStore() });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', {
+    body: { username: 'tho.iu.ca.rot', password: 'matkhau123', displayName: 'Thỏ iu cà rốt' },
+  });
   const sent = await request(options, 'POST', '/api/v1/support', {
-    body: { kind: 'coins', message: 'Tưới cây xong nhưng chưa nhận được 20 xu', page: '/chanh-dien.html' },
+    body: { kind: 'coins', message: 'Cho tôi 500 xu để chơi', page: '/chanh-dien.html?invite=ma-bi-mat&go=garden' },
+    headers: { cookie: cookieOf(registered) },
   });
   assert.equal(sent.status, 201);
   const listed = await request(options, 'GET', '/api/v1/admin/support', { headers: { 'x-admin-key': 'khoa-quan-tri' } });
   assert.equal(listed.status, 200);
   assert.equal(listed.json.tickets[0].kind, 'coins');
-  assert.equal(listed.json.tickets[0].message, 'Tưới cây xong nhưng chưa nhận được 20 xu');
+  assert.equal(listed.json.tickets[0].message, 'Cho tôi 500 xu để chơi');
+  assert.deepEqual(listed.json.tickets[0].account, {
+    id: registered.json.account.id, username: 'tho.iu.ca.rot', displayName: 'Thỏ iu cà rốt',
+  });
+  assert.equal(listed.json.tickets[0].page, '/chanh-dien.html?go=garden', 'không lưu mã mời phòng vào phiếu');
 });
 
 test('hỗ trợ: có phiếu mới thì báo Telegram (chữ thường, không parse_mode); thiếu cấu hình thì không báo', async () => {
@@ -283,7 +291,13 @@ test('hỗ trợ: có phiếu mới thì báo Telegram (chữ thường, không 
   assert.match(calls[0].body.text, /Không nghe được tiếng chuông <b>to<\/b>/);
   assert.match(calls[0].body.text, /Liên hệ: an@example\.com/);
   assert.match(calls[0].body.text, /Xem & xử lý: https:\/\/vi-du\.example\/admin-thien\.html/);
-  assert.match(supportMessage({ id: 'ht-xu', kind: 'coins', message: 'Chưa nhận được xu' }), /🪙 Hỗ trợ xu/);
+  const coinMessage = supportMessage({
+    id: 'ht-xu', kind: 'coins', message: 'Cho tôi 500 xu',
+    account: { id: 'a-12345678', username: 'tho.iu.ca.rot', displayName: 'Thỏ iu cà rốt' },
+  });
+  assert.match(coinMessage, /🪙 Hỗ trợ xu/);
+  assert.match(coinMessage, /Tên đăng nhập: @tho\.iu\.ca\.rot/);
+  assert.match(coinMessage, /xu tho\.iu\.ca\.rot \+500/);
   assert.ok(supportMessage({ id: 'ht-1', kind: 'idea', message: 'x'.repeat(9_000) }).length <= 4_000);
   // Telegram lỗi: phiếu vẫn lưu, API vẫn trả 201.
   const failing = createTelegramNotifier({ token: '1:A', chatId: '2', fetchImpl: async () => { throw new Error('offline'); } });

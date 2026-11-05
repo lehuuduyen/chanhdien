@@ -80,8 +80,9 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
       session.ticketRejected = true;
       reconnectAttempt = 0;
       save();
-    } else if (message.type === 'protocol.error' && message.code === 'ROOM_FULL') {
-      // Mã mời trỏ đúng phòng nhưng phòng đã kín: dừng hẳn vòng nối lại để trang đưa người dùng về cổng vào.
+    } else if (message.type === 'protocol.error' && (message.code === 'ROOM_FULL' || message.code === 'SESSION_REPLACED')) {
+      // Mã mời trỏ đúng phòng nhưng phòng đã kín, hoặc tài khoản vừa vào phòng từ trình duyệt / máy khác: dừng hẳn vòng
+      // nối lại để trang đưa người dùng về cổng vào (không giành qua giành lại giữa hai tab).
       session = null;
       online = false;
       save();

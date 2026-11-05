@@ -21,7 +21,7 @@ function validClaims(value) {
   return value !== null
     && typeof value === 'object'
     && !Array.isArray(value)
-    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'skins', 'iat', 'exp'].includes(key))
+    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'skins', 'skin', 'iat', 'exp'].includes(key))
     && typeof value.participantId === 'string'
     && PARTICIPANT_ID.test(value.participantId)
     && typeof value.roomId === 'string'
@@ -36,6 +36,8 @@ function validClaims(value) {
     // Hình nhân vật đã mua trong shop (máy realtime chỉ cho mặc hình có trong danh sách này).
     && (value.skins === undefined || (value.role === 'member' && Array.isArray(value.skins) && value.skins.length <= 16
       && value.skins.every((skin) => typeof skin === 'string' && SKIN_ID.test(skin))))
+    // Hình chọn lần cuối của tài khoản (máy realtime vẫn tự kiểm tra quyền mặc).
+    && (value.skin === undefined || (value.role === 'member' && typeof value.skin === 'string' && SKIN_ID.test(value.skin)))
     && Number.isSafeInteger(value.iat)
     && Number.isSafeInteger(value.exp)
     && value.exp > value.iat;
@@ -94,6 +96,7 @@ export function createJoinTicket(claims, secret, options = {}) {
     ...(claims.accountId && claims.level ? { level: claims.level } : {}),
     ...(claims.accountId && AVATAR_URL.test(claims.avatarUrl || '') ? { avatarUrl: claims.avatarUrl } : {}),
     ...(claims.accountId && claims.skins?.length ? { skins: [...claims.skins] } : {}),
+    ...(claims.accountId && claims.skin ? { skin: claims.skin } : {}),
     iat: now,
     exp: now + ttlMs,
   };

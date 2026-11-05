@@ -335,3 +335,26 @@ test('Tài Xỉu: bet.place gửi spot (không phải animal), game.state xúc x
   assert.equal(parseServerMessage({ ...state, game: 'bau-cua' }).ok, false, 'Bầu Cua không có lịch sử số / ô Tài Xỉu');
   assert.equal(parseServerMessage({ v: 1, type: 'game.mine', epoch: 1, roundId: 'tx-taixiu-1-1-3-ab12', mine: { tai: 5, t11: 2 } }).ok, true);
 });
+
+test('Lô Tô: lotto.buy / lotto.claim cho thành viên; lotto.state, lotto.tickets đúng dạng', () => {
+  const buy = { v: 1, type: 'lotto.buy', requestId: 'lt-buy-1', roundId: 'lt-loto-1-1-3-ab12', count: 2, autoMark: true };
+  assert.equal(parseClientMessage(buy, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage(buy, { role: 'guest' }).ok, false, 'khách không mua vé');
+  for (const count of [3, -1, 1.5, '1']) assert.equal(parseClientMessage({ ...buy, count }, { role: 'member' }).ok, false, String(count));
+  assert.equal(parseClientMessage({ ...buy, count: 0, autoMark: false }, { role: 'member' }).ok, false, 'không mua gì');
+  assert.equal(parseClientMessage({ ...buy, roundId: 'bc-game-1-1-3-ab12' }, { role: 'member' }).ok, false, 'mã ván Lô Tô');
+  const claim = { v: 1, type: 'lotto.claim', requestId: 'lt-claim-1', roundId: 'lt-loto-1-1-3-ab12', ticket: 1, row: 2 };
+  assert.equal(parseClientMessage(claim, { role: 'member' }).ok, true);
+  for (const [field, value] of [['ticket', 3], ['ticket', 0], ['row', 3], ['row', -1]]) assert.equal(parseClientMessage({ ...claim, [field]: value }, { role: 'member' }).ok, false, `${field}=${value}`);
+
+  const state = { v: 1, type: 'lotto.state', epoch: 1, roundId: 'lt-loto-1-1-3-ab12', phase: 'calling', endsAt: 1_000, called: [5, 37, 88], pool: 40, tickets: 4, players: 3, nextCallAt: 1_000, waiting: [{ displayName: 'An', number: 12 }] };
+  assert.equal(parseServerMessage(state).ok, true);
+  assert.equal(parseServerMessage({ ...state, called: [5, 5] }).ok, false, 'không lặp số');
+  assert.equal(parseServerMessage({ ...state, called: [91] }).ok, false, 'số 1–90');
+  assert.equal(parseServerMessage({ ...state, phase: 'betting' }).ok, false);
+  assert.equal(parseServerMessage({ ...state, phase: 'result', winners: [{ displayName: 'An', share: 36 }] }).ok, true);
+  const rows = [[1, 0, 21, 0, 45, 0, 63, 0, 88], [0, 14, 0, 37, 0, 52, 0, 71, 80], [7, 0, 29, 0, 0, 58, 66, 0, 85]];
+  const tickets = { v: 1, type: 'lotto.tickets', epoch: 1, roundId: 'lt-loto-1-1-3-ab12', tickets: [{ no: 1, rows }], autoMark: false, coins: 90 };
+  assert.equal(parseServerMessage(tickets).ok, true);
+  assert.equal(parseServerMessage({ ...tickets, tickets: [{ no: 1, rows: [rows[0], rows[1], [7, 0, 29, 0, 0, 58, 66, 0, 0]] }] }).ok, false, 'mỗi hàng 5 số');
+});

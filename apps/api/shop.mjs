@@ -45,6 +45,8 @@ const MODEL_MAX_TRIANGLES = 40_000;
 const MODEL_BONES = ['hips', 'spine', 'leftupleg', 'leftleg', 'rightupleg', 'rightleg', 'leftarm', 'rightarm'];
 const ITEM_PRICE = [0, 1_000_000];
 const BASES = ['man', 'woman'];
+// Hình ai cũng chọn được (cổng chùa); hình khác phải mua.
+const FREE_SKINS = ['man', 'woman'];
 // "mixamorig:LeftUpLeg" / "LeftUpLeg" → "leftupleg" (cùng cách chibi3d.mjs tìm xương).
 export const boneKey = (name) => String(name).replace(/^mixamorig\d*:?/i, '').toLowerCase();
 const cleanName = (value) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().replace(/\s+/g, ' ').slice(0, 40) : '');
@@ -178,6 +180,11 @@ export function createShopStore({ db, now = Date.now }) {
       acquired_at INTEGER NOT NULL,
       PRIMARY KEY (account_id, item_id)
     );
+    CREATE TABLE IF NOT EXISTS account_skins (
+      account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+      skin TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS shop_item_overrides (
       item_id TEXT PRIMARY KEY,
       price INTEGER NOT NULL CHECK (price >= 0),
@@ -215,6 +222,9 @@ export function createShopStore({ db, now = Date.now }) {
   // Ảnh chân dung (PNG admin dựng từ mô hình): 0 = chưa có.
   if (!catalogColumns.includes('thumb_version')) db.exec('ALTER TABLE shop_catalog ADD COLUMN thumb_version INTEGER NOT NULL DEFAULT 0');
   const q = {
+    preferredSkin: db.prepare('SELECT skin FROM account_skins WHERE account_id = ?'),
+    setPreferredSkin: db.prepare(`INSERT INTO account_skins (account_id, skin, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET skin = excluded.skin, updated_at = excluded.updated_at`),
     wallet: db.prepare('SELECT diamonds FROM shop_wallets WHERE account_id = ?'),
     ensureWallet: db.prepare('INSERT OR IGNORE INTO shop_wallets (account_id, diamonds, updated_at) VALUES (?, 0, ?)'),
     change: db.prepare('UPDATE shop_wallets SET diamonds = diamonds + ?, updated_at = ? WHERE account_id = ?'),
@@ -335,10 +345,22 @@ export function createShopStore({ db, now = Date.now }) {
       q.updateItem.run(next.name, next.price, original(next.price, next.originalPrice), next.base, next.active ? 1 : 0, now(), id);
       return allItems().find((item) => item.id === id);
     },
+    // Hình nhân vật chọn lần cuối (lưu theo tài khoản): Nam/Nữ hoặc hình đã mua; hình không còn hợp lệ thì null.
+    preferredSkin(accountId) {
+      const skin = q.preferredSkin.get(accountId)?.skin;
+      return skin && (FREE_SKINS.includes(skin) || this.ownedSkins(accountId).includes(skin)) ? skin : null;
+    },
+    setPreferredSkin(accountId, skin) {
+      if (typeof skin !== 'string' || !(FREE_SKINS.includes(skin) || isPremiumSkin(skin))) return { ok: false, error: 'INVALID_SKIN' };
+      if (!FREE_SKINS.includes(skin) && !this.ownedSkins(accountId).includes(skin)) return { ok: false, error: 'SKIN_LOCKED' };
+      q.setPreferredSkin.run(accountId, skin, now());
+      return { ok: true, skin };
+    },
     me(accountId) {
       return {
         diamonds: q.wallet.get(accountId)?.diamonds ?? 0,
         owned: ownedItems(accountId),
+        skin: this.preferredSkin(accountId),
         history: q.history.all(accountId).map((row) => ({ ...row })),
       };
     },
@@ -659,12 +681,22 @@ export async function handleShopRequest(req, res, pathname, options) {
   if (!sameOrigin(req)) return json(req, res, 403, { error: 'forbidden_origin' }), true;
   if (!account) return json(req, res, 401, { error: 'sign_in_required' }), true;
 
+  // Lưu hình nhân vật đang chọn (cổng chùa, nút "Mặc" ở shop): Nam/Nữ hoặc hình đã mua.
+  if (pathname === '/api/v1/shop/skin') {
+    const input = await readBody(req, res);
+    if (!input) return true;
+    if (!allow(options, `shop-skin:${account.id}`, BUY_LIMIT)) return json(req, res, 429, { error: 'rate_limited' }), true;
+    const result = store.setPreferredSkin(account.id, input.skin);
+    return json(req, res, result.ok ? 200 : result.error === 'SKIN_LOCKED' ? 409 : 400, result.ok ? { skin: result.skin } : { error: result.error }), true;
+  }
   if (pathname === '/api/v1/shop/buy') {
     const input = await readBody(req, res);
     if (!input) return true;
     if (!allow(options, `shop-buy:${account.id}`, BUY_LIMIT)) return json(req, res, 429, { error: 'rate_limited' }), true;
     const result = store.buy(account.id, input.itemId);
     if (!result.ok) return json(req, res, result.error === 'UNKNOWN_ITEM' ? 404 : 409, { error: result.error }), true;
+    // Mua xong là mặc luôn: lưu làm hình đang chọn của tài khoản.
+    if (!result.already) store.setPreferredSkin(account.id, input.itemId);
     json(req, res, 200, { ...result, me: store.me(account.id) });
     return true;
   }

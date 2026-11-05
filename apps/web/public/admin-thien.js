@@ -237,7 +237,11 @@ function renderSupport(values) {
     const meta = document.createElement('p');
     meta.textContent = new Date(value.submittedAt).toLocaleString('vi-VN');
     const who = document.createElement('p');
-    who.textContent = [value.account ? `Tài khoản: ${value.account.displayName}` : 'Khách', value.contact ? `Liên hệ: ${value.contact}` : ''].filter(Boolean).join(' · ');
+    who.textContent = [
+      value.account ? `Tài khoản: ${value.account.displayName}` : 'Khách',
+      value.account?.username ? `@${value.account.username}` : value.account?.id || '',
+      value.contact ? `Liên hệ: ${value.contact}` : '',
+    ].filter(Boolean).join(' · ');
     const where = document.createElement('p');
     where.textContent = [value.page ? `Trang: ${value.page}` : '', value.userAgent || ''].filter(Boolean).join(' · ');
     where.className = 'support-where';

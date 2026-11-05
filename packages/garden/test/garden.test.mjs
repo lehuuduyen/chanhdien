@@ -335,3 +335,88 @@ test('Tài Xỉu chung bảng cược với Bầu Cua: ô cược theo mã ván,
   assert.equal(coins(an), STARTING_COINS + 22);
   assert.equal(accounts.database.prepare('SELECT game FROM game_rounds WHERE account_id = ?').get(an).game, 'tai_xiu');
 });
+
+test('Lô Tô: vé 3 × 9 đúng luật — mỗi hàng 5 số, cột nào cũng có số, số đúng khoảng của cột và tăng dần, không trùng', async () => {
+  const { createLottoTicket, lottoRowComplete } = await import('../src/index.mjs');
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const rows = createLottoTicket();
+    assert.equal(rows.length, 3);
+    for (const row of rows) assert.equal(row.filter(Boolean).length, 5);
+    const all = rows.flat().filter(Boolean);
+    assert.equal(new Set(all).size, 15);
+    for (let column = 0; column < 9; column += 1) {
+      const values = rows.map((row) => row[column]).filter(Boolean);
+      assert.ok(values.length >= 1, `cột ${column} có số`);
+      const [low, high] = [column === 0 ? 1 : column * 10, column === 8 ? 90 : column * 10 + 9];
+      assert.ok(values.every((value) => value >= low && value <= high));
+      assert.deepEqual(values, [...values].sort((a, b) => a - b));
+    }
+  }
+  const rows = [[1, 0, 21, 0, 45, 0, 63, 0, 88], [0, 14, 0, 37, 0, 52, 0, 71, 80], [7, 0, 29, 0, 0, 58, 66, 0, 85]];
+  assert.equal(lottoRowComplete(rows, 0, [1, 21, 45, 63]), false, 'mới 4 số: đợi');
+  assert.equal(lottoRowComplete(rows, 0, [1, 21, 45, 63, 88, 5]), true);
+  assert.equal(lottoRowComplete(rows, 3, [1, 21, 45, 63, 88]), false, 'hàng không có');
+});
+
+test('Lô Tô: mua tối đa 2 vé (10 xu/vé) + tự đánh dấu 5 xu; kinh hợp lệ chia quỹ sau phế 10%; không ai kinh thì hoàn tiền', async () => {
+  const { LOTTO_STALE_MS, lottoRowComplete } = await import('../src/index.mjs');
+  const { garden, user, tick, accounts } = setup();
+  const an = user('an_loto');
+  const binh = user('binh_loto');
+  const cuc = user('cuc_loto');
+  const coins = (id) => garden.me(id).coins;
+  const round = 'lt-loto-1-1-1-abcd';
+  const buy = (accountId, count, autoMark, key) => garden.buyLotto({ accountId, roundId: round, count, autoMark, key });
+
+  assert.equal(buy(an, 3, false, 'lt-buy-an-01').code, 'INVALID', 'tối đa 2 vé mỗi lần');
+  assert.equal(buy(an, -1, false, 'lt-buy-an-02').code, 'INVALID');
+  assert.equal(buy(an, 0, false, 'lt-buy-an-03').code, 'INVALID', 'không mua gì');
+  const first = buy(an, 1, true, 'lt-buy-an-04');
+  assert.equal(first.tickets.length, 1);
+  assert.equal(first.autoMark, true);
+  assert.equal(coins(an), STARTING_COINS - 15);
+  assert.equal(buy(an, 1, true, 'lt-buy-an-04').replayed, true, 'gửi lại cùng khóa không trừ hai lần');
+  assert.equal(coins(an), STARTING_COINS - 15);
+  const second = buy(an, 1, true, 'lt-buy-an-05');
+  assert.equal(second.tickets.length, 2);
+  assert.equal(coins(an), STARTING_COINS - 25, 'đã có tự đánh dấu thì không trả lần hai');
+  assert.equal(buy(an, 1, false, 'lt-buy-an-06').code, 'TICKET_LIMIT');
+  buy(binh, 2, false, 'lt-buy-binh-1');
+  buy(cuc, 1, false, 'lt-buy-cuc-01');
+  accounts.database.prepare('UPDATE coin_wallets SET balance = 3 WHERE account_id = ?').run(cuc);
+  assert.equal(buy(cuc, 1, false, 'lt-buy-cuc-02').code, 'INSUFFICIENT_COINS');
+
+  // An và Bình cùng kinh một nhịp (vé 1 hàng 0); Cúc kinh sai (vé chưa đủ số) — bị loại.
+  const ticketOf = (accountId, no) => JSON.parse(accounts.database.prepare('SELECT numbers FROM lotto_tickets WHERE round_id = ? AND account_id = ? AND ticket_no = ?').get(round, accountId, no).numbers);
+  const called = [...new Set([...ticketOf(an, 1)[0], ...ticketOf(binh, 1)[0]].filter(Boolean))];
+  assert.ok(lottoRowComplete(ticketOf(an, 1), 0, called));
+  const before = { an: coins(an), binh: coins(binh), cuc: coins(cuc) };
+  const settled = garden.settleLottoRound({
+    roundId: round, called,
+    claims: [{ accountId: an, ticket: 1, row: 0 }, { accountId: binh, ticket: 1, row: 0 }, { accountId: an, ticket: 1, row: 0 }, { accountId: cuc, ticket: 1, row: 2 }],
+  });
+  // Quỹ = 5 vé × 10 = 50; sau phế 10% = 45; 2 vé kinh → mỗi vé 22 (lẻ 1 xu vào phế).
+  assert.deepEqual([settled.pool, settled.prize, settled.share, settled.winners.length], [50, 45, 22, 2]);
+  assert.equal(coins(an), before.an + 22);
+  assert.equal(coins(binh), before.binh + 22);
+  assert.equal(coins(cuc), before.cuc, 'kinh sai không được gì');
+  assert.equal(settled.results.reduce((sum, item) => sum + item.payout, 0) <= 50, true, 'hệ thống không trả quá quỹ');
+  assert.equal(garden.settleLottoRound({ roundId: round, called, claims: [] }).replayed, true);
+  assert.equal(buy(binh, 0, true, 'lt-buy-binh-2').code, 'ROUND_CLOSED');
+
+  // Ván không ai kinh: hoàn đủ tiền vé + tự đánh dấu.
+  const empty = 'lt-loto-1-1-2-abcd';
+  const startAn = coins(an);
+  garden.buyLotto({ accountId: an, roundId: empty, count: 2, autoMark: true, key: 'lt-buy-an-20' });
+  const refunded = garden.settleLottoRound({ roundId: empty, called: [1, 2, 3], claims: [] });
+  assert.equal(refunded.void, true);
+  assert.equal(coins(an), startAn);
+
+  // Ván treo (máy realtime chết): quá hạn thì tự hoàn.
+  const stale = 'lt-loto-1-1-3-abcd';
+  garden.buyLotto({ accountId: binh, roundId: stale, count: 1, autoMark: false, key: 'lt-buy-binh-30' });
+  const startBinh = coins(binh);
+  tick(LOTTO_STALE_MS + 1);
+  assert.equal(garden.refundStaleLotto(), 1);
+  assert.equal(coins(binh), startBinh + 10);
+});

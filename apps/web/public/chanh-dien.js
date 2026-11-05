@@ -807,9 +807,7 @@ function handleMessage(message) {
   } else if (message.type === 'protocol.error') {
     // Hình shop chưa mua (hoặc vé cũ chưa ghi): mặc lại hình Nữ thường.
     if (message.code === 'SKIN_LOCKED') {
-      useFreeSkin();
-      if (me()?.skin !== mySkin) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
-      showToast(t('skin.locked'));
+      onSkinLocked();
       return;
     }
     if (social?.onError(message)) return;
@@ -822,6 +820,24 @@ function handleMessage(message) {
     }
     // Lỗi của tin gửi liên tục không có requestId (vị trí khi đi): bỏ qua, không hiện thông báo.
     if (message.code === 'INVALID_MESSAGE' && !message.requestId) return;
+    // Tài khoản vừa vào phòng từ trình duyệt / máy khác: tab này về cổng (giữ link phòng, bấm vào lại là chơi ở đây).
+    if (message.code === 'SESSION_REPLACED') {
+      session.leave();
+      explore.leave();
+      audio.stop();
+      participants = new Map();
+      roomCount = null;
+      stopRoomCountPolling();
+      social?.reset();
+      renderer?.setParticipants([]);
+      renderBoard();
+      showHall(false);
+      elements.presence.className = 'chip';
+      statusKey = 'hud.notIn';
+      elements.statusText.textContent = t(statusKey);
+      elements.gateError.textContent = t('err.SESSION_REPLACED');
+      return;
+    }
     if (message.code === 'ROOM_FULL') {
       session.leave();
       participants = new Map();
@@ -859,7 +875,15 @@ elements.skins.addEventListener('click', (event) => {
   if (!button) return;
   mySkin = button.dataset.skin;
   for (const item of elements.skins.querySelectorAll('button')) item.setAttribute('aria-pressed', String(item === button));
+  rememberSkin(mySkin);
 });
+
+// Nhớ hình đã chọn: trên máy (cả khách) và theo tài khoản (đổi máy / trình duyệt vẫn đúng hình).
+function rememberSkin(skin) {
+  try { localStorage.setItem('thien-skin', skin); } catch {}
+  if (!accountUI.account) return;
+  fetch('/api/v1/shop/skin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ skin }) }).catch(() => {});
+}
 
 elements.gateForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1310,7 +1334,12 @@ $('coinChip').addEventListener('click', () => {
   else showToast(t('coins.signIn'));
 });
 // Quay lại tab (vd: vừa chơi ở phòng game tab khác): đọc lại số xu.
-document.addEventListener('visibilitychange', () => { if (!document.hidden) garden?.refreshCoins(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  garden?.refreshCoins();
+  // Vừa mua / chọn hình ở Shop (tab khác): mặc hình đó luôn.
+  if (accountUI.account) refreshOwnedSkins();
+});
 garden.start();
 communityProject = createCommunityProjectUI({
   stage: elements.stage,
@@ -1406,6 +1435,28 @@ function shopSkinButton(skin, name, thumb) {
   if (skin !== 'chibigirl') button.querySelector('.skin-name').textContent = name || skin;
   return button;
 }
+// Server từ chối hình shop: nếu tài khoản đã mua hình đó (vé vào phòng cấp trước lúc mua — vd: mua xong quay lại
+// trong 60 giây thì nối lại bằng resume token cũ) thì xin vé mới một lần để mặc được; chưa mua thì mặc hình thường.
+let renewedSkinTicket = null;
+async function onSkinLocked() {
+  const wanted = mySkin;
+  const owned = (await gems.refresh())?.me?.owned || [];
+  if (isShopSkin(wanted) && owned.includes(wanted) && renewedSkinTicket !== wanted && session.participantId) {
+    renewedSkinTicket = wanted;
+    const name = me()?.displayName || accountUI.account?.displayName || session.displayName;
+    explore.keepPosition();
+    session.leave();
+    participants = new Map();
+    roomCount = null;
+    social?.reset();
+    session.join(name).catch(() => showToast(t('toast.joinFailed')));
+    return;
+  }
+  useFreeSkin();
+  if (me()?.skin !== mySkin) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
+  showToast(t('skin.locked'));
+}
+
 async function refreshOwnedSkins() {
   // Cùng lần đọc với ô 💎 trên header (số kim cương + đồ đã mua).
   const shop = await gems.refresh();
@@ -1423,9 +1474,16 @@ async function refreshOwnedSkins() {
   }
   let saved = null;
   try { saved = localStorage.getItem('thien-skin'); } catch {}
+  // Hình chọn lần cuối lưu theo tài khoản được ưu tiên (chọn ở máy khác vẫn đúng); tài khoản chưa lưu thì đẩy lựa chọn
+  // trên máy lên.
+  const accountSkin = shop?.me?.skin;
+  if (accountSkin) saved = accountSkin;
+  else if (accountUI.account && shop?.me && (!isShopSkin(mySkin) || owned.has(mySkin))) rememberSkin(mySkin);
   if (!owned.has(mySkin) && isShopSkin(mySkin)) useFreeSkin();
-  if (isShopSkin(saved) && owned.has(saved) && mySkin !== saved) {
+  const usable = saved && (['man', 'woman'].includes(saved) || owned.has(saved));
+  if (usable && mySkin !== saved) {
     mySkin = saved;
+    try { localStorage.setItem('thien-skin', mySkin); } catch {}
     pressSkin();
     if (session.participantId && me()) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
   }

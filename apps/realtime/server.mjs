@@ -19,6 +19,7 @@ import {
 } from '@chanh-dien/session-token';
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
+import { LottoTable, lottoBank } from './loto.mjs';
 
 const HEARTBEAT_MS = 15_000;
 const MAX_PAYLOAD = 64 * 1_024;
@@ -188,9 +189,11 @@ export class Room {
     this.challenges = new Map();
     // Phòng game: bàn Bầu Cua chơi chung (chạy khi có người trong phòng). options.bauCua: { stake, settle } gọi API.
     // Tài Xỉu dùng chung bàn (khác ô cược / cách lắc), cùng ví xu qua API.
-    this.table = DICE_TABLE_GAMES[this.rules.interaction?.game]
+    // Lô Tô: bàn riêng (vé, gọi số, kinh), cùng giao diện start/stop/stateMessage/mineMessage. options.lotto: { buy, settle }.
+    const game = this.rules.interaction?.game;
+    this.table = DICE_TABLE_GAMES[game]
       ? new BauCuaTable({ room: this, rules: this.rules.interaction, ...(options.bauCua || {}) })
-      : null;
+      : game === 'loto' ? new LottoTable({ room: this, rules: this.rules.interaction, ...(options.lotto || {}) }) : null;
   }
 
   snapshot() {
@@ -1314,6 +1317,7 @@ export class Room {
     }
     if (previous?.socket && previous.socket !== socket) previous.socket.close(4001, 'Phiên mới đã kết nối');
     if (previous?.expireTimer) clearTimeout(previous.expireTimer);
+    this.dropOtherSessions(claims);
     const participant = {
       id: claims.participantId,
       displayName: claims.displayName,
@@ -1334,7 +1338,7 @@ export class Room {
       expireTimer: null,
       // Danh sách người mình chặn (giữ khi nối lại).
       blocked: previous?.blocked || new Set(),
-      ...this.personalization(claims.participantId, previous),
+      ...this.personalization(claims.participantId, previous, claims),
     };
     this.participants.set(claims.participantId, participant);
     this.table?.start();
@@ -1367,6 +1371,28 @@ export class Room {
     return true;
   }
 
+  // Một tài khoản chỉ là một người trong phòng: vào từ trình duyệt / máy khác (hoặc bằng vé mới) thì người cũ của
+  // tài khoản đó rời phòng ngay — kể cả bản đang chờ nối lại — thay vì hiện hai nhân vật cùng tên. Tab cũ nhận
+  // SESSION_REPLACED rồi bị đóng (mã 4003) và thôi tự nối lại.
+  dropOtherSessions(claims) {
+    if (!claims.accountId) return;
+    for (const [id, other] of this.participants) {
+      if (id === claims.participantId || other.bot || other.accountId !== claims.accountId) continue;
+      if (other.expireTimer) clearTimeout(other.expireTimer);
+      if (other.socket?.readyState === WebSocket.OPEN) {
+        other.socket.send(JSON.stringify({
+          v: PROTOCOL_VERSION, type: 'protocol.error', epoch: this.epoch, code: 'SESSION_REPLACED',
+          message: 'Tài khoản đã vào phòng từ trình duyệt hoặc máy khác',
+        }));
+        other.socket.close(4003, 'Tài khoản đã vào từ nơi khác');
+      }
+      this.participants.delete(id);
+      this.stopChore(id);
+      this.dropSocial(id);
+      for (const key of this.rates.keys()) if (key.startsWith(`${id}:`)) this.rates.delete(key);
+    }
+  }
+
   expire(participantId, resumeToken) {
     const participant = this.participants.get(participantId);
     if (!participant || participant.connected || participant.resumeToken !== resumeToken) return false;
@@ -1386,12 +1412,16 @@ export class Room {
   }
 
   // Hình nhân vật chỉ có ở loại phòng có danh sách skin (chánh điện, rạp phim); giữ nguyên khi nối lại/dựng lại.
-  personalization(participantId, previous) {
+  personalization(participantId, previous, claims = null) {
     const skins = this.rules.skins;
     if (!skins) return {};
+    // Hình chọn lần cuối của tài khoản (vé ghi): mặc ngay nếu phòng có hình đó; hình shop thì vé phải ghi đã mua.
+    const wanted = claims?.skin;
+    const wantedOk = typeof wanted === 'string' && (skins.includes(wanted) || isShopSkin(wanted))
+      && (!isPremiumSkin(wanted) || Boolean(claims.skins?.includes(wanted)));
     // Hình mua trong shop không chia cho ai; chỉ giữ lại khi người đó đang mặc (nối lại).
     const keep = skins.includes(previous?.skin) || isShopSkin(previous?.skin);
-    const skin = keep ? previous.skin : this.freeSkins[hashText(participantId) % this.freeSkins.length];
+    const skin = wantedOk ? wanted : keep ? previous.skin : this.freeSkins[hashText(participantId) % this.freeSkins.length];
     // Công đức chỉ có ở phòng có lễ vật (chánh điện); rạp phim chỉ có hình nhân vật Nam/Nữ.
     if (!this.rules.interaction?.offerings) return { skin };
     const merit = Number.isSafeInteger(previous?.merit) && previous.merit >= 0 ? previous.merit : 0;
@@ -1555,6 +1585,7 @@ export class RoomRegistry {
     this.onFriend = options.onFriend;
     this.onReport = options.onReport;
     this.bauCua = options.bauCua;
+    this.lotto = options.lotto;
     this.ticker = null;
     this.ticking = false;
   }
@@ -1584,6 +1615,7 @@ export class RoomRegistry {
       onFriend: this.onFriend,
       onReport: this.onReport,
       bauCua: this.bauCua,
+      lotto: this.lotto,
     });
     try {
       const record = await this.directory.loadSnapshot(roomId);
@@ -1757,7 +1789,7 @@ function handleRoomMessage(socket, context, raw) {
     return;
   }
   if (message.type === 'bet.place') {
-    if (!room.table) {
+    if (!room.table?.placeBet) {
       protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn cược', message.requestId);
       return;
     }
@@ -1772,7 +1804,7 @@ function handleRoomMessage(socket, context, raw) {
     return;
   }
   if (message.type === 'bet.cancel') {
-    if (!room.table) {
+    if (!room.table?.cancelBets) {
       protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn cược', message.requestId);
       return;
     }
@@ -1781,6 +1813,22 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     room.table.cancelBets(room.participants.get(context.participantId), message).then((result) => {
+      if (!result.ok) protocolError(socket, room.epoch, result.code, result.message, message.requestId);
+    });
+    return;
+  }
+  if (message.type === 'lotto.buy' || message.type === 'lotto.claim') {
+    if (room.table?.kind !== 'loto') {
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Lô Tô', message.requestId);
+      return;
+    }
+    const buying = message.type === 'lotto.buy';
+    if (!room.allow(`${context.participantId}:${buying ? 'lotto-buy' : 'lotto-claim'}`, 5, 10_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', buying ? 'Bạn mua vé quá nhanh' : 'Bạn bấm kinh quá nhanh', message.requestId);
+      return;
+    }
+    const participant = room.participants.get(context.participantId);
+    Promise.resolve(buying ? room.table.buy(participant, message) : room.table.claim(participant, message)).then((result) => {
       if (!result.ok) protocolError(socket, room.epoch, result.code, result.message, message.requestId);
     });
     return;
@@ -2158,6 +2206,7 @@ export function createRealtimeServer(options = {}) {
     onReport: options.recordReport || (options.apiInternalUrl ? reportRecorder(options.apiInternalUrl, secret) : undefined),
     // Bầu Cua: đặt cược / chốt ván qua ví xu ở API.
     bauCua: options.bauCua || (options.apiInternalUrl ? bauCuaBank(options.apiInternalUrl, internalKey(secret)) : undefined),
+    lotto: options.lotto || (options.apiInternalUrl ? lottoBank(options.apiInternalUrl, internalKey(secret)) : undefined),
   });
   const server = http.createServer((req, res) => handleRealtimeRequest(req, res, registry, { secret }));
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });

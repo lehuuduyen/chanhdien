@@ -1369,3 +1369,110 @@ test('phòng Tài Xỉu: chung bàn với Bầu Cua — ô cược riêng (spot)
   assert.ok(sent.filter((message) => message.type === 'game.state').every((message) => parseServerMessage(message).ok), 'mọi game.state đúng protocol');
   room.close();
 });
+
+test('phòng Lô Tô: mua vé qua ví, gọi số, người đợi, kinh sai bị khóa, kinh đúng ngừng gọi số rồi chốt ván', async () => {
+  const row = [1, 2, 3, 4, 5, 0, 0, 0, 0];
+  const ticket = [row, [11, 12, 13, 14, 15, 0, 0, 0, 0], [21, 22, 23, 24, 25, 0, 0, 0, 0]];
+  const bought = [];
+  const settled = [];
+  const bank = {
+    rules: { buyMs: 40, callMs: 80, claimWindowMs: 60, resultMs: 5_000, graceAfterLastMs: 20, falseClaimLockMs: 2_000, ticketPrice: 10 },
+    random: () => 0, // luôn rút số nhỏ nhất còn lại: 1, 2, 3…
+    buy: async ({ accountId, roundId, count, autoMark }) => {
+      bought.push({ accountId, roundId, count, autoMark });
+      return { ok: true, tickets: [{ no: 1, rows: ticket }], autoMark, coins: 90 };
+    },
+    settle: async (input) => {
+      settled.push(input);
+      return {
+        ok: true, pool: 20, prize: 18, share: 18, winners: input.claims,
+        results: [{ accountId: 'a-binh-0000001', staked: 10, payout: 18, net: 8, coins: 108 }, { accountId: 'a-an-00000001', staked: 10, payout: 0, net: -10, coins: 90 }],
+      };
+    },
+  };
+  const room = new Room('loto-1', { lotto: bank });
+  const inbox = new Map();
+  const socketFor = (id) => {
+    inbox.set(id, []);
+    return { readyState: WebSocket.OPEN, send: (raw) => inbox.get(id).push(JSON.parse(raw)), close() {} };
+  };
+  room.join(socketFor('an'), { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
+  room.join(socketFor('binh'), { participantId: 'binh', displayName: 'Bình', accountId: 'a-binh-0000001' });
+  const table = room.table;
+  assert.equal(table.kind, 'loto');
+  const roundId = table.stateMessage().roundId;
+  assert.match(roundId, /^lt-/);
+  // Không ai mua: hết giờ thì kéo dài pha mua, không gọi số.
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(table.stateMessage().phase, 'buying');
+  assert.equal(table.stateMessage().roundId, roundId);
+  const an = room.participants.get('an');
+  const binh = room.participants.get('binh');
+  assert.deepEqual(await table.buy(an, { requestId: 'buy-1', roundId, count: 1, autoMark: true }), { ok: true });
+  assert.deepEqual(await table.buy(binh, { requestId: 'buy-2', roundId, count: 1, autoMark: false }), { ok: true });
+  const mine = inbox.get('an').find((message) => message.type === 'lotto.tickets');
+  assert.deepEqual([mine.tickets.length, mine.autoMark, mine.coins], [1, true, 90]);
+  assert.equal(parseServerMessage(mine).ok, true);
+  assert.equal(inbox.get('binh').some((message) => message.type === 'lotto.tickets' && message.autoMark === true), false, 'vé gửi riêng từng người');
+
+  await waitForCondition(() => table.stateMessage().called.length === 4, 3_000);
+  const waiting = table.stateMessage().waiting;
+  assert.deepEqual(waiting.map((item) => item.number), [5, 5], 'cả hai đang đợi số 5');
+  assert.equal((await table.claim(an, { roundId, ticket: 1, row: 0 })).code, 'FALSE_CLAIM', 'mới 4 số: kinh sai');
+  await waitForCondition(() => table.stateMessage().called.length === 5, 3_000);
+  assert.equal((await table.claim(an, { roundId, ticket: 1, row: 0 })).code, 'CLAIM_LOCKED', 'đang bị khóa vì kinh sai');
+  assert.deepEqual(await table.claim(binh, { roundId, ticket: 1, row: 0 }), { ok: true });
+  assert.equal(table.stateMessage().phase, 'claiming');
+  const calledAtClaim = table.stateMessage().called.length;
+  assert.deepEqual(await table.claim(binh, { roundId, ticket: 1, row: 0 }), { ok: true }, 'kinh lại không tính trùng');
+  await waitForCondition(() => table.stateMessage().phase === 'result', 3_000);
+  assert.equal(table.stateMessage().called.length, calledAtClaim, 'ngừng gọi số khi có người kinh');
+  assert.equal(settled.length, 1);
+  assert.deepEqual(settled[0].claims, [{ accountId: 'a-binh-0000001', ticket: 1, row: 0 }]);
+  assert.deepEqual(table.stateMessage().winners, [{ displayName: 'Bình', share: 18 }]);
+  assert.equal(inbox.get('binh').find((message) => message.type === 'game.payout').net, 8);
+  assert.equal(inbox.get('an').find((message) => message.type === 'game.payout').net, -10);
+  for (const messages of inbox.values()) for (const message of messages.filter((item) => item.type === 'lotto.state')) assert.equal(parseServerMessage(message).ok, true);
+  room.close();
+});
+
+test('vào phòng mặc ngay hình chọn lần cuối (vé ghi skin); hình shop chỉ khi vé ghi đã mua', () => {
+  const room = new Room('cinema-1', { botCount: 0 });
+  const socket = { readyState: WebSocket.CLOSED, close() {} };
+  room.join(socket, { participantId: 'u-a', displayName: 'A', role: 'member', accountId: 'a-12345678-aaaa', skin: 'woman' });
+  room.join(socket, { participantId: 'u-b', displayName: 'B', role: 'member', accountId: 'a-12345678-bbbb', skin: 'chibigirl', skins: ['chibigirl'] });
+  room.join(socket, { participantId: 'u-c', displayName: 'C', role: 'member', accountId: 'a-12345678-cccc', skin: 'chibigirl' });
+  room.join(socket, { participantId: 'u-d', displayName: 'D', role: 'member', accountId: 'a-12345678-dddd', skin: 'monk' });
+  const skins = Object.fromEntries(room.snapshot().participants.map((person) => [person.id, person.skin]));
+  assert.equal(skins['u-a'], 'woman');
+  assert.equal(skins['u-b'], 'chibigirl');
+  assert.notEqual(skins['u-c'], 'chibigirl', 'vé không ghi đã mua thì không mặc');
+  assert.ok(['man', 'woman'].includes(skins['u-d']), 'rạp không có hình sư thầy');
+  room.close();
+});
+
+test('một tài khoản chỉ là một người trong phòng: vào từ trình duyệt khác thì phiên cũ bị thay (SESSION_REPLACED), khách thì không', () => {
+  const room = new Room('cinema-1', { botCount: 0 });
+  const sockets = {};
+  const socketFor = (name) => {
+    sockets[name] = { sent: [], closed: null, readyState: WebSocket.OPEN, send(raw) { this.sent.push(JSON.parse(raw)); }, close(code) { this.closed = code; this.readyState = WebSocket.CLOSED; } };
+    return sockets[name];
+  };
+  room.join(socketFor('chrome'), { participantId: 'u-chrome', displayName: 'An', role: 'member', accountId: 'a-12345678-aaaa' });
+  assert.equal(room.selectSeat('u-chrome', 'S-1').ok, true);
+  room.join(socketFor('safari'), { participantId: 'u-safari', displayName: 'An', role: 'member', accountId: 'a-12345678-aaaa' });
+  const people = room.snapshot().participants;
+  assert.deepEqual(people.map((person) => person.id), ['u-safari'], 'chỉ còn phiên mới');
+  assert.equal(sockets.chrome.closed, 4003);
+  assert.equal(sockets.chrome.sent.at(-1).code, 'SESSION_REPLACED');
+  assert.equal(room.selectSeat('u-safari', 'S-1').ok, true, 'ghế của phiên cũ được trả');
+  // Khách (không tài khoản) cùng tên vẫn là hai người khác nhau.
+  room.join(socketFor('g1'), { participantId: 'u-g1', displayName: 'Khách', role: 'guest' });
+  room.join(socketFor('g2'), { participantId: 'u-g2', displayName: 'Khách', role: 'guest' });
+  assert.equal(room.snapshot().participants.length, 3);
+  // Bản đang chờ nối lại (đã ngắt) của cùng tài khoản cũng bị thay khi vào bằng vé mới.
+  room.disconnect('u-safari', sockets.safari);
+  room.join(socketFor('phone'), { participantId: 'u-phone', displayName: 'An', role: 'member', accountId: 'a-12345678-aaaa' });
+  assert.deepEqual(room.snapshot().participants.filter((person) => person.displayName === 'An').map((person) => person.id), ['u-phone']);
+  room.close();
+});
