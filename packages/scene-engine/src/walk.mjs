@@ -126,7 +126,19 @@ export function findPath(walk, from, to) {
     Math.min(rows - 1, Math.max(0, Math.round((point.z - bounds.z[0]) / CELL))),
   ];
   const pointOf = (column, row) => ({ x: bounds.x[0] + column * CELL, z: bounds.z[0] + row * CELL });
-  const free = (column, row) => column >= 0 && row >= 0 && column < columns && row < rows && isWalkable(walk, pointOf(column, row).x, pointOf(column, row).z);
+  // A* hỏi lại cùng một ô nhiều lần (từ các ô kề và khi cấm cắt góc). Với cảnh rộng có nhiều
+  // vật cản, quét toàn bộ danh sách vật cản cho mỗi lần hỏi chiếm phần lớn thời gian tìm đường.
+  // Cache chỉ sống trong một lần tìm đường nên luôn khớp với dữ liệu walk hiện tại.
+  const walkableCells = new Uint8Array(columns * rows); // 0: chưa biết, 1: bị chặn, 2: đi được
+  const free = (column, row) => {
+    if (column < 0 || row < 0 || column >= columns || row >= rows) return false;
+    const index = row * columns + column;
+    if (walkableCells[index]) return walkableCells[index] === 2;
+    const point = pointOf(column, row);
+    const walkable = isWalkable(walk, point.x, point.z);
+    walkableCells[index] = walkable ? 2 : 1;
+    return walkable;
+  };
   // Ở đây chỉ hiệu chỉnh điểm chạm về vị trí hợp lệ; A* bên dưới mới chịu trách nhiệm tìm cả tuyến đường.
   const goal = resolveStep(walk, from, to);
   const [startColumn, startRow] = cellOf(from);

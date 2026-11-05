@@ -5,6 +5,7 @@ import {
   PROTOCOL_VERSION,
   parseClientMessage,
   parseServerMessage,
+  TAI_XIU_SPOTS,
 } from '../src/index.mjs';
 
 test('protocol bắt đầu ở version 1', () => {
@@ -311,4 +312,26 @@ test('Bầu Cua chơi chung: bet.place chỉ cho thành viên, đúng linh vật
   const payout = { v: 1, type: 'game.payout', epoch: 1, roundId: 'bc-game-1-1-3-ab12', staked: 20, payout: 45, net: 25, coins: 75 };
   assert.equal(parseServerMessage(payout).ok, true);
   assert.equal(parseServerMessage({ ...payout, net: 30 }).ok, false, 'net = payout − staked');
+});
+
+test('Tài Xỉu: bet.place gửi spot (không phải animal), game.state xúc xắc 1–6 và lịch sử tối đa 10 ván', () => {
+  const bet = { v: 1, type: 'bet.place', requestId: 'tx-bet-1', roundId: 'tx-taixiu-1-1-3-ab12', spot: 'tai', amount: 5 };
+  assert.equal(parseClientMessage(bet, { role: 'member' }).ok, true);
+  for (const spot of ['xiu', 't4', 't17', 'f1', 'f6']) assert.equal(parseClientMessage({ ...bet, spot }, { role: 'member' }).ok, true, spot);
+  for (const spot of ['t3', 't18', 'f0', 'f7', 'cua', 'TAI']) assert.equal(parseClientMessage({ ...bet, spot }, { role: 'member' }).ok, false, spot);
+  assert.equal(parseClientMessage({ ...bet, animal: 'cua' }, { role: 'member' }).ok, false, 'chỉ một trong animal / spot');
+  const { spot, ...noSpot } = bet;
+  assert.equal(parseClientMessage(noSpot, { role: 'member' }).ok, false, 'phải có ô cược');
+  assert.equal(parseClientMessage({ ...bet, amount: -1000 }, { role: 'member' }).ok, false);
+  assert.equal(parseClientMessage(bet, { role: 'guest' }).ok, false, 'khách không cược');
+
+  const totals = Object.fromEntries(TAI_XIU_SPOTS.map((key) => [key, 0]));
+  const state = { v: 1, type: 'game.state', epoch: 1, game: 'tai-xiu', roundId: 'tx-taixiu-1-1-3-ab12', phase: 'result', endsAt: 1_000, totals, bettors: 0, dice: [1, 2, 4], history: [[1, 2, 4], [6, 6, 6]] };
+  assert.equal(parseServerMessage(state).ok, true);
+  assert.equal(parseServerMessage({ ...state, dice: [0, 2, 4] }).ok, false, 'mặt 1–6');
+  assert.equal(parseServerMessage({ ...state, dice: ['cua', 'ga', 'tom'] }).ok, false, 'không phải linh vật');
+  assert.equal(parseServerMessage({ ...state, history: Array.from({ length: 11 }, () => [1, 1, 1]) }).ok, false, 'tối đa 10 ván');
+  assert.equal(parseServerMessage({ ...state, totals: { tai: 5 } }).ok, false, 'tổng đủ mọi ô');
+  assert.equal(parseServerMessage({ ...state, game: 'bau-cua' }).ok, false, 'Bầu Cua không có lịch sử số / ô Tài Xỉu');
+  assert.equal(parseServerMessage({ v: 1, type: 'game.mine', epoch: 1, roundId: 'tx-taixiu-1-1-3-ab12', mine: { tai: 5, t11: 2 } }).ok, true);
 });

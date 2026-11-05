@@ -1,7 +1,7 @@
 // Thông báo cho quản trị qua Telegram khi có phiếu hỗ trợ mới. Bật bằng biến môi trường TELEGRAM_BOT_TOKEN và
 // TELEGRAM_CHAT_ID (xem `npm run telegram:setup`); không đặt thì không gửi gì. Tin nhắn gửi dạng chữ thường (không
 // parse_mode) nên nội dung người dùng không thể chèn định dạng/link ẩn. Lỗi mạng chỉ ghi log, không làm hỏng phiếu.
-const KINDS = { bug: '🐞 Báo lỗi', idea: '💡 Góp ý nâng cấp', other: '💬 Khác' };
+const KINDS = { bug: '🐞 Báo lỗi', coins: '🪙 Hỗ trợ xu', idea: '💡 Góp ý nâng cấp', other: '💬 Khác' };
 const TELEGRAM_LIMIT = 4_000;
 
 export function supportMessage(ticket, adminUrl = null) {

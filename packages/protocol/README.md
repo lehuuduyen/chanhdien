@@ -16,7 +16,7 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `travel.go` | mọi người trong chánh điện 3D | 3/10 giây | `requestId`, `destination` (`hall`, `courtyard`, `garden`); server tự tra tọa độ cố định |
 | `chore.start` / `chore.stop` | mọi người trong chánh điện 3D | 6/10 giây | `requestId`, `choreId`; bắt đầu chỉ được chấp nhận khi vị trí server giữ nằm trong bán kính điểm việc |
 | `reaction.send` | mọi người | 6/10 giây | `requestId`, `kind` (`clap`, `laugh`, `heart`, `wow`, `cry`, `fire`); rạp phim: biểu tượng bay trên đầu nhân vật |
-| `bet.place` | thành viên đã đăng nhập (phòng game) | 10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván | `requestId`, `roundId`, `animal` (`nai`, `bau`, `ga`, `ca`, `cua`, `tom`), `amount` (1–1.000 xu); API trừ xu ngay |
+| `bet.place` | thành viên đã đăng nhập (phòng game) | 10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván | `requestId`, `roundId`, `animal` (`nai`, `bau`, `ga`, `ca`, `cua`, `tom`), `amount` (1–1.000 xu); API trừ xu ngay · Tài Xỉu (phòng `taixiu-1`, mã ván `tx-…`) gửi `spot` thay cho `animal`: `xiu`, `tai`, `t4`…`t17`, `f1`…`f6`; đúng một trong hai |
 | `bet.cancel` | thành viên đã đăng nhập (phòng game) | 3/5 giây, chỉ trong pha đặt cược | `requestId`, `roundId`; hủy toàn bộ cược của mình trong ván, API hoàn xu (trả lời bằng `game.mine` với `mine` rỗng) |
 | `room.command` | moderator, host | 10/10 giây | `requestId`, `command` (`pause`, `resume`, `skip`) |
 | `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự) |
@@ -50,7 +50,7 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 | `chore.state` | tiến độ công việc chung trong phòng; hai người trở lên được hệ số phối hợp và dùng cùng trạng thái hoạt ảnh | `epoch`, `chores` (tối đa 6 `{ id, kind, progress` 0–1000, `workers`, `completedAt? }`) |
 | `chore.reward` | gửi riêng cho thành viên sau khi hoàn thành việc; ví do API xác nhận, không tin client | `epoch`, `choreId`, `kind`, `reward` (0 hoặc 20), `coins`, `count`, `limit` (3) |
 | `reaction` | một người vừa thả cảm xúc (phát cả phòng, không lưu vào snapshot) | `epoch`, `participantId`, `kind`, `at` |
-| `game.state` | bàn Bầu Cua chung: đổi pha và khi tổng cược đổi (tối đa ~3 lần/giây); gửi cả khi vào phòng | `epoch`, `game` (`bau-cua`), `roundId`, `phase` (`betting`, `rolling`, `result`), `endsAt` (giờ server), `totals` (đủ 6 linh vật), `bettors`, `dice?` (3 linh vật), `winners?` (≤ 5 `{ displayName, net }`), `void?` (ván hủy, cược được hoàn) |
+| `game.state` | bàn Bầu Cua chung: đổi pha và khi tổng cược đổi (tối đa ~3 lần/giây); gửi cả khi vào phòng | `epoch`, `game` (`bau-cua`), `roundId`, `phase` (`betting`, `rolling`, `result`), `endsAt` (giờ server), `totals` (đủ 6 linh vật), `bettors`, `dice?` (3 linh vật), `winners?` (≤ 5 `{ displayName, net }`), `void?` (ván hủy, cược được hoàn) · `game: "tai-xiu"`: `totals` theo 22 ô Tài Xỉu, `dice` là 3 số 1–6, `history` (tối đa 10 ván gần nhất, mới nhất trước, mỗi ván 3 số) |
 | `game.mine` | cược của chính mình trong ván (sau mỗi lần đặt được, và khi vào lại giữa ván) | `epoch`, `roundId`, `mine` (`{ linh vật: xu }`), `coins?` (số dư ví), `requestId?` |
 | `game.payout` | kết quả của chính mình sau khi lắc (chỉ người có cược) | `epoch`, `roundId`, `staked`, `payout`, `net` (= payout − staked), `coins` |
 | `pong` | đo giờ server và độ trễ | `epoch`, `sentAt`, `serverTime` |

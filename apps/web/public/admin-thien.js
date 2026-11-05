@@ -211,9 +211,9 @@ form.addEventListener('submit', async (event) => {
 $('#reload').addEventListener('click', load);
 $('#loadPrayers').addEventListener('click', loadPrayerSlips);
 
-// ---- Phiếu hỗ trợ (báo lỗi / góp ý). Nội dung người dùng chỉ đưa ra bằng textContent. ----
+// ---- Phiếu hỗ trợ (báo lỗi / hỗ trợ xu / góp ý). Nội dung người dùng chỉ đưa ra bằng textContent. ----
 const supportTickets = $('#supportTickets');
-const SUPPORT_KINDS = { bug: '🐞 Báo lỗi', idea: '💡 Góp ý nâng cấp', other: '💬 Khác' };
+const SUPPORT_KINDS = { bug: '🐞 Báo lỗi', coins: '🪙 Hỗ trợ xu', idea: '💡 Góp ý nâng cấp', other: '💬 Khác' };
 const SUPPORT_STATUSES = { new: 'Mới', seen: 'Đã xem', done: 'Đã xử lý' };
 
 function supportEmpty(text) {

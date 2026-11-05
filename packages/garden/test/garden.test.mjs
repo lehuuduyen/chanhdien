@@ -301,3 +301,37 @@ test('nhiệm vụ hằng ngày: làm xong mới nhận được, mỗi nhiệm 
   });
   assert.equal(act(an, 'claim', { quest: 'checkin' }).ok, true);
 });
+
+test('Tài Xỉu: trả thưởng theo bảng (tài/xỉu thua khi ra bộ ba, tổng điểm, mặt xúc xắc)', async () => {
+  const { settleTaiXiu, TAI_XIU_SPOTS } = await import('../src/index.mjs');
+  assert.equal(TAI_XIU_SPOTS.length, 22);
+  // 1 + 2 + 4 = 7: Xỉu ăn 1:1, tổng 7 ăn 1:12, mặt 4 ra 1 con.
+  assert.deepEqual(settleTaiXiu({ xiu: 10, tai: 10, t7: 2, t8: 5, f4: 3, f6: 4 }, [1, 2, 4]), {
+    staked: 34, payout: 20 + 26 + 6, net: 52 - 34, sum: 7, triple: false,
+  });
+  // Bộ ba 6-6-6 (18 điểm): Tài vẫn thua; mặt 6 ăn 1:3.
+  assert.deepEqual(settleTaiXiu({ tai: 10, f6: 2 }, [6, 6, 6]), { staked: 12, payout: 8, net: -4, sum: 18, triple: true });
+  // Bộ ba 2-2-2 = 6 điểm: Xỉu thua nhưng tổng 6 vẫn ăn 1:14.
+  assert.equal(settleTaiXiu({ xiu: 10, t6: 1 }, [2, 2, 2]).payout, 15);
+  assert.equal(settleTaiXiu({ t17: 1 }, [6, 6, 5]).payout, 51, '17 điểm ăn 1:50');
+  assert.equal(settleTaiXiu({ tai: 5 }, [3, 4, 4]).payout, 10, '11 điểm là Tài');
+});
+
+test('Tài Xỉu chung bảng cược với Bầu Cua: ô cược theo mã ván, chốt ván ghi sổ tai_xiu', () => {
+  const { garden, user, accounts } = setup();
+  const an = user('an_tai_xiu');
+  const coins = (id) => garden.me(id).coins;
+  const round = 'tx-taixiu-1-1-1-abcd';
+  const stake = (spot, amount, key) => garden.stakeBauCua({ accountId: an, roundId: round, animal: spot, amount, key });
+  assert.equal(stake('cua', 5, 'tx-stake-0001').code, 'INVALID', 'linh vật Bầu Cua không phải ô Tài Xỉu');
+  assert.equal(garden.stakeBauCua({ accountId: an, roundId: 'bc-game-1-1-1-abcd', animal: 'tai', amount: 5, key: 'tx-stake-0002' }).code, 'INVALID', 'ô Tài Xỉu không cược vào ván Bầu Cua');
+  assert.deepEqual(stake('tai', 10, 'tx-stake-0003').mine, { tai: 10 });
+  assert.deepEqual(stake('t12', 2, 'tx-stake-0004').mine, { tai: 10, t12: 2 });
+  assert.equal(coins(an), STARTING_COINS - 12);
+  assert.equal(garden.settleBauCuaRound({ roundId: round, dice: ['nai', 'nai', 'nai'] }).code, 'INVALID', 'xúc xắc Tài Xỉu là số 1–6');
+  const settled = garden.settleBauCuaRound({ roundId: round, dice: [3, 4, 5] });
+  // 12 điểm: Tài ăn 1:1 (20), tổng 12 ăn 1:6 (14).
+  assert.deepEqual(settled.results.map(({ staked, payout, net }) => [staked, payout, net]), [[12, 34, 22]]);
+  assert.equal(coins(an), STARTING_COINS + 22);
+  assert.equal(accounts.database.prepare('SELECT game FROM game_rounds WHERE account_id = ?').get(an).game, 'tai_xiu');
+});

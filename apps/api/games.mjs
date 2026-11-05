@@ -1,5 +1,6 @@
 // API phòng game. Bầu Cua chơi chung theo thời gian thực: máy realtime giữ nhịp ván và lắc xúc xắc, rồi gọi hai đường
 // nội bộ dưới đây (khóa x-internal-key); ví xu (xu bán trái cây, 1 xu cược = 1 xu ví) chỉ đổi ở đây:
+// Dùng chung cho Bầu Cua và Tài Xỉu (trò theo tiền tố mã ván: bc- / tx-; animal là ô cược của trò đó).
 //   POST /internal/games/bau-cua/stake   { accountId, roundId, animal, amount, key } → trừ xu, ghi cược của ván
 //   POST /internal/games/bau-cua/unstake { accountId, roundId, key }                → hủy cược của người đó trong ván, hoàn xu
 //   POST /internal/games/bau-cua/settle  { roundId, dice }                          → trả thưởng cả ván một lần

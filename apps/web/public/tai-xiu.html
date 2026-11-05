@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b2a1f">
+  <title>Phòng game · Tài Xỉu · Chánh Điện Online</title>
+  <style>
+    /* Phòng game: Tài Xỉu (Sic Bo) chơi chung theo thời gian thực, chung khung với Bầu Cua (game.html): máy realtime
+       giữ nhịp ván và lắc 3 xúc xắc, API giữ ví xu (trừ khi đặt, trả thưởng sau khi lắc). Bàn giữ 10 ván gần nhất.
+       Tỷ lệ trên bàn chỉ để hiển thị; số xu thắng thua do server tính (TAI_XIU_TOTAL_ODDS ở @chanh-dien/garden).
+       Xu ảo, không đổi ra tiền thật. */
+    :root {
+      color-scheme: dark;
+      --bg: #06160f;
+      --panel: rgba(9, 40, 28, .85);
+      --line: rgba(160, 255, 210, .22);
+      --gold: #ffcf5a;
+      --gold-deep: #c8901f;
+      --fg: #f2fff8;
+      --muted: #a9d6c0;
+      --mint: #b9f5dd;
+      --red: #e53935;
+      --win: #6ee7a0;
+      --lose: #ff8a7a;
+      font-family: Inter, "Be Vietnam Pro", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+    html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { color: var(--fg); background: radial-gradient(circle at 50% 0%, #135a3e 0%, #0b2a1f 55%, var(--bg) 100%); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+    [hidden] { display: none !important; }
+
+    .app { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 8px; max-width: 560px; margin: 0 auto; padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom)); overflow-y: auto; }
+
+    .bar { display: flex; align-items: center; gap: 6px; }
+    .chip { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 14px; white-space: nowrap; }
+    .room { font-family: Georgia, serif; }
+    .room i { width: 8px; height: 8px; background: #6f8a7d; border-radius: 50%; }
+    .room.online i { background: #6ee7a0; box-shadow: 0 0 8px #6ee7a0; }
+    .travel { position: relative; }
+    .travel > button { color: var(--gold); }
+    .travel-panel { position: absolute; z-index: 10; left: 0; top: calc(100% + 6px); width: 190px; display: grid; gap: 5px; padding: 6px; background: #0b2a1f; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 34px rgba(0, 0, 0, .6); }
+    .travel-panel button { min-height: 40px; padding: 0 10px; text-align: left; background: rgba(255, 255, 255, .05); border: 1px solid var(--line); border-radius: 9px; font-size: 13px; }
+    .travel-panel button[aria-current="true"] { color: #2a1404; background: var(--gold); font-weight: 700; }
+    .balance { margin-left: auto; color: var(--gold); font-weight: 800; font-variant-numeric: tabular-nums; }
+    .balance small { color: var(--muted); font-weight: 500; font-size: 10px; }
+
+    /* Chọn trò trong phòng game. */
+    .games { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+    .games a { display: grid; place-items: center; height: 32px; color: var(--muted); border-radius: 999px; font-weight: 700; font-size: 14px; text-decoration: none; }
+    .games a[aria-current="page"] { color: #10261c; background: var(--gold); }
+
+    .phase { display: grid; gap: 6px; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+    .phase-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .phase-label { font-weight: 800; font-size: 16px; }
+    .phase-label.betting { color: var(--gold); }
+    .phase-label.rolling { color: #ffb36b; }
+    .phase-label.result { color: var(--win); }
+    .players { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .timer { height: 6px; overflow: hidden; background: rgba(255, 255, 255, .08); border-radius: 999px; }
+    .timer i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #c8901f, #ffe08a); border-radius: 999px; transform-origin: left; }
+
+    /* Bàn cược như bàn Sic Bo: hai hàng tổng điểm, Xỉu – 6 mặt – Tài. */
+    .board { display: grid; gap: 3px; padding: 3px; background: #2b2370; border-radius: 10px; box-shadow: 0 8px 22px rgba(0, 0, 0, .45); }
+    .row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+    .bottom { display: grid; grid-template-columns: 1.25fr 2fr 1.25fr; gap: 3px; }
+    .faces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+    .cell { position: relative; display: grid; justify-items: center; align-content: center; gap: 0; min-height: 56px; padding: 2px 1px 3px; color: #101010; background: #fff; border: 0; border-radius: 4px; transition: transform .08s ease, background .2s; }
+    .cell:active { transform: scale(.96); }
+    .cell .num { font-weight: 800; font-size: clamp(22px, 7.4vw, 34px); line-height: 1; }
+    .cell.red .num { color: var(--red); }
+    .cell .odds { color: #2f5b8a; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .cell.mint, .faces .cell:nth-child(even) { background: var(--mint); }
+    .cell.big { min-height: 120px; }
+    .cell.big .num { font-family: Georgia, serif; font-size: clamp(34px, 11vw, 52px); }
+    .cell.big .odds { color: #4a4a6a; font-size: 10px; font-weight: 600; text-align: center; }
+    /* Cược của mình (vàng) và tổng cả bàn (nhạt) trên mỗi ô. */
+    .cell .mine { position: absolute; top: 2px; right: 2px; min-width: 18px; padding: 0 4px; color: #2a1404; background: var(--gold); border-radius: 999px; font-size: 10px; font-weight: 800; line-height: 16px; box-shadow: 0 1px 0 var(--gold-deep); }
+    .cell .all { position: absolute; bottom: 1px; left: 2px; color: #6a6a80; font-size: 9px; font-variant-numeric: tabular-nums; }
+    .board.closed .cell { filter: saturate(.7) brightness(.86); }
+    .cell.hit { background: #3ee08a !important; filter: none !important; box-shadow: 0 0 0 3px #ffe08a inset; animation: hit .6s ease-in-out 3; }
+    @keyframes hit { 50% { transform: scale(1.05); } }
+    .cell.hit[data-hits]::after { content: attr(data-hits); position: absolute; top: -6px; left: -4px; padding: 0 5px; color: #fff; background: #1f9d55; border-radius: 999px; font-size: 11px; font-weight: 800; line-height: 18px; }
+
+    /* Mặt xúc xắc vẽ bằng chấm (1–6). */
+    .pips { display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); width: 38px; aspect-ratio: 1; padding: 5px; background: #fff; border: 1px solid #c9c9c9; border-radius: 8px; box-shadow: 0 2px 0 #bbb; }
+    .pips i { width: 70%; aspect-ratio: 1; place-self: center; background: #111; border-radius: 50%; }
+    .pips.one i, .pips.four i { background: var(--red); }
+    .plate .pips { width: clamp(50px, 15vw, 62px); padding: 7px; border-radius: 12px; box-shadow: 0 4px 0 #c9b28a, 0 6px 12px rgba(0, 0, 0, .3); }
+
+    .chips { display: flex; justify-content: center; align-items: center; gap: 8px; }
+    .chips button { width: 48px; height: 48px; border-radius: 50%; border: 4px dashed rgba(255, 255, 255, .55); font-weight: 800; font-size: 14px; color: #fff; box-shadow: 0 4px 10px rgba(0, 0, 0, .4); }
+    .chips button[data-chip="1"] { background: #2f80ed; }
+    .chips button[data-chip="5"] { background: #27ae60; }
+    .chips button[data-chip="10"] { background: #d63031; }
+    .chips button[data-chip="50"] { background: #8e44ad; }
+    .chips button[aria-pressed="true"] { outline: 3px solid var(--gold); outline-offset: 3px; transform: translateY(-2px); }
+    .chips .cancel-bets { width: auto; height: 40px; padding: 0 12px; color: var(--fg); background: rgba(255, 255, 255, .1); border: 1px solid var(--line); border-radius: 999px; box-shadow: none; font-size: 13px; font-weight: 700; white-space: nowrap; }
+
+    .plate { display: grid; justify-items: center; gap: 6px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+    .dice { display: flex; gap: 10px; padding: 10px 16px; background: radial-gradient(circle, #dfe9ff, #9fb7ea); border: 4px solid #6e86c8; border-radius: 999px; box-shadow: inset 0 4px 14px rgba(0, 0, 0, .25), 0 8px 18px rgba(0, 0, 0, .35); }
+    .rolling .pips { animation: shake .12s linear infinite; }
+    .rolling .pips:nth-child(2) { animation-delay: -.04s; }
+    .rolling .pips:nth-child(3) { animation-delay: -.08s; }
+    @keyframes shake { 25% { transform: translate(-3px, 2px) rotate(-8deg); } 50% { transform: translate(2px, -3px) rotate(6deg); } 75% { transform: translate(3px, 2px) rotate(-4deg); } }
+    .outcome { min-height: 26px; margin: 0; font-weight: 800; font-size: 18px; }
+    .outcome .tai { color: #ff6b6b; }
+    .outcome .xiu { color: #e8f0ff; }
+    .outcome .triple { color: var(--gold); }
+    .message { min-height: 20px; margin: 0; text-align: center; font-weight: 700; font-size: 14px; }
+    .message.win { color: var(--win); }
+    .message.lose { color: var(--lose); }
+    .winners { min-height: 16px; margin: 0; color: var(--gold); font-size: 12px; text-align: center; }
+
+    /* 10 ván gần nhất (mới nhất bên trái): T đỏ, X trắng, B (bộ ba) vàng, kèm tổng điểm. */
+    .history { display: grid; gap: 4px; width: 100%; }
+    .history h2 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .history ol { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; margin: 0; padding: 0; list-style: none; }
+    .history li { display: grid; justify-items: center; gap: 1px; padding: 3px 0; background: rgba(0, 0, 0, .25); border-radius: 8px; font-variant-numeric: tabular-nums; }
+    .history li b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; font-size: 12px; }
+    .history li.tai b { color: #fff; background: var(--red); }
+    .history li.xiu b { color: #111; background: #f2f2f2; }
+    .history li.triple b { color: #2a1404; background: var(--gold); }
+    .history li small { color: var(--muted); font-size: 10px; }
+    .history li:first-child { outline: 2px solid var(--gold); }
+    .history .empty { grid-column: 1 / -1; padding: 4px 0; background: none; color: var(--muted); font-size: 12px; }
+
+    .sign-in { justify-self: center; padding: 8px 16px; color: #2a1404; background: var(--gold); border: 0; border-radius: 999px; font-weight: 800; }
+    .note { margin: 0; color: var(--muted); font-size: 10.5px; text-align: center; }
+    .note a { color: var(--gold); }
+    .flying { position: fixed; z-index: 30; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 3px dashed rgba(255, 255, 255, .75); box-shadow: 0 4px 10px rgba(0, 0, 0, .45); pointer-events: none; }
+    .coin.d1 { background: #2f80ed; }
+    .coin.d5 { background: #27ae60; }
+    .coin.d10 { background: #d63031; }
+    .coin.d50 { background: #8e44ad; }
+
+    @media (max-height: 740px) {
+      .app { gap: 5px; }
+      .cell { min-height: 46px; }
+      .cell.big { min-height: 98px; }
+      .pips { width: 32px; }
+      .chips button { width: 40px; height: 40px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <div class="bar">
+      <span class="chip room" id="roomChip"><i></i>🎲 Tài Xỉu</span>
+      <div class="travel">
+        <button type="button" class="chip" id="travelToggle" aria-haspopup="menu" aria-expanded="false">📍 Đi nhanh ▾</button>
+        <div class="travel-panel" id="travelPanel" role="menu" hidden>
+          <button type="button" role="menuitem" data-destination="hall">🛕 Chánh điện</button>
+          <button type="button" role="menuitem" data-destination="courtyard">🌳 Ngoài sân</button>
+          <button type="button" role="menuitem" data-destination="garden">🌱 Khu vườn</button>
+          <button type="button" role="menuitem" data-destination="cinema">🎬 Rạp phim</button>
+          <button type="button" role="menuitem" data-destination="games" aria-current="true">🎲 Phòng game</button>
+        </div>
+      </div>
+      <span class="chip balance" aria-live="polite">🪙 <span id="balance">…</span><small>xu</small></span>
+    </div>
+
+    <nav class="games" aria-label="Chọn trò">
+      <a href="/game.html">🦀 Bầu Cua</a>
+      <a href="/tai-xiu.html" aria-current="page">🎲 Tài Xỉu</a>
+    </nav>
+
+    <section class="phase" aria-live="polite">
+      <div class="phase-top">
+        <span class="phase-label" id="phaseLabel">Đang vào bàn…</span>
+        <span class="players" id="players"></span>
+      </div>
+      <div class="timer" aria-hidden="true"><i id="timerBar"></i></div>
+    </section>
+
+    <section class="board" id="board" aria-label="Bàn cược chung: chạm ô để đặt cược">
+      <div class="row" id="rowLow"></div>
+      <div class="row" id="rowHigh"></div>
+      <div class="bottom">
+        <div id="xiuSlot"></div>
+        <div class="faces" id="faces"></div>
+        <div id="taiSlot"></div>
+      </div>
+    </section>
+
+    <div class="chips" id="chips" role="group" aria-label="Mệnh giá mỗi lần đặt">
+      <button type="button" data-chip="1" aria-pressed="true">1</button>
+      <button type="button" data-chip="5" aria-pressed="false">5</button>
+      <button type="button" data-chip="10" aria-pressed="false">10</button>
+      <button type="button" data-chip="50" aria-pressed="false">50</button>
+      <button type="button" class="cancel-bets" id="cancelBets" hidden>↩ Hủy cược</button>
+    </div>
+
+    <section class="plate" aria-label="Đĩa xúc xắc">
+      <div class="dice" id="dice"></div>
+      <p class="outcome" id="outcome"></p>
+      <p class="message" id="message" role="status" aria-live="polite">Chọn mệnh giá rồi chạm ô để đặt cược</p>
+      <p class="winners" id="winners"></p>
+      <div class="history">
+        <h2>10 ván gần nhất</h2>
+        <ol id="history"><li class="empty">Chưa có ván nào</li></ol>
+      </div>
+      <button type="button" class="sign-in" id="signIn" hidden>🛕 Về chùa đăng nhập để cược</button>
+    </section>
+
+    <p class="note">Tài 11–17, Xỉu 4–10 (ăn 1:1, thua nếu ra bộ ba); tổng điểm ăn theo tỷ lệ trên ô; mặt xúc xắc ăn 1:1 mỗi con trùng. Cược bằng xu Vườn Công Đức, tối đa 1.000 xu mỗi ván. Xu ảo, không quy đổi ra tiền thật. · <a href="/ho-tro.html?from=/tai-xiu.html">🛟 Góp ý / Báo lỗi</a></p>
+  </main>
+
+  <script type="module">
+    // ---- Dữ liệu ----
+    const PROTOCOL_VERSION = 1;
+    const ROOM_ID = 'taixiu-1';
+    // Tỷ lệ hiển thị (cùng bảng TAI_XIU_TOTAL_ODDS ở server; tiền thật do server tính).
+    const TOTAL_ODDS = { 4: 50, 5: 18, 6: 14, 7: 12, 8: 8, 9: 6, 10: 6, 11: 6, 12: 6, 13: 8, 14: 12, 15: 14, 16: 18, 17: 50 };
+    const PHASE_LABELS = { betting: 'Đặt cược', rolling: 'Đang lắc…', result: 'Kết quả' };
+    // Vị trí chấm trên lưới 3×3 cho từng mặt.
+    const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+    const FACE_CLASS = { 1: 'one', 4: 'four' };
+    const spotName = (spot) => (spot === 'tai' ? 'Tài' : spot === 'xiu' ? 'Xỉu' : spot.startsWith('t') ? `tổng ${spot.slice(1)}` : `mặt ${spot.slice(1)}`);
+    const money = (value) => `${value < 0 ? '-' : ''}${Math.abs(value).toLocaleString('vi-VN')} xu`;
+    const outcomeOf = (dice) => {
+      const sum = dice.reduce((total, face) => total + face, 0);
+      const triple = dice[0] === dice[1] && dice[1] === dice[2];
+      return { sum, triple, kind: triple ? 'triple' : sum >= 11 ? 'tai' : 'xiu' };
+    };
+
+    // ---- Trạng thái ----
+    let coins = null;
+    let signedIn = false;
+    let chip = 1;
+    let table = null;
+    let mine = {};
+    let mineRound = null;
+    let people = 0;
+    let clockOffset = 0;
+    let socket = null;
+    const serverNow = () => Date.now() + clockOffset;
+
+    const $ = (id) => document.getElementById(id);
+    const elements = {
+      board: $('board'), balance: $('balance'), dice: $('dice'), outcome: $('outcome'), message: $('message'), winners: $('winners'),
+      history: $('history'), signIn: $('signIn'), chips: $('chips'), cancelBets: $('cancelBets'), phaseLabel: $('phaseLabel'),
+      players: $('players'), timerBar: $('timerBar'), roomChip: $('roomChip'),
+    };
+
+    function pips(face) {
+      const die = document.createElement('span');
+      die.className = `pips ${FACE_CLASS[face] || ''}`;
+      die.setAttribute('aria-label', `mặt ${face}`);
+      for (let slot = 0; slot < 9; slot += 1) {
+        const dot = document.createElement('i');
+        if (!PIPS[face].includes(slot)) dot.style.visibility = 'hidden';
+        die.append(dot);
+      }
+      return die;
+    }
+
+    // ---- Bàn cược ----
+    const cells = new Map();
+    function cell(spot, { num, odds, className = '', label, content }) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `cell ${className}`;
+      button.dataset.spot = spot;
+      button.setAttribute('aria-label', `Đặt cược ${label}`);
+      if (content) button.append(content);
+      else {
+        const big = document.createElement('span');
+        big.className = 'num';
+        big.textContent = num;
+        button.append(big);
+      }
+      const small = document.createElement('span');
+      small.className = 'odds';
+      small.textContent = odds;
+      const mineTag = document.createElement('span');
+      mineTag.className = 'mine';
+      mineTag.hidden = true;
+      const all = document.createElement('span');
+      all.className = 'all';
+      button.append(small, mineTag, all);
+      cells.set(spot, { button, mineTag, all });
+      return button;
+    }
+    for (let sum = 4; sum <= 10; sum += 1) $('rowLow').append(cell(`t${sum}`, { num: sum, odds: `1:${TOTAL_ODDS[sum]}`, label: `tổng ${sum}`, className: sum === 8 ? 'mint' : '' }));
+    for (let sum = 17; sum >= 11; sum -= 1) $('rowHigh').append(cell(`t${sum}`, { num: sum, odds: `1:${TOTAL_ODDS[sum]}`, label: `tổng ${sum}`, className: 'red' }));
+    $('xiuSlot').replaceWith(cell('xiu', { num: 'Xỉu', odds: '1:1 · thua nếu có bộ ba', label: 'Xỉu (4–10)', className: 'big mint' }));
+    $('taiSlot').replaceWith(cell('tai', { num: 'Tài', odds: '1:1 · thua nếu có bộ ba', label: 'Tài (11–17)', className: 'big red' }));
+    for (const face of [1, 2, 3, 4, 5, 6]) $('faces').append(cell(`f${face}`, { content: pips(face), odds: '1:1/con', label: `mặt ${face}` }));
+
+    function say(text, tone = '') {
+      elements.message.textContent = text;
+      elements.message.className = `message ${tone}`;
+    }
+
+    function render() {
+      elements.balance.textContent = coins === null ? '—' : coins.toLocaleString('vi-VN');
+      const myBets = table && mineRound === table.roundId ? mine : {};
+      for (const [spot, { mineTag, all }] of cells) {
+        mineTag.hidden = !myBets[spot];
+        mineTag.textContent = myBets[spot] || '';
+        const total = table?.totals?.[spot] || 0;
+        all.textContent = total ? `Σ${total}` : '';
+      }
+      elements.board.classList.toggle('closed', table?.phase !== 'betting');
+      elements.signIn.hidden = signedIn;
+      for (const button of elements.chips.querySelectorAll('[data-chip]')) button.setAttribute('aria-pressed', String(Number(button.dataset.chip) === chip));
+      elements.cancelBets.hidden = !(table?.phase === 'betting' && Object.values(myBets).some(Boolean));
+      elements.players.textContent = `👥 ${people} người${table ? ` · ${table.bettors} đang cược` : ''}`;
+    }
+
+    function renderHistory(list) {
+      if (!list?.length) {
+        elements.history.replaceChildren(Object.assign(document.createElement('li'), { className: 'empty', textContent: 'Chưa có ván nào' }));
+        return;
+      }
+      elements.history.replaceChildren(...list.map((dice) => {
+        const { sum, kind } = outcomeOf(dice);
+        const item = document.createElement('li');
+        item.className = kind;
+        item.title = `${dice.join(' · ')} = ${sum}`;
+        item.append(Object.assign(document.createElement('b'), { textContent: kind === 'tai' ? 'T' : kind === 'xiu' ? 'X' : 'B' }),
+          Object.assign(document.createElement('small'), { textContent: sum }));
+        return item;
+      }));
+    }
+
+    function flyChip(target, amount, back = false) {
+      const from = elements.chips.querySelector('[aria-pressed="true"]')?.getBoundingClientRect();
+      const to = target.getBoundingClientRect();
+      if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const coin = document.createElement('i');
+      coin.className = `flying coin d${[50, 10, 5, 1].find((denom) => amount >= denom) || 1}`;
+      document.body.append(coin);
+      let start = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+      let end = { x: to.left + to.width / 2, y: to.top + to.height / 2 };
+      if (back) [start, end] = [end, start];
+      coin.style.left = `${start.x}px`;
+      coin.style.top = `${start.y}px`;
+      coin.animate([
+        { transform: 'translate(0, 0)' },
+        { transform: `translate(${(end.x - start.x) / 2}px, ${(end.y - start.y) / 2 - 40}px)`, offset: 0.5 },
+        { transform: `translate(${end.x - start.x}px, ${end.y - start.y}px) scale(.8)` },
+      ], { duration: 380, easing: 'ease-in-out' }).finished.then(() => coin.remove(), () => coin.remove());
+    }
+
+    function tick() {
+      if (!table) return;
+      const left = Math.max(0, table.endsAt - serverNow());
+      const length = { betting: 20_000, rolling: 3_000, result: 6_000 }[table.phase] || 1;
+      elements.phaseLabel.textContent = table.phase === 'betting' ? `${PHASE_LABELS.betting} · ${Math.ceil(left / 1000)}s` : PHASE_LABELS[table.phase];
+      elements.phaseLabel.className = `phase-label ${table.phase}`;
+      elements.timerBar.style.transform = `scaleX(${Math.min(1, left / length)})`;
+    }
+
+    let spin = null;
+    function showDice(phase, dice) {
+      clearInterval(spin);
+      spin = null;
+      elements.dice.classList.toggle('rolling', phase === 'rolling');
+      const draw = (faces) => elements.dice.replaceChildren(...faces.map(pips));
+      if (phase === 'rolling') spin = setInterval(() => draw([0, 1, 2].map(() => 1 + Math.floor(Math.random() * 6))), 80);
+      else draw(dice || [1, 2, 3]);
+    }
+
+    function showOutcome(dice) {
+      elements.outcome.replaceChildren();
+      if (!dice) return;
+      const { sum, kind } = outcomeOf(dice);
+      const label = Object.assign(document.createElement('span'), { className: kind, textContent: kind === 'tai' ? 'TÀI' : kind === 'xiu' ? 'XỈU' : 'BỘ BA' });
+      elements.outcome.append(`${dice.join(' + ')} = ${sum} · `, label);
+    }
+
+    function markHits(dice) {
+      for (const { button } of cells.values()) {
+        button.classList.remove('hit');
+        delete button.dataset.hits;
+      }
+      if (!dice) return;
+      const { sum, triple } = outcomeOf(dice);
+      const hit = (spot, text) => {
+        const entry = cells.get(spot);
+        if (!entry) return;
+        entry.button.classList.add('hit');
+        if (text) entry.button.dataset.hits = text;
+      };
+      if (!triple) hit(sum >= 11 ? 'tai' : 'xiu');
+      hit(`t${sum}`);
+      const counts = {};
+      for (const face of dice) counts[face] = (counts[face] || 0) + 1;
+      for (const [face, count] of Object.entries(counts)) hit(`f${face}`, `×${count}`);
+    }
+
+    // ---- Tin từ bàn ----
+    let lastPhase = null;
+    let lastRound = null;
+    function onState(state) {
+      if (state.game !== 'tai-xiu') return;
+      const newRound = state.roundId !== lastRound;
+      const newPhase = newRound || state.phase !== lastPhase;
+      table = state;
+      renderHistory(state.history);
+      if (newRound) {
+        lastRound = state.roundId;
+        markHits(null);
+        elements.outcome.replaceChildren();
+        elements.winners.textContent = '';
+        if (state.phase === 'betting') say(signedIn ? 'Ván mới! Chạm ô để đặt cược' : 'Ván mới! Bạn đang xem — đăng nhập để cược');
+      }
+      if (newPhase) {
+        lastPhase = state.phase;
+        showDice(state.phase, state.dice);
+        if (state.phase === 'rolling') say('Hết giờ cược · đang lắc…');
+        if (state.phase === 'result') {
+          if (state.void) say('Ván bị hủy do lỗi máy chủ · cược sẽ được hoàn lại', 'lose');
+          else {
+            markHits(state.dice);
+            showOutcome(state.dice);
+            if (!mineRound || mineRound !== state.roundId) say('Mở bát!');
+          }
+          elements.winners.textContent = state.winners?.length ? `🏆 ${state.winners.map((item) => `${item.displayName} +${item.net}`).join(' · ')}` : '';
+        }
+      }
+      render();
+      tick();
+    }
+
+    function onMessage(event) {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message.v !== PROTOCOL_VERSION) return;
+      if (message.type === 'welcome') {
+        clockOffset = message.serverTime - Date.now();
+        failedOpens = 0;
+        elements.roomChip.classList.add('online');
+      } else if (message.type === 'room.state') {
+        people = message.participants.filter((person) => person.connected !== false).length;
+        render();
+      } else if (message.type === 'game.state') onState(message);
+      else if (message.type === 'game.mine') {
+        const before = mineRound === message.roundId ? Object.values(mine).reduce((sum, value) => sum + value, 0) : 0;
+        if (before && !Object.keys(message.mine).length && message.requestId) say(`Đã hủy cược · hoàn ${money(before)}`);
+        mine = message.mine;
+        mineRound = message.roundId;
+        if (message.coins !== undefined) coins = message.coins;
+        render();
+      } else if (message.type === 'game.payout') {
+        coins = message.coins;
+        if (message.net > 0) say(`Thắng ${money(message.net)}! 🎉`, 'win');
+        else if (message.net < 0) say(`Thua ${money(-message.net)}`, 'lose');
+        else say('Hòa vốn');
+        render();
+      } else if (message.type === 'protocol.error') {
+        if (message.code === 'INSUFFICIENT_COINS') say('Không đủ xu · ra Khu vườn bán trái cây để có thêm', 'lose');
+        else if (message.code === 'INVALID_TICKET' || message.code === 'INVALID_RESUME_TOKEN') socket?.close();
+        else say(message.message, 'lose');
+      }
+    }
+
+    // ---- Kết nối bàn (như Bầu Cua) ----
+    function realtimeEndpoint(url) {
+      if (!url.startsWith('/')) return new URL(url);
+      return new URL(url, `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`);
+    }
+    const rememberedName = () => {
+      try { return (localStorage.getItem('displayName') || localStorage.getItem('phapdanh') || '').trim().slice(0, 40); } catch { return ''; }
+    };
+    let retry = 0;
+    let joinMissing = false;
+    let failedOpens = 0;
+    async function connect() {
+      elements.roomChip.classList.remove('online');
+      try {
+        const response = await fetch('/api/v1/rooms/join', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ roomId: ROOM_ID, displayName: rememberedName() || 'Khách' }),
+        });
+        if (!response.ok) {
+          if (response.status === 404) {
+            elements.phaseLabel.textContent = 'Chưa vào được bàn';
+            say('Máy chủ chưa có bàn Tài Xỉu · cần khởi động lại server', 'lose');
+            joinMissing = true;
+            return;
+          }
+          throw new Error('join');
+        }
+        const session = await response.json();
+        const url = realtimeEndpoint(session.realtimeUrl);
+        url.searchParams.set('ticket', session.ticket);
+        socket = new WebSocket(url);
+        socket.addEventListener('open', () => {
+          retry = 0;
+          socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', roomId: session.roomId, displayName: session.displayName }));
+        });
+        socket.addEventListener('message', onMessage);
+        socket.addEventListener('close', () => {
+          if (!elements.roomChip.classList.contains('online')) failedOpens += 1;
+          scheduleReconnect();
+        });
+      } catch {
+        scheduleReconnect();
+      }
+    }
+    let reconnectTimer = null;
+    function scheduleReconnect() {
+      elements.roomChip.classList.remove('online');
+      if (reconnectTimer) return;
+      if (failedOpens >= 3) {
+        elements.phaseLabel.textContent = 'Chưa vào được bàn';
+        say('Không nối được máy chủ bàn chơi (realtime) · đang thử lại…', 'lose');
+      }
+      retry += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, Math.min(5_000, 800 * retry));
+    }
+
+    async function loadWallet() {
+      try {
+        const response = await fetch('/api/v1/garden/me', { cache: 'no-store' });
+        signedIn = response.ok;
+        coins = response.ok ? (await response.json()).me.coins : null;
+      } catch {}
+      render();
+    }
+
+    // ---- Thao tác ----
+    elements.chips.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-chip]');
+      if (!button) return;
+      chip = Number(button.dataset.chip);
+      render();
+    });
+
+    elements.board.addEventListener('click', (event) => {
+      const target = event.target.closest('.cell');
+      if (!target) return;
+      if (!signedIn) return say('Đăng nhập ở cổng chùa để cược bằng xu Vườn Công Đức', 'lose');
+      if (!table) return say(joinMissing ? 'Máy chủ chưa có bàn Tài Xỉu · cần khởi động lại server' : 'Đang vào bàn, chờ một chút…', 'lose');
+      if (table.phase !== 'betting' || serverNow() >= table.endsAt) return say('Đã hết giờ cược · chờ ván sau nhé', 'lose');
+      if (!coins) return say('Hết xu rồi! Ra Khu vườn bán trái cây để có thêm xu', 'lose');
+      if (socket?.readyState !== WebSocket.OPEN) return say('Đang kết nối lại bàn…', 'lose');
+      const amount = Math.min(chip, coins);
+      const spot = target.dataset.spot;
+      socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'bet.place', requestId: `bet-${crypto.randomUUID()}`, roundId: table.roundId, spot, amount }));
+      flyChip(target, amount);
+      say(`Đặt ${money(amount)} vào ${spotName(spot)}`);
+    });
+
+    elements.cancelBets.addEventListener('click', () => {
+      if (table?.phase !== 'betting' || socket?.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'bet.cancel', requestId: `cancel-${crypto.randomUUID()}`, roundId: table.roundId }));
+      for (const [spot, amount] of Object.entries(mine)) if (amount && cells.has(spot)) flyChip(cells.get(spot).button, amount, true);
+      say('Đang hủy cược…');
+    });
+
+    elements.signIn.addEventListener('click', () => travelTo('hall'));
+
+    const travelToggle = $('travelToggle');
+    const travelPanel = $('travelPanel');
+    const openTravel = (next) => {
+      travelPanel.hidden = !next;
+      travelToggle.setAttribute('aria-expanded', String(next));
+    };
+    travelToggle.addEventListener('click', () => openTravel(travelPanel.hidden));
+    document.addEventListener('pointerdown', (event) => { if (!event.target.closest('.travel')) openTravel(false); });
+    travelPanel.addEventListener('click', (event) => {
+      const destination = event.target.closest('[data-destination]')?.dataset.destination;
+      openTravel(false);
+      if (destination && destination !== 'games') travelTo(destination);
+    });
+    function travelTo(destination) {
+      if (destination === 'cinema') {
+        location.href = '/room.html?room=cinema-1';
+        return;
+      }
+      let back = '/chanh-dien.html';
+      try { back = sessionStorage.getItem('thien-return') || back; } catch {}
+      const url = new URL(back, location.origin);
+      if (url.origin !== location.origin) return;
+      url.searchParams.set('go', destination);
+      location.href = `${url.pathname}${url.search}`;
+    }
+
+    showDice('result', [1, 2, 3]);
+    render();
+    loadWallet().then(connect);
+    setInterval(tick, 200);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadWallet(); });
+  </script>
+</body>
+</html>

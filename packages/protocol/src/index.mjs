@@ -62,7 +62,12 @@ export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 
 // Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
 export const BAU_CUA_ANIMALS = Object.freeze(['nai', 'bau', 'ga', 'ca', 'cua', 'tom']);
 export const GAME_PHASES = Object.freeze(['betting', 'rolling', 'result']);
-const ROUND_ID = /^bc-[a-z0-9-]{4,76}$/;
+// Tài Xỉu (chung khung với Bầu Cua): ô cược xiu/tai, tổng điểm t4…t17, mặt f1…f6; xúc xắc là số 1–6.
+export const TAI_XIU_SPOTS = Object.freeze(['xiu', 'tai', ...Array.from({ length: 14 }, (_, index) => `t${index + 4}`), ...[1, 2, 3, 4, 5, 6].map((face) => `f${face}`)]);
+export const DICE_GAMES = Object.freeze(['bau-cua', 'tai-xiu']);
+const TAI_XIU_HISTORY = 10;
+// Mã ván: "bc-…" Bầu Cua, "tx-…" Tài Xỉu.
+const ROUND_ID = /^(bc|tx)-[a-z0-9-]{4,76}$/;
 const MAX_STAKE = 1_000;
 export const WORLD_LIMIT = 1_000;
 export const MOVES_PER_BATCH = 500;
@@ -113,10 +118,13 @@ const isString = (value, max, pattern) => typeof value === 'string'
   && (!pattern || pattern.test(value));
 
 // Số xu theo linh vật Bầu Cua: full = đủ 6 linh vật (tổng cả bàn), không thì chỉ các linh vật có cược.
-const animalAmounts = (value, full) => isRecord(value)
-  && Object.keys(value).every((key) => BAU_CUA_ANIMALS.includes(key))
-  && (!full || BAU_CUA_ANIMALS.every((key) => Object.hasOwn(value, key)))
+// Tiền theo ô cược của một trò (spots: linh vật Bầu Cua / ô Tài Xỉu); full = phải có đủ mọi ô.
+const spotAmounts = (value, spots, full) => isRecord(value)
+  && Object.keys(value).every((key) => spots.includes(key))
+  && (!full || spots.every((key) => Object.hasOwn(value, key)))
   && Object.values(value).every((amount) => isInteger(amount) && amount >= 0);
+const animalAmounts = (value, full) => spotAmounts(value, BAU_CUA_ANIMALS, full);
+const dieFace = (value) => isInteger(value) && value >= 1 && value <= 6;
 
 function exactKeys(value, required, optional = []) {
   const allowed = new Set([...required, ...optional]);
@@ -215,11 +223,14 @@ const clientSchemas = {
       && (message.sutra === undefined || (message.kind === 'chant' && typeof message.sutra === 'string' && SUTRA_ID.test(message.sutra)));
   },
   // Đặt cược Bầu Cua (phòng game): một lần chạm = một khoản cược vào một linh vật; API trừ xu ngay.
+  // Bầu Cua gửi animal (linh vật), Tài Xỉu gửi spot (ô cược); đúng một trong hai.
   'bet.place'(message) {
-    return exactKeys(message, ['v', 'type', 'requestId', 'roundId', 'animal', 'amount'])
+    return exactKeys(message, ['v', 'type', 'requestId', 'roundId', 'amount'], ['animal', 'spot'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
-      && BAU_CUA_ANIMALS.includes(message.animal)
+      && (message.animal === undefined) !== (message.spot === undefined)
+      && (message.animal === undefined || BAU_CUA_ANIMALS.includes(message.animal))
+      && (message.spot === undefined || TAI_XIU_SPOTS.includes(message.spot))
       && isInteger(message.amount) && message.amount >= 1 && message.amount <= MAX_STAKE;
   },
   // Hủy toàn bộ cược của mình trong ván (chỉ trong pha đặt cược); API hoàn xu.
@@ -421,15 +432,20 @@ const serverSchemas = {
       && isInteger(message.at) && message.at >= 0;
   },
   // Trạng thái bàn Bầu Cua (phát cả phòng khi đổi pha, và khi tổng cược đổi — tối đa ~3 lần/giây).
+  // Tài Xỉu kèm history: tối đa 10 ván gần nhất (mới nhất trước), mỗi ván 3 xúc xắc.
   'game.state'(message) {
-    return exactKeys(message, ['v', 'type', 'epoch', 'game', 'roundId', 'phase', 'endsAt', 'totals', 'bettors'], ['dice', 'winners', 'void'])
-      && message.game === 'bau-cua'
+    const taiXiu = message.game === 'tai-xiu';
+    const face = taiXiu ? dieFace : (item) => BAU_CUA_ANIMALS.includes(item);
+    return exactKeys(message, ['v', 'type', 'epoch', 'game', 'roundId', 'phase', 'endsAt', 'totals', 'bettors'], ['dice', 'winners', 'void', 'history'])
+      && DICE_GAMES.includes(message.game)
       && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
       && GAME_PHASES.includes(message.phase)
       && isInteger(message.endsAt) && message.endsAt >= 0
-      && animalAmounts(message.totals, true)
+      && spotAmounts(message.totals, taiXiu ? TAI_XIU_SPOTS : BAU_CUA_ANIMALS, true)
       && isInteger(message.bettors) && message.bettors >= 0
-      && (message.dice === undefined || (Array.isArray(message.dice) && message.dice.length === 3 && message.dice.every((item) => BAU_CUA_ANIMALS.includes(item))))
+      && (message.dice === undefined || (Array.isArray(message.dice) && message.dice.length === 3 && message.dice.every(face)))
+      && (message.history === undefined || (taiXiu && Array.isArray(message.history) && message.history.length <= TAI_XIU_HISTORY
+        && message.history.every((dice) => Array.isArray(dice) && dice.length === 3 && dice.every(dieFace))))
       && (message.winners === undefined || (Array.isArray(message.winners) && message.winners.length <= 5 && message.winners.every((item) => isRecord(item)
         && exactKeys(item, ['displayName', 'net']) && isString(item.displayName, LIMITS.displayName) && isInteger(item.net) && item.net > 0)))
       && (message.void === undefined || message.void === true);
@@ -438,7 +454,7 @@ const serverSchemas = {
   'game.mine'(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'mine'], ['coins', 'requestId'])
       && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
-      && animalAmounts(message.mine, false)
+      && (animalAmounts(message.mine, false) || spotAmounts(message.mine, TAI_XIU_SPOTS, false))
       && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
       && (message.requestId === undefined || isString(message.requestId, LIMITS.requestId, ID_PATTERN));
   },

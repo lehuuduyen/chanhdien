@@ -187,6 +187,24 @@ export const GAME_RULES = defineRoomRules({
   },
 });
 
+// Tài Xỉu (Sic Bo): cùng khung bàn chung với Bầu Cua (nhịp ván, ví xu, đặt/hủy cược), khác ô cược và cách trả thưởng;
+// bàn giữ 10 ván gần nhất để người vào sau xem cầu.
+export const TAI_XIU_RULES = defineRoomRules({
+  id: 'taixiu',
+  activity: 'play-together',
+  maxParticipants: 500,
+  lang: 'vi',
+  moderation: 'standard',
+  interaction: {
+    game: 'tai-xiu',
+    bettingMs: 20_000,
+    rollingMs: 3_000,
+    resultMs: 6_000,
+    maxStakePerRound: 1_000,
+    historyRounds: 10,
+  },
+});
+
 // Shop nhân vật: mua bằng kim cương (💎, chỉ có khi nạp tiền qua Stripe). Hình trong PREMIUM_SKINS không bao giờ
 // được chia ngẫu nhiên cho người mới/bot; máy realtime chỉ nhận avatar.set khi vé vào phòng ghi đã sở hữu.
 // base: hình khối thay thế khi máy không tải được mô hình .glb (và ảnh 2D).
@@ -201,13 +219,14 @@ export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;
 export const isShopSkin = (skin) => typeof skin === 'string' && SHOP_SKIN.test(skin);
 export const isPremiumSkin = (skin) => PREMIUM_SKINS.includes(skin) || isShopSkin(skin);
 
-export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES });
+export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES });
 
 // Danh mục phòng công khai. API và máy realtime cùng đọc để biết phòng nào thuộc loại nào.
 export const ROOM_CATALOG = deepFreeze([
   { id: 'thien-1', type: 'thien', name: 'Chánh điện' },
   { id: 'cinema-1', type: 'cinema', name: 'Cinema #1' },
   { id: 'game-1', type: 'game', name: 'Bầu Cua #1' },
+  { id: 'taixiu-1', type: 'taixiu', name: 'Tài Xỉu #1' },
 ]);
 
 export function getRoomRules(type) {
