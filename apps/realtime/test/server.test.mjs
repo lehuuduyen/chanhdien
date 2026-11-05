@@ -523,6 +523,7 @@ test('chánh điện: số bồ đoàn theo cấu hình, có hình nhân vật m
 
   assert.deepEqual(room.setSkin('u-1', 'nun'), { ok: true });
   assert.equal(room.setSkin('u-1', 'robot').error, 'INVALID_SKIN');
+  assert.equal(room.setSkin('u-1', 'pilgrim').error, 'INVALID_SKIN', 'hình bot không thể chọn cho tài khoản thật');
   assert.deepEqual(room.offer('u-1', 'incense', '  Cầu   bình an  '), { ok: true });
   const offering = sent.find((message) => message.type === 'offering');
   assert.equal(offering.kind, 'incense');
@@ -733,7 +734,7 @@ test('bot chánh điện: giữ bồ đoàn như người thật, không tính v
   const socket = { readyState: WebSocket.CLOSED, close() {} };
   room.join(socket, { participantId: 'u-1', displayName: 'An' });
   const bots = room.snapshot().participants.filter((person) => person.bot);
-  assert.equal(bots.length, Math.min(THIEN_RULES.bots.initial, THIEN_RULES.seats));
+  assert.equal(bots.length, Math.min(THIEN_RULES.bots.initial, room.botCount, THIEN_RULES.seats));
   assert.ok(bots.every((bot) => (bot.seatId || bot.pos) && bot.skin), 'bot ngồi trong điện hoặc đi ngoài sân và có hình');
   assert.equal(bots.filter((bot) => bot.pos).length, THIEN_RULES.bots.walk.initial, 'có bot đi dạo ngay khi phòng mở');
   assert.equal(room.connectedCount, 1, 'chỉ đếm người thật');
@@ -786,8 +787,9 @@ test('bot có nhịp riêng, dâng hương nhiều nhất và không bao giờ t
   room.join({ readyState: WebSocket.OPEN, send: (raw) => sent.push(JSON.parse(raw)), close() {} }, { participantId: 'u-1', displayName: 'An' });
   const bots = () => [...room.participants.values()].filter((person) => person.bot);
   const seatedBots = () => bots().filter((person) => person.seatId);
-  assert.equal(bots().length, Math.min(THIEN_RULES.bots.initial, THIEN_RULES.seats), 'bot ngồi sẵn không vượt số bồ đoàn');
+  assert.equal(bots().length, Math.min(THIEN_RULES.bots.initial, room.botCount, THIEN_RULES.seats), 'bot ban đầu không vượt cấu hình và số bồ đoàn');
   assert.equal(new Set(bots().map((bot) => bot.displayName)).size, bots().length, 'không trùng tên');
+  assert.ok(bots().some((bot) => bot.skin === 'pilgrim') && bots().some((bot) => bot.skin === 'lotusgirl'), 'có đủ hai hình bot mới');
   const kinds = { incense: 0, petal: 0, lotus: 0, bell: 0, chat: 0 };
   const original = Math.random;
   try {
@@ -1193,6 +1195,43 @@ test('rạp phim: đi lại trong rạp, ngồi ghế; thả cảm xúc phát c�
   room.close();
 });
 
+test('bot phòng Bầu Cua và Tài Xỉu chơi mô phỏng, có nhãn rõ và không gọi ví thật', () => {
+  for (const roomId of ['game-1', 'taixiu-1']) {
+    let stakeCalls = 0;
+    const room = new Room(roomId, {
+      botCount: 4,
+      bauCua: {
+        rules: { game: roomId.startsWith('taixiu-') ? 'tai-xiu' : 'bau-cua', bettingMs: 60_000, rollingMs: 1_000, resultMs: 1_000, maxStakePerRound: 1_000 },
+        stake: async () => { stakeCalls += 1; return { ok: false }; },
+        settle: async () => ({ ok: true, results: [] }),
+      },
+    });
+    room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-1', displayName: 'An' });
+    const bots = [...room.participants.values()].filter((person) => person.bot);
+    assert.equal(bots.length, 4);
+    assert.ok(bots.every((bot) => bot.displayName.endsWith('🤖') && bot.skin), 'bot có nhãn và hình nhân vật');
+    for (const bot of bots) room.botAct(bot);
+    const state = room.table.stateMessage();
+    assert.equal(state.bettors, 4);
+    assert.ok(Object.values(state.totals).reduce((sum, value) => sum + value, 0) > 0);
+    assert.equal(stakeCalls, 0, 'cược bot không gọi API ví');
+    assert.equal(parseServerMessage(state).ok, true);
+    room.close();
+  }
+});
+
+test('bot game tự nhường chỗ khi phòng gần giới hạn protocol', () => {
+  const room = new Room('game-1', { botCount: 4 });
+  room.maxParticipants = 5;
+  for (let index = 1; index <= 5; index += 1) {
+    room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: `u-${index}`, displayName: `Người ${index}` });
+  }
+  assert.equal(room.realCount, 5);
+  assert.equal([...room.participants.values()].filter((person) => person.bot).length, 0);
+  assert.equal(room.snapshot().participants.length, 5);
+  room.close();
+});
+
 test('phòng game: Bầu Cua chơi chung — cả bàn cùng một ván, cược qua ví (API), lắc xong trả thưởng từng người; khách không cược được', async () => {
   const wallet = new Map([['a-an-00000001', 50], ['a-binh-0000001', 50]]);
   const stakes = [];
@@ -1223,7 +1262,7 @@ test('phòng game: Bầu Cua chơi chung — cả bàn cùng một ván, cược
       return { ok: true, results };
     },
   };
-  const room = new Room('game-1', { bauCua: bank });
+  const room = new Room('game-1', { bauCua: bank, botCount: 0 });
   const inbox = new Map();
   const socketFor = (id) => {
     inbox.set(id, []);
@@ -1274,7 +1313,7 @@ test('phòng game: API không chốt được ván thì ván bị hủy (void), 
     stake: async ({ amount }) => ({ ok: true, mine: { nai: amount }, coins: 10 }),
     settle: async () => null,
   };
-  const room = new Room('game-1', { bauCua: bank });
+  const room = new Room('game-1', { bauCua: bank, botCount: 0 });
   const inbox = [];
   room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} }, { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
   await room.table.placeBet(room.participants.get('an'), { requestId: 'b-1', roundId: room.table.stateMessage().roundId, animal: 'nai', amount: 5 });
@@ -1312,7 +1351,7 @@ test('phòng game: hủy cược trong pha đặt — hoàn xu, trừ khỏi t�
     },
     settle: async () => ({ ok: true, results: [] }),
   };
-  const room = new Room('game-1', { bauCua: bank });
+  const room = new Room('game-1', { bauCua: bank, botCount: 0 });
   const inbox = [];
   room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} }, { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
   room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'binh', displayName: 'Bình', accountId: 'a-binh-0000001' });
@@ -1347,7 +1386,7 @@ test('phòng Tài Xỉu: chung bàn với Bầu Cua — ô cược riêng (spot)
     },
     settle: async ({ roundId, dice }) => { settled.push({ roundId, dice }); return { ok: true, results: [] }; },
   };
-  const room = new Room('taixiu-1', { bauCua: bank });
+  const room = new Room('taixiu-1', { bauCua: bank, botCount: 0 });
   const sent = [];
   room.join({ readyState: WebSocket.OPEN, send: (raw) => sent.push(JSON.parse(raw)), close() {} }, { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
   const first = room.table.stateMessage();

@@ -5,7 +5,7 @@ import { lang, onLangChange, t } from '/thien-i18n.js';
 import { SUTRAS, sutraById, sutraTitle } from '/sutras.js';
 
 
-export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onGardenTap, onGuideTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
+export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onGardenTap, onGuideTap, onMeritBoardTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
   // Luống vườn mới nhất (đưa lại cho bộ vẽ khi bộ vẽ được tạo sau).
   const gardenPlots = new Map();
   // Vào lại phòng (vd: vừa đăng nhập): xuất hiện lại đúng chỗ đang đứng thay vì ở cửa chánh điện.
@@ -397,6 +397,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       hintText: (kind) => t(kind === 'plot' ? 'garden.hintPlot' : kind === 'shop' ? 'garden.hintShop' : 'explore.tapToSit'),
       onGardenTap: (target) => onGardenTap?.(target),
       onGuideTap: (place) => onGuideTap?.(place),
+      onMeritBoardTap: () => onMeritBoardTap?.(),
       gardenLabel: (plot) => gardenLabel?.(plot) || '',
       onBenchTap: sitOnBench,
       onNearbyChange: (target) => {

@@ -108,6 +108,19 @@ const skinSync = fetch('/api/v1/shop', { cache: 'no-store' }).then((response) =>
     try { localStorage.setItem('thien-skin', shop.me.skin); } catch {}
   }
 }).catch(() => {});
+// Vừa chọn hình ở Shop rồi vuốt quay lại (trang khôi phục từ bộ nhớ đệm) hoặc quay lại tab: báo lại hình đang chọn —
+// gửi ngay nếu đang kết nối, không thì ở room.state kế tiếp sau khi nối lại.
+function resendSkinChoice() {
+  skinSentFor = null;
+  const current = participants.get(session?.participantId);
+  if (current && current.skin !== chosenSkin() && socket?.readyState === WebSocket.OPEN) {
+    skinSentFor = session.participantId;
+    send({ type: 'avatar.set', requestId: requestId('skin'), skin: chosenSkin() });
+  }
+}
+addEventListener('pageshow', (event) => { if (event.persisted) resendSkinChoice(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resendSkinChoice(); });
+
 // Hình shop đã xin vé mới để mặc (chỉ một lần mỗi hình, tránh vòng lặp).
 let renewedSkinTicket = null;
 

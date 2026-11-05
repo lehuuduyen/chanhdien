@@ -165,7 +165,9 @@ export class Room {
     this.closed = false;
     this.openedAt = Date.now();
     this.resumeTtlMs = options.resumeTtlMs || RESUME_TTL_MS;
-    this.botCount = Math.max(0, Math.min(options.botCount ?? this.rules.bots?.count ?? 0, this.rules.seats || 0));
+    // Chánh điện bị chặn theo số bồ đoàn; phòng game không có ghế nên dùng giới hạn bot riêng trong room rules.
+    const botLimit = this.rules.seats ?? this.rules.bots?.max ?? 0;
+    this.botCount = Math.max(0, Math.min(options.botCount ?? this.rules.bots?.count ?? 0, botLimit));
     this.botTimer = null;
     this.issueResumeToken = options.issueResumeToken || (() => `r-${randomUUID()}`);
     this.onEmpty = options.onEmpty || (() => {});
@@ -1101,6 +1103,9 @@ export class Room {
   }
 
   get botSeatedTarget() {
+    // Bot game là người xem bàn, không cần ghế hay vị trí 3D.
+    // Tổng room.state vẫn phải nằm trong giới hạn protocol 500 người; người thật vào thì bot game rời trước.
+    if (this.rules.bots?.play === 'dice') return Math.min(this.botCount, Math.max(0, this.maxParticipants - this.realCount));
     const freeForBots = Math.max(0, (this.rules.seats || 0) - this.realCount);
     return Math.min(this.botCount - this.botWalkingTarget, freeForBots);
   }
@@ -1153,10 +1158,12 @@ export class Room {
     const walkingNow = [...this.participants.values()].filter((participant) => participant.bot && participant.pos).length;
     const walkLimit = seeded ? (config.walk?.initial || 0) : (config.walk?.count || 0);
     const walking = Boolean(config.walk?.waypoints?.length && walkingNow < Math.min(walkLimit, this.botTargetCount));
-    const seatId = walking ? null : this.freeSeat();
-    if (!names.length || (!walking && !seatId)) return null;
+    const needsSeat = Boolean(this.rules.seats);
+    const seatId = walking || !needsSeat ? null : this.freeSeat();
+    if (!names.length || (!walking && needsSeat && !seatId)) return null;
     state.serial += 1;
     const id = `bot-${state.serial}`;
+    const skins = config.skins?.length ? config.skins : this.freeSkins;
     const bot = {
       id,
       displayName: names[Math.floor(Math.random() * names.length)],
@@ -1166,8 +1173,8 @@ export class Room {
       bot: true,
       resumeToken: null,
       expireTimer: null,
-      skin: this.freeSkins[Math.floor(Math.random() * this.freeSkins.length)],
-      merit: seeded ? [120, 80, 55, 30, 20, 12, 8, 5][state.serial - 1] || 0 : Math.floor(Math.random() * 40),
+      ...(skins.length ? { skin: skins[(state.serial - 1) % skins.length] } : {}),
+      ...(this.rules.interaction?.offerings ? { merit: seeded ? [120, 80, 55, 30, 20, 12, 8, 5][state.serial - 1] || 0 : Math.floor(Math.random() * 40) } : {}),
       // Nhịp riêng: 0,6 → tụng nhiều; 1,8 → ít nói.
       pace: 0.6 + Math.random() * 1.2,
       nextActionAt: Date.now() + randomBetween(config.actionMs) * (seeded ? 0.5 : 1),
@@ -1242,10 +1249,11 @@ export class Room {
     } else if (bots.length && now >= state.nextChurnAt) {
       const leaving = bots[Math.floor(Math.random() * bots.length)];
       // Bot đang chơi khiêu chiến thì không rời giữa trận.
-      if (!this.activeChallengeOf(leaving.id)) this.participants.delete(leaving.id);
+      const busy = this.activeChallengeOf(leaving.id) || this.table?.hasBotBet?.(leaving.id);
+      if (!busy) this.participants.delete(leaving.id);
       state.nextChurnAt = now + randomBetween(config.churnMs);
       state.nextArrivalAt = now + randomBetween(config.arrivalMs);
-      changed = true;
+      changed = !busy;
     }
     if (changed) {
       this.revision += 1;
@@ -1262,6 +1270,15 @@ export class Room {
   // Tụng một câu kinh, hoặc dâng lễ (dâng hương là thường nhất), đôi khi kèm lời nguyện. Bot không thỉnh chuông.
   botAct(bot) {
     const config = this.rules.bots;
+    if (config.play === 'dice' && this.table?.placeBotBet) {
+      const spots = this.table.definition.spots;
+      const stakes = config.stakes || [1, 5, 10];
+      this.table.placeBotBet(bot, {
+        key: spots[Math.floor(Math.random() * spots.length)],
+        amount: stakes[Math.floor(Math.random() * stakes.length)],
+      });
+      return;
+    }
     const { lines } = this.botWords();
     const line = () => lines[Math.floor(Math.random() * lines.length)];
     // Bot đang đi ngoài sân chỉ trò chuyện/niệm Phật; lễ vật được dâng bởi bot đang ở chánh điện.
@@ -2281,9 +2298,9 @@ if (isMain) {
   const nodeId = process.env.NODE_ID || `rt-${port}`;
   const publicUrl = process.env.REALTIME_PUBLIC_URL || `ws://${host}:${port}/ws`;
   const { directory, shared } = await createDirectoryFromEnv();
-  // Số bot theo loại phòng: BOTS_THIEN=8 (0 để tắt). Không đặt thì theo room rules.
+  // Số bot theo loại phòng: BOTS_THIEN / BOTS_GAME / BOTS_TAIXIU (0 để tắt). Không đặt thì theo room rules.
   const botCounts = {};
-  for (const type of ['thien', 'cinema']) {
+  for (const type of ['thien', 'cinema', 'game', 'taixiu']) {
     const value = process.env[`BOTS_${type.toUpperCase()}`];
     if (value !== undefined && /^\d+$/.test(value)) botCounts[type] = Number(value);
   }

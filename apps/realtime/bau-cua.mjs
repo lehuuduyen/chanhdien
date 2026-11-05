@@ -71,7 +71,12 @@ export class BauCuaTable {
       phase: 'betting',
       endsAt: this.now() + this.bettingMs,
       totals: Object.fromEntries(this.definition.spots.map((spot) => [spot, 0])),
+      // Cược bot chỉ làm bàn sinh động: không gọi API ví, không nằm trong settle và mất khi sang ván mới.
+      botTotals: Object.fromEntries(this.definition.spots.map((spot) => [spot, 0])),
       bettors: new Set(),
+      botBettors: new Set(),
+      botMine: new Map(),
+      botActions: new Map(),
       mine: new Map(),
       pending: new Set(),
       dice: null,
@@ -81,6 +86,28 @@ export class BauCuaTable {
     this.broadcastState();
     this.timer = setTimeout(() => this.roll(), this.bettingMs);
     this.timer.unref?.();
+  }
+
+  // Bot đặt cược mô phỏng trong bộ nhớ. Tiền bot tuyệt đối không đi qua stake/settle nên không thể tạo hoặc lấy xu thật.
+  placeBotBet(participant, { key, amount }) {
+    const round = this.round;
+    if (!participant?.bot || !this.definition.spots.includes(key) || !Number.isSafeInteger(amount) || amount < 1) return false;
+    if (!round || round.phase !== 'betting' || this.now() >= round.endsAt) return false;
+    const actions = round.botActions.get(participant.id) || 0;
+    const mine = round.botMine.get(participant.id) || {};
+    const placed = Object.values(mine).reduce((sum, value) => sum + value, 0);
+    if (actions >= 3 || placed + amount > this.maxStake) return false;
+    mine[key] = (mine[key] || 0) + amount;
+    round.botMine.set(participant.id, mine);
+    round.botActions.set(participant.id, actions + 1);
+    round.botTotals[key] += amount;
+    round.botBettors.add(participant.id);
+    this.scheduleState();
+    return true;
+  }
+
+  hasBotBet(participantId) {
+    return Boolean(this.round?.botBettors.has(participantId));
   }
 
   async roll() {
@@ -201,6 +228,7 @@ export class BauCuaTable {
   stateMessage() {
     const round = this.round;
     if (!round) return null;
+    const totals = Object.fromEntries(this.definition.spots.map((spot) => [spot, round.totals[spot] + round.botTotals[spot]]));
     return {
       v: PROTOCOL_VERSION,
       type: 'game.state',
@@ -209,8 +237,8 @@ export class BauCuaTable {
       roundId: round.id,
       phase: round.phase,
       endsAt: round.endsAt,
-      totals: { ...round.totals },
-      bettors: round.bettors.size,
+      totals,
+      bettors: round.bettors.size + round.botBettors.size,
       ...(round.dice ? { dice: [...round.dice] } : {}),
       ...(round.winners ? { winners: round.winners } : {}),
       ...(round.void ? { void: true } : {}),

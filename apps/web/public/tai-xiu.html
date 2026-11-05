@@ -235,6 +235,7 @@
     let mine = {};
     let mineRound = null;
     let people = 0;
+    let bots = 0;
     let clockOffset = 0;
     let socket = null;
     let session = null;
@@ -310,7 +311,7 @@
       elements.signIn.hidden = signedIn;
       for (const button of elements.chips.querySelectorAll('[data-chip]')) button.setAttribute('aria-pressed', String(Number(button.dataset.chip) === chip));
       elements.cancelBets.hidden = !(table?.phase === 'betting' && Object.values(myBets).some(Boolean));
-      elements.players.textContent = `👥 ${people} người${table ? ` · ${table.bettors} đang cược` : ''}`;
+      elements.players.textContent = `👥 ${Math.max(0, people - bots)} người thật${bots ? ` · 🤖 ${bots} máy` : ''}${table ? ` · ${table.bettors} đang cược` : ''}`;
     }
 
     function renderHistory(list) {
@@ -440,7 +441,9 @@
         retry = 0;
         elements.roomChip.classList.add('online');
       } else if (message.type === 'room.state') {
-        people = message.participants.filter((person) => person.connected !== false).length;
+        const connected = message.participants.filter((person) => person.connected !== false);
+        people = connected.length;
+        bots = connected.filter((person) => person.bot).length;
         render();
       } else if (message.type === 'game.state') onState(message);
       else if (message.type === 'game.mine') {

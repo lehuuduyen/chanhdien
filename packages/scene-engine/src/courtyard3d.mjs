@@ -1241,6 +1241,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const arhatBatch = new StaticBatch();
   const guanyinBatch = new StaticBatch();
   const benchPickables = [];
+  const meritBoardPickables = [];
   const benchProxyGeometry = new THREE.BoxGeometry(2.3, 1.05, 0.85);
   const benchProxyMaterial = new THREE.MeshBasicMaterial({ visible: false });
   (data.arhats || []).forEach((item, index) => addArhat(arhatBatch, m, item, index));
@@ -1352,9 +1353,19 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     const { x, z } = data.board;
     batch.add(new THREE.BoxGeometry(0.12, 2.2, 0.12), m.wood, { position: [x - 0.85, 1.1, z] });
     batch.add(new THREE.BoxGeometry(0.12, 2.2, 0.12), m.wood, { position: [x + 0.85, 1.1, z] });
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.3), new THREE.MeshStandardMaterial({ map: textBoard(data.board.title || '', { height: 768, background: '#1f1a14' }), roughness: 0.6 }));
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.3), new THREE.MeshStandardMaterial({ map: textBoard(data.board.title || '', { height: 768, background: '#1f1a14' }), roughness: 0.6, side: THREE.DoubleSide }));
     board.position.set(x, 1.55, z + 0.07);
     root.add(board);
+    // Mặt bảng mỏng và có thể được nhìn từ hai phía. Dùng hộp ẩn lớn hơn một chút làm vùng chạm để ngón tay
+    // trên điện thoại vẫn chọn được bảng, đồng thời không phụ thuộc vào hướng mặt của PlaneGeometry.
+    const proxy = new THREE.Mesh(
+      new THREE.BoxGeometry(2.05, 2.35, 0.42),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    );
+    proxy.position.set(x, 1.18, z);
+    proxy.userData.meritBoard = true;
+    root.add(proxy);
+    meritBoardPickables.push(proxy);
   }
   // Điểm công việc chung: đạo cụ nhỏ giúp người chơi nhận ra nơi làm việc; tương tác vẫn dựa vào khoảng cách và
   // id trong scene JSON, không raycast từ xa. Hình khối ít mặt và được gộp cùng batch để không tăng draw call.
@@ -1474,6 +1485,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     proceduralStatues,
     animals,
     benchPickables,
+    meritBoardPickables,
     gardenPickables,
     guidePickables,
     setCommunityProject(project) {
