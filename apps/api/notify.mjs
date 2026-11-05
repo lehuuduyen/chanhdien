@@ -5,12 +5,18 @@ const KINDS = { bug: '🐞 Báo lỗi', coins: '🪙 Hỗ trợ xu', idea: '💡
 const TELEGRAM_LIMIT = 4_000;
 
 export function supportMessage(ticket, adminUrl = null) {
+  const accountTarget = ticket.account?.username || ticket.account?.id || null;
+  const requestedCoins = ticket.kind === 'coins'
+    ? Number(/\b(\d{1,7})\s*xu\b/i.exec(ticket.message || '')?.[1] || 0)
+    : 0;
   const lines = [
     `🛟 Phiếu hỗ trợ mới · ${KINDS[ticket.kind] || ticket.kind}`,
     `Từ: ${ticket.account ? `${ticket.account.displayName} (tài khoản)` : 'Khách'}${ticket.contact ? ` · Liên hệ: ${ticket.contact}` : ''}`,
+    ...(ticket.account?.username ? [`Tên đăng nhập: @${ticket.account.username}`] : ticket.account?.id ? [`Mã tài khoản: ${ticket.account.id}`] : []),
     ...(ticket.page ? [`Trang: ${ticket.page}`] : []),
     '',
     ticket.message,
+    ...(accountTarget && requestedCoins > 0 ? ['', `Lệnh gợi ý (kiểm tra rồi gửi): xu ${accountTarget} +${requestedCoins}`] : []),
     '',
     `Mã: ${ticket.id}`,
     ...(adminUrl ? [`Xem & xử lý: ${adminUrl}`] : []),

@@ -153,8 +153,10 @@
     const wornSkin = () => {
       try { return localStorage.getItem('thien-skin'); } catch { return null; }
     };
+    // Mặc hình: nhớ trên máy và theo tài khoản (vào chùa / rạp ở máy nào cũng đúng hình).
     const wear = (skin) => {
       try { localStorage.setItem('thien-skin', skin); } catch {}
+      if (shop?.me) fetch('/api/v1/shop/skin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ skin }) }).catch(() => {});
     };
 
     async function api(path, body) {

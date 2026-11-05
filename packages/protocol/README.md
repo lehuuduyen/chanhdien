@@ -18,6 +18,8 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `reaction.send` | mọi người | 6/10 giây | `requestId`, `kind` (`clap`, `laugh`, `heart`, `wow`, `cry`, `fire`); rạp phim: biểu tượng bay trên đầu nhân vật |
 | `bet.place` | thành viên đã đăng nhập (phòng game) | 10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván | `requestId`, `roundId`, `animal` (`nai`, `bau`, `ga`, `ca`, `cua`, `tom`), `amount` (1–1.000 xu); API trừ xu ngay · Tài Xỉu (phòng `taixiu-1`, mã ván `tx-…`) gửi `spot` thay cho `animal`: `xiu`, `tai`, `t4`…`t17`, `f1`…`f6`; đúng một trong hai |
 | `bet.cancel` | thành viên đã đăng nhập (phòng game) | 3/5 giây, chỉ trong pha đặt cược | `requestId`, `roundId`; hủy toàn bộ cược của mình trong ván, API hoàn xu (trả lời bằng `game.mine` với `mine` rỗng) |
+| `lotto.buy` | thành viên (phòng `loto-1`) | 5/10 giây, chỉ trong pha mua vé | `requestId`, `roundId` (`lt-…`), `count` 0–2 (tổng ≤ 2 vé/ván), `autoMark` (mua tự đánh dấu 5 xu); phải mua ít nhất một thứ |
+| `lotto.claim` | thành viên | 5/10 giây; kinh sai khóa 10 giây (`FALSE_CLAIM`, `CLAIM_LOCKED`) | `requestId`, `roundId`, `ticket` 1–2, `row` 0–2. Server kiểm tra theo vé gốc + số đã gọi, không theo chỗ đánh dấu |
 | `room.command` | moderator, host | 10/10 giây | `requestId`, `command` (`pause`, `resume`, `skip`) |
 | `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự) |
 | `vote.skip` | mọi người | 5/60 giây | `requestId`, `itemId` (bài đang chiếu) |
@@ -51,6 +53,8 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 | `chore.reward` | gửi riêng cho thành viên sau khi hoàn thành việc; ví do API xác nhận, không tin client | `epoch`, `choreId`, `kind`, `reward` (0 hoặc 20), `coins`, `count`, `limit` (3) |
 | `reaction` | một người vừa thả cảm xúc (phát cả phòng, không lưu vào snapshot) | `epoch`, `participantId`, `kind`, `at` |
 | `game.state` | bàn Bầu Cua chung: đổi pha và khi tổng cược đổi (tối đa ~3 lần/giây); gửi cả khi vào phòng | `epoch`, `game` (`bau-cua`), `roundId`, `phase` (`betting`, `rolling`, `result`), `endsAt` (giờ server), `totals` (đủ 6 linh vật), `bettors`, `dice?` (3 linh vật), `winners?` (≤ 5 `{ displayName, net }`), `void?` (ván hủy, cược được hoàn) · `game: "tai-xiu"`: `totals` theo 22 ô Tài Xỉu, `dice` là 3 số 1–6, `history` (tối đa 10 ván gần nhất, mới nhất trước, mỗi ván 3 số) |
+| `lotto.state` | bàn Lô Tô: mỗi số gọi, đổi pha, khi bán thêm vé | `roundId`, `phase` (`buying`/`calling`/`claiming`/`result`), `endsAt`, `called` (thứ tự gọi), `pool`, `tickets`, `players`, `nextCallAt?`, `waiting?` (≤ 8 `{ displayName, number }`: còn thiếu 1 số), `claims?`, `winners?` (`{ displayName, share }`), `void?` |
+| `lotto.tickets` | gửi riêng người mua (và khi vào lại giữa ván) | `roundId`, `tickets` (≤ 2 `{ no, rows }`, 3 hàng × 9 ô, 0 = trống, mỗi hàng 5 số), `autoMark`, `coins?`, `requestId?` |
 | `game.mine` | cược của chính mình trong ván (sau mỗi lần đặt được, và khi vào lại giữa ván) | `epoch`, `roundId`, `mine` (`{ linh vật: xu }`), `coins?` (số dư ví), `requestId?` |
 | `game.payout` | kết quả của chính mình sau khi lắc (chỉ người có cược) | `epoch`, `roundId`, `staked`, `payout`, `net` (= payout − staked), `coins` |
 | `pong` | đo giờ server và độ trễ | `epoch`, `sentAt`, `serverTime` |
@@ -72,6 +76,7 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 - Máy không giữ phòng từ chối nâng cấp WebSocket (HTTP 409); client hỏi lại `locate` rồi thử lại với backoff + jitter.
 - Mã đóng `4002`: phòng đã chuyển máy (mất lease hoặc máy đang rút). Client nối lại qua `locate` bằng `resumeToken`.
 - Mã đóng `4001`: cùng participant vừa kết nối ở phiên khác.
+- Mã đóng `4003` (kèm `protocol.error` mã `SESSION_REPLACED`): cùng tài khoản vừa vào phòng từ trình duyệt / máy khác (vé khác). Mỗi tài khoản chỉ là một người trong phòng; phiên cũ bị bỏ khỏi phòng ngay (kể cả bản đang chờ nối lại) và client phải thôi tự nối lại. Khách (không tài khoản) không bị gộp.
 - `epoch` tăng mỗi lần phòng đổi máy giữ; message mang epoch cũ hơn epoch đang biết có thể bỏ qua.
 - Resume token đúng chữ ký nhưng chỗ đã hết hạn: server nhận kết nối, gửi `protocol.error` mã `INVALID_RESUME_TOKEN` rồi đóng `1008`; client bỏ resume token và xin vé mới.
 - Kết nối không gửi `hello` trong 10 giây bị đóng `1008`.

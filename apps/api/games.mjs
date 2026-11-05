@@ -4,13 +4,16 @@
 //   POST /internal/games/bau-cua/stake   { accountId, roundId, animal, amount, key } → trừ xu, ghi cược của ván
 //   POST /internal/games/bau-cua/unstake { accountId, roundId, key }                → hủy cược của người đó trong ván, hoàn xu
 //   POST /internal/games/bau-cua/settle  { roundId, dice }                          → trả thưởng cả ván một lần
+// Lô Tô (vé do server tạo, chia quỹ sau phế):
+//   POST /internal/games/loto/buy    { accountId, roundId, count, autoMark, key } → trừ xu, tạo vé
+//   POST /internal/games/loto/settle { roundId, called, claims }                  → kiểm tra kinh, chia quỹ (hoặc hoàn tiền)
 // Trình duyệt không gọi trực tiếp được (không có khóa nội bộ).
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
 import { timingSafeEqual } from 'node:crypto';
 import { body } from './auth.mjs';
 import { json } from './http.mjs';
 
-const STATUS = { INVALID: 400, IDEMPOTENCY_KEY_REQUIRED: 400, NOT_SIGNED_IN: 404, INSUFFICIENT_COINS: 409, STAKE_LIMIT: 409, ROUND_CLOSED: 409, ROUND_VOID: 409 };
+const STATUS = { INVALID: 400, IDEMPOTENCY_KEY_REQUIRED: 400, NOT_SIGNED_IN: 404, INSUFFICIENT_COINS: 409, STAKE_LIMIT: 409, TICKET_LIMIT: 409, ROUND_CLOSED: 409, ROUND_VOID: 409 };
 
 function internalAllowed(req, options) {
   const given = Buffer.from(String(req.headers?.['x-internal-key'] || ''));
@@ -19,7 +22,7 @@ function internalAllowed(req, options) {
 }
 
 export async function handleGameRequest(req, res, pathname, options) {
-  const match = pathname.match(/^\/internal\/games\/bau-cua\/(stake|unstake|settle)$/);
+  const match = pathname.match(/^\/internal\/games\/(bau-cua|loto)\/(stake|unstake|settle|buy)$/);
   if (!match && !pathname.startsWith('/api/v1/games')) return false;
   if (!match || req.method !== 'POST') {
     json(req, res, 404, { error: 'not_found' });
@@ -35,11 +38,16 @@ export async function handleGameRequest(req, res, pathname, options) {
   }
   const input = await body(req, res);
   if (!input) return true;
-  const result = match[1] === 'stake'
-    ? options.garden.stakeBauCua({ accountId: input.accountId, roundId: input.roundId, animal: input.animal, amount: input.amount, key: input.key })
-    : match[1] === 'unstake'
-      ? options.garden.unstakeBauCua({ accountId: input.accountId, roundId: input.roundId, key: input.key })
-      : options.garden.settleBauCuaRound({ roundId: input.roundId, dice: input.dice });
+  const [, game, action] = match;
+  const result = game === 'loto'
+    ? action === 'buy'
+      ? options.garden.buyLotto({ accountId: input.accountId, roundId: input.roundId, count: input.count, autoMark: input.autoMark, key: input.key })
+      : action === 'settle' ? options.garden.settleLottoRound({ roundId: input.roundId, called: input.called, claims: input.claims }) : { ok: false, code: 'INVALID' }
+    : action === 'stake'
+      ? options.garden.stakeBauCua({ accountId: input.accountId, roundId: input.roundId, animal: input.animal, amount: input.amount, key: input.key })
+      : action === 'unstake'
+        ? options.garden.unstakeBauCua({ accountId: input.accountId, roundId: input.roundId, key: input.key })
+        : action === 'settle' ? options.garden.settleBauCuaRound({ roundId: input.roundId, dice: input.dice }) : { ok: false, code: 'INVALID' };
   json(req, res, result.ok ? 200 : STATUS[result.code] || 400, result);
   return true;
 }

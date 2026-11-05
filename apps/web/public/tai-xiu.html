@@ -48,8 +48,8 @@
     .balance small { color: var(--muted); font-weight: 500; font-size: 10px; }
 
     /* Chọn trò trong phòng game. */
-    .games { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
-    .games a { display: grid; place-items: center; height: 32px; color: var(--muted); border-radius: 999px; font-weight: 700; font-size: 14px; text-decoration: none; }
+    .games { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+    .games a { display: grid; place-items: center; height: 32px; color: var(--muted); border-radius: 999px; font-weight: 700; font-size: 13px; text-decoration: none; }
     .games a[aria-current="page"] { color: #10261c; background: var(--gold); }
 
     .phase { display: grid; gap: 6px; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
@@ -165,6 +165,7 @@
     <nav class="games" aria-label="Chọn trò">
       <a href="/game.html">🦀 Bầu Cua</a>
       <a href="/tai-xiu.html" aria-current="page">🎲 Tài Xỉu</a>
+      <a href="/loto.html">🔢 Lô Tô</a>
     </nav>
 
     <section class="phase" aria-live="polite">
@@ -236,6 +237,7 @@
     let people = 0;
     let clockOffset = 0;
     let socket = null;
+    let session = null;
     const serverNow = () => Date.now() + clockOffset;
 
     const $ = (id) => document.getElementById(id);
@@ -433,7 +435,9 @@
       if (message.v !== PROTOCOL_VERSION) return;
       if (message.type === 'welcome') {
         clockOffset = message.serverTime - Date.now();
+        if (session) session.resumeToken = message.resumeToken;
         failedOpens = 0;
+        retry = 0;
         elements.roomChip.classList.add('online');
       } else if (message.type === 'room.state') {
         people = message.participants.filter((person) => person.connected !== false).length;
@@ -452,9 +456,18 @@
         else if (message.net < 0) say(`Thua ${money(-message.net)}`, 'lose');
         else say('Hòa vốn');
         render();
+      } else if (message.type === 'protocol.error' && message.code === 'SESSION_REPLACED') {
+        // Tài khoản vừa vào bàn từ trình duyệt / máy khác: tab này thôi tự nối lại (tải lại trang để chơi ở đây).
+        sessionReplaced = true;
+        elements.phaseLabel.textContent = 'Đang chơi ở nơi khác';
+        say('Tài khoản đã vào bàn từ trình duyệt hoặc máy khác · tải lại trang để chơi ở đây', 'lose');
       } else if (message.type === 'protocol.error') {
         if (message.code === 'INSUFFICIENT_COINS') say('Không đủ xu · ra Khu vườn bán trái cây để có thêm', 'lose');
-        else if (message.code === 'INVALID_TICKET' || message.code === 'INVALID_RESUME_TOKEN') socket?.close();
+        else if (message.code === 'INVALID_TICKET' || message.code === 'INVALID_RESUME_TOKEN') {
+          // Vé hoặc phiên giữ chỗ đã hết hạn: lần thử kế tiếp xin vé mới thay vì gửi lại mã hỏng mãi.
+          session = null;
+          socket?.close();
+        }
         else say(message.message, 'lose');
       }
     }
@@ -470,53 +483,91 @@
     let retry = 0;
     let joinMissing = false;
     let failedOpens = 0;
+    let connecting = false;
+    async function joinTable() {
+      const response = await fetch('/api/v1/rooms/join', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: ROOM_ID, displayName: rememberedName() || 'Khách' }),
+      });
+      if (response.status === 404) {
+        joinMissing = true;
+        throw new Error('unknown_room');
+      }
+      if (!response.ok) throw new Error('join');
+      joinMissing = false;
+      return response.json();
+    }
+
+    async function locateTable() {
+      const response = await fetch(`/api/v1/rooms/${encodeURIComponent(ROOM_ID)}/locate`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('locate');
+      return (await response.json()).realtimeUrl;
+    }
+
     async function connect() {
+      if (connecting || socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN) return;
+      connecting = true;
       elements.roomChip.classList.remove('online');
       try {
-        const response = await fetch('/api/v1/rooms/join', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ roomId: ROOM_ID, displayName: rememberedName() || 'Khách' }),
-        });
-        if (!response.ok) {
-          if (response.status === 404) {
-            elements.phaseLabel.textContent = 'Chưa vào được bàn';
-            say('Máy chủ chưa có bàn Tài Xỉu · cần khởi động lại server', 'lose');
-            joinMissing = true;
-            return;
-          }
-          throw new Error('join');
-        }
-        const session = await response.json();
+        if (!session) session = await joinTable();
+        else session.realtimeUrl = await locateTable();
         const url = realtimeEndpoint(session.realtimeUrl);
         url.searchParams.set('ticket', session.ticket);
-        socket = new WebSocket(url);
-        socket.addEventListener('open', () => {
-          retry = 0;
-          socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', roomId: session.roomId, displayName: session.displayName }));
+        if (session.resumeToken) url.searchParams.set('resumeToken', session.resumeToken);
+        const candidate = new WebSocket(url);
+        socket = candidate;
+        candidate.addEventListener('open', () => {
+          connecting = false;
+          candidate.send(JSON.stringify({
+            v: PROTOCOL_VERSION,
+            type: 'hello',
+            roomId: session.roomId,
+            displayName: session.displayName,
+            ...(session.resumeToken ? { resumeToken: session.resumeToken } : {}),
+          }));
         });
-        socket.addEventListener('message', onMessage);
-        socket.addEventListener('close', () => {
+        candidate.addEventListener('message', onMessage);
+        candidate.addEventListener('close', () => {
+          if (socket !== candidate) return;
+          socket = null;
+          connecting = false;
           if (!elements.roomChip.classList.contains('online')) failedOpens += 1;
           scheduleReconnect();
         });
-      } catch {
+        candidate.addEventListener('error', () => { connecting = false; });
+      } catch (error) {
+        connecting = false;
+        if (error.message === 'unknown_room') {
+          elements.phaseLabel.textContent = 'Chưa vào được bàn';
+          say('Máy chủ chưa có bàn Tài Xỉu · đang chờ server cập nhật…', 'lose');
+        }
         scheduleReconnect();
       }
     }
     let reconnectTimer = null;
+    let sessionReplaced = false;
     function scheduleReconnect() {
       elements.roomChip.classList.remove('online');
-      if (reconnectTimer) return;
+      if (reconnectTimer || sessionReplaced) return;
       if (failedOpens >= 3) {
         elements.phaseLabel.textContent = 'Chưa vào được bàn';
         say('Không nối được máy chủ bàn chơi (realtime) · đang thử lại…', 'lose');
       }
       retry += 1;
+      // Jitter giúp nhiều điện thoại không cùng dồn vào node vừa sống lại.
+      const base = Math.min(8_000, 500 * (2 ** Math.min(retry, 4)));
+      const delay = Math.floor(base / 2 + Math.random() * base);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connect();
-      }, Math.min(5_000, 800 * retry));
+      }, delay);
+    }
+
+    function reconnectNow() {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      if (!socket || socket.readyState === WebSocket.CLOSED) connect();
     }
 
     async function loadWallet() {
@@ -590,7 +641,13 @@
     render();
     loadWallet().then(connect);
     setInterval(tick, 200);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadWallet(); });
+    window.addEventListener('online', reconnectNow);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        loadWallet();
+        reconnectNow();
+      }
+    });
   </script>
 </body>
 </html>

@@ -7,6 +7,7 @@
 // (fruiting) → hái hết: harvested, luống trống. Cây héo không bị xóa và tưới lại sẽ hồi phục. Quả chín để quá
 // FRUIT_KEEP_DAYS ngày mới expired. Lịch sử vụ, tưới, hái, giao dịch xu đều được giữ lại để đối soát.
 
+import { randomInt } from 'node:crypto';
 export const PLOT_COUNT = 10;
 export const WATER_DAYS_TO_FRUIT = 3;
 export const FRUITS_PER_CROP = 10;
@@ -39,6 +40,19 @@ export const BAU_CUA_STALE_MS = 3 * 60_000;
 export const TAI_XIU_TOTAL_ODDS = Object.freeze({ 4: 50, 5: 18, 6: 14, 7: 12, 8: 8, 9: 6, 10: 6, 11: 6, 12: 6, 13: 8, 14: 12, 15: 14, 16: 18, 17: 50 });
 export const TAI_XIU_SPOTS = Object.freeze(['xiu', 'tai', ...Object.keys(TAI_XIU_TOTAL_ODDS).map((sum) => `t${sum}`), ...[1, 2, 3, 4, 5, 6].map((face) => `f${face}`)]);
 const ROUND_ID = /^(bc|tx)-[a-z0-9-]{4,76}$/;
+
+// Lô Tô chơi chung: mua vé (lưới 3 × 9, mỗi hàng 5 số 1–90) bằng xu, máy realtime gọi số, ai kinh (đủ 5 số một
+// hàng) thì thắng và kết thúc ván. Tiền vé gom vào quỹ; người kinh nhận quỹ trừ phế, nhiều vé kinh cùng nhịp thì chia
+// đều (làm tròn xuống, phần lẻ vào phế). Tự động đánh dấu (VIP) là tiện ích, tiền vào phế, không vào quỹ. Vé do server
+// tạo và giữ; kinh được kiểm tra lại ở đây theo vé gốc + số đã gọi. Ván treo quá LOTTO_STALE_MS thì hoàn tiền.
+export const LOTTO_TICKET_PRICE = 10;
+export const LOTTO_MAX_TICKETS = 2;
+export const LOTTO_AUTO_MARK_PRICE = 5;
+export const LOTTO_HOUSE_CUT_PERCENT = 10;
+export const LOTTO_STALE_MS = 12 * 60_000;
+const LOTTO_ROUND_ID = /^lt-[a-z0-9-]{4,76}$/;
+// Cột k chứa số 10k…10k+9 (cột đầu 1–9, cột cuối 80–90).
+const LOTTO_COLUMNS = Array.from({ length: 9 }, (_, column) => [column === 0 ? 1 : column * 10, column === 8 ? 90 : column * 10 + 9]);
 // Nhiệm vụ hằng ngày (theo ngày của vườn): làm xong thì bấm nhận xu, mỗi nhiệm vụ một lần mỗi ngày. Server tự kiểm
 // tra lịch sử vườn và đóng góp công trình chung; `location` chỉ là hướng dẫn UI, không dùng để xác nhận hoàn thành.
 export const DAILY_QUESTS = Object.freeze([
@@ -286,6 +300,30 @@ const MIGRATIONS = [
   DROP TABLE coin_transactions;
   ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
   CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);`,
+  // Lô Tô chơi chung: vé của từng ván (do server tạo), tiện ích tự đánh dấu, ván đã chốt / hủy.
+  `CREATE TABLE IF NOT EXISTS lotto_tickets (
+    round_id TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    ticket_no INTEGER NOT NULL CHECK (ticket_no BETWEEN 1 AND 9),
+    numbers TEXT NOT NULL,
+    price INTEGER NOT NULL CHECK (price >= 0),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (round_id, account_id, ticket_no)
+  );
+  CREATE INDEX IF NOT EXISTS lotto_tickets_time ON lotto_tickets(at);
+  CREATE TABLE IF NOT EXISTS lotto_auto_marks (
+    round_id TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    price INTEGER NOT NULL CHECK (price >= 0),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (round_id, account_id)
+  );
+  CREATE TABLE IF NOT EXISTS lotto_rounds (
+    round_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('settled', 'void')),
+    result TEXT NOT NULL,
+    at INTEGER NOT NULL
+  );`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -305,6 +343,37 @@ export function settleTaiXiu(bets, dice) {
   }
   return { staked, payout, net: payout - staked, sum, triple };
 }
+
+// Vé Lô Tô: 3 hàng × 9 cột, mỗi hàng 5 số (0 = ô trống), cột nào cũng có ít nhất một số, số trong cột tăng dần từ trên
+// xuống. random(n) → số nguyên 0…n−1 (crypto.randomInt ở server).
+export function createLottoTicket(random = randomInt) {
+  const pick = (list, count) => {
+    const pool = [...list];
+    for (let index = pool.length - 1; index > 0; index -= 1) {
+      const other = random(index + 1);
+      [pool[index], pool[other]] = [pool[other], pool[index]];
+    }
+    return pool.slice(0, count);
+  };
+  const columns = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  let layout;
+  do layout = [0, 1, 2].map(() => pick(columns, 5));
+  while (!columns.every((column) => layout.some((row) => row.includes(column))));
+  const rows = [0, 1, 2].map(() => Array(9).fill(0));
+  for (const column of columns) {
+    const used = [0, 1, 2].filter((row) => layout[row].includes(column));
+    const [low, high] = LOTTO_COLUMNS[column];
+    const numbers = pick(Array.from({ length: high - low + 1 }, (_, index) => low + index), used.length).sort((a, b) => a - b);
+    used.forEach((row, index) => { rows[row][column] = numbers[index]; });
+  }
+  return rows;
+}
+
+// Hàng row của vé đã đủ 5 số trong danh sách số đã gọi chưa.
+export const lottoRowComplete = (rows, row, called) => {
+  const set = called instanceof Set ? called : new Set(called);
+  return Array.isArray(rows?.[row]) && rows[row].filter(Boolean).length === 5 && rows[row].every((number) => !number || set.has(number));
+};
 
 // Mỗi trò xúc xắc: ô cược hợp lệ, mặt xúc xắc hợp lệ, cách trả thưởng, tên ghi sổ (game_rounds.game).
 const DICE_GAMES = {
@@ -383,6 +452,16 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       WHERE h.account_id = ? AND c.status IN ('growing', 'fruiting') GROUP BY h.crop_id`),
     request: db.prepare('SELECT action, response FROM garden_requests WHERE account_id = ? AND idem_key = ?'),
     saveRequest: db.prepare('INSERT INTO garden_requests (account_id, idem_key, action, response, at) VALUES (?, ?, ?, ?, ?)'),
+    lottoTicketsOf: db.prepare('SELECT ticket_no AS no, numbers FROM lotto_tickets WHERE round_id = ? AND account_id = ? ORDER BY ticket_no'),
+    lottoRoundTickets: db.prepare('SELECT account_id AS accountId, ticket_no AS no, numbers, price FROM lotto_tickets WHERE round_id = ?'),
+    lottoAddTicket: db.prepare('INSERT INTO lotto_tickets (round_id, account_id, ticket_no, numbers, price, at) VALUES (?, ?, ?, ?, ?, ?)'),
+    lottoAutoMark: db.prepare('SELECT price FROM lotto_auto_marks WHERE round_id = ? AND account_id = ?'),
+    lottoRoundAutoMarks: db.prepare('SELECT account_id AS accountId, price FROM lotto_auto_marks WHERE round_id = ?'),
+    lottoAddAutoMark: db.prepare('INSERT INTO lotto_auto_marks (round_id, account_id, price, at) VALUES (?, ?, ?, ?)'),
+    lottoDone: db.prepare('SELECT status, result FROM lotto_rounds WHERE round_id = ?'),
+    lottoClose: db.prepare('INSERT INTO lotto_rounds (round_id, status, result, at) VALUES (?, ?, ?, ?)'),
+    lottoStale: db.prepare(`SELECT t.round_id AS roundId FROM lotto_tickets t LEFT JOIN lotto_rounds r ON r.round_id = t.round_id
+      WHERE r.round_id IS NULL GROUP BY t.round_id HAVING MAX(t.at) < ?`),
     claimed: db.prepare('SELECT quest FROM quest_claims WHERE account_id = ? AND day = ?'),
     claimQuest: db.prepare('INSERT INTO quest_claims (account_id, day, quest, reward, at) VALUES (?, ?, ?, ?, ?)'),
     plantedOn: db.prepare('SELECT 1 FROM crop_cycles WHERE owner_account = ? AND planted_day = ? LIMIT 1'),
@@ -491,6 +570,17 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     q.setBalance.run(balance, now(), accountId);
     q.coinTx.run(accountId, amount, balance, kind, plantType, quantity, now());
     return balance;
+  }
+
+  // Ván Lô Tô treo quá hạn: hoàn vé + tự đánh dấu, đánh dấu ván hủy. Chạy trong giao dịch.
+  function refundStaleLotto() {
+    const stale = q.lottoStale.all(now() - LOTTO_STALE_MS);
+    for (const { roundId } of stale) {
+      const items = [...q.lottoRoundTickets.all(roundId), ...q.lottoRoundAutoMarks.all(roundId)];
+      for (const item of items) if (item.price) changeCoins(item.accountId, item.price, 'game_refund', null, null);
+      q.lottoClose.run(roundId, 'void', JSON.stringify({ ok: true, void: true, stale: true, results: [] }), now());
+    }
+    return stale.length;
   }
 
   // Ván Bầu Cua treo quá hạn (máy realtime chết giữa ván): hoàn từng cược, đánh dấu ván hủy. Chạy trong giao dịch.
@@ -770,6 +860,91 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     // Hoàn cược các ván treo (không được chốt sau BAU_CUA_STALE_MS). Trả số ván đã hủy.
     refundStaleBauCua() {
       return transaction(refundStale);
+    },
+
+    // Lô Tô — mua vé (máy realtime gọi trong pha mua vé): count vé mới (tổng ≤ LOTTO_MAX_TICKETS mỗi ván) và/hoặc tiện
+    // ích tự đánh dấu. Vé do server tạo. Trả { ok, tickets: [{ no, rows }], autoMark, coins } (mọi vé của người đó trong
+    // ván). Cùng key gửi lại trả nguyên kết quả cũ.
+    buyLotto({ accountId, roundId, count = 0, autoMark = false, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (typeof roundId !== 'string' || !LOTTO_ROUND_ID.test(roundId) || !Number.isSafeInteger(count) || count < 0
+        || count > LOTTO_MAX_TICKETS || typeof autoMark !== 'boolean' || (!count && !autoMark)) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        refundStaleLotto();
+        const previous = q.request.get(accountId, key);
+        if (previous) return { ...JSON.parse(previous.response), replayed: true };
+        const owned = q.lottoTicketsOf.all(roundId, accountId);
+        const hasAutoMark = Boolean(q.lottoAutoMark.get(roundId, accountId));
+        const addAutoMark = autoMark && !hasAutoMark;
+        const cost = count * LOTTO_TICKET_PRICE + (addAutoMark ? LOTTO_AUTO_MARK_PRICE : 0);
+        let result;
+        if (q.lottoDone.get(roundId)) result = { ok: false, code: 'ROUND_CLOSED' };
+        else if (owned.length + count > LOTTO_MAX_TICKETS) result = { ok: false, code: 'TICKET_LIMIT' };
+        else if (!cost) result = { ok: false, code: 'INVALID' };
+        else if (ensureWallet(accountId) < cost) result = { ok: false, code: 'INSUFFICIENT_COINS', coins: ensureWallet(accountId) };
+        else {
+          const coins = changeCoins(accountId, -cost, 'game_bet', null, null);
+          for (let index = 0; index < count; index += 1) {
+            q.lottoAddTicket.run(roundId, accountId, owned.length + index + 1, JSON.stringify(createLottoTicket()), LOTTO_TICKET_PRICE, now());
+          }
+          if (addAutoMark) q.lottoAddAutoMark.run(roundId, accountId, LOTTO_AUTO_MARK_PRICE, now());
+          const tickets = q.lottoTicketsOf.all(roundId, accountId).map((row) => ({ no: row.no, rows: JSON.parse(row.numbers) }));
+          result = { ok: true, tickets, autoMark: hasAutoMark || addAutoMark, coins };
+        }
+        q.saveRequest.run(accountId, key, 'lotto_buy', JSON.stringify(result), now());
+        return result;
+      });
+    },
+
+    // Lô Tô — chốt ván: called = các số đã gọi, claims = [{ accountId, ticket, row }] (lời kinh máy realtime đã nhận).
+    // Kiểm tra lại từng lời kinh theo vé gốc; vé kinh hợp lệ chia đều quỹ sau phế. Không có lời kinh hợp lệ thì hủy ván
+    // và hoàn toàn bộ tiền (vé + tự đánh dấu). Gọi lại cùng ván trả nguyên kết quả cũ.
+    // Trả { ok, void?, pool, prize, share, winners: [{ accountId, ticket, row }], results: [{ accountId, staked, payout, net, coins }] }.
+    settleLottoRound({ roundId, called, claims = [] }) {
+      if (typeof roundId !== 'string' || !LOTTO_ROUND_ID.test(roundId) || !Array.isArray(called) || called.length > 90
+        || !called.every((number) => Number.isSafeInteger(number) && number >= 1 && number <= 90) || new Set(called).size !== called.length
+        || !Array.isArray(claims) || claims.length > 1_000) return { ok: false, code: 'INVALID' };
+      return transaction(() => {
+        const done = q.lottoDone.get(roundId);
+        if (done) return { ...JSON.parse(done.result), replayed: true };
+        const tickets = q.lottoRoundTickets.all(roundId);
+        const autoMarks = q.lottoRoundAutoMarks.all(roundId);
+        const calledSet = new Set(called);
+        const seen = new Set();
+        const winners = [];
+        for (const claim of claims) {
+          const ticket = tickets.find((item) => item.accountId === claim?.accountId && item.no === claim?.ticket);
+          if (!ticket || !Number.isSafeInteger(claim.row) || seen.has(`${ticket.accountId}:${ticket.no}`)) continue;
+          if (!lottoRowComplete(JSON.parse(ticket.numbers), claim.row, calledSet)) continue;
+          seen.add(`${ticket.accountId}:${ticket.no}`);
+          winners.push({ accountId: ticket.accountId, ticket: ticket.no, row: claim.row });
+        }
+        // Tiền mỗi người đã bỏ ra trong ván (vé + tự đánh dấu).
+        const paid = new Map();
+        for (const item of [...tickets, ...autoMarks]) paid.set(item.accountId, (paid.get(item.accountId) || 0) + item.price);
+        const pool = tickets.reduce((sum, item) => sum + item.price, 0);
+        const voided = !winners.length;
+        const prize = voided ? 0 : Math.floor((pool * (100 - LOTTO_HOUSE_CUT_PERCENT)) / 100);
+        const share = voided ? 0 : Math.floor(prize / winners.length);
+        const won = new Map();
+        for (const winner of winners) won.set(winner.accountId, (won.get(winner.accountId) || 0) + share);
+        const results = [];
+        for (const [accountId, staked] of paid) {
+          const payout = voided ? staked : won.get(accountId) || 0;
+          const coins = payout ? changeCoins(accountId, payout, voided ? 'game_refund' : 'game_win', null, null) : ensureWallet(accountId);
+          if (!voided && staked > 0) q.gameRound.run(accountId, 'loto', JSON.stringify({ tickets: tickets.filter((item) => item.accountId === accountId).length }), JSON.stringify(called), staked, payout, coins, now());
+          results.push({ accountId, staked, payout, net: payout - staked, coins });
+        }
+        const result = { ok: true, ...(voided ? { void: true } : {}), pool, prize, share, winners, results };
+        q.lottoClose.run(roundId, voided ? 'void' : 'settled', JSON.stringify(result), now());
+        return result;
+      });
+    },
+
+    // Hoàn tiền các ván Lô Tô treo (máy realtime chết giữa ván). Trả số ván đã hủy.
+    refundStaleLotto() {
+      return transaction(refundStaleLotto);
     },
 
     // Thực hiện một thao tác kinh tế / luống. idempotencyKey bắt buộc: gửi lại cùng khóa trả nguyên kết quả cũ.

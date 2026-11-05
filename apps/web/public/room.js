@@ -102,6 +102,14 @@ function chosenSkin() {
 }
 
 let skinSentFor = null;
+// Hình chọn lần cuối theo tài khoản (đăng nhập): ghi vào máy để chosenSkin() trả đúng hình đó.
+const skinSync = fetch('/api/v1/shop', { cache: 'no-store' }).then((response) => (response.ok ? response.json() : null)).then((shop) => {
+  if (shop?.me?.skin) {
+    try { localStorage.setItem('thien-skin', shop.me.skin); } catch {}
+  }
+}).catch(() => {});
+// Hình shop đã xin vé mới để mặc (chỉ một lần mỗi hình, tránh vòng lặp).
+let renewedSkinTicket = null;
 
 function requestId(prefix) {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -531,10 +539,14 @@ function handleMessage(event) {
     participants = new Map(message.participants.map((participant) => [participant.id, participant]));
     // Nhân vật Nam/Nữ đã chọn ở cổng chùa: báo server một lần để cả rạp thấy đúng (không bị đổi nhân vật).
     const mine = participants.get(session?.participantId);
-    if (mine && mine.skin !== chosenSkin() && skinSentFor !== session.participantId) {
-      skinSentFor = session.participantId;
-      send({ type: 'avatar.set', requestId: requestId('skin'), skin: chosenSkin() });
-    }
+    // Đọc hình lưu theo tài khoản trước (vé đã mang hình đó), tránh hình cũ nhớ trên máy ghi đè.
+    skinSync.then(() => {
+      const current = participants.get(session?.participantId);
+      if (current && current.skin !== chosenSkin() && skinSentFor !== session.participantId) {
+        skinSentFor = session.participantId;
+        send({ type: 'avatar.set', requestId: requestId('skin'), skin: chosenSkin() });
+      }
+    });
     renderer?.setParticipants(sceneParticipants());
     renderPeople();
     if (drawerPart === 'seats') renderSeatMap();
@@ -563,6 +575,11 @@ function handleMessage(event) {
   } else if (message.type === 'pong') {
     onPong(message);
   } else if (message.type === 'protocol.error') {
+    if (message.code === 'SESSION_REPLACED') {
+      sessionReplaced = true;
+      notify('Tài khoản đã vào rạp từ trình duyệt hoặc máy khác · tải lại trang để xem ở đây');
+      return;
+    }
     if (message.code === 'INVALID_RESUME_TOKEN' || message.code === 'INVALID_TICKET') {
       // Vé không còn dùng được: lần nối lại tới sẽ xin vé mới ngay (giữ tên hiển thị).
       delete session.resumeToken;
@@ -572,11 +589,24 @@ function handleMessage(event) {
     }
     // Hình shop chưa mua (chưa đăng nhập, hoặc vé cũ): mặc hình Nữ thường.
     if (message.code === 'SKIN_LOCKED') {
-      // Tạm mặc hình Nam/Nữ thay thế của hình đó; vẫn nhớ lựa chọn trên máy (đăng nhập lại là mặc được).
-      import('/engine/chibi3d.mjs').then(({ chibiBaseOf }) => {
-        send({ type: 'avatar.set', requestId: requestId('skin'), skin: chibiBaseOf(chosenSkin()) });
+      const wanted = chosenSkin();
+      fetch('/api/v1/shop', { cache: 'no-store' }).then((response) => (response.ok ? response.json() : null)).catch(() => null).then((shop) => {
+        // Đã mua (vé cũ cấp trước lúc mua, nối lại bằng resume token): xin vé mới một lần, vé mới ghi hình đã mua.
+        if (shop?.me?.owned?.includes(wanted) && renewedSkinTicket !== wanted) {
+          renewedSkinTicket = wanted;
+          delete session.resumeToken;
+          session.ticketRejected = true;
+          reconnectAttempt = 0;
+          saveSession();
+          socket?.close();
+          return;
+        }
+        // Chưa mua: tạm mặc hình Nam/Nữ thay thế; vẫn nhớ lựa chọn trên máy (đăng nhập lại là mặc được).
+        import('/engine/chibi3d.mjs').then(({ chibiBaseOf }) => {
+          send({ type: 'avatar.set', requestId: requestId('skin'), skin: chibiBaseOf(wanted) });
+        });
+        notify('Bạn chưa sở hữu hình này · tạm mặc hình thường');
       });
-      notify('Bạn chưa sở hữu hình này · tạm mặc hình thường');
     } else if (message.code === 'WALKERS_FULL') notify('Rạp đông, bạn đang xem như khán giả (vẫn chọn ghế được)');
     else if (['UNKNOWN_MESSAGE_TYPE', 'INVALID_MESSAGE'].includes(message.code) && Date.now() - reactedAt < 3_000) {
       notify('Máy chủ rạp chưa cập nhật tính năng thả cảm xúc: cần khởi động lại server');
@@ -585,8 +615,11 @@ function handleMessage(event) {
   }
 }
 
+// Tài khoản vừa vào rạp từ trình duyệt / máy khác: tab này thôi tự nối lại (tải lại trang để xem ở đây).
+let sessionReplaced = false;
+
 function scheduleReconnect() {
-  if (!session || reconnectTimer) return;
+  if (!session || reconnectTimer || sessionReplaced) return;
   reconnectAttempt += 1;
   // Trần 4 giây: lease phòng hết hạn sau ~10 giây nên máy mới nhận phòng sớm; jitter ±50% để không dồn cùng lúc.
   const base = Math.min(4_000, 500 * (2 ** Math.min(reconnectAttempt, 3)));

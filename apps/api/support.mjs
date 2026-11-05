@@ -14,6 +14,18 @@ const LIMITS = { message: 1_000, contact: 120, page: 200, userAgent: 200 };
 const clone = (value) => JSON.parse(JSON.stringify(value));
 // Bỏ ký tự điều khiển, gọn khoảng trắng hai đầu, cắt độ dài.
 const clean = (value, max) => (typeof value === 'string' ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, max) : '');
+const supportPage = (value) => {
+  const input = clean(value, LIMITS.page);
+  if (!input.startsWith('/')) return '';
+  try {
+    const url = new URL(input, 'https://support.local');
+    // Mã mời / vé phòng là thông tin truy cập tạm thời, không đưa vào file phiếu hay Telegram.
+    for (const key of ['invite', 'ticket', 'resumeToken', 'token']) url.searchParams.delete(key);
+    return `${url.pathname}${url.search}`.slice(0, LIMITS.page);
+  } catch {
+    return '';
+  }
+};
 
 export function normalizeTicket(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
@@ -21,8 +33,8 @@ export function normalizeTicket(input) {
   const message = clean(input.message, LIMITS.message);
   if (message.length < 5) return null;
   const contact = clean(input.contact, LIMITS.contact);
-  const page = clean(input.page, LIMITS.page);
-  return { kind: input.kind, message, ...(contact ? { contact } : {}), ...(page.startsWith('/') ? { page } : {}) };
+  const page = supportPage(input.page);
+  return { kind: input.kind, message, ...(contact ? { contact } : {}), ...(page ? { page } : {}) };
 }
 
 export function createMemorySupportStore(initial = [], { now = () => Date.now(), id = () => `ht-${randomUUID()}` } = {}) {
@@ -99,7 +111,11 @@ export async function handleSupportRequest(req, res, pathname, options) {
     }
     const userAgent = clean(req.headers?.['user-agent'], LIMITS.userAgent);
     const saved = store(options).create(ticket, {
-      ...(account ? { account: { id: account.id, displayName: account.displayName } } : {}),
+      ...(account ? { account: {
+        id: account.id,
+        displayName: account.displayName,
+        ...(account.username ? { username: account.username } : {}),
+      } } : {}),
       ...(userAgent ? { userAgent } : {}),
     });
     // Báo quản trị (Telegram) nếu đã cấu hình; không chờ, lỗi không ảnh hưởng phiếu đã lưu.

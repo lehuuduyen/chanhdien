@@ -219,7 +219,32 @@ export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;
 export const isShopSkin = (skin) => typeof skin === 'string' && SHOP_SKIN.test(skin);
 export const isPremiumSkin = (skin) => PREMIUM_SKINS.includes(skin) || isShopSkin(skin);
 
-export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES });
+// Lô Tô chơi chung: mua vé (10 xu, tối đa 2 vé) → máy gọi số 4 giây/số → ai đủ 5 số một hàng tự bấm KINH; kinh đúng
+// đầu tiên thì ngừng gọi, chờ claimWindowMs cho người kinh cùng nhịp rồi chia quỹ (phế houseCutPercent). Kinh sai khóa
+// nút falseClaimLockMs. Gọi hết 90 số mà không ai kinh thì sau graceAfterLastMs hủy ván, hoàn tiền. Giá / phế thật do
+// API giữ (@chanh-dien/garden); ở đây để realtime giữ nhịp và trang hiển thị.
+export const LOTO_RULES = defineRoomRules({
+  id: 'loto',
+  activity: 'play-together',
+  maxParticipants: 500,
+  lang: 'vi',
+  moderation: 'standard',
+  interaction: {
+    game: 'loto',
+    buyMs: 30_000,
+    callMs: 4_000,
+    claimWindowMs: 3_000,
+    resultMs: 8_000,
+    graceAfterLastMs: 15_000,
+    falseClaimLockMs: 10_000,
+    ticketPrice: 10,
+    maxTickets: 2,
+    autoMarkPrice: 5,
+    houseCutPercent: 10,
+  },
+});
+
+export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES });
 
 // Danh mục phòng công khai. API và máy realtime cùng đọc để biết phòng nào thuộc loại nào.
 export const ROOM_CATALOG = deepFreeze([
@@ -227,6 +252,7 @@ export const ROOM_CATALOG = deepFreeze([
   { id: 'cinema-1', type: 'cinema', name: 'Cinema #1' },
   { id: 'game-1', type: 'game', name: 'Bầu Cua #1' },
   { id: 'taixiu-1', type: 'taixiu', name: 'Tài Xỉu #1' },
+  { id: 'loto-1', type: 'loto', name: 'Lô Tô #1' },
 ]);
 
 export function getRoomRules(type) {

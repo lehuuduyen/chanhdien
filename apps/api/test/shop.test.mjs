@@ -361,3 +361,25 @@ test('shop: admin đặt giá gốc và giá bán (giảm giá) cho cả hình c
   assert.equal((await request(options, 'GET', '/api/v1/shop')).json.items.some((item) => item.id === 'chibigirl'), false);
   assert.equal((await patch('khong-co', { price: 1 })).status, 405);
 });
+
+test('shop: lưu hình chọn lần cuối theo tài khoản; mua xong tự chọn hình đó; vé vào phòng mang hình đã lưu', async () => {
+  const { options } = setup();
+  const { cookie, accountId } = await signUp(options, 'chon.hinh');
+  const save = (skin) => request(options, 'POST', '/api/v1/shop/skin', { body: { skin }, headers: { cookie } });
+  const me = async () => (await request(options, 'GET', '/api/v1/shop', { headers: { cookie } })).json.me;
+  assert.equal((await me()).skin, null, 'chưa chọn');
+  assert.equal((await save('woman')).status, 200);
+  assert.equal((await me()).skin, 'woman');
+  assert.equal((await save('chibigirl')).status, 409, 'chưa mua thì không lưu');
+  assert.equal((await save('rong-than')).status, 400);
+  assert.equal((await request(options, 'POST', '/api/v1/shop/skin', { body: { skin: 'man' } })).status, 401, 'khách không lưu lên server');
+  const join = async () => verifyJoinTicket((await request(options, 'POST', '/api/v1/rooms/join', { body: { roomId: 'cinema-1' }, headers: { cookie } })).json.ticket, SECRET).value;
+  assert.equal((await join()).skin, 'woman');
+  options.accounts.database.prepare('INSERT INTO shop_wallets (account_id, diamonds, updated_at) VALUES (?, 500, 0)').run(accountId);
+  await request(options, 'POST', '/api/v1/shop/buy', { body: { itemId: 'chibigirl' }, headers: { cookie } });
+  assert.equal((await me()).skin, 'chibigirl', 'mua xong là mặc');
+  const ticket = await join();
+  assert.deepEqual([ticket.skin, ticket.skins], ['chibigirl', ['chibigirl']]);
+  assert.equal((await save('man')).status, 200);
+  assert.equal((await join()).skin, 'man');
+});

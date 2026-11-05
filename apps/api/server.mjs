@@ -94,6 +94,8 @@ export function createJoinResponse(input, options = {}) {
       ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}),
       // Hình nhân vật đã mua trong shop: máy realtime chỉ cho mặc hình có trong vé.
       ...(options.ownedSkins?.length ? { skins: options.ownedSkins } : {}),
+      // Hình chọn lần cuối của tài khoản: máy realtime dựng đúng nhân vật ngay khi vào phòng.
+      ...(options.preferredSkin ? { skin: options.preferredSkin } : {}),
     } : {}),
   };
   const ticket = createJoinTicket(claims, secret, { now: options.now });
@@ -157,7 +159,8 @@ export async function handleApiRequest(req, res, options = {}) {
     const account = currentAccount(req, options);
     const accountLevel = account ? options.accounts.profile(account.id).stats.level.level : undefined;
     const ownedSkins = account ? options.shopStore?.ownedSkins(account.id) : undefined;
-    const result = createJoinResponse(input, { ...options, account, accountLevel, ownedSkins });
+    const preferredSkin = account ? options.shopStore?.preferredSkin(account.id) : undefined;
+    const result = createJoinResponse(input, { ...options, account, accountLevel, ownedSkins, preferredSkin });
     if (result.status === 200) {
       const located = await locateRoom(result.body.roomId, options);
       if (!located) {
