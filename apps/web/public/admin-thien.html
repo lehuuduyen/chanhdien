@@ -6,6 +6,10 @@
   <meta name="theme-color" content="#17110c">
   <title>Quản trị bài giảng · Chánh Điện Online</title>
   <link rel="stylesheet" href="/admin-thien.css">
+  <!-- Ảnh xem trước nhân vật trong Shop dựng bằng three (chibi-preview.js). -->
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
 </head>
 <body>
   <main>
@@ -88,9 +92,48 @@
       </section>
       <div class="prayer-admin-list" id="supportTickets"><p class="empty">Nhập khóa quản trị rồi tải phiếu hỗ trợ.</p></div>
 
+      <section class="content-head prayer-head">
+        <div>
+          <p class="step">05 · SHOP NHÂN VẬT</p>
+          <h2>Gói nạp kim cương</h2>
+          <p>Số kim cương và giá (USD) của từng gói người dùng thấy khi bấm 💎. Tắt gói thì ẩn, không mua được; người đang trả tiền vẫn nhận đúng gói lúc bấm. Stripe nhận tối thiểu $0.50.</p>
+          <p id="packPayments"></p>
+        </div>
+        <button type="button" class="secondary" id="loadPacks">Tải gói nạp</button>
+      </section>
+      <div class="pack-admin" id="packAdmin" hidden>
+        <div class="pack-head"><span>Mã gói</span><span>Kim cương</span><span>Giá (USD)</span><span>Bật</span><span></span></div>
+        <div id="packRows"></div>
+        <div class="pack-actions">
+          <button type="button" class="secondary" id="addPack">+ Thêm gói</button>
+          <button type="button" class="primary" id="savePacks">Lưu gói nạp</button>
+        </div>
+      </div>
+      <div class="prayer-admin-list" id="packEmpty"><p class="empty">Nhập khóa quản trị rồi tải gói nạp.</p></div>
+
+      <section class="content-head prayer-head">
+        <div>
+          <p class="step">06 · NHÂN VẬT TRONG SHOP</p>
+          <h2>Tải nhân vật .glb</h2>
+          <p>File phải có khung xương và động tác Walking: trên Meshy chọn <b>Rig &amp; Animate</b> (Walking, nên thêm Running / Idle), số tam giác ≤ 40.000, xuất GLB (≤ 64 MB). Server tự nén còn vài trăm KB. Nhân vật tự đi, ngồi ghế rạp, ngồi bồ đoàn, quỳ, lạy.</p>
+        </div>
+        <button type="button" class="secondary" id="loadShopItems">Tải danh sách</button>
+      </section>
+      <div class="model-admin">
+        <div class="model-upload">
+          <label><span>File .glb</span><input type="file" id="modelFile" accept=".glb,model/gltf-binary"></label>
+          <label><span>Tên hiển thị</span><input type="text" id="modelName" maxlength="40" placeholder="vd: Kiếm sĩ"></label>
+          <label><span>Giá bán (💎)</span><input type="number" id="modelPrice" min="0" max="1000000" step="1" value="300"></label>
+          <label><span>Hình 2D thay thế</span><select id="modelBase"><option value="man">Nam</option><option value="woman">Nữ</option></select></label>
+          <button type="button" class="primary" id="uploadModel">Tải lên &amp; bán</button>
+        </div>
+        <p class="model-status" id="modelStatus" role="status" aria-live="polite"></p>
+        <div class="model-list" id="modelList"></div>
+      </div>
+
       <section class="panel access">
         <div>
-          <p class="step">05 · XÁC NHẬN</p>
+          <p class="step">07 · XÁC NHẬN</p>
           <h2>Khóa quản trị</h2>
           <p>Khóa được gửi khi lưu và chỉ được giữ trong tab hiện tại.</p>
         </div>

@@ -37,6 +37,7 @@ test('công trình chung xem công khai; đóng góp cần tài khoản, origin 
   const view = await request(options, 'GET', '/api/v1/community-project');
   assert.equal(view.status, 200);
   assert.equal(view.json.project.id, 'bodhi-global-1');
+  assert.deepEqual(view.json.projects.map((project) => project.id), ['bodhi-global-1', 'lotus-global-1']);
   assert.equal(view.json.me, null);
   assert.equal((await request(options, 'POST', '/api/v1/community-project/contribute', { body: { action: 'water' }, headers: { 'idempotency-key': 'guest-key-01' } })).status, 401);
   const cookie = await signUp(options);
@@ -50,6 +51,23 @@ test('công trình chung xem công khai; đóng góp cần tài khoản, origin 
   const replay = await request(options, 'POST', '/api/v1/community-project/contribute', { body: { action: 'water' }, headers: { cookie, 'idempotency-key': 'water-key-001' } });
   assert.equal(replay.json.replayed, true);
   assert.equal(replay.json.project.progress, 5);
+});
+
+test('API đóng góp đúng công trình hồ sen và không cộng nhầm Bồ Đề', async () => {
+  const options = setup();
+  const cookie = await signUp(options);
+  const result = await request(options, 'POST', '/api/v1/community-project/contribute', {
+    body: { projectId: 'lotus-global-1', action: 'dig' }, headers: { cookie, 'idempotency-key': 'lotus-dig-001' },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.json.project.id, 'lotus-global-1');
+  assert.equal(result.json.project.progress, 3);
+  assert.equal(result.json.projects.find((project) => project.id === 'bodhi-global-1').progress, 0);
+  const invalid = await request(options, 'POST', '/api/v1/community-project/contribute', {
+    body: { projectId: 'unknown-project', action: 'dig' }, headers: { cookie, 'idempotency-key': 'unknown-project-1' },
+  });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.json.code, 'INVALID');
 });
 
 test('API bỏ trường điểm giả do client gửi', async () => {

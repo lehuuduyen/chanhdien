@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  buildChibiWalker, CASUAL_ACCENTS, CASUAL_BOTTOMS, CASUAL_SKIRTS, CASUAL_TOPS, createChibiPersonFactory, isFemale,
+  buildChibiWalker, CASUAL_ACCENTS, CASUAL_BOTTOMS, CASUAL_SKIRTS, CASUAL_TOPS, createChibiPersonFactory, isFemale, loadChibiModels,
 } from './chibi3d.mjs';
 import { BUBBLE_LIMITS, truncateBubble } from './index.mjs';
 import { disposeSprite, textSprite } from './sprites3d.mjs';
@@ -17,7 +17,7 @@ import {
   windowToPixels,
 } from './theater.mjs';
 
-const SKINS = ['man', 'woman', 'child', 'granny', 'nun', 'monk'];
+const SKINS = ['man', 'woman', 'child', 'granny', 'nun', 'monk', 'chibigirl'];
 
 // Ở rạp ai cũng mặc đồ thường ngày nhiều màu; màu cố định theo từng người (không đổi mỗi lần vào), đầu/mặt giữ
 // nguyên như ở chùa.
@@ -459,6 +459,8 @@ export async function createCinemaRenderer3D({ canvas, scene, onSeatClick, onMov
   const screen = screenBox(theater);
   const walk = theater.walk;
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Hình mua trong shop (chibigirl) dùng mô hình .glb: tải trước khi dựng người ngồi/đi.
+  await loadChibiModels();
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -630,7 +632,7 @@ export async function createCinemaRenderer3D({ canvas, scene, onSeatClick, onMov
   }
 
   // Nhân vật chọn ở chùa (server gửi skin); chưa có thì nam/nữ theo mã người.
-  const skinOf = (person) => (SKINS.includes(person.skin) ? person.skin : ['man', 'woman'][hash(person.id) % 2]);
+  const skinOf = (person) => (SKINS.includes(person.skin) || /^shop-/.test(person.skin || '') ? person.skin : ['man', 'woman'][hash(person.id) % 2]);
 
   function rebuild() {
     const people = [];
@@ -882,6 +884,7 @@ export async function createCinemaRenderer3D({ canvas, scene, onSeatClick, onMov
       const swing = walker.moving && !reduceMotion ? Math.sin(walker.phase) : 0;
       walker.feet.forEach((foot, index) => { foot.position.z = -0.04 + swing * 0.09 * (index ? -1 : 1); });
       walker.upper.position.y = walker.hips.stand + Math.abs(swing) * 0.025;
+      walker.rig?.pose({ hip: walker.upper.position.y, stride: swing, moving: walker.moving, dt });
       walker.figure.position.set(walker.x, walker.y + Math.abs(swing) * 0.01, walker.z);
       walker.figure.rotation.y = walker.ry;
       if (walker.moving || Math.abs(floor - walker.y) > 1e-3) active = true;

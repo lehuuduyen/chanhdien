@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { THIEN_RULES } from '@chanh-dien/room-rules';
 import { resolveScene } from '../src/index.mjs';
 import { clampToBounds, defaultCameraFor, validateWorld } from '../src/world.mjs';
 
@@ -50,4 +51,32 @@ test('cây Bồ Đề công trình có đủ năm tỉ lệ cảnh tăng dần',
   const broken = structuredClone(scene);
   broken.world.courtyard.bodhi.stageScales = [0, 0.7, 0.3];
   assert.ok(validateWorld(broken).errors.some((error) => error.includes('stageScales')));
+});
+
+test('hồ sen công trình khai báo đủ mốc mở khóa cảnh', () => {
+  const pond = scene.world.courtyard.pond;
+  assert.equal(pond.projectId, 'lotus-global-1');
+  assert.deepEqual(pond.stageVisibility, { water: 0, rocks: 2, lotus: 3, fish: 0 }, 'hồ cá nền luôn còn; đá và sen mở dần');
+  const broken = structuredClone(scene);
+  delete broken.world.courtyard.pond.stageVisibility.fish;
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('stageVisibility')));
+});
+
+test('mỗi khu có một bảng hướng dẫn đặt bằng dữ liệu cảnh', () => {
+  const boards = scene.world.courtyard.guideBoards;
+  assert.deepEqual(boards.map((board) => board.id), ['hall', 'courtyard', 'garden']);
+  assert.ok(boards.every((board) => Number.isFinite(board.x) && Number.isFinite(board.z) && board.sign));
+  const broken = structuredClone(scene);
+  broken.world.courtyard.guideBoards[2].id = 'courtyard';
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('bảng hướng dẫn')));
+});
+
+test('sáu công việc trong chùa khớp id, loại, vị trí kiểm tra của realtime', () => {
+  const sceneChores = scene.world.courtyard.chores.map(({ id, kind, x, z, radius }) => ({ id, kind, x, z, radius }));
+  const ruleChores = THIEN_RULES.world.chores.map(({ id, kind, x, z, radius }) => ({ id, kind, x, z, radius }));
+  assert.deepEqual(sceneChores, ruleChores);
+  assert.deepEqual(sceneChores.map((item) => item.kind), ['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
+  const broken = structuredClone(scene);
+  broken.world.courtyard.chores[5].kind = 'sweep';
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('công việc')));
 });

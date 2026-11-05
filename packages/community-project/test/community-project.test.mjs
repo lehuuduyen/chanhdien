@@ -51,3 +51,18 @@ test('idempotency không cộng hai lần và công trình dừng đúng mục t
   assert.equal(done.project.completed, true);
   assert.equal(project.contribute(an, 'dig', 'after-key-001').code, 'PROJECT_COMPLETE');
 });
+
+test('hồ sen có tiến độ, việc hằng ngày và danh hiệu riêng với cây Bồ Đề', () => {
+  const { project, user } = setup();
+  const an = user('an_lac');
+  const lotus = project.contribute(an, 'lotus-global-1', 'tend', 'lotus-tend-001');
+  assert.equal(lotus.ok, true);
+  assert.equal(lotus.project.id, 'lotus-global-1');
+  assert.equal(lotus.project.kind, 'lotus');
+  assert.equal(lotus.project.progress, 4);
+  assert.equal(lotus.me.badge, 'lotus-builder');
+  assert.equal(project.snapshot(an).project.progress, 0, 'Bồ Đề không bị cộng nhầm');
+  assert.equal(project.snapshot(an).projects.length, 2);
+  assert.deepEqual(project.snapshot(an).meByProject['lotus-global-1'].today, ['tend']);
+  assert.equal(project.contribute(an, 'lotus-global-1', 'water', 'lotus-tend-001').code, 'IDEMPOTENCY_KEY_REUSED');
+});

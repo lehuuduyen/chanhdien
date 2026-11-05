@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
-import { createGardenStore, FRUITS_PER_CROP, gardenDay, PLANTS, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS } from '../src/index.mjs';
+import { createCommunityProjectStore } from '@chanh-dien/community-project';
+import {
+  CHORE_REWARD_COINS, CHORE_REWARD_DAILY_LIMIT, createGardenStore, FRUITS_PER_CROP,
+  gardenDay, PLANTS, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS,
+} from '../src/index.mjs';
 
 function setup() {
   let clock = Date.parse('2026-11-03T20:00:00Z');
@@ -10,7 +14,7 @@ function setup() {
   const user = (name) => accounts.register({ username: name, password: 'matkhau123', displayName: name }).account.id;
   let serial = 0;
   const act = (accountId, action, input) => garden.perform(accountId, action, input, `key-${(serial += 1).toString().padStart(6, '0')}`);
-  return { accounts, garden, user, act, tick: (ms) => { clock += ms; } };
+  return { accounts, garden, user, act, now: () => clock, tick: (ms) => { clock += ms; } };
 }
 
 test('ngày tưới theo múi giờ server, không theo giờ UTC', () => {
@@ -44,6 +48,46 @@ test('khóa idempotency: gửi lại cùng khóa không trừ xu lần hai', () 
   assert.equal(garden.me(an).coins, STARTING_COINS - PLANTS.apple.seedPrice);
   assert.equal(garden.perform(an, 'sell', { plantType: 'apple', quantity: 1 }, 'same-key-123').code, 'IDEMPOTENCY_KEY_REUSED');
   assert.equal(garden.perform(an, 'buy', { plantType: 'apple', quantity: 1 }).code, 'IDEMPOTENCY_KEY_REQUIRED');
+});
+
+test('công việc trong chùa: +20 xu, tối đa 3 lần mỗi loại mỗi ngày và không cộng trùng', () => {
+  const { garden, user, tick } = setup();
+  const an = user('an_lac');
+  const rewards = Array.from({ length: CHORE_REWARD_DAILY_LIMIT }, (_, index) => garden.rewardChore({
+    accountId: an, chore: 'sweep', key: `chore-sweep-${index + 1}`,
+  }));
+  assert.deepEqual(rewards.map((item) => [item.reward, item.count]), [[20, 1], [20, 2], [20, 3]]);
+  assert.equal(garden.me(an).coins, STARTING_COINS + CHORE_REWARD_COINS * CHORE_REWARD_DAILY_LIMIT);
+
+  const capped = garden.rewardChore({ accountId: an, chore: 'sweep', key: 'chore-sweep-4' });
+  assert.deepEqual([capped.reward, capped.count, capped.limit, capped.limited], [0, 3, 3, true]);
+  const replay = garden.rewardChore({ accountId: an, chore: 'sweep', key: 'chore-sweep-1' });
+  assert.equal(replay.replayed, true);
+  assert.equal(garden.me(an).coins, STARTING_COINS + 60);
+
+  const other = garden.rewardChore({ accountId: an, chore: 'water', key: 'chore-water-1' });
+  assert.deepEqual([other.reward, other.count], [20, 1], 'mỗi loại việc có giới hạn riêng');
+  tick(24 * 60 * 60 * 1_000);
+  const tomorrow = garden.rewardChore({ accountId: an, chore: 'sweep', key: 'chore-sweep-next-day' });
+  assert.deepEqual([tomorrow.reward, tomorrow.count], [20, 1], 'sang ngày mới được tính lại');
+  assert.equal(garden.history(an).filter((row) => row.kind === 'chore').length, 5);
+  assert.equal(garden.rewardChore({ accountId: an, chore: 'gamble', key: 'chore-invalid-1' }).code, 'INVALID');
+});
+
+test('quản trị điều chỉnh xu: có lịch sử, không âm và cùng khóa không cộng hai lần', () => {
+  const { garden, user } = setup();
+  const an = user('an_lac');
+  const added = garden.adjustCoins({ accountId: an, amount: 100, key: 'telegram-1001' });
+  assert.deepEqual([added.ok, added.coins], [true, 150]);
+  const replay = garden.adjustCoins({ accountId: an, amount: 100, key: 'telegram-1001' });
+  assert.deepEqual([replay.replayed, replay.coins], [true, 150]);
+  const removed = garden.adjustCoins({ accountId: an, amount: -20, key: 'telegram-1002' });
+  assert.equal(removed.coins, 130);
+  const tooMuch = garden.adjustCoins({ accountId: an, amount: -131, key: 'telegram-1003' });
+  assert.deepEqual([tooMuch.ok, tooMuch.code, tooMuch.coins], [false, 'INSUFFICIENT_COINS', 130]);
+  assert.deepEqual(garden.history(an).slice(0, 2).map((row) => [row.kind, row.amount]), [
+    ['admin_adjustment', -20], ['admin_adjustment', 100],
+  ]);
 });
 
 test('gieo: người đầu tiên chiếm luống, người sau bị từ chối và giữ nguyên hạt', () => {
@@ -211,10 +255,14 @@ test('Bầu Cua chơi chung: cược trừ xu ngay, cộng dồn theo ván; ch�
 
 test('nhiệm vụ hằng ngày: làm xong mới nhận được, mỗi nhiệm vụ một lần mỗi ngày; sang ngày mới làm lại', async () => {
   const { DAILY_QUESTS } = await import('../src/index.mjs');
-  const { garden, user, act, tick } = setup();
+  const { accounts, garden, user, act, now, tick } = setup();
   const an = user('an_nhiem_vu');
+  const community = createCommunityProjectStore({ db: accounts.database, now });
   const status = () => Object.fromEntries(garden.me(an).quests.map((item) => [item.id, `${item.done ? 'xong' : 'chưa'}/${item.claimed ? 'đã nhận' : 'chưa nhận'}`]));
-  assert.deepEqual(status(), { checkin: 'xong/chưa nhận', water: 'chưa/chưa nhận', harvest: 'chưa/chưa nhận', offer: 'chưa/chưa nhận' });
+  assert.deepEqual(status(), {
+    checkin: 'xong/chưa nhận', plant: 'chưa/chưa nhận', water: 'chưa/chưa nhận', harvest: 'chưa/chưa nhận',
+    offer: 'chưa/chưa nhận', bodhi: 'chưa/chưa nhận', lotus: 'chưa/chưa nhận',
+  });
   const start = garden.me(an).coins;
   const reward = (id) => DAILY_QUESTS.find((item) => item.id === id).reward;
   // Điểm danh: nhận ngay; nhận lần hai bị từ chối, xu không đổi.
@@ -227,20 +275,29 @@ test('nhiệm vụ hằng ngày: làm xong mới nhận được, mỗi nhiệm 
   // Tưới, hái, dâng quả rồi nhận.
   act(an, 'buy', { plantType: 'apple', quantity: 1 });
   act(an, 'plant', { plotId: 3, plantType: 'apple' });
+  assert.equal(act(an, 'claim', { quest: 'plant' }).ok, true);
   for (let watering = 0; watering < 3; watering += 1) {
     act(an, 'water', { plotId: 3 });
     if (watering < 2) tick(WATER_INTERVAL_MS);
   }
   act(an, 'harvest', { plotId: 3 });
   act(an, 'offer', { plantType: 'apple', quantity: 1 });
-  for (const quest of ['water', 'harvest', 'offer']) assert.equal(act(an, 'claim', { quest }).ok, true, quest);
+  // Đến đây đã sang ngày mới: gieo lại và góp vào hai công trình để server ghi nhận đúng ngày hiện tại.
+  act(an, 'buy', { plantType: 'apple', quantity: 1 });
+  act(an, 'plant', { plotId: 3, plantType: 'apple' });
+  assert.equal(community.contribute(an, 'bodhi-global-1', 'dig', 'quest-bodhi-01').ok, true);
+  assert.equal(community.contribute(an, 'lotus-global-1', 'dig', 'quest-lotus-01').ok, true);
+  for (const quest of ['plant', 'water', 'harvest', 'offer', 'bodhi', 'lotus']) assert.equal(act(an, 'claim', { quest }).ok, true, quest);
   // Hai lần chờ tưới 8 giờ đã sang ngày mới theo giờ California: điểm danh của ngày mới lại nhận được.
-  assert.deepEqual(Object.values(status()), ['xong/chưa nhận', 'xong/đã nhận', 'xong/đã nhận', 'xong/đã nhận']);
+  assert.deepEqual(Object.values(status()), ['xong/chưa nhận', 'xong/đã nhận', 'xong/đã nhận', 'xong/đã nhận', 'xong/đã nhận', 'xong/đã nhận', 'xong/đã nhận']);
   assert.equal(act(an, 'claim', { quest: 'checkin' }).ok, true);
   const history = garden.history(an).filter((item) => item.kind === 'quest');
   assert.ok(history.length >= 1, 'nhận xu nhiệm vụ được ghi sổ');
   // Sang ngày mới (theo múi giờ vườn): điểm danh lại được, tưới/hái/dâng phải làm lại.
   tick(24 * 60 * 60 * 1_000);
-  assert.deepEqual(status(), { checkin: 'xong/chưa nhận', water: 'chưa/chưa nhận', harvest: 'chưa/chưa nhận', offer: 'chưa/chưa nhận' });
+  assert.deepEqual(status(), {
+    checkin: 'xong/chưa nhận', plant: 'chưa/chưa nhận', water: 'chưa/chưa nhận', harvest: 'chưa/chưa nhận',
+    offer: 'chưa/chưa nhận', bodhi: 'chưa/chưa nhận', lotus: 'chưa/chưa nhận',
+  });
   assert.equal(act(an, 'claim', { quest: 'checkin' }).ok, true);
 });

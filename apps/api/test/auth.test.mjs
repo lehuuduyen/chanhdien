@@ -177,6 +177,48 @@ test('Telegram donate 1: chỉ chat và secret đã cấu hình được cộng 
   assert.equal((await request(options, 'GET', '/api/v1/donate')).json.raised, 13);
 });
 
+test('Telegram quản trị cộng/trừ xu và kim cương theo tên tài khoản, chống xử lý trùng', async () => {
+  const [{ createDonateStore, donateConfig }, { openGardenStore }, { openShopStore }] = await Promise.all([
+    import('../donate.mjs'), import('../garden.mjs'), import('../shop.mjs'),
+  ]);
+  const accounts = createAccountStore();
+  const account = accounts.register({ username: 'tam.an', password: 'matkhau123', displayName: 'Tâm An' }).account;
+  const donate = donateConfig({});
+  const options = setup({
+    accounts,
+    garden: openGardenStore(accounts),
+    shopStore: openShopStore(accounts),
+    donate,
+    donateStore: createDonateStore({ db: accounts.database, config: donate }),
+    telegramWebhookSecret: 'telegram-secret-123',
+    telegramChatId: '-100123',
+  });
+  const headers = { 'x-telegram-bot-api-secret-token': 'telegram-secret-123' };
+  const send = (updateId, text) => request(options, 'POST', '/api/v1/telegram', {
+    body: { update_id: updateId, message: { chat: { id: -100123 }, text } }, headers,
+  });
+
+  const coins = await send(9101, 'xu tam.an +100');
+  assert.match(coins.json.text, /\+100 xu.*150/);
+  const replay = await send(9101, 'xu tam.an +100');
+  assert.match(replay.json.text, /đã được xử lý trước đó/i);
+  assert.equal(options.garden.me(account.id).coins, 150);
+  const removed = await send(9102, 'xu tam.an -20');
+  assert.match(removed.json.text, /-20 xu.*130/);
+
+  const diamonds = await send(9103, 'kimcuong tam.an +50');
+  assert.match(diamonds.json.text, /\+50 kim cương.*50/);
+  assert.equal(options.shopStore.me(account.id).diamonds, 50);
+  const insufficient = await send(9104, 'kimcuong tam.an -51');
+  assert.match(insufficient.json.text, /Số dư không đủ/);
+  assert.equal(options.shopStore.me(account.id).diamonds, 50);
+
+  const unknown = await send(9105, 'xu khong.co +10');
+  assert.match(unknown.json.text, /Không tìm thấy tài khoản/);
+  const help = await send(9106, 'wallet tam.an 10');
+  assert.match(help.json.text, /kimcuong/);
+});
+
 test('hỗ trợ: gửi báo lỗi/góp ý (kiểm tra kiểu, cắt độ dài, giới hạn), quản trị xem và đổi trạng thái', async () => {
   const { createMemorySupportStore } = await import('../support.mjs');
   const options = setup({ adminSecret: 'khoa-quan-tri', supportStore: createMemorySupportStore() });

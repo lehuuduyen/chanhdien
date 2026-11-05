@@ -39,8 +39,9 @@ export const CINEMA_RULES = defineRoomRules({
   moderation: 'standard',
   content: { source: 'youtube' },
   interaction: { queue: 'everyone', skipVotePercent: 35 },
-  // Nhân vật nam/nữ chọn ở cổng chùa (avatar.set); ở rạp mặc đồ thường ngày, đầu/mặt giữ nguyên.
-  skins: ['man', 'woman'],
+  // Nhân vật nam/nữ chọn ở cổng chùa (avatar.set); ở rạp mặc đồ thường ngày, đầu/mặt giữ nguyên. Hình mua trong
+  // shop (PREMIUM_SKINS) chỉ người sở hữu mới mặc được.
+  skins: ['man', 'woman', 'chibigirl'],
   // Đi lại trong rạp (góc nhìn nhân vật): vào từ cửa sau, đi xuống lối đi rồi ngồi ghế. Vùng thô theo
   // scenes/cinema-default (theater3d.hall); va chạm với ghế tính ở client. Rạp ≤ 500 người nên phát vị trí cho cả
   // phòng (không chia vùng như chánh điện).
@@ -69,7 +70,7 @@ export const THIEN_RULES = defineRoomRules({
   lang: 'vi',
   moderation: 'strict',
   content: { source: 'none' },
-  skins: ['man', 'woman', 'granny', 'nun', 'monk', 'child'],
+  skins: ['man', 'woman', 'granny', 'nun', 'monk', 'child', 'chibigirl'],
   // Chế độ nhập vai: nhân vật đi lại tự do. Server chỉ kiểm tra thô (vùng chữ nhật, tốc độ tối đa) để chống dịch
   // chuyển tức thời; va chạm chi tiết theo world.walk trong scene JSON ở client. Vùng thô gồm cả sân ngoài chùa;
   // maxSpeed tính cả lúc chạy (giữ Shift). maxWalkers: số nhân vật đi lại tối đa mỗi phòng (bằng sức chứa).
@@ -89,6 +90,17 @@ export const THIEN_RULES = defineRoomRules({
       courtyard: { x: 0, z: 33, ry: 0 },
       garden: { x: 10.8, z: 68, ry: -1.5708 },
     },
+    // Công việc chung trong sân chùa. Server dùng chính các điểm này để xác nhận người chơi đã lại gần; scene
+    // thien-default khai báo cùng id/toạ độ để engine hiện nút và đạo cụ. Một người làm mất khoảng 36 giây,
+    // nhiều người cùng làm được cộng thêm 25% hiệu quả cho mỗi người sau người đầu tiên.
+    chores: [
+      { id: 'sweep-yard', kind: 'sweep', x: 0, z: 41, radius: 2.8, durationMs: 36_000 },
+      { id: 'water-planters', kind: 'water', x: 1.2, z: 58.75, radius: 2.8, durationMs: 36_000 },
+      { id: 'light-lanterns', kind: 'light', x: 3.4, z: 29, radius: 2.8, durationMs: 36_000 },
+      { id: 'feed-koi', kind: 'feed', x: -6.6, z: 80, radius: 2.8, durationMs: 36_000 },
+      { id: 'clean-guanyin', kind: 'clean', x: 16.4, z: 50, radius: 2.8, durationMs: 36_000 },
+      { id: 'make-tea', kind: 'tea', x: 8.5, z: 68, radius: 2.8, durationMs: 36_000 },
+    ],
   },
   // Bot ngồi sẵn cho chánh điện không vắng. Số người hiện trong phòng có tính bot (theo yêu cầu), kèm số bot riêng
   // để giao diện ghi rõ "gồm N Phật tử ảo (máy)"; vote, sức chứa và sảnh chỉ đếm người thật. Bot không chào hỏi
@@ -174,6 +186,20 @@ export const GAME_RULES = defineRoomRules({
     maxStakePerRound: 1_000,
   },
 });
+
+// Shop nhân vật: mua bằng kim cương (💎, chỉ có khi nạp tiền qua Stripe). Hình trong PREMIUM_SKINS không bao giờ
+// được chia ngẫu nhiên cho người mới/bot; máy realtime chỉ nhận avatar.set khi vé vào phòng ghi đã sở hữu.
+// base: hình khối thay thế khi máy không tải được mô hình .glb (và ảnh 2D).
+export const SHOP_ITEMS = deepFreeze([
+  // thumb: ảnh chân dung dựng sẵn (shop/cổng hiện ngay, không phải tải three.js và mô hình mới thấy hình).
+  { id: 'chibigirl', kind: 'skin', skin: 'chibigirl', base: 'woman', price: 300, thumb: '/models/characters/chibi-girl.png' },
+]);
+export const PREMIUM_SKINS = Object.freeze(SHOP_ITEMS.filter((item) => item.kind === 'skin').map((item) => item.skin));
+// Nhân vật admin tải lên ở trang quản trị (mô hình .glb có khung xương, danh mục trong database): mã "shop-<tên>".
+// Cùng mẫu với SHOP_SKIN trong @chanh-dien/protocol (hai gói không phụ thuộc nhau; sửa thì sửa cả hai).
+export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;
+export const isShopSkin = (skin) => typeof skin === 'string' && SHOP_SKIN.test(skin);
+export const isPremiumSkin = (skin) => PREMIUM_SKINS.includes(skin) || isShopSkin(skin);
 
 export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES });
 

@@ -5,7 +5,7 @@ import { lang, onLangChange, t } from '/thien-i18n.js';
 import { SUTRAS, sutraById, sutraTitle } from '/sutras.js';
 
 
-export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onGardenTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
+export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onGardenTap, onGuideTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
   // Luống vườn mới nhất (đưa lại cho bộ vẽ khi bộ vẽ được tạo sau).
   const gardenPlots = new Map();
   // Vào lại phòng (vd: vừa đăng nhập): xuất hiện lại đúng chỗ đang đứng thay vì ở cửa chánh điện.
@@ -191,6 +191,41 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   sitNearby.addEventListener('click', () => api?.activateNearby?.());
   onLangChange(() => { sitNearby.textContent = t('explore.sitDown'); });
 
+  // Công việc chỉ hiện khi nhân vật đã đứng trong bán kính của điểm việc. Snapshot từ server quyết định tiến độ
+  // và danh sách người đang làm; client không tự cộng để nhiều máy luôn nhìn cùng một kết quả.
+  const choreButton = document.createElement('button');
+  choreButton.type = 'button';
+  choreButton.className = 'temple-chore';
+  choreButton.hidden = true;
+  let nearbyChore = null;
+  let choreStates = new Map();
+  let lastCompletedAt = 0;
+  const choreIcons = { sweep: '🧹', water: '🚿', light: '🏮', feed: '🐟', clean: '🧽', tea: '🍵' };
+  function renderChore() {
+    const state = nearbyChore && choreStates.get(nearbyChore.id);
+    const mine = Boolean(state?.workers?.includes(session.participantId));
+    choreButton.hidden = !nearbyChore;
+    if (!nearbyChore) return;
+    const percent = Math.round((state?.progress || 0) / 10);
+    const count = state?.workers?.length || 0;
+    const title = t(`chore.${nearbyChore.kind}`);
+    choreButton.textContent = `${choreIcons[nearbyChore.kind] || '✨'} ${mine ? t('chore.stop') : title} · ${percent}%${count > 1 ? ` · ${t('chore.together', { n: count })}` : ''}`;
+    choreButton.classList.toggle('working', mine);
+    choreButton.setAttribute('aria-pressed', String(mine));
+    choreButton.style.setProperty('--chore-progress', `${percent}%`);
+  }
+  choreButton.addEventListener('click', () => {
+    if (!nearbyChore) return;
+    const state = choreStates.get(nearbyChore.id);
+    const mine = Boolean(state?.workers?.includes(session.participantId));
+    session.send({
+      type: mine ? 'chore.stop' : 'chore.start',
+      requestId: `chore-${crypto.randomUUID()}`,
+      choreId: nearbyChore.id,
+    });
+  });
+  onLangChange(renderChore);
+
   // Đi nhanh tới trước ba khu chính. Server giữ tọa độ thật; trình duyệt chỉ gửi tên đích để không thể sửa lệnh
   // thành dịch chuyển xuyên vật thể. Nút nằm cùng thanh tên phòng nên luôn dễ thấy mà không che cảnh.
   const travel = document.createElement('div');
@@ -236,23 +271,32 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   labelTravel();
   onLangChange(labelTravel);
   travelToggle.addEventListener('click', () => openTravel(travelPanel.hidden));
-  travelPanel.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-destination]');
-    if (!button || button.dataset.destination === currentPlace) {
+  function goTo(destination) {
+    if (!travelButtons.some((button) => button.dataset.destination === destination)) return false;
+    if (destination === currentPlace) {
       openTravel(false);
-      return;
+      return true;
     }
-    const exit = exits.find((item) => item.id === button.dataset.destination);
+    const exit = exits.find((item) => item.id === destination);
     if (exit) {
       openTravel(false);
       exit.go();
-      return;
+      return true;
     }
     const sent = session.send({
-      type: 'travel.go', requestId: `travel-${crypto.randomUUID()}`, destination: button.dataset.destination,
+      type: 'travel.go', requestId: `travel-${crypto.randomUUID()}`, destination,
     });
     if (!sent) showToast(t('toast.reconnecting'));
     openTravel(false);
+    return sent;
+  }
+  travelPanel.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-destination]');
+    if (!button) {
+      openTravel(false);
+      return;
+    }
+    goTo(button.dataset.destination);
   });
   document.addEventListener('pointerdown', (event) => {
     if (!travel.contains(event.target) && !travelPanel.contains(event.target)) openTravel(false);
@@ -264,7 +308,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelHost.insertBefore(travel, lectureChip || null);
   stage.append(travelPanel);
 
-  stage.append(bar, pad, sitNearby);
+  stage.append(bar, pad, sitNearby, choreButton);
 
   // Đặt thanh động tác và cần điều khiển ngay trên dải lễ vật (dải này cao thấp tùy nút đang có).
   const controls = document.getElementById('controls');
@@ -274,6 +318,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     bar.style.bottom = `${gap}px`;
     pad.style.bottom = `${gap + bar.offsetHeight + 10}px`;
     sitNearby.style.bottom = `${gap + bar.offsetHeight + 18}px`;
+    choreButton.style.bottom = `${gap + bar.offsetHeight + 18}px`;
   }
   if (controls) new ResizeObserver(place).observe(controls);
   new ResizeObserver(place).observe(stage);
@@ -285,6 +330,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     placeExtras(on);
     pad.hidden = !on || !matchMedia('(pointer: coarse)').matches;
     if (!on) sitNearby.hidden = true;
+    if (!on) choreButton.hidden = true;
     if (on) requestAnimationFrame(place);
   }
 
@@ -350,11 +396,17 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       onWalkerTap: (id) => onWalkerTap?.(id),
       hintText: (kind) => t(kind === 'plot' ? 'garden.hintPlot' : kind === 'shop' ? 'garden.hintShop' : 'explore.tapToSit'),
       onGardenTap: (target) => onGardenTap?.(target),
+      onGuideTap: (place) => onGuideTap?.(place),
       gardenLabel: (plot) => gardenLabel?.(plot) || '',
       onBenchTap: sitOnBench,
       onNearbyChange: (target) => {
         sitNearby.hidden = !target;
         sitNearby.dataset.kind = target?.kind || '';
+        if (target) requestAnimationFrame(place);
+      },
+      onNearbyChoreChange: (target) => {
+        nearbyChore = target;
+        renderChore();
         if (target) requestAnimationFrame(place);
       },
       onPlaceChange: setPlace,
@@ -367,6 +419,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       showControls(Boolean(api) && Boolean(session.participantId));
       push();
       if (gardenPlots.size) api?.setGarden?.([...gardenPlots.values()]);
+      if (choreStates.size) api?.setChores?.([...choreStates.values()]);
     },
     detach() {
       renderer = null;
@@ -400,6 +453,23 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     relabelGarden(list) {
       api?.relabelGarden?.(list);
     },
+    onChores(message) {
+      choreStates = new Map(message.chores.map((item) => [item.id, item]));
+      api?.setChores?.(message.chores);
+      renderChore();
+      const completed = message.chores.find((item) => item.completedAt && item.completedAt > lastCompletedAt);
+      if (completed) {
+        lastCompletedAt = completed.completedAt;
+        showToast(t('chore.complete', { task: t(`chore.${completed.kind}`) }));
+      }
+    },
+    onChoreReward(message) {
+      showToast(message.reward > 0
+        ? t('chore.reward', { n: message.reward, count: message.count, limit: message.limit })
+        : t('chore.rewardLimit', { limit: message.limit }));
+    },
+    // Dùng lại đi nhanh an toàn cho nút hướng dẫn nhiệm vụ; chỉ nhận các đích đã có trong menu.
+    goTo,
     onState(participants) {
       lastState = participants;
       showControls(Boolean(api) && Boolean(session.participantId));
@@ -414,8 +484,12 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     },
     onError(message) {
       if (['INVALID_MESSAGE', 'UNKNOWN_MESSAGE_TYPE'].includes(message.code)
-        && (message.requestId?.startsWith('bench-') || message.requestId?.startsWith('travel-'))) {
+        && (message.requestId?.startsWith('bench-') || message.requestId?.startsWith('travel-') || message.requestId?.startsWith('chore-'))) {
         showToast(t('err.SERVER_RESTART_REQUIRED'));
+        return true;
+      }
+      if (message.requestId?.startsWith('chore-')) {
+        showToast(t(`chore.err.${message.code}`));
         return true;
       }
       if (message.code !== 'WALKERS_FULL') return false;
@@ -437,6 +511,9 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       spawnSentFor = null;
       showControls(false);
       api?.setWalkers([]);
+      nearbyChore = null;
+      choreStates.clear();
+      choreButton.hidden = true;
     },
   };
 }

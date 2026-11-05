@@ -7,14 +7,19 @@
 // createPersonFactory.
 // look (tùy chọn): { outfit: 'robe' | 'casual', top, bottom, accent, tint, popcorn }. tint = true: áo/quần dùng vật
 // liệu trắng có userData.tint ('top' | 'bottom' | 'accent') để bộ vẽ tô màu từng người bằng instanceColor.
+//
+// Hình mua trong shop có mô hình .glb riêng (MODEL_FILES, hiện là chibigirl), dựng sau khi gọi loadChibiModels():
+// giữ nguyên bộ đồ của mô hình ở mọi nơi; chưa tải được thì dùng hình khối thay thế (MODEL_FALLBACK). Mô hình không có khung xương mà tách sẵn thân trên / đùi / cẳng chân
+// (assets-src/characters/build-chibi.py); người đứng/đi có thêm rig.pose({ hip, stride, kneel, sit }) để gập chân.
 import * as THREE from 'three';
+import { buildRiggedPerson, buildRiggedWalker, loadRiggedModel } from './rigged3d.mjs';
 
 // Áo tràng theo hình nhân vật: lam (nam/nữ/tiểu), nâu (bà cụ), xám (sư cô), vàng nghệ (sư thầy).
 const ROBES = { man: '#4f78bd', woman: '#5a82c4', child: '#4f78bd', granny: '#8a5a3b', nun: '#8d96a3', monk: '#c8741f' };
 const COLLARS = { man: '#eef1f6', woman: '#eef1f6', child: '#eef1f6', granny: '#e9dcc8', nun: '#e6e9ee', monk: '#f1d9a8' };
 // Sư thầy, sư cô, chú tiểu cạo đầu; nam tóc ngắn có mái, nữ tóc dài ngang vai có mái, bà cụ tóc bạc búi.
 const HAIR = { man: '#1d1714', woman: '#2a1a12', granny: '#d8d4cc' };
-const FEMALE = new Set(['woman', 'nun', 'granny']);
+const FEMALE = new Set(['woman', 'nun', 'granny', 'chibigirl']);
 
 const SKIN = '#f3cfa8';
 const HEAD_R = 0.2;
@@ -25,7 +30,7 @@ export const CASUAL_BOTTOMS = ['#2b4c7e', '#1f2937', '#5b3a29', '#3a506b', '#6d5
 export const CASUAL_SKIRTS = ['#ff8fab', '#ffd166', '#8ecae6', '#cdb4db', '#ff6b6b', '#90be6d'];
 export const CASUAL_ACCENTS = ['#ffffff', '#fff3b0', '#1b1b1b', '#ffe066', '#caf0f8'];
 
-export const isFemale = (skin) => FEMALE.has(skin);
+export const isFemale = (skin) => FEMALE.has(skin) || riggedBase.get(skin) === 'woman';
 
 function faceTexture() {
   const canvas = document.createElement('canvas');
@@ -247,36 +252,254 @@ function buildUpper(skinKey, look) {
     lapel.rotation.set(0.25, 0, -0.55);
     upper.add(ring, lapel);
   }
-  // Tay áo từ vai vòng ra trước, hai bàn tay gặp nhau giữa ngực.
+  // Tay chắp mặc định; khi làm việc engine ẩn nhóm này và bật hai tay rời để thật sự cầm/chuyển động cùng đạo cụ.
+  const prayerArms = new THREE.Group();
   for (const side of [-1, 1]) {
     const sleeve = new THREE.Mesh(p.geometry.sleeve, shirt);
     sleeve.position.set(side * 0.1, 0.15, -0.09);
     sleeve.rotation.set(1.05, 0, side * 0.55);
-    upper.add(sleeve);
+    prayerArms.add(sleeve);
   }
   const hands = new THREE.Mesh(p.geometry.hand, p.skin);
   hands.scale.set(1.1, 1.35, 0.8);
   hands.position.set(0, 0.17, -0.18);
-  upper.add(hands);
+  prayerArms.add(hands);
+  const workArms = new THREE.Group();
+  workArms.visible = false;
+  const arms = [-1, 1].map((side) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.115, 0.22, -0.015);
+    const sleeve = new THREE.Mesh(p.geometry.sleeve, shirt);
+    sleeve.position.y = -0.075;
+    const hand = new THREE.Mesh(p.geometry.hand, p.skin);
+    hand.scale.set(0.92, 1, 0.92);
+    hand.position.y = -0.19;
+    pivot.add(sleeve, hand);
+    workArms.add(pivot);
+    return pivot;
+  });
+  upper.add(prayerArms, workArms);
+  upper.userData.workRig = {
+    prayerArms,
+    workArms,
+    arms,
+    set(active, left = {}, right = {}) {
+      prayerArms.visible = !active;
+      workArms.visible = active;
+      if (!active) return;
+      for (const [pivot, pose] of [[arms[0], left], [arms[1], right]]) {
+        pivot.rotation.set(pose.x || 0, pose.y || 0, pose.z || 0);
+        pivot.position.z = -0.015 + (pose.forward || 0);
+      }
+    },
+  };
   if (casual?.popcorn) {
     // Hộp bắp rang sọc đỏ trắng trong tay.
-    const bucket = new THREE.Group();
+    const bucket = popcornBucket();
     bucket.position.set(0, 0.1, -0.21);
-    const box = new THREE.Mesh(p.geometry.bucket, p.popcorn.box);
-    const stripe = new THREE.Mesh(p.geometry.bucketStripe, p.popcorn.stripe);
-    stripe.position.y = 0.02;
-    const corn = new THREE.Mesh(p.geometry.corn, p.popcorn.corn);
-    corn.position.y = 0.055;
-    corn.scale.y = 0.7;
-    bucket.add(box, stripe, corn);
     upper.add(bucket);
   }
   upper.add(buildHead(skinKey));
   return upper;
 }
 
+// ---- Mô hình .glb ----
+const MODEL_FILES = { chibigirl: '/models/characters/chibi-girl.glb' };
+const MODEL_FALLBACK = { chibigirl: 'woman' };
+const models = new Map();
+let modelsLoading = null;
+// Nhân vật admin tải lên (shop-…): mô hình có khung xương (rigged3d.mjs); base = hình khối Nam/Nữ thay thế khi chưa tải
+// được (và cho ảnh 2D).
+const rigged = new Map();
+const riggedBase = new Map();
+const riggedLoading = new Map();
+// Link đã tải của từng hình (link có ?v=version: admin thay file thì link đổi, tải lại bản mới).
+const riggedUrl = new Map();
+let loaderPromise = null;
+function gltfLoader() {
+  loaderPromise ||= Promise.all([
+    import('three/addons/loaders/GLTFLoader.js'),
+    import('three/addons/libs/meshopt_decoder.module.js'),
+  ]).then(([{ GLTFLoader }, { MeshoptDecoder }]) => {
+    const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    return loader;
+  });
+  return loaderPromise;
+}
+
+// File nén lưu vị trí/pháp tuyến dạng số nguyên (KHR_mesh_quantization): đổi sang float rồi áp biến đổi của node.
+function floatGeometry(source, matrix) {
+  const geometry = source.clone();
+  for (const name of ['position', 'normal']) {
+    const attribute = geometry.getAttribute(name);
+    if (!attribute || attribute.array instanceof Float32Array) continue;
+    const values = new Float32Array(attribute.count * 3);
+    for (let index = 0; index < attribute.count; index += 1) {
+      values[index * 3] = attribute.getX(index);
+      values[index * 3 + 1] = attribute.getY(index);
+      values[index * 3 + 2] = attribute.getZ(index);
+    }
+    geometry.setAttribute(name, new THREE.BufferAttribute(values, 3));
+  }
+  geometry.applyMatrix4(matrix);
+  return geometry;
+}
+
+// Mỗi phần (upper, thighL/R, shinL/R) dời về gốc tại khớp của nó: hông (đỉnh đùi), gối (đỉnh cẳng chân).
+async function loadModel(src) {
+  const gltf = await (await gltfLoader()).loadAsync(src);
+  gltf.scene.updateMatrixWorld(true);
+  const pieces = {};
+  let map = null;
+  gltf.scene.traverse((node) => {
+    if (!node.isMesh) return;
+    pieces[node.name] = floatGeometry(node.geometry, node.matrixWorld);
+    map ||= node.material.map;
+  });
+  const box = (geometry) => {
+    geometry.computeBoundingBox();
+    return geometry.boundingBox;
+  };
+  const hip = (box(pieces.thighL).max.y + box(pieces.thighR).max.y) / 2;
+  const legs = ['L', 'R'].map((side) => {
+    const thigh = box(pieces[`thigh${side}`]);
+    const shin = box(pieces[`shin${side}`]);
+    const joint = new THREE.Vector3((thigh.min.x + thigh.max.x) / 2, hip, (thigh.min.z + thigh.max.z) / 2);
+    const knee = shin.max.y;
+    pieces[`thigh${side}`].translate(-joint.x, -hip, -joint.z);
+    pieces[`shin${side}`].translate(-joint.x, -knee, -joint.z);
+    return { x: joint.x, z: joint.z, thigh: pieces[`thigh${side}`], shin: pieces[`shin${side}`], knee: knee - hip };
+  });
+  pieces.upper.translate(0, -hip, 0);
+  const height = box(pieces.upper).max.y + hip;
+  // Tự phát sáng nhẹ theo chính texture (như hình khối) để không tối thui trong rạp.
+  const material = new THREE.MeshStandardMaterial({
+    map, roughness: 0.8, envMapIntensity: 0.4, emissive: '#ffffff', emissiveMap: map, emissiveIntensity: 0.22,
+  });
+  return { upper: pieces.upper, legs, hip, thighLength: -legs[0].knee, height, material };
+}
+
+// Tải các mô hình .glb (gọi trước khi dựng nhân vật). shopModels: [{ skin, url, base }] nhân vật admin tải lên (danh
+// mục /api/v1/shop). Gọi nhiều lần được: mỗi mô hình chỉ tải một lần. Lỗi tải thì giữ hình khối, không ném lỗi.
+export function loadChibiModels(shopModels = []) {
+  modelsLoading ||= Promise.all(Object.entries(MODEL_FILES).map(async ([skin, src]) => {
+    try {
+      models.set(skin, await loadModel(src));
+    } catch (error) {
+      console.warn(`Không tải được mô hình nhân vật ${skin}`, error);
+    }
+  }));
+  for (const { skin, url, base } of shopModels) {
+    if (!skin || !url || riggedUrl.get(skin) === url) continue;
+    riggedUrl.set(skin, url);
+    riggedBase.set(skin, base === 'woman' ? 'woman' : 'man');
+    riggedLoading.set(skin, gltfLoader().then((loader) => loadRiggedModel(url, loader))
+      .then((template) => { rigged.set(skin, template); })
+      .catch((error) => console.warn(`Không tải được nhân vật ${skin}`, error)));
+  }
+  return Promise.all([modelsLoading, ...shopModels.map(({ skin }) => riggedLoading.get(skin)).filter(Boolean)]);
+}
+
+export const hasChibiModel = (skin) => models.has(skin) || rigged.has(skin);
+// Hình khối thay thế (Nam/Nữ) của một hình có mô hình riêng; dùng cho ảnh 2D và khi mô hình chưa tải được.
+export const chibiBaseOf = (skin) => MODEL_FALLBACK[skin] || riggedBase.get(skin) || (String(skin).startsWith('shop-') ? 'man' : skin);
+
+// Khung chân: đùi xoay quanh hông, cẳng chân xoay quanh gối (rotation.x > 0 là đưa về phía trước, mặt nhìn −z).
+function buildModelLegs(model) {
+  return model.legs.map((leg) => {
+    const thigh = new THREE.Group();
+    // Gập ra trước rồi mới xoè sang bên (ngồi bệt duỗi chân).
+    thigh.rotation.order = 'YXZ';
+    thigh.position.set(leg.x, model.hip, leg.z);
+    thigh.add(new THREE.Mesh(leg.thigh, model.material));
+    const shin = new THREE.Group();
+    shin.position.y = leg.knee;
+    shin.add(new THREE.Mesh(leg.shin, model.material));
+    thigh.add(shin);
+    return { thigh, shin };
+  });
+}
+
+// Đặt dáng chân theo độ cao hông: đi (stride −1..1), quỳ (kneel 0..1: đùi thẳng đứng, cẳng chân nằm phía sau),
+// ngồi (sit 0..1: đùi ra trước, cẳng chân thõng xuống; legsOut thì duỗi thẳng như ngồi bệt).
+function poseLegs(model, legs, { hip = model.hip, stride = 0, kneel = 0, sit = 0, legsOut = false }) {
+  const KNEE_PAD = 0.03;
+  legs.forEach(({ thigh, shin }) => {
+    const side = Math.sign(thigh.position.x) || 1;
+    const swing = side * stride * 0.45;
+    let thighAngle = swing;
+    let shinAbsolute = swing - Math.max(0, side * stride) * 0.6;
+    if (kneel > 0) {
+      // Gối chạm sàn: góc đùi suy ra từ độ cao hông (lạy thì hông lùi ngồi lên gót, đùi ngả ra sau).
+      const reach = Math.max(-1, Math.min(1, (hip - KNEE_PAD) / model.thighLength));
+      thighAngle += (-Math.acos(reach) - thighAngle) * kneel;
+      shinAbsolute += (-Math.PI / 2 - shinAbsolute) * kneel;
+    }
+    if (sit > 0) {
+      thighAngle += (Math.PI / 2 - thighAngle) * sit;
+      shinAbsolute += ((legsOut ? Math.PI / 2 : 0) - shinAbsolute) * sit;
+    }
+    thigh.position.y = hip;
+    thigh.rotation.x = thighAngle;
+    thigh.rotation.y = legsOut ? side * -0.25 * sit : 0;
+    shin.rotation.x = shinAbsolute - thighAngle;
+  });
+}
+
+function popcornBucket() {
+  const p = parts();
+  const bucket = new THREE.Group();
+  const box = new THREE.Mesh(p.geometry.bucket, p.popcorn.box);
+  const stripe = new THREE.Mesh(p.geometry.bucketStripe, p.popcorn.stripe);
+  stripe.position.y = 0.02;
+  const corn = new THREE.Mesh(p.geometry.corn, p.popcorn.corn);
+  corn.position.y = 0.055;
+  corn.scale.y = 0.7;
+  bucket.add(box, stripe, corn);
+  return bucket;
+}
+
+function buildModelWalker(model) {
+  const figure = new THREE.Group();
+  const upper = new THREE.Group();
+  upper.position.y = model.hip;
+  upper.add(new THREE.Mesh(model.upper, model.material));
+  const legs = buildModelLegs(model);
+  figure.add(upper, ...legs.map((leg) => leg.thigh));
+  // skirt/feet/shins giữ chỗ cho bộ nhập vai (chúng chỉnh hình khối); với mô hình thì chân do rig.pose đặt.
+  const placeholder = () => new THREE.Group();
+  return {
+    figure, upper, skirt: placeholder(), feet: [placeholder(), placeholder()], shins: [placeholder(), placeholder()],
+    hips: { stand: model.hip, kneel: model.thighLength + 0.03 },
+    labelY: model.height + 0.1,
+    rig: { pose: (options) => poseLegs(model, legs, options) },
+  };
+}
+
+// Người ngồi bằng mô hình: ghế rạp thì cẳng chân thõng xuống, bồ đoàn ở chùa thì duỗi chân ra trước.
+function buildModelPerson(model, look) {
+  const group = new THREE.Group();
+  const SEAT_HIP = 0.06;
+  const upper = new THREE.Group();
+  upper.position.y = SEAT_HIP;
+  upper.add(new THREE.Mesh(model.upper, model.material));
+  const legs = buildModelLegs(model);
+  poseLegs(model, legs, { hip: SEAT_HIP, sit: 1, legsOut: look?.outfit !== 'casual' });
+  if (look?.popcorn) {
+    const bucket = popcornBucket();
+    bucket.position.set(0, 0.12, -0.2);
+    upper.add(bucket);
+  }
+  group.add(upper, ...legs.map((leg) => leg.thigh));
+  return { group, upper };
+}
+
 // Người đứng/đi: { figure, upper, skirt, feet, shins, hips } (cùng cấu trúc bộ nhập vai đang dùng).
 export function buildChibiWalker(skinKey, look = null) {
+  if (models.has(skinKey)) return buildModelWalker(models.get(skinKey));
+  if (rigged.has(skinKey)) return buildRiggedWalker(rigged.get(skinKey), look);
+  skinKey = chibiBaseOf(skinKey);
   const p = parts();
   const casual = casualOf(skinKey, look);
   const robe = p.robes[skinKey] || p.robes.child;
@@ -308,12 +531,22 @@ export function buildChibiWalker(skinKey, look = null) {
   const upper = buildUpper(skinKey, look);
   upper.position.y = 0.32;
   figure.add(skirt, ...feet, ...shins, upper);
-  return { figure, upper, skirt, feet, shins, hips: { stand: 0.32, kneel: 0.2 }, labelY: 1.18 };
+  return { figure, upper, skirt, feet, shins, hips: { stand: 0.32, kneel: 0.2 }, labelY: 1.18, workRig: upper.userData.workRig };
 }
 
 // Người ngồi (xếp bằng trên bồ đoàn, hoặc ngồi ghế rạp): thay cho createPersonFactory.
 export function createChibiPersonFactory() {
   return function buildPerson(skinKey, look = null) {
+    if (models.has(skinKey)) return buildModelPerson(models.get(skinKey), look);
+    if (rigged.has(skinKey)) {
+      // Ghế rạp: hộp bắp rang trên đùi như mọi khán giả.
+      return buildRiggedPerson(rigged.get(skinKey), look, look?.popcorn ? (group) => {
+        const bucket = popcornBucket();
+        bucket.position.set(0, 0.2, -0.2);
+        group.add(bucket);
+      } : null);
+    }
+    skinKey = chibiBaseOf(skinKey);
     const p = parts();
     const casual = casualOf(skinKey, look);
     const robe = p.robes[skinKey] || p.robes.child;

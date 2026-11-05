@@ -290,6 +290,72 @@ async function loadSupport() {
   }
 }
 $('#loadSupport').addEventListener('click', loadSupport);
+
+// ---- 05 · Gói nạp kim cương (Shop nhân vật) ----
+const packRows = $('#packRows');
+function packRow(pack = { id: '', diamonds: 100, cents: 99, active: true }) {
+  const row = document.createElement('div');
+  row.className = 'pack-row';
+  const input = (type, value, attrs) => Object.assign(document.createElement('input'), { type, value, ...attrs });
+  const id = input('text', pack.id, { placeholder: 'vd: d100', maxLength: 24, pattern: '[a-z0-9-]{2,24}' });
+  id.dataset.field = 'id';
+  const diamonds = input('number', pack.diamonds, { min: 1, max: 1_000_000, step: 1 });
+  diamonds.dataset.field = 'diamonds';
+  const price = input('number', (pack.cents / 100).toFixed(2), { min: 0.5, max: 999.99, step: 0.01 });
+  price.dataset.field = 'price';
+  const active = input('checkbox', '', { checked: pack.active, title: 'Bật / tắt gói' });
+  active.dataset.field = 'active';
+  const remove = Object.assign(document.createElement('button'), { type: 'button', textContent: '✕', title: 'Xóa gói' });
+  remove.addEventListener('click', () => row.remove());
+  row.append(id, diamonds, price, active, remove);
+  return row;
+}
+function readPacks() {
+  return [...packRows.children].map((row) => {
+    const field = (name) => row.querySelector(`[data-field="${name}"]`);
+    return {
+      id: field('id').value.trim().toLowerCase(),
+      diamonds: Number(field('diamonds').value),
+      cents: Math.round(Number(field('price').value) * 100),
+      active: field('active').checked,
+    };
+  });
+}
+function showPacks(packs, payments) {
+  packRows.replaceChildren(...packs.map((pack) => packRow(pack)));
+  $('#packAdmin').hidden = false;
+  $('#packEmpty').hidden = true;
+  if (payments !== undefined) {
+    $('#packPayments').textContent = payments ? 'Stripe đã bật: người dùng nạp được.' : 'Chưa đặt STRIPE_SECRET_KEY trên server: người dùng thấy gói nhưng chưa nạp được.';
+  }
+}
+async function packRequest(method, body) {
+  if (!key.value) throw new Error('Nhập khóa quản trị trước khi tải gói nạp.');
+  sessionStorage.setItem('thien-admin-key', key.value);
+  const response = await fetch('/api/v1/admin/shop/packs', {
+    method,
+    headers: { 'x-admin-key': key.value, ...(body ? { 'content-type': 'application/json' } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (response.status === 403) throw new Error('Khóa quản trị không đúng.');
+  if (response.status === 400) throw new Error('Gói nạp không hợp lệ: mã 2–24 ký tự a-z 0-9 -, không trùng; kim cương là số nguyên ≥ 1; giá $0.50–$999.99; tối đa 8 gói.');
+  if (!response.ok) throw new Error('Không tải / lưu được gói nạp.');
+  return response.json();
+}
+$('#loadPacks').addEventListener('click', async () => {
+  try {
+    const result = await packRequest('GET');
+    showPacks(result.packs, result.payments);
+  } catch (error) { setMessage(error.message, true); }
+});
+$('#addPack').addEventListener('click', () => packRows.append(packRow({ id: `d${Date.now() % 100000}`, diamonds: 100, cents: 99, active: true })));
+$('#savePacks').addEventListener('click', async () => {
+  try {
+    const result = await packRequest('PUT', { packs: readPacks() });
+    showPacks(result.packs);
+    setMessage('Đã lưu gói nạp kim cương.');
+  } catch (error) { setMessage(error.message, true); }
+});
 $('#reset').addEventListener('click', async () => {
   if (!confirm('Khôi phục giờ và bốn video về cấu hình mặc định?')) return;
   try {
@@ -301,3 +367,159 @@ $('#reset').addEventListener('click', async () => {
 key.value = sessionStorage.getItem('thien-admin-key') || '';
 time.addEventListener('change', updateClocks);
 load();
+
+
+// ---- 06 · Nhân vật trong Shop (file .glb có khung xương; server kiểm tra + nén) ----
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+// Món vừa thay file: ảnh chân dung cũ không còn đúng, dựng lại khi tải danh sách.
+const staleThumbs = new Set();
+async function saveThumb(item) {
+  try {
+    const { renderChibiPortraits } = await import('/chibi-preview.js');
+    const dataUrl = (await renderChibiPortraits([{ skin: item.skin }]))[item.skin];
+    if (!dataUrl) return null;
+    const response = await fetch(`/api/v1/admin/shop/items/${encodeURIComponent(item.id)}/thumb`, {
+      method: 'PUT', headers: { 'x-admin-key': key.value, 'content-type': 'image/png' }, body: await (await fetch(dataUrl)).blob(),
+    });
+    return response.ok ? (await response.json()).item.thumb : dataUrl;
+  } catch {
+    return null;
+  }
+}
+const modelStatus = $('#modelStatus');
+const UPLOAD_ERRORS = {
+  NOT_GLB: 'File không phải .glb.',
+  NO_SKELETON: 'File chưa có khung xương: trên Meshy dùng Rig & Animate rồi xuất lại.',
+  MISSING_BONES: 'Khung xương thiếu xương chính (cần kiểu Mixamo: Hips, Spine, chân, tay).',
+  NO_WALK: 'File chưa có động tác Walking: trên Meshy chọn thêm động tác Walking.',
+  TOO_MANY_TRIANGLES: 'Mô hình quá nhiều tam giác: hạ xuống ≤ 40.000 trên Meshy rồi xuất lại.',
+  TOO_LARGE_AFTER_COMPRESS: 'Sau khi nén vẫn quá 6 MB.',
+  COMPRESS_FAILED: 'Nén file bị lỗi.',
+  busy: 'Đang xử lý một file khác, thử lại sau ít giây.',
+  body_too_large: 'File quá 64 MB.',
+  invalid_item: 'Thiếu tên hoặc giá không hợp lệ.',
+};
+function modelMessage(text, error = false) {
+  modelStatus.textContent = text;
+  modelStatus.classList.toggle('error', error);
+}
+function requireKey() {
+  if (key.value) {
+    sessionStorage.setItem('thien-admin-key', key.value);
+    return true;
+  }
+  modelMessage('Nhập khóa quản trị (mục 07) trước.', true);
+  key.focus();
+  return false;
+}
+async function uploadModel(file, query) {
+  modelMessage(`Đang tải lên và nén ${file.name} (${(file.size / 1e6).toFixed(1)} MB)…`);
+  const response = await fetch(`/api/v1/admin/shop/models?${new URLSearchParams(query)}`, {
+    method: 'POST', headers: { 'x-admin-key': key.value, 'content-type': 'model/gltf-binary' }, body: file,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.status === 403) throw new Error('Khóa quản trị không đúng.');
+  if (!response.ok) {
+    const extra = body.missing ? ` Thiếu: ${body.missing.join(', ')}.` : body.triangles ? ` (${body.triangles.toLocaleString('vi-VN')} tam giác)` : '';
+    throw new Error((UPLOAD_ERRORS[body.error] || 'Không tải lên được.') + extra);
+  }
+  return body;
+}
+async function loadShopItems() {
+  if (!requireKey()) return;
+  const response = await fetch('/api/v1/admin/shop/items', { headers: { 'x-admin-key': key.value } });
+  if (response.status === 403) return modelMessage('Khóa quản trị không đúng.', true);
+  if (!response.ok) return modelMessage('Không tải được danh sách nhân vật.', true);
+  renderShopItems((await response.json()).items || []);
+}
+function renderShopItems(items) {
+  const list = $('#modelList');
+  list.replaceChildren(...items.map((item) => {
+    const row = document.createElement('div');
+    row.className = 'model-row';
+    const image = Object.assign(document.createElement('img'), { alt: '', src: item.thumb || BLANK_IMAGE });
+    const name = Object.assign(document.createElement('input'), { type: 'text', value: item.name || 'Bé Mũ Đỏ', maxLength: 40 });
+    // Giá bán (đang áp dụng) và giá gốc (để trống = không giảm giá; lớn hơn giá bán thì shop hiện gạch ngang + % giảm).
+    const original = Object.assign(document.createElement('input'), { type: 'number', value: item.originalPrice ?? '', min: 0, max: 1_000_000, step: 1, placeholder: 'không giảm', title: 'Giá gốc' });
+    const price = Object.assign(document.createElement('input'), { type: 'number', value: item.price, min: 0, max: 1_000_000, step: 1, title: 'Giá bán' });
+    const active = Object.assign(document.createElement('input'), { type: 'checkbox', checked: item.active, title: 'Đang bán' });
+    const clips = Object.assign(document.createElement('small'), { textContent: item.clips?.length ? item.clips.join(' · ') : 'có sẵn' });
+    const actions = document.createElement('div');
+    actions.className = 'model-actions';
+    const save = Object.assign(document.createElement('button'), { type: 'button', className: 'secondary', textContent: 'Lưu' });
+    save.addEventListener('click', async () => {
+      if (!requireKey()) return;
+      const body = {
+        price: Number(price.value),
+        originalPrice: original.value === '' ? null : Number(original.value),
+        active: active.checked,
+        // Bé Mũ Đỏ có sẵn trong code: tên cố định (dịch theo ngôn ngữ ở trang chùa).
+        ...(item.model ? { name: name.value } : {}),
+      };
+      const response = await fetch(`/api/v1/admin/shop/items/${encodeURIComponent(item.id)}`, {
+        method: 'PATCH', headers: { 'x-admin-key': key.value, 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return modelMessage('Không lưu được (tên trống hoặc giá sai).', true);
+      original.value = result.item.originalPrice ?? '';
+      const sale = result.item.originalPrice ? ` · giảm ${Math.round((1 - result.item.price / result.item.originalPrice) * 100)}% (từ ${result.item.originalPrice} 💎)` : '';
+      modelMessage(`Đã lưu ${name.value}: ${result.item.price} 💎${sale}${result.item.active ? '' : ' · đang ẩn'}.`);
+    });
+    actions.append(save);
+    if (!item.model) {
+      name.disabled = true;
+    } else {
+      const replaceInput = Object.assign(document.createElement('input'), { type: 'file', accept: '.glb,model/gltf-binary', hidden: true });
+      const replace = Object.assign(document.createElement('button'), { type: 'button', className: 'secondary', textContent: 'Thay file' });
+      replace.addEventListener('click', () => replaceInput.click());
+      replaceInput.addEventListener('change', async () => {
+        if (!replaceInput.files[0] || !requireKey()) return;
+        try {
+          await uploadModel(replaceInput.files[0], { id: item.id });
+          staleThumbs.add(item.id);
+          modelMessage(`Đã thay file của ${item.name}.`);
+          await (await import('/shop-models.js')).loadShopCharacters({ refresh: true });
+          loadShopItems();
+        } catch (error) { modelMessage(error.message, true); }
+      });
+      actions.append(replace, replaceInput);
+    }
+    actions.append(clips);
+    const label = (text, input) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'model-field';
+      wrap.append(Object.assign(document.createElement('span'), { textContent: text }), input);
+      return wrap;
+    };
+    row.append(image, label('Tên', name), label('Giá gốc 💎', original), label('Giá bán 💎', price), label('Bán', active),
+      Object.assign(document.createElement('small'), { textContent: item.id }), actions);
+    // Nhân vật tải lên chưa có ảnh chân dung (vừa tải / vừa thay file): dựng từ mô hình 3D rồi lưu lên server để shop,
+    // cổng chùa hiện ngay mà không phải dựng lại trên máy người xem.
+    if (item.model && (!item.thumb || staleThumbs.has(item.id))) {
+      staleThumbs.delete(item.id);
+      saveThumb(item).then((src) => { if (src) image.src = src; });
+    }
+    return row;
+  }));
+}
+$('#loadShopItems').addEventListener('click', loadShopItems);
+$('#uploadModel').addEventListener('click', async () => {
+  const file = $('#modelFile').files[0];
+  if (!file) return modelMessage('Chọn file .glb trước.', true);
+  if (!requireKey()) return;
+  const button = $('#uploadModel');
+  button.disabled = true;
+  try {
+    const result = await uploadModel(file, { name: $('#modelName').value, price: $('#modelPrice').value, base: $('#modelBase').value });
+    modelMessage(`Đã thêm ${result.item.name} (${result.item.id}) · ${result.triangles.toLocaleString('vi-VN')} tam giác · động tác: ${(result.item.clips || []).join(', ')}. Đã hiện trong Shop.`);
+    $('#modelFile').value = '';
+    $('#modelName').value = '';
+    // Nạp lại danh mục shop để ảnh xem trước có nhân vật mới.
+    await (await import('/shop-models.js')).loadShopCharacters({ refresh: true });
+    loadShopItems();
+  } catch (error) {
+    modelMessage(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});

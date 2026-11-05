@@ -27,7 +27,7 @@ function button(className, text, onClick, disabled = false) {
 // onCoins(n | null, ready): số xu trong ví vừa đổi (null = chưa đăng nhập) và số nhiệm vụ hằng ngày đã xong mà chưa
 // nhận, để header luôn hiện số xu (kèm chấm báo có xu nhiệm vụ).
 // Thứ tự nhiệm vụ hằng ngày (khớp DAILY_QUESTS của @chanh-dien/garden), dùng khi khách chưa có dữ liệu từ server.
-const QUEST_ORDER = ['checkin', 'water', 'harvest', 'offer'];
+const QUEST_ORDER = ['checkin', 'plant', 'water', 'harvest', 'offer', 'bodhi', 'lotus'];
 
 export function createGardenUI({ stage, showToast, explore, account, openSignIn, onCoins }) {
   let plants = {};
@@ -283,7 +283,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
       for (const id of QUEST_ORDER) {
         const row = el('div', 'garden-shop-row quest-row claimed');
         const text = el('div', 'friend-text');
-        text.append(el('b', '', t(`quest.${id}`)));
+        text.append(el('b', '', t(`quest.${id}`)), el('span', 'friend-sub', t(`quest.guide.${id}`)));
         row.append(text);
         parts.push(row);
       }
@@ -304,12 +304,22 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
       for (const quest of me.quests) {
         const row = el('div', `garden-shop-row quest-row${quest.claimed ? ' claimed' : ''}`);
         const text = el('div', 'friend-text');
-        text.append(el('b', '', t(`quest.${quest.id}`)), el('span', 'friend-sub', t('garden.coins', { n: `+${quest.reward}` })));
+        text.append(
+          el('b', '', t(`quest.${quest.id}`)),
+          el('span', 'friend-sub', `${t(`quest.location.${quest.location}`)} · ${t(`quest.guide.${quest.id}`)}`),
+          el('span', 'friend-sub quest-reward', t('garden.coins', { n: `+${quest.reward}` })),
+        );
         const label = quest.claimed ? t('quest.claimed') : quest.done ? t('quest.claim', { n: quest.reward }) : t('quest.notDone');
-        row.append(text, button(`chip${quest.done && !quest.claimed ? ' primary' : ''}`, label, async () => {
+        const controls = el('div', 'quest-actions');
+        if (!quest.done) controls.append(button('chip quest-go', `📍 ${t('quest.go')}`, () => {
+          close();
+          if (explore.goTo?.(quest.location)) showToast(t('quest.going', { place: t(`quest.location.${quest.location}`) }));
+        }));
+        controls.append(button(`chip${quest.done && !quest.claimed ? ' primary' : ''}`, label, async () => {
           const result = await act('claim', { quest: quest.id });
           if (result?.ok) showToast(t('quest.got', { n: quest.reward, name: t(`quest.${quest.id}`) }));
         }, busy || !quest.done || quest.claimed));
+        row.append(text, controls);
         parts.push(row);
       }
     }

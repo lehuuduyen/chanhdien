@@ -88,6 +88,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .hud-actions .coin { width: auto; padding: 0 10px; border-radius: 999px; white-space: nowrap; }
 .hud-actions .coin b { color: var(--accent); font-variant-numeric: tabular-nums; }
 .hud-actions .coin { position: relative; }
+.hud-actions .coin.gem b { color: #7fd7ff; }
 .hud-actions .coin.has-quest::after { content: ""; position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: #ff5a5a; border: 2px solid #0b0f15; border-radius: 50%; }
 
 /* Thanh công cụ bên phải. */
@@ -228,6 +229,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .hud-status { font-size: 10px; }
   .hud-actions { align-self: center; gap: 4px; }
   .hud-actions button { width: 32px; height: 32px; }
+  .hud-actions .coin { padding: 0 7px; }
+  .skip-label { display: none; }
   .hud-tools { left: 8px; right: 8px; top: auto; bottom: 104px; transform: none; display: flex; justify-content: space-between; padding: 3px; }
   .hud-tools button { width: auto; flex: 1; padding: 4px 0; }
   .hud-tools button b { font-size: 15px; }

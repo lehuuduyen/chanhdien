@@ -6,6 +6,7 @@ export const RESUME_TOKEN_TTL_MS = 6 * 60 * 60_000;
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
 export const ROOM_INVITE_TTL_MS = 30 * 24 * 60 * 60_000;
 const ACCOUNT_ID = /^a-[a-zA-Z0-9-]{8,64}$/;
+const SKIN_ID = /^[a-z][a-z0-9-]{1,40}$/;
 // Ảnh đại diện chỉ nhận ảnh Google (đăng nhập Gmail); tài khoản tên/mật khẩu dùng chữ cái đầu.
 export const AVATAR_URL = /^https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[A-Za-z0-9._~\/=+-]{1,180}$/;
 
@@ -20,7 +21,7 @@ function validClaims(value) {
   return value !== null
     && typeof value === 'object'
     && !Array.isArray(value)
-    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'iat', 'exp'].includes(key))
+    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'skins', 'iat', 'exp'].includes(key))
     && typeof value.participantId === 'string'
     && PARTICIPANT_ID.test(value.participantId)
     && typeof value.roomId === 'string'
@@ -32,6 +33,9 @@ function validClaims(value) {
     && (value.role === 'guest' ? value.accountId === undefined : value.role === 'member' && typeof value.accountId === 'string' && ACCOUNT_ID.test(value.accountId))
     && (value.level === undefined || (value.role === 'member' && Number.isSafeInteger(value.level) && value.level >= 1 && value.level <= 99))
     && (value.avatarUrl === undefined || (value.role === 'member' && typeof value.avatarUrl === 'string' && AVATAR_URL.test(value.avatarUrl)))
+    // Hình nhân vật đã mua trong shop (máy realtime chỉ cho mặc hình có trong danh sách này).
+    && (value.skins === undefined || (value.role === 'member' && Array.isArray(value.skins) && value.skins.length <= 16
+      && value.skins.every((skin) => typeof skin === 'string' && SKIN_ID.test(skin))))
     && Number.isSafeInteger(value.iat)
     && Number.isSafeInteger(value.exp)
     && value.exp > value.iat;
@@ -89,6 +93,7 @@ export function createJoinTicket(claims, secret, options = {}) {
     ...(claims.accountId ? { accountId: claims.accountId } : {}),
     ...(claims.accountId && claims.level ? { level: claims.level } : {}),
     ...(claims.accountId && AVATAR_URL.test(claims.avatarUrl || '') ? { avatarUrl: claims.avatarUrl } : {}),
+    ...(claims.accountId && claims.skins?.length ? { skins: [...claims.skins] } : {}),
     iat: now,
     exp: now + ttlMs,
   };

@@ -122,10 +122,12 @@ export function handleDonateRequest(req, res, pathname, options) {
 // Webhook chỉ nhận từ Telegram có secret header và chỉ cho đúng TELEGRAM_CHAT_ID. Cú pháp:
 //   donate 1       (cộng 1 USD)
 //   /donate 25     (cộng 25 USD)
+//   xu tam.an +100 / xu tam.an -20
+//   kimcuong tam.an +50 / kimcuong a-<uuid> -10
 // Trả method sendMessage ngay trong response để Telegram tự gửi xác nhận, không cần thêm một HTTP call.
 export async function handleTelegramDonateRequest(req, res, pathname, options) {
-  if (pathname !== '/api/v1/telegram/donate') return false;
-  if (req.method !== 'POST' || !options.donateStore || !options.telegramWebhookSecret || !options.telegramChatId) {
+  if (!['/api/v1/telegram', '/api/v1/telegram/donate'].includes(pathname)) return false;
+  if (req.method !== 'POST' || !options.telegramWebhookSecret || !options.telegramChatId) {
     json(req, res, 404, { error: 'not_found' });
     return true;
   }
@@ -146,12 +148,53 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
     json(req, res, 200, { ok: true });
     return true;
   }
+  const walletMatch = typeof message.text === 'string'
+    && /^\/?(xu|coins?|kimcuong|diamonds?)(?:@[A-Za-z0-9_]+)?\s+([A-Za-z0-9_.-]{3,64})\s+([+-]?\d{1,7})$/i.exec(message.text.trim());
+  if (walletMatch) {
+    const [, command, target, rawAmount] = walletMatch;
+    const account = options.accounts?.findByUsername(target) || options.accounts?.get(target);
+    if (!account) {
+      json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: `Không tìm thấy tài khoản: ${target}.` });
+      return true;
+    }
+    const value = Number(rawAmount);
+    const key = `telegram-${update.update_id}`;
+    const diamonds = /^(kimcuong|diamonds?)$/i.test(command);
+    const result = diamonds
+      ? options.shopStore?.adjustDiamonds({ accountId: account.id, amount: value, key })
+      : options.garden?.adjustCoins({ accountId: account.id, amount: value, key });
+    if (!result) {
+      json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: 'Ví đang tạm tắt trên máy chủ.' });
+      return true;
+    }
+    const balance = diamonds ? result.diamonds : result.coins;
+    const unit = diamonds ? 'kim cương' : 'xu';
+    if (!result.ok) {
+      const reason = ['INSUFFICIENT_COINS', 'INSUFFICIENT_DIAMONDS'].includes(result.code || result.error)
+        ? `Số dư không đủ để trừ. Hiện có ${balance} ${unit}.`
+        : 'Số lượng không hợp lệ.';
+      json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: reason });
+      return true;
+    }
+    const signed = value > 0 ? `+${value}` : String(value);
+    json(req, res, 200, {
+      method: 'sendMessage', chat_id: message.chat.id,
+      text: result.replayed
+        ? `Tin này đã được xử lý trước đó. ${account.username || account.id}: ${balance} ${unit}.`
+        : `✅ ${account.username || account.id}: ${signed} ${unit}. Số dư mới: ${balance}.`,
+    });
+    return true;
+  }
   const match = typeof message.text === 'string' && /^\/?donate(?:@[A-Za-z0-9_]+)?\s+(\d{1,7})$/i.exec(message.text.trim());
   if (!match) {
     json(req, res, 200, {
       method: 'sendMessage', chat_id: message.chat.id,
-      text: 'Cú pháp: donate 1 (cộng 1 USD vào tổng quyên góp tháng hiện tại).',
+      text: 'Cú pháp:\ndonate 1\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50',
     });
+    return true;
+  }
+  if (!options.donateStore) {
+    json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: 'Theo dõi quyên góp đang tạm tắt trên máy chủ.' });
     return true;
   }
   const result = options.donateStore.addFromTelegram(update.update_id, chatId, Number(match[1]));

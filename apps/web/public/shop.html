@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2a0f06">
+  <title>Shop nhân vật · Chánh Điện Online</title>
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+  <style>
+    /* Shop nhân vật: mua hình bằng kim cương (💎). Kim cương chỉ có khi nạp qua Stripe Checkout (/api/v1/shop/*);
+       danh mục món ở @chanh-dien/room-rules (SHOP_ITEMS), giá gói nạp ở apps/api/shop.mjs. */
+    :root {
+      color-scheme: dark;
+      --bg: #170904;
+      --panel: rgba(54, 24, 12, .86);
+      --line: rgba(255, 214, 140, .2);
+      --gold: #f3c969;
+      --gem: #7fd7ff;
+      --fg: #fff4e2;
+      --muted: #d6b998;
+      font-family: Inter, "Be Vietnam Pro", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { min-height: 100dvh; margin: 0; color: var(--fg); background: radial-gradient(circle at 50% 0%, #5a1e0c 0%, #2a0f06 50%, var(--bg) 100%) fixed; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    button:disabled { cursor: default; opacity: .55; }
+    [hidden] { display: none !important; }
+    .page { max-width: 560px; margin: 0 auto; padding: max(12px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom)); display: grid; gap: 14px; }
+
+    .bar { display: flex; align-items: center; gap: 6px; }
+    .chip { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 14px; white-space: nowrap; }
+    .room { font-family: Georgia, serif; }
+    .gems { margin-left: auto; color: var(--gem); font-weight: 800; }
+    .travel { position: relative; }
+    .travel > button { color: var(--gold); }
+    .travel-panel { position: absolute; z-index: 10; left: 0; top: calc(100% + 6px); width: 190px; display: grid; gap: 5px; padding: 6px; background: #2b1209; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 34px rgba(0, 0, 0, .6); }
+    .travel-panel button { min-height: 40px; padding: 0 10px; text-align: left; background: rgba(255, 255, 255, .05); border: 1px solid var(--line); border-radius: 9px; font-size: 13px; }
+
+    .hero { text-align: center; padding: 6px 6px 0; }
+    h1 { margin: 4px 0 6px; color: var(--gold); font-family: Georgia, serif; font-size: clamp(24px, 7vw, 30px); font-weight: 600; }
+    .hero p { margin: 0 auto; max-width: 440px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+
+    .card { padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+    .card h2 { margin: 0 0 10px; font-family: Georgia, serif; font-size: 19px; font-weight: 500; }
+    .muted { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+    .signin { display: grid; gap: 10px; }
+    .primary { height: 42px; padding: 0 16px; color: #2a1404; background: var(--gold); border: 0; border-radius: 999px; font-weight: 800; }
+
+    .items { display: grid; gap: 12px; }
+    .item { display: grid; grid-template-columns: 104px 1fr; gap: 12px; align-items: center; padding: 10px; background: rgba(0, 0, 0, .22); border: 1px solid var(--line); border-radius: 14px; }
+    .item.worn { border-color: var(--gold); }
+    /* Giảm giá: nhãn góc ảnh + dòng giá gốc gạch ngang → giá bán. */
+    .item-art { position: relative; }
+    .sale-badge { position: absolute; top: 4px; left: 4px; padding: 2px 7px; color: #fff; background: #e5484d; border-radius: 999px; font-size: 11px; font-weight: 800; }
+    .price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0 0 8px; }
+    .price s { color: var(--muted); font-size: 13px; }
+    .price b { color: var(--gem); font-size: 17px; }
+    .price .off { padding: 1px 6px; color: #fff; background: #e5484d; border-radius: 6px; font-size: 11px; font-weight: 800; }
+    .item img { width: 104px; height: 128px; object-fit: contain; background: radial-gradient(circle at 50% 60%, rgba(255, 214, 140, .18), transparent 70%); border-radius: 10px; }
+    .item h3 { margin: 0 0 4px; font-size: 17px; }
+    .item p { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .item .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .item .actions button { height: 36px; padding: 0 14px; border-radius: 999px; font-weight: 800; font-size: 14px; }
+    .buy { color: #06202c; background: var(--gem); border: 0; }
+    .wear { color: #2a1404; background: var(--gold); border: 0; }
+    .unwear { background: rgba(255, 255, 255, .06); border: 1px solid var(--line); }
+    .tag { display: inline-block; margin-bottom: 4px; padding: 2px 8px; color: #2a1404; background: var(--gold); border-radius: 999px; font-size: 11px; font-weight: 800; }
+
+    .packs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pack { display: grid; gap: 2px; justify-items: center; padding: 12px 6px; background: rgba(0, 0, 0, .25); border: 1px solid var(--line); border-radius: 14px; }
+    .pack b { color: var(--gem); font-size: 18px; }
+    .pack span { color: var(--muted); font-size: 12px; }
+    .pack strong { margin-top: 4px; padding: 4px 12px; color: #06202c; background: var(--gem); border-radius: 999px; font-size: 14px; }
+
+    .note { display: grid; gap: 8px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .note p { margin: 0; }
+    .note b { color: var(--fg); }
+    .footer { text-align: center; font-size: 13px; }
+    .footer a { color: var(--muted); }
+    .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: calc(100% - 32px); padding: 10px 16px; color: #2a1404; background: var(--gold); border-radius: 999px; font-weight: 700; font-size: 14px; text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="bar">
+      <span class="chip room">🛍 Shop</span>
+      <div class="travel">
+        <button type="button" class="chip" id="travelToggle" aria-haspopup="menu" aria-expanded="false">📍 Đi nhanh ▾</button>
+        <div class="travel-panel" id="travelPanel" role="menu" hidden>
+          <button type="button" role="menuitem" data-destination="hall">🛕 Chánh điện</button>
+          <button type="button" role="menuitem" data-destination="courtyard">🌳 Ngoài sân</button>
+          <button type="button" role="menuitem" data-destination="garden">🌱 Khu vườn</button>
+          <button type="button" role="menuitem" data-destination="cinema">🎬 Rạp phim</button>
+          <button type="button" role="menuitem" data-destination="games">🎲 Phòng game</button>
+        </div>
+      </div>
+      <span class="chip gems" id="gems" title="Kim cương" hidden>💎 0</span>
+    </div>
+
+    <section class="hero">
+      <h1>Shop nhân vật</h1>
+      <p>Mua hình nhân vật bằng kim cương 💎. Mặc ở chùa và rạp phim, mọi người trong phòng đều thấy.</p>
+    </section>
+
+    <section class="card signin" id="signin" hidden>
+      <p class="muted">Đăng nhập tài khoản (ở cổng chùa) để nạp kim cương và mua hình. Hình đã mua gắn với tài khoản, đổi máy vẫn còn.</p>
+      <button type="button" class="primary" id="goSignin">Đăng nhập ở cổng chùa</button>
+    </section>
+
+    <section class="card">
+      <h2>Nhân vật</h2>
+      <div class="items" id="items"><p class="muted">Đang tải…</p></div>
+    </section>
+
+    <section class="card" id="topup">
+      <h2>Nạp kim cương</h2>
+      <p class="muted" id="topupOff" hidden>Nạp kim cương đang được cập nhật, bạn quay lại sau nhé.</p>
+      <div class="packs" id="packs"></div>
+    </section>
+
+    <section class="card note">
+      <p><b>Thanh toán qua Stripe</b> (thẻ, Apple Pay, Google Pay). Trang này không thấy và không lưu số thẻ của bạn.</p>
+      <p><b>Kim cương là vật phẩm ảo</b>, chỉ dùng trong Chánh Điện Online: không đổi ra tiền, không đổi sang xu Vườn Công Đức.</p>
+      <p>Trả tiền xong mà chưa thấy kim cương? Tải lại trang sau ít phút, hoặc gửi phiếu ở <a href="/ho-tro.html?from=/shop.html">Góp ý / Báo lỗi</a>.</p>
+    </section>
+
+    <p class="footer"><a href="/ung-ho.html">💝 Góp duy trì server</a> · <a href="/ho-tro.html?from=/shop.html">🛟 Góp ý / Báo lỗi</a></p>
+  </main>
+  <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+    // Tên/mô tả hiển thị của từng món (danh mục và giá do server trả).
+    const ITEM_TEXT = {
+      chibigirl: { name: 'Bé Mũ Đỏ', desc: 'Mũ lưỡi trai đỏ, áo trắng, quần túi hộp. Giữ nguyên bộ đồ ở chùa và rạp phim.' },
+    };
+    const usd = (cents) => `$${(cents / 100).toFixed(2)}`;
+    let shop = null;
+    let portraits = {};
+    const BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+    let toastTimer = null;
+    function toast(text, ms = 2_600) {
+      $('toast').textContent = text;
+      $('toast').hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { $('toast').hidden = true; }, ms);
+    }
+
+    const wornSkin = () => {
+      try { return localStorage.getItem('thien-skin'); } catch { return null; }
+    };
+    const wear = (skin) => {
+      try { localStorage.setItem('thien-skin', skin); } catch {}
+    };
+
+    async function api(path, body) {
+      const response = await fetch(path, body
+        ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+        : { cache: 'no-store' });
+      return { status: response.status, body: await response.json().catch(() => ({})) };
+    }
+
+    function button(className, text, onClick, disabled = false) {
+      const element = document.createElement('button');
+      element.type = 'button';
+      element.className = className;
+      element.textContent = text;
+      element.disabled = disabled;
+      element.addEventListener('click', onClick);
+      return element;
+    }
+
+    function render() {
+      const me = shop?.me;
+      $('signin').hidden = Boolean(me);
+      $('gems').hidden = !me;
+      if (me) $('gems').textContent = `💎 ${me.diamonds.toLocaleString('vi-VN')}`;
+
+      const items = $('items');
+      items.replaceChildren();
+      for (const item of shop?.items || []) {
+        // Nhân vật admin tải lên: tên do admin đặt; cử động bằng khung xương.
+        const text = ITEM_TEXT[item.id] || { name: item.name || item.id, desc: 'Nhân vật cử động: đi lại, ngồi ghế rạp, ngồi bồ đoàn, quỳ, lạy.' };
+        const owned = me?.owned.includes(item.id);
+        const worn = owned && wornSkin() === item.skin;
+        const row = document.createElement('div');
+        row.className = `item${worn ? ' worn' : ''}`;
+        const image = document.createElement('img');
+        image.alt = text.name;
+        // Ảnh chân dung dựng sẵn (thumb) hiện ngay; chưa có thì ô trống chờ ảnh dựng 3D (không hiện nhầm hình khác).
+        image.src = item.thumb || portraits[item.skin] || BLANK;
+        const art = document.createElement('div');
+        art.className = 'item-art';
+        art.append(image);
+        const off = item.originalPrice > item.price ? Math.round((1 - item.price / item.originalPrice) * 100) : 0;
+        if (off && !owned) art.append(Object.assign(document.createElement('span'), { className: 'sale-badge', textContent: `Giảm ${off}%` }));
+        const info = document.createElement('div');
+        if (worn) {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.textContent = 'Đang mặc';
+          info.append(tag);
+        }
+        const title = document.createElement('h3');
+        title.textContent = text.name;
+        const desc = document.createElement('p');
+        desc.textContent = text.desc;
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        // Chưa mua: hiện giá (đang giảm thì giá gốc gạch ngang, giá bán, % giảm).
+        const price = document.createElement('p');
+        price.className = 'price';
+        if (!owned) {
+          if (off) price.append(Object.assign(document.createElement('s'), { textContent: `${item.originalPrice} 💎` }));
+          price.append(Object.assign(document.createElement('b'), { textContent: `${item.price} 💎` }));
+          if (off) price.append(Object.assign(document.createElement('span'), { className: 'off', textContent: `-${off}%` }));
+        }
+        if (!owned) {
+          actions.append(button('buy', `Mua · ${item.price} 💎`, () => buy(item), !me));
+        } else if (!worn) {
+          actions.append(button('wear', 'Mặc', () => { wear(item.skin); render(); toast(`Đã chọn ${text.name} · vào chùa hoặc rạp phim để mặc`); }));
+        } else {
+          const base = item.base === 'woman' ? 'woman' : 'man';
+          actions.append(button('unwear', base === 'woman' ? 'Về hình Nữ thường' : 'Về hình Nam thường', () => { wear(base); render(); }));
+        }
+        info.append(title, desc, ...(owned ? [] : [price]), actions);
+        row.append(art, info);
+        items.append(row);
+      }
+
+      $('topupOff').hidden = Boolean(shop?.payments);
+      const packs = $('packs');
+      packs.replaceChildren();
+      for (const pack of shop?.packs || []) {
+        const element = document.createElement('button');
+        element.type = 'button';
+        element.className = 'pack';
+        element.disabled = !shop.payments;
+        const gems = document.createElement('b');
+        gems.textContent = `💎 ${pack.diamonds.toLocaleString('vi-VN')}`;
+        const bonus = document.createElement('span');
+        bonus.textContent = pack.diamonds > pack.cents + 1 ? `tặng thêm ${Math.round((pack.diamonds / (pack.cents + 1) - 1) * 100)}%` : 'gói cơ bản';
+        const price = document.createElement('strong');
+        price.textContent = usd(pack.cents);
+        element.append(gems, bonus, price);
+        element.addEventListener('click', () => checkout(pack, element));
+        packs.append(element);
+      }
+    }
+
+    async function load() {
+      const result = await api('/api/v1/shop').catch(() => null);
+      if (result?.status === 200) shop = result.body;
+      else $('items').replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: 'Shop đang tạm đóng, bạn quay lại sau nhé.' }));
+      if (shop) render();
+    }
+
+    async function buy(item) {
+      if (!shop?.me) return;
+      const text = ITEM_TEXT[item.id]?.name || item.id;
+      if (shop.me.diamonds < item.price) {
+        toast(`Cần ${item.price} 💎 · nạp thêm ở mục Nạp kim cương`);
+        $('topup').scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+      const result = await api('/api/v1/shop/buy', { itemId: item.id }).catch(() => null);
+      if (result?.status === 200) {
+        shop.me = result.body.me;
+        wear(item.skin);
+        render();
+        toast(`Đã mua ${text}! Vào chùa hoặc rạp phim để mặc 🎉`);
+      } else if (result?.body?.error === 'INSUFFICIENT_DIAMONDS') toast('Không đủ kim cương');
+      else toast('Chưa mua được, thử lại sau nhé');
+    }
+
+    // Nạp: server tạo phiên Stripe Checkout rồi chuyển sang trang thanh toán của Stripe.
+    async function checkout(pack, element) {
+      if (!shop?.me) {
+        toast('Đăng nhập ở cổng chùa trước khi nạp');
+        return;
+      }
+      element.disabled = true;
+      const result = await api('/api/v1/shop/checkout', { packId: pack.id }).catch(() => null);
+      if (result?.status === 200 && /^https:\/\/checkout\.stripe\.com\//.test(result.body.url)) {
+        location.href = result.body.url;
+        return;
+      }
+      element.disabled = false;
+      toast(result?.status === 429 ? 'Bạn thao tác quá nhanh, chờ chút nhé' : 'Chưa mở được trang thanh toán, thử lại sau');
+    }
+
+    // Quay về từ Stripe: hỏi server cộng kim cương ngay (webhook cũng cộng; mỗi phiên chỉ cộng một lần).
+    async function confirmReturn() {
+      const params = new URLSearchParams(location.search);
+      const status = params.get('checkout');
+      const sessionId = params.get('session_id');
+      if (status) history.replaceState(null, '', location.pathname);
+      if (status === 'cancel') toast('Đã hủy thanh toán');
+      if (status !== 'success' || !sessionId) return;
+      toast('Đang xác nhận thanh toán…', 8_000);
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const result = await api('/api/v1/shop/checkout/confirm', { sessionId }).catch(() => null);
+        if (result?.status === 200) {
+          if (shop) shop.me = result.body.me;
+          render();
+          toast(result.body.credited ? `Đã cộng ${result.body.added} 💎 · cảm ơn bạn!` : 'Kim cương đã vào ví');
+          return;
+        }
+        if (result?.status !== 202) break;
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      }
+      toast('Chưa xác nhận được thanh toán · tải lại trang sau ít phút', 5_000);
+    }
+
+    $('goSignin').addEventListener('click', () => {
+      let back = '/chanh-dien.html';
+      try { back = sessionStorage.getItem('thien-return') || back; } catch {}
+      const url = new URL(back, location.origin);
+      if (url.origin === location.origin) location.href = `${url.pathname}${url.search}`;
+    });
+
+    // Đi nhanh: về chùa đúng phòng vừa ở (link lưu khi rời chùa), hoặc sang rạp / phòng game.
+    const travelToggle = $('travelToggle');
+    const travelPanel = $('travelPanel');
+    const openTravel = (next) => {
+      travelPanel.hidden = !next;
+      travelToggle.setAttribute('aria-expanded', String(next));
+    };
+    travelToggle.addEventListener('click', () => openTravel(travelPanel.hidden));
+    document.addEventListener('pointerdown', (event) => {
+      if (!event.target.closest('.travel')) openTravel(false);
+    });
+    travelPanel.addEventListener('click', (event) => {
+      const destination = event.target.closest('[data-destination]')?.dataset.destination;
+      openTravel(false);
+      if (!destination) return;
+      if (destination === 'cinema') location.href = '/room.html?room=cinema-1';
+      else if (destination === 'games') location.href = '/game.html';
+      else {
+        let back = '/chanh-dien.html';
+        try { back = sessionStorage.getItem('thien-return') || back; } catch {}
+        const url = new URL(back, location.origin);
+        if (url.origin !== location.origin) return;
+        url.searchParams.set('go', destination);
+        location.href = `${url.pathname}${url.search}`;
+      }
+    });
+
+    await load();
+    confirmReturn();
+    // Món chưa có ảnh chân dung dựng sẵn: dựng từ mô hình 3D (chỉ lúc đó mới tải three.js và mô hình).
+    const missing = (shop?.items || []).filter((item) => !item.thumb);
+    if (missing.length) {
+      import('/chibi-preview.js')
+        .then(({ renderChibiPortraits }) => renderChibiPortraits(missing.map((item) => ({ skin: item.skin }))))
+        .then((images) => { portraits = images; if (shop) render(); })
+        .catch(() => {});
+    }
+  </script>
+</body>
+</html>

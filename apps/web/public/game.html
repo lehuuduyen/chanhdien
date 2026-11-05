@@ -414,6 +414,7 @@
       if (message.v !== PROTOCOL_VERSION) return;
       if (message.type === 'welcome') {
         clockOffset = message.serverTime - Date.now();
+        failedOpens = 0;
         elements.roomChip.classList.add('online');
       } else if (message.type === 'room.state') {
         people = message.participants.filter((person) => person.connected !== false).length;
@@ -449,6 +450,8 @@
     };
     let retry = 0;
     let joinMissing = false;
+    // Số lần liên tiếp WebSocket đóng trước khi kịp nhận welcome (máy realtime từ chối hoặc không chạy).
+    let failedOpens = 0;
     async function connect() {
       elements.roomChip.classList.remove('online');
       try {
@@ -476,7 +479,10 @@
           socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', roomId: session.roomId, displayName: session.displayName }));
         });
         socket.addEventListener('message', onMessage);
-        socket.addEventListener('close', scheduleReconnect);
+        socket.addEventListener('close', () => {
+          if (!elements.roomChip.classList.contains('online')) failedOpens += 1;
+          scheduleReconnect();
+        });
       } catch {
         scheduleReconnect();
       }
@@ -485,6 +491,11 @@
     function scheduleReconnect() {
       elements.roomChip.classList.remove('online');
       if (reconnectTimer) return;
+      // Thử mãi không vào được: báo rõ thay vì để "Đang vào bàn…" đứng yên.
+      if (failedOpens >= 3) {
+        elements.phaseLabel.textContent = 'Chưa vào được bàn';
+        say('Không nối được máy chủ bàn chơi (realtime) · đang thử lại… Nếu kéo dài, báo quản trị khởi động lại realtime', 'lose');
+      }
       retry += 1;
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
@@ -519,7 +530,7 @@
         return;
       }
       if (!table) {
-        say(joinMissing ? 'Máy chủ chưa có bàn Bầu Cua chơi chung · cần khởi động lại server' : 'Đang vào bàn, chờ một chút…', 'lose');
+        say(joinMissing ? 'Máy chủ chưa có bàn Bầu Cua chơi chung · cần khởi động lại server' : failedOpens >= 3 ? 'Chưa nối được máy chủ bàn chơi · đang thử lại…' : 'Đang vào bàn, chờ một chút…', 'lose');
         return;
       }
       if (table.phase !== 'betting' || serverNow() >= table.endsAt) {

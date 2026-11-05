@@ -4,7 +4,7 @@
 //   npm run telegram:setup            # xem bot, liệt kê các chat đã nhắn cho bot (lấy chat ID)
 //   npm run telegram:setup -- --save  # có đúng một chat: ghi TELEGRAM_CHAT_ID vào .env.online
 //   npm run telegram:setup -- --test  # gửi tin thử tới TELEGRAM_CHAT_ID
-//   npm run telegram:setup -- --webhook https://lotusgather.online/api/v1/telegram/donate
+//   npm run telegram:setup -- --webhook https://lotusgather.online/api/v1/telegram
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
 const ENV_FILE = '.env.online';
@@ -65,7 +65,7 @@ Thêm TELEGRAM_WEBHOOK_SECRET=<khóa> vào .env.online (hoặc file env VPS), r�
   }
   try {
     await call('setWebhook', { url, secret_token: webhookSecret, allowed_updates: ['message'] });
-    console.log(`Đã đặt webhook: ${url}\nTrong đúng chat quản trị, gửi: donate 1`);
+    console.log(`Đã đặt webhook: ${url}\nTrong đúng chat quản trị, gửi: donate 1, xu <tài_khoản> +100, hoặc kimcuong <tài_khoản> +50`);
   } catch (error) {
     console.error(`Không đặt được webhook: ${error.message}`);
     process.exit(1);

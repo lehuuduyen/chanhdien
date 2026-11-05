@@ -224,6 +224,12 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
       return publicAccount(statements.byId.get(accountId));
     },
 
+    // Dùng cho công cụ quản trị nội bộ (ví dụ bot Telegram); không đưa đường tra cứu này ra API công khai.
+    findByUsername(username) {
+      const name = String(username || '').trim().toLowerCase();
+      return USERNAME.test(name) ? publicAccount(statements.byUsername.get(name)) : null;
+    },
+
     // Đăng xuất mọi nơi: đổi phiên bản phiên để mọi cookie cũ hết hiệu lực.
     revokeSessions(accountId) {
       statements.bumpSession.run(accountId);

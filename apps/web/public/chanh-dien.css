@@ -60,9 +60,24 @@ button.chip { cursor: pointer; }
 #presence.connecting i { background: #e4b95f; }
 #presence b { color: var(--gold); }
 .coin-chip { position: relative; cursor: pointer; }
-.coin-chip.has-quest::after { content: ""; position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: #ff5a5a; border: 2px solid #2a1206; border-radius: 50%; }
+.coin-chip.has-quest::after, .quest-dock.has-quest::after { content: ""; position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: #ff5a5a; border: 2px solid #2a1206; border-radius: 50%; }
+/* Nhiệm vụ: nút dọc giữa mép trái, trên cần điều khiển; có nhiệm vụ chờ nhận xu thì viền sáng nhấp nháy nhẹ. */
+.quest-dock { position: absolute; z-index: 6; left: 2.5cqw; top: 50%; transform: translateY(-50%); display: grid; justify-items: center; gap: 1px;
+  min-width: clamp(52px, 15cqw, 64px); padding: 1.6cqw 1.2cqw; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; cursor: pointer; }
+.quest-dock .quest-icon { font-size: clamp(20px, 6.4cqw, 28px); line-height: 1.1; }
+.quest-dock b { color: var(--gold); font-size: clamp(11px, 3.4cqw, 14px); font-variant-numeric: tabular-nums; }
+.quest-dock small { color: #cdbb9b; font-size: clamp(8px, 2.4cqw, 10px); }
+.quest-dock.has-quest { border-color: var(--gold); animation: quest-glow 1.6s ease-in-out infinite; }
+@keyframes quest-glow { 50% { box-shadow: 0 0 0 4px rgba(217, 164, 65, .35); } }
+@media (prefers-reduced-motion: reduce) { .quest-dock.has-quest { animation: none; } }
 .quest-row.claimed { opacity: .6; }
+.quest-row { align-items: flex-start; }
+.quest-actions { display: flex; flex: none; flex-direction: column; gap: 6px; }
+.quest-actions .chip { justify-content: center; min-width: 94px; }
+.quest-reward { color: var(--gold); font-weight: 700; }
 .coin-chip b { color: var(--gold); font-variant-numeric: tabular-nums; }
+.gem-chip b { color: #7fd7ff; }
+.shop-chip { cursor: pointer; }
 /* Đang kết nối thì hiện chữ trạng thái; đã kết nối chỉ cần chấm xanh và số người. */
 #presence.online #statusText { display: none; }
 #presence #statusText::after { content: " ·"; }
@@ -177,9 +192,12 @@ button.chip { cursor: pointer; }
 .skins legend { margin-bottom: 6px; color: #cdbb9b; font-size: 12px; }
 .skins button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; color: var(--fg); background: rgba(12, 6, 3, .7); border: 1px solid transparent; border-radius: 10px; font-size: 11px; cursor: pointer; }
 .skins button img { width: 56px; height: 70px; object-fit: contain; }
+/* Ô hình mua trong shop: ẩn hẳn khi chưa đăng nhập / chưa mua (display: flex ở trên đè thuộc tính hidden). */
+.skins button[hidden] { display: none; }
 .skin-looks { display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
 .skin-looks img[data-look="casual"] { width: 42px; height: 52px; opacity: .9; }
 .skin-name { font-size: 13px; font-weight: 600; }
+.skin-shop { grid-column: 1 / -1; margin: 0; font-size: 12px; }
 .skin-note { grid-column: 1 / -1; margin: 0; color: #cdbb9b; font-size: 10.5px; text-align: center; }
 .skins button[aria-pressed="true"] { border-color: var(--gold); background: rgba(80, 30, 18, .8); }
 .gate .primary { height: 46px; color: #241a08; background: var(--gold); border: 0; border-radius: 10px; font-weight: 600; cursor: pointer; }
@@ -297,6 +315,27 @@ button.chip { cursor: pointer; }
 .room-bar { position: absolute; z-index: 5; top: 13cqw; left: 15cqw; right: 45cqw; display: flex; flex-direction: column; align-items: flex-start; gap: 1.2cqw; }
 .room-bar[hidden] { display: none; }
 .room-bar .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: clamp(9px, 2.7cqw, 12px); }
+.room-bar .room-name { color: var(--gold); font-weight: 600; cursor: pointer; }
+.room-bar .room-name::after { content: " ⇄"; color: var(--fg); opacity: .8; }
+/* Bảng đổi phòng (trượt lên từ dưới). */
+.room-switch { position: absolute; inset: 0; z-index: 30; display: grid; place-items: end center; padding: 2.5cqw; background: rgba(0, 0, 0, .5); }
+.room-switch[hidden] { display: none; }
+.room-switch-sheet { width: min(440px, 100%); max-height: 86%; overflow: auto; display: grid; gap: 10px; padding: 14px 14px max(14px, env(safe-area-inset-bottom)); color: var(--fg); background: linear-gradient(180deg, #3a1a0c, #22100a); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 18px 50px rgba(0, 0, 0, .6); }
+.room-switch-sheet header { display: flex; align-items: center; gap: 8px; }
+.room-switch-sheet h2 { flex: 1; margin: 0; color: var(--gold); font: 600 19px Georgia, serif; }
+.room-switch-current { margin: 0; color: #cdbb9b; font-size: 13px; }
+.room-switch-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #cdbb9b; }
+.room-switch-pick select { width: 100%; height: 40px; padding: 0 8px; color: var(--fg); background: rgba(12, 6, 3, .9); border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 14px; }
+.room-switch-list { display: grid; gap: 6px; }
+.room-switch-list p { margin: 4px 0; color: #cdbb9b; font-size: 13px; }
+.room-switch-list button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; color: var(--fg); background: rgba(12, 6, 3, .55); border: 1px solid var(--line); border-radius: 12px; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.room-switch-list button b { flex: 1; }
+.room-switch-list button small { color: #cdbb9b; }
+.room-switch-list button.here { border-color: var(--gold); }
+.room-switch-list button.here small { color: var(--gold); font-weight: 700; }
+.room-switch-list button:disabled { opacity: .55; cursor: default; }
+.room-switch-auto { height: 44px; color: #241a08; background: var(--gold); border: 0; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; }
+.room-switch-auto:disabled { opacity: .6; cursor: wait; }
 #roomName { color: var(--gold); font-weight: 600; }
 #eventChip { white-space: normal; text-align: left; line-height: 1.3; min-height: 0; padding-block: 1cqw; cursor: pointer; }
 
@@ -307,6 +346,21 @@ button.chip { cursor: pointer; }
 .quick-travel-panel { position: absolute; z-index: 9; left: 2.5cqw; right: 2.5cqw; bottom: clamp(150px, 43cqw, 190px); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 6px; background: rgba(26, 14, 9, .96); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 34px rgba(0, 0, 0, .55); }
 .quick-travel-panel button { min-width: 0; min-height: 42px; padding: 4px 7px; color: var(--fg); background: rgba(80, 30, 18, .82); border: 1px solid rgba(217, 164, 65, .24); border-radius: 9px; font: inherit; font-size: clamp(10px, 2.8cqw, 13px); text-align: center; cursor: pointer; }
 .quick-travel-panel button[aria-current="true"] { color: #241a08; background: var(--gold); font-weight: 600; }
+
+/* Hướng dẫn mở một lần khi bước vào từng khu; bảng gỗ trong cảnh có thể mở lại bất cứ lúc nào. */
+.zone-guide { position: absolute; z-index: 24; inset: 0; display: grid; align-items: end; padding: 18px 14px max(18px, env(safe-area-inset-bottom, 0)); background: linear-gradient(180deg, rgba(8, 5, 3, .3), rgba(8, 5, 3, .88)); }
+.zone-guide[hidden] { display: none; }
+.zone-guide-card { width: 100%; max-height: min(78%, 620px); overflow-y: auto; padding: 18px; color: #f6ead2; background: linear-gradient(160deg, rgba(73, 39, 22, .98), rgba(26, 15, 10, .99)); border: 1px solid rgba(231, 184, 94, .52); border-radius: 20px; box-shadow: 0 22px 60px rgba(0, 0, 0, .7); }
+.zone-guide-kicker { color: #e7b85e; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.zone-guide-card h2 { margin: 5px 0 8px; color: #ffe3a0; font-family: var(--display); font-size: clamp(23px, 7cqw, 32px); font-weight: 600; }
+.zone-guide-intro { margin: 0 0 14px; color: #d9c8aa; font-size: 13px; line-height: 1.55; }
+.zone-guide-steps { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.zone-guide-steps li { display: grid; grid-template-columns: 30px 1fr; gap: 9px; align-items: center; min-height: 44px; padding: 8px 10px; background: rgba(255, 255, 255, .045); border: 1px solid rgba(231, 184, 94, .13); border-radius: 12px; font-size: 13px; line-height: 1.45; }
+.zone-guide-number { display: grid; place-items: center; width: 28px; height: 28px; color: #271508; background: #e7b85e; border-radius: 50%; font-weight: 800; }
+.zone-guide-actions { display: grid; grid-template-columns: 1fr 1.5fr; gap: 9px; margin-top: 15px; }
+.zone-guide-actions button { min-height: 48px; border-radius: 13px; font: 700 14px var(--body); cursor: pointer; }
+.zone-guide-skip { color: #d8c8ac; background: rgba(255, 255, 255, .06); border: 1px solid rgba(231, 184, 94, .25); }
+.zone-guide-done { color: #271508; background: linear-gradient(180deg, #ffe39a, #e2ac45); border: 0; }
 
 /* Bài giảng YouTube: khung phát 200×200 luôn hiện (điều khoản YouTube), không có gì đè lên khung. */
 .lecture { position: absolute; z-index: 6; top: 30cqw; left: 2.5cqw; width: 216px; padding: 6px 8px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
@@ -332,6 +386,10 @@ button.chip { cursor: pointer; }
 .near-sit { position: absolute; z-index: 7; left: 50%; min-width: 132px; min-height: 48px; padding: 0 22px; color: #24180d; background: linear-gradient(180deg, #ffe296, #eab447); border: 1px solid rgba(90, 55, 16, .55); border-radius: 999px; box-shadow: 0 8px 24px rgba(0, 0, 0, .38); transform: translateX(-50%); font: 700 17px/1 var(--display); cursor: pointer; touch-action: manipulation; }
 .near-sit[hidden] { display: none; }
 .near-sit:active { transform: translateX(-50%) scale(.97); }
+.temple-chore { --chore-progress: 0%; position: absolute; z-index: 8; left: 50%; min-width: min(82cqw, 340px); min-height: 50px; padding: 10px 18px; overflow: hidden; color: #fff4d5; background: linear-gradient(90deg, rgba(164, 105, 31, .96) var(--chore-progress), rgba(39, 27, 18, .94) var(--chore-progress)); border: 1px solid rgba(242, 194, 93, .72); border-radius: 999px; box-shadow: 0 9px 28px rgba(0, 0, 0, .42); transform: translateX(-50%); font: 700 15px/1.25 var(--display); cursor: pointer; touch-action: manipulation; transition: background .18s ease, transform .1s ease; }
+.temple-chore[hidden] { display: none; }
+.temple-chore.working { border-color: #ffe39b; box-shadow: 0 0 0 3px rgba(232, 178, 66, .18), 0 9px 28px rgba(0, 0, 0, .42); }
+.temple-chore:active { transform: translateX(-50%) scale(.97); }
 
 /* Nút cấu hình ⚙ và menu xổ xuống ở thanh trên. */
 /* Thanh trên nằm trên bảng công đức và thanh phòng để menu xổ xuống không bị che (vẫn dưới cổng vào và hộp thoại). */
@@ -542,6 +600,11 @@ button.chip { cursor: pointer; }
 .community-project-head small { color: #b9de8f; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .community-project-head h2 { margin: 4px 0 0; font-family: var(--display); font-size: clamp(28px, 8cqw, 38px); font-weight: 600; }
 .community-project-note { margin: 0; color: #cad9b9; font-size: 14px; line-height: 1.55; }
+.community-project-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.community-project-tabs button { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 10px 12px; color: #b8c8aa; background: rgba(0, 0, 0, .24); border: 1px solid rgba(185, 222, 143, .18); border-radius: 13px; font: inherit; text-align: left; cursor: pointer; }
+.community-project-tabs button.active { color: #fff1b5; background: rgba(112, 151, 70, .3); border-color: #91c969; }
+.community-project-tabs b { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.community-project-tabs small { color: #d9b453; font-weight: 700; }
 .community-project-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin: 4px 0; padding: 0; list-style: none; }
 .community-project-steps li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; color: #718166; font-size: 10px; text-align: center; }
 .community-project-steps li::before { content: ''; position: absolute; z-index: 0; top: 18px; right: 50%; width: 100%; height: 3px; background: rgba(185, 222, 143, .18); }
