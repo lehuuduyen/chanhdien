@@ -115,7 +115,7 @@ let mySkin = (() => {
   return ['woman', 'nun', 'granny'].includes(saved) ? 'woman' : 'man';
 })();
 // Hình Nam/Nữ thay thế của hình shop (danh mục shop báo): ảnh 2D chỉ có hình vẽ sẵn, và lúc tạm mặc khi chưa sở hữu.
-const shopBase = new Map([['chibigirl', 'woman']]);
+const shopBase = new Map([['chibigirl', 'woman'], ['pilgrim', 'man'], ['lotusgirl', 'woman']]);
 const baseSkin = (skin) => (isShopSkin(skin) ? shopBase.get(skin) || 'man' : skin);
 const spriteSkin = baseSkin;
 let seatAttempts = 0;
@@ -147,6 +147,7 @@ const explore = createExploreUI({
   stage: elements.stage, session, showToast, extraButtons: [malaButton, $('prayerOpen')], onWalkerTap: (id) => social?.open(id),
   onGardenTap: (target) => garden?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
   onGuideTap: (place) => zoneGuide.open(place),
+  onMeritBoardTap: openMeritLedger,
   onPlaceChange: (place) => setCurrentPlace(place), travelHost: elements.roomBar,
   exits: [{ id: 'cinema', icon: '🎬', go: goToCinema }, { id: 'games', icon: '🎲', go: goToGames }],
 });
@@ -755,7 +756,11 @@ function handleMessage(message) {
     // Đứng dậy đi (server bỏ động tác) thì thôi tụng.
     if (!['chant', 'woodfish'].includes(me()?.emote)) audio.stopChant();
     renderBoard();
-    if (firstState && me() && me().skin !== mySkin) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
+    // Vào phòng, hoặc vừa đổi hình lúc đang mất kết nối (vd: quay lại từ Shop): báo server hình đang chọn.
+    if ((firstState || skinDirty) && me()) {
+      if (me().skin !== mySkin) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
+      skinDirty = false;
+    }
     takeSeatIfNeeded();
   } else if (message.type === 'room.count') {
     roomCount = message;
@@ -1079,11 +1084,12 @@ elements.prayerForm.addEventListener('submit', async (event) => {
   }
 });
 
-elements.boardPanel.addEventListener('click', () => {
+function openMeritLedger() {
   elements.ledger.hidden = false;
   renderLedger();
   elements.ledgerClose.focus();
-});
+}
+elements.boardPanel.addEventListener('click', openMeritLedger);
 elements.ledgerClose.addEventListener('click', () => { elements.ledger.hidden = true; });
 elements.ledger.addEventListener('click', (event) => { if (event.target === elements.ledger) elements.ledger.hidden = true; });
 document.addEventListener('keydown', (event) => {
@@ -1338,6 +1344,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   garden?.refreshCoins();
   // Vừa mua / chọn hình ở Shop (tab khác): mặc hình đó luôn.
+  syncSkinChoice();
   if (accountUI.account) refreshOwnedSkins();
 });
 garden.start();
@@ -1435,6 +1442,25 @@ function shopSkinButton(skin, name, thumb) {
   if (skin !== 'chibigirl') button.querySelector('.skin-name').textContent = name || skin;
   return button;
 }
+// Đọc lại hình đang chọn (vừa bấm "Mặc" ở Shop rồi vuốt quay lại: trình duyệt khôi phục trang từ bộ nhớ đệm, biến JS
+// vẫn là hình cũ). Đổi ngay nếu đang kết nối; đang nối lại thì đổi ở room.state kế tiếp.
+let skinDirty = false;
+function syncSkinChoice() {
+  let saved = null;
+  try { saved = localStorage.getItem('thien-skin'); } catch {}
+  if (!saved || saved === mySkin || !(['man', 'woman'].includes(saved) || isShopSkin(saved))) return;
+  mySkin = saved;
+  pressSkin();
+  skinDirty = true;
+  if (session.participantId && me() && session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin })) skinDirty = false;
+}
+addEventListener('pageshow', (event) => {
+  if (!event.persisted) return;
+  syncSkinChoice();
+  garden?.refreshCoins();
+  if (accountUI.account) refreshOwnedSkins();
+});
+
 // Server từ chối hình shop: nếu tài khoản đã mua hình đó (vé vào phòng cấp trước lúc mua — vd: mua xong quay lại
 // trong 60 giây thì nối lại bằng resume token cũ) thì xin vé mới một lần để mặc được; chưa mua thì mặc hình thường.
 let renewedSkinTicket = null;

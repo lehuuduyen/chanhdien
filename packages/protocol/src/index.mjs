@@ -25,7 +25,8 @@ export const AVATAR_URL = /^https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[A-Za-
 export const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 export const PLAYBACK_EVENTS = Object.freeze(['duration', 'ended', 'error']);
 // chibigirl: hình mua trong shop (máy realtime kiểm tra quyền sở hữu theo vé vào phòng).
-export const SKINS = Object.freeze(['man', 'woman', 'granny', 'nun', 'monk', 'child', 'chibigirl']);
+// pilgrim / lotusgirl là hai hình khối dành cho bot, không nằm trong danh sách hình người dùng được chọn ở room rules.
+export const SKINS = Object.freeze(['man', 'woman', 'granny', 'nun', 'monk', 'child', 'pilgrim', 'lotusgirl', 'chibigirl']);
 // Nhân vật admin tải lên (shop-<tên>); cùng mẫu với SHOP_SKIN trong @chanh-dien/room-rules.
 export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;
 const validSkin = (skin) => SKINS.includes(skin) || (typeof skin === 'string' && SHOP_SKIN.test(skin));

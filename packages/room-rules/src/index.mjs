@@ -107,16 +107,18 @@ export const THIEN_RULES = defineRoomRules({
   // riêng, không thỉnh chuông, và phải bị loại khỏi bảng công đức trước khi có ủng hộ bằng tiền thật. Đổi số lượng
   // bằng BOTS_THIEN.
   bots: {
-    count: 8,
-    initial: 3,
-    arrivalMs: [5_000, 20_000],
+    count: 16,
+    initial: 8,
+    arrivalMs: [3_000, 10_000],
     actionMs: [8_000, 30_000],
     churnMs: [180_000, 360_000],
+    // Hai hình cuối chỉ dành cho bot, không đưa vào THIEN_RULES.skins nên người dùng không thể chọn lách qua client.
+    skins: ['man', 'woman', 'pilgrim', 'lotusgirl', 'granny', 'nun', 'monk', 'child'],
     // Một phần bot đi dạo ngoài khuôn viên. Tọa độ bám các lối đá trong scene thien-default; bot còn lại vẫn ngồi
     // bồ đoàn để chánh điện có người tụng. Máy realtime phát vị trí qua room.moves như người thật.
     walk: {
-      count: 3,
-      initial: 1,
+      count: 6,
+      initial: 2,
       speed: 1.25,
       pauseMs: [2_000, 7_000],
       // Tuyến khép kín chỉ đi trên lối đá. Các điểm lặp là có chủ ý: bot phải quay lại lối giữa và vòng hai
@@ -178,6 +180,18 @@ export const GAME_RULES = defineRoomRules({
   maxParticipants: 500,
   lang: 'vi',
   moderation: 'standard',
+  bots: {
+    count: 8,
+    max: 20,
+    initial: 5,
+    arrivalMs: [2_000, 7_000],
+    actionMs: [1_000, 4_000],
+    churnMs: [150_000, 300_000],
+    play: 'dice',
+    stakes: [1, 5, 10, 20, 50],
+    skins: ['pilgrim', 'lotusgirl', 'man', 'woman', 'child', 'granny', 'nun', 'monk'],
+    names: ['An Nhiên 🤖', 'Mây Trắng 🤖', 'Sen Nhỏ 🤖', 'Tâm Vui 🤖', 'Bình Minh 🤖', 'Gió Mát 🤖', 'Hạt Mưa 🤖', 'Trăng Non 🤖', 'Lá Bồ Đề 🤖', 'Hoa Đăng 🤖', 'Thiện Tâm 🤖', 'Pháp Lạc 🤖', 'Suối Trong 🤖', 'Nắng Mai 🤖', 'Tịnh Lạc 🤖', 'Diệu Âm 🤖', 'Bình An 🤖', 'Từ Tâm 🤖', 'Hương Sen 🤖', 'Mộc Miên 🤖'],
+  },
   interaction: {
     game: 'bau-cua',
     bettingMs: 20_000,
@@ -195,6 +209,18 @@ export const TAI_XIU_RULES = defineRoomRules({
   maxParticipants: 500,
   lang: 'vi',
   moderation: 'standard',
+  bots: {
+    count: 8,
+    max: 20,
+    initial: 5,
+    arrivalMs: [2_000, 7_000],
+    actionMs: [1_000, 4_000],
+    churnMs: [150_000, 300_000],
+    play: 'dice',
+    stakes: [1, 5, 10, 20, 50],
+    skins: ['lotusgirl', 'pilgrim', 'woman', 'man', 'granny', 'child', 'nun', 'monk'],
+    names: ['Tí Xúc Xắc 🤖', 'Mèo May Mắn 🤖', 'Sáu Mặt 🤖', 'Chấm Đỏ 🤖', 'Mây Trắng 🤖', 'Sen Nhỏ 🤖', 'Tâm Vui 🤖', 'Gió Mát 🤖', 'Hạt Mưa 🤖', 'Trăng Non 🤖', 'Hoa Đăng 🤖', 'Bình Minh 🤖', 'Song Hỷ 🤖', 'Tam Hoa 🤖', 'Cầu Vồng 🤖', 'Mầm Non 🤖', 'May Mắn 🤖', 'Tài Lộc 🤖', 'Ngọc Sáng 🤖', 'Đom Đóm 🤖'],
+  },
   interaction: {
     game: 'tai-xiu',
     bettingMs: 20_000,

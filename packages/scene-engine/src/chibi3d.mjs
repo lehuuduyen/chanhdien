@@ -15,11 +15,12 @@ import * as THREE from 'three';
 import { buildRiggedPerson, buildRiggedWalker, loadRiggedModel } from './rigged3d.mjs';
 
 // Áo tràng theo hình nhân vật: lam (nam/nữ/tiểu), nâu (bà cụ), xám (sư cô), vàng nghệ (sư thầy).
-const ROBES = { man: '#4f78bd', woman: '#5a82c4', child: '#4f78bd', granny: '#8a5a3b', nun: '#8d96a3', monk: '#c8741f' };
-const COLLARS = { man: '#eef1f6', woman: '#eef1f6', child: '#eef1f6', granny: '#e9dcc8', nun: '#e6e9ee', monk: '#f1d9a8' };
+const ROBES = { man: '#4f78bd', woman: '#5a82c4', child: '#4f78bd', granny: '#8a5a3b', nun: '#8d96a3', monk: '#c8741f', pilgrim: '#3d7d68', lotusgirl: '#b5486f' };
+const COLLARS = { man: '#eef1f6', woman: '#eef1f6', child: '#eef1f6', granny: '#e9dcc8', nun: '#e6e9ee', monk: '#f1d9a8', pilgrim: '#e8e0c5', lotusgirl: '#ffe3ec' };
 // Sư thầy, sư cô, chú tiểu cạo đầu; nam tóc ngắn có mái, nữ tóc dài ngang vai có mái, bà cụ tóc bạc búi.
 const HAIR = { man: '#1d1714', woman: '#2a1a12', granny: '#d8d4cc' };
-const FEMALE = new Set(['woman', 'nun', 'granny', 'chibigirl']);
+const FEMALE = new Set(['woman', 'nun', 'granny', 'lotusgirl', 'chibigirl']);
+const HEAD_STYLE = { pilgrim: 'man', lotusgirl: 'woman' };
 
 const SKIN = '#f3cfa8';
 const HEAD_R = 0.2;
@@ -156,6 +157,7 @@ function casualOf(skin, look) {
 // Đầu: giống hệt nhau ở mọi bộ đồ (mặt, tai, tóc theo hình nhân vật).
 function buildHead(skinKey) {
   const p = parts();
+  const headStyle = HEAD_STYLE[skinKey] || skinKey;
   const head = new THREE.Group();
   head.position.y = 0.27 + HEAD_R * 0.86;
   head.add(new THREE.Mesh(p.geometry.head, p.skin), new THREE.Mesh(p.geometry.face, p.face));
@@ -165,13 +167,13 @@ function buildHead(skinKey) {
     ear.scale.set(0.6, 1, 0.9);
     head.add(ear);
   }
-  const hair = p.hairs[skinKey];
+  const hair = p.hairs[headStyle];
   if (!hair) return head;
   const cap = new THREE.Mesh(p.geometry.hairCap, hair);
   cap.rotation.x = 0.3;
   cap.position.z = 0.012;
   head.add(cap);
-  if (skinKey === 'man') {
+  if (headStyle === 'man') {
     // Mái ngắn lệch: ba lọn tròn dẹt trên trán, hai bên tóc mai.
     for (const [x, y, z, s] of [[-0.08, 0.13, -0.135, 1], [0.01, 0.15, -0.14, 1.1], [0.09, 0.12, -0.13, 0.9]]) {
       const tuft = new THREE.Mesh(p.geometry.fringe, hair);
@@ -186,7 +188,7 @@ function buildHead(skinKey) {
       burn.scale.set(0.7, 0.45, 0.8);
       head.add(burn);
     }
-  } else if (skinKey === 'woman') {
+  } else if (headStyle === 'woman') {
     // Tóc dài ngang vai phía sau, mái bằng trên trán, hai lọn hai bên má.
     const back = new THREE.Mesh(p.geometry.hairBack, hair);
     back.scale.set(1.02, 1.32, 1);
@@ -213,7 +215,7 @@ function buildHead(skinKey) {
       bow.add(loop);
     }
     head.add(bow);
-  } else if (skinKey === 'granny') {
+  } else if (headStyle === 'granny') {
     const bun = new THREE.Mesh(p.geometry.bun, hair);
     bun.position.set(0, 0.1, 0.17);
     head.add(bun);

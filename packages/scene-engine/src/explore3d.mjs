@@ -32,7 +32,7 @@ function shortestAngle(from, to) {
   return delta;
 }
 
-export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onNearbyChange, onNearbyChoreChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onMeritBoardTap, onNearbyChange, onNearbyChoreChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -287,6 +287,15 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         const hit = raycaster.intersectObjects(courtyard.guidePickables, false)[0];
         if (hit) {
           onGuideTap(hit.object.userData.zoneGuide);
+          return;
+        }
+      }
+      // Bảng vàng công đức ngoài sân mở cùng sổ công đức với bảng nhỏ trong chánh điện. Bắt trước nền để
+      // thao tác chạm không bị hiểu thành lệnh đi bộ tới phía sau bảng.
+      if (onMeritBoardTap && courtyard?.meritBoardPickables?.length) {
+        const hit = raycaster.intersectObjects(courtyard.meritBoardPickables, false)[0];
+        if (hit?.object.userData.meritBoard) {
+          onMeritBoardTap();
           return;
         }
       }

@@ -110,6 +110,7 @@ test('playback.state hợp lệ khi chưa có bài và khi đang chiếu', () =>
 
 test('chánh điện: avatar.set, offering.send và offering; người trong phòng có thể kèm skin và công đức', () => {
   assert.equal(parseClientMessage({ v: 1, type: 'avatar.set', requestId: 'r1', skin: 'monk' }).ok, true);
+  assert.equal(parseClientMessage({ v: 1, type: 'avatar.set', requestId: 'r1', skin: 'pilgrim' }).ok, true, 'protocol nhận hình bot để room.state dùng chung schema');
   assert.equal(parseClientMessage({ v: 1, type: 'avatar.set', requestId: 'r1', skin: 'robot' }).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ v: 1, type: 'offering.send', requestId: 'r1', kind: 'incense', text: 'Cầu bình an' }).ok, true);
   assert.equal(parseClientMessage({ v: 1, type: 'offering.send', requestId: 'r1', kind: 'gold' }).error, 'INVALID_MESSAGE');
@@ -117,7 +118,11 @@ test('chánh điện: avatar.set, offering.send và offering; người trong ph�
   assert.equal(parseServerMessage({ v: 1, type: 'offering', epoch: 1, offeringId: 'o-1', participantId: 'u-1', kind: 'lotus', at: 5 }).ok, true);
   assert.equal(parseServerMessage({
     v: 1, type: 'room.state', epoch: 1, roomId: 'thien-1', revision: 1,
-    participants: [{ id: 'u-1', displayName: 'An', seatId: 'S-1', connected: true, skin: 'nun', merit: 25, level: 2 }],
+    participants: [
+      { id: 'u-1', displayName: 'An', seatId: 'S-1', connected: true, skin: 'nun', merit: 25, level: 2 },
+      { id: 'bot-1', displayName: 'An Nhiên 🤖', connected: true, skin: 'pilgrim', bot: true },
+      { id: 'bot-2', displayName: 'Sen Nhỏ 🤖', connected: true, skin: 'lotusgirl', bot: true },
+    ],
   }).ok, true);
   assert.equal(parseServerMessage({
     v: 1, type: 'room.state', epoch: 1, roomId: 'thien-1', revision: 1,

@@ -220,6 +220,7 @@
     let mine = {}; // cược của mình trong ván đang chạy
     let mineRound = null;
     let people = 0;
+    let bots = 0;
     let clockOffset = 0; // giờ server − giờ máy
     let socket = null;
     const history = [];
@@ -286,7 +287,7 @@
       }
       // Hủy cược: chỉ trong pha đặt cược, khi mình đang có cược trong ván.
       elements.cancelBets.hidden = !(table?.phase === 'betting' && Object.values(myBets).some(Boolean));
-      elements.players.textContent = `👥 ${people} người${table ? ` · ${table.bettors} đang cược` : ''}`;
+      elements.players.textContent = `👥 ${Math.max(0, people - bots)} người thật${bots ? ` · 🤖 ${bots} máy` : ''}${table ? ` · ${table.bettors} đang cược` : ''}`;
     }
 
     // Chồng chip: tách số xu thành mệnh giá 50/10/5/1 (chip của mình) — tối đa 6 chip, nhiều hơn thì ghi "+n".
@@ -428,7 +429,9 @@
         failedOpens = 0;
         elements.roomChip.classList.add('online');
       } else if (message.type === 'room.state') {
-        people = message.participants.filter((person) => person.connected !== false).length;
+        const connected = message.participants.filter((person) => person.connected !== false);
+        people = connected.length;
+        bots = connected.filter((person) => person.bot).length;
         render();
       } else if (message.type === 'game.state') onState(message);
       else if (message.type === 'game.mine') {
