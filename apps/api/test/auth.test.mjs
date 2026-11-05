@@ -177,6 +177,42 @@ test('Telegram donate 1: chỉ chat và secret đã cấu hình được cộng 
   assert.equal((await request(options, 'GET', '/api/v1/donate')).json.raised, 13);
 });
 
+test('Telegram addbot đặt tổng bot realtime, báo phân bổ và nhận 0 để tắt', async () => {
+  const calls = [];
+  const options = setup({
+    telegramWebhookSecret: 'telegram-secret-123',
+    telegramChatId: '-100123',
+    configureBots: async (total) => {
+      calls.push(total);
+      return {
+        requested: total,
+        assigned: total,
+        rooms: total ? [
+          { roomId: 'game-1', name: 'Bầu Cua', bots: 34 },
+          { roomId: 'taixiu-1', name: 'Tài Xỉu', bots: 33 },
+          { roomId: 'loto-1', name: 'Lô Tô', bots: 33 },
+        ] : [],
+      };
+    },
+  });
+  const headers = { 'x-telegram-bot-api-secret-token': 'telegram-secret-123' };
+  const send = (updateId, text) => request(options, 'POST', '/api/v1/telegram', {
+    body: { update_id: updateId, message: { chat: { id: -100123 }, text } }, headers,
+  });
+
+  const added = await send(9050, '/addbot 100');
+  assert.deepEqual(calls, [100]);
+  assert.match(added.json.text, /Đã chia 100 bot/);
+  assert.match(added.json.text, /Bầu Cua: 34/);
+  assert.match(added.json.text, /Lô Tô: 33/);
+  const stopped = await send(9051, 'addbot 0');
+  assert.deepEqual(calls, [100, 0]);
+  assert.match(stopped.json.text, /Đã tắt toàn bộ bot/);
+  const invalid = await send(9052, 'addbot 1001');
+  assert.deepEqual(calls, [100, 0]);
+  assert.match(invalid.json.text, /0 đến 1000/);
+});
+
 test('Telegram quản trị cộng/trừ xu và kim cương theo tên tài khoản, chống xử lý trùng', async () => {
   const [{ createDonateStore, donateConfig }, { openGardenStore }, { openShopStore }] = await Promise.all([
     import('../donate.mjs'), import('../garden.mjs'), import('../shop.mjs'),

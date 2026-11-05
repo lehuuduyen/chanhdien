@@ -131,9 +131,28 @@
         <div class="model-list" id="modelList"></div>
       </div>
 
+      <section class="content-head prayer-head">
+        <div>
+          <p class="step">07 · KIỂM DUYỆT</p>
+          <h2>Chặn chửi thề &amp; spam</h2>
+          <p>Tin có từ cấm bị chặn; chửi 3 lần trong 1 giờ (rạp/game: 4 lần) thì tắt chat 10 phút, tái phạm trong 24 giờ thì khóa nick 24 giờ. Nick mới nhắn trùng hàng loạt bị khóa 7 ngày + chặn IP 24 giờ. Mỗi lần khóa đều báo Telegram; trong nhóm gõ <b>/blockchattu &lt;từ&gt;</b> để chặn thêm từ, <b>/unban &lt;mã&gt;</b> để mở khóa.</p>
+        </div>
+        <button type="button" class="secondary" id="loadModeration">Tải sổ khóa</button>
+      </section>
+      <div class="moderation-admin">
+        <div class="moderation-words">
+          <label><span>Từ / cụm từ</span><input type="text" id="modWord" maxlength="40" placeholder="vd: dm, đồ ngốc, fuck*"></label>
+          <button type="button" class="primary" id="blockWord">Chặn từ</button>
+          <button type="button" class="secondary" id="unblockWord">Bỏ chặn</button>
+        </div>
+        <p class="model-status" id="modStatus" role="status" aria-live="polite"></p>
+        <p class="moderation-custom" id="modWords"></p>
+        <div class="prayer-admin-list" id="modBans"><p class="empty">Nhập khóa quản trị rồi tải sổ khóa.</p></div>
+      </div>
+
       <section class="panel access">
         <div>
-          <p class="step">07 · XÁC NHẬN</p>
+          <p class="step">08 · XÁC NHẬN</p>
           <h2>Khóa quản trị</h2>
           <p>Khóa được gửi khi lưu và chỉ được giữ trong tab hiện tại.</p>
         </div>

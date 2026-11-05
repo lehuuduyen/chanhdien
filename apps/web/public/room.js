@@ -120,6 +120,7 @@ function resendSkinChoice() {
 }
 addEventListener('pageshow', (event) => { if (event.persisted) resendSkinChoice(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) resendSkinChoice(); });
+addEventListener('storage', (event) => { if (event.key === 'thien-skin') resendSkinChoice(); });
 
 // Hình shop đã xin vé mới để mặc (chỉ một lần mỗi hình, tránh vòng lặp).
 let renewedSkinTicket = null;
@@ -539,6 +540,8 @@ function handleMessage(event) {
   try { message = JSON.parse(event.data); } catch { return; }
   if (message.v !== PROTOCOL_VERSION) return;
   if (message.type === 'welcome') {
+    // Kết nối mới: được báo lại hình đang chọn một lần (lệnh gửi vào socket cũ lúc trang khôi phục từ bộ nhớ đệm bị mất).
+    skinSentFor = null;
     reconnectAttempt = 0;
     disconnectedAt = 0;
     session.resumeToken = message.resumeToken;
@@ -591,6 +594,12 @@ function handleMessage(event) {
     if (message.code === 'SESSION_REPLACED') {
       sessionReplaced = true;
       notify('Tài khoản đã vào rạp từ trình duyệt hoặc máy khác · tải lại trang để xem ở đây');
+      return;
+    }
+    // Bị khóa (kiểm duyệt): thôi tự nối lại, hiện lý do.
+    if (message.code === 'BANNED') {
+      sessionReplaced = true;
+      notify(message.message);
       return;
     }
     if (message.code === 'INVALID_RESUME_TOKEN' || message.code === 'INVALID_TICKET') {
@@ -651,7 +660,13 @@ async function reconnectRealtime() {
       session = await joinRoom(session.displayName);
       saveSession();
       disconnectedAt = Date.now();
-    } catch {
+    } catch (error) {
+      if (error.code === 'banned') {
+        sessionReplaced = true;
+        setConnection('offline', 'Đã bị khóa');
+        notify(error.message);
+        return;
+      }
       scheduleReconnect();
       return;
     }
@@ -706,7 +721,13 @@ async function joinRoom(displayName) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ roomId, displayName }),
   });
-  if (!response.ok) throw new Error('Không thể cấp vé vào phòng. Hãy kiểm tra API đang chạy.');
+  if (!response.ok) {
+    // Nick bị khóa / tên không phù hợp: hiện đúng câu server giải thích.
+    const body = await response.json().catch(() => null);
+    const error = new Error(body?.message || 'Không thể cấp vé vào phòng. Hãy kiểm tra API đang chạy.');
+    error.code = body?.error || null;
+    throw error;
+  }
   return response.json();
 }
 

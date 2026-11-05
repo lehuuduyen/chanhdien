@@ -6,7 +6,7 @@ import { THIEN_RULES } from '@chanh-dien/room-rules';
 import { parseServerMessage } from '@chanh-dien/protocol';
 import { createJoinTicket, internalKey } from '@chanh-dien/session-token';
 import { WebSocket } from 'ws';
-import { createRealtimeServer, handleRealtimeRequest, Room, RoomRegistry } from '../server.mjs';
+import { createRealtimeServer, handleRealtimeRequest, Room, RoomRegistry, shopBotSkinProvider } from '../server.mjs';
 
 // Rạp phim có hình nhân vật Nam/Nữ (gán theo mã người khi chưa chọn): bỏ ra khi so sánh phần còn lại.
 const withoutSkin = ({ skin, ...rest }) => (assert.ok(skin === undefined || ['man', 'woman'].includes(skin)), rest);
@@ -76,6 +76,50 @@ test('realtime health công bố protocol, máy và số phòng', () => {
   assert.deepEqual(JSON.parse(res.body), {
     status: 'ok', service: 'realtime', protocolVersion: 1, nodeId: 'rt-test', rooms: 0, connections: 0,
   });
+});
+
+test('addbot chia ngẫu nhiên tổng bot, giữ đủ người cho ba trò và bot Lô Tô mua vé mô phỏng', async () => {
+  const registry = new RoomRegistry({ botCounts: { thien: 0, cinema: 0, game: 0, taixiu: 0, loto: 0 } });
+  let serial = 0;
+  const distributed = await registry.setBotTotal(100, () => ((serial += 37) % 101) / 101);
+  assert.equal(distributed.assigned, 100);
+  assert.equal(distributed.rooms.reduce((sum, room) => sum + room.bots, 0), 100);
+  for (const roomId of ['game-1', 'taixiu-1', 'loto-1']) {
+    const allocation = distributed.rooms.find((room) => room.roomId === roomId);
+    const room = registry.rooms.get(roomId);
+    assert.ok(allocation.bots >= 2, `${roomId} có ít nhất hai bot`);
+    assert.equal([...room.participants.values()].filter((person) => person.bot).length, allocation.bots);
+    assert.equal(room.table.running, true, 'bàn tiếp tục chạy khi chỉ có bot');
+  }
+  const lotto = registry.rooms.get('loto-1');
+  for (const bot of [...lotto.participants.values()].filter((person) => person.bot).slice(0, 2)) lotto.botAct(bot);
+  assert.deepEqual([lotto.table.stateMessage().players, lotto.table.stateMessage().tickets, lotto.table.stateMessage().pool], [2, 2, 0]);
+  await lotto.table.startCalling();
+  assert.equal(lotto.table.stateMessage().phase, 'calling');
+  assert.equal(parseServerMessage(lotto.table.stateMessage()).ok, true);
+
+  const stopped = await registry.setBotTotal(0);
+  assert.equal(stopped.assigned, 0);
+  assert.equal(registry.size, 0, 'phòng chỉ có bot được trả lease sau addbot 0');
+});
+
+test('/internal/bots cần khóa nội bộ và chỉ nhận tổng bot hợp lệ', async () => {
+  const { Readable } = await import('node:stream');
+  const registry = new RoomRegistry({ botCounts: { thien: 0, cinema: 0, game: 0, taixiu: 0, loto: 0 } });
+  const call = (body, key) => new Promise((resolve) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+    Object.assign(req, { method: 'POST', url: '/internal/bots', headers: key ? { 'x-internal-key': key } : {} });
+    const res = response();
+    res.end = function end(text = '') { this.body += text; resolve(this); };
+    handleRealtimeRequest(req, res, registry, { secret: SECRET });
+  });
+  assert.equal((await call({ total: 12 })).status, 403);
+  assert.equal((await call({ total: 1.5 }, internalKey(SECRET))).status, 400);
+  const result = await call({ total: 12 }, internalKey(SECRET));
+  assert.equal(result.status, 200);
+  assert.equal(JSON.parse(result.body).assigned, 12);
+  assert.ok(JSON.parse(result.body).rooms.filter((room) => ['game', 'taixiu', 'loto'].includes(room.type)).every((room) => room.bots >= 2));
+  await registry.setBotTotal(0);
 });
 
 test('room từ chối hai người chọn cùng một ghế', () => {
@@ -614,7 +658,7 @@ test('hoàn thành công việc chỉ yêu cầu trả xu cho thành viên đăn
   room.close();
 });
 
-test('hình mua trong shop (chibigirl): chỉ người có trong vé mới mặc được, không chia cho người mới hay bot', () => {
+test('hình mua trong shop (chibigirl): chỉ người có trong vé mới mặc được, không chia cho người thật mới', () => {
   for (const roomId of ['cinema-1', 'thien-1']) {
     const room = new Room(roomId, { botCount: 0 });
     const socket = { readyState: WebSocket.CLOSED, close() {} };
@@ -634,6 +678,38 @@ test('hình mua trong shop (chibigirl): chỉ người có trong vé mới mặc
   for (let index = 0; index < 200; index += 1) room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: `u-${index}`, displayName: `N${index}`, role: 'guest' });
   assert.ok(room.snapshot().participants.every((person) => person.skin !== 'chibigirl'));
   room.close();
+});
+
+test('bot xáo hình và dùng cả nhân vật shop đang bán', () => {
+  const shopSkins = ['chibigirl', 'shop-kiem-si'];
+  const room = new Room('thien-1', { botCount: 10, botSkins: shopSkins });
+  room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-1', displayName: 'An' });
+  while ([...room.participants.values()].filter((person) => person.bot).length < 10) room.addBot(true);
+  const bots = [...room.participants.values()].filter((person) => person.bot);
+  const skins = bots.map((bot) => bot.skin);
+  assert.equal(new Set(skins).size, skins.length, 'chưa dùng hết túi thì mỗi bot mang một hình khác nhau');
+  for (const skin of shopSkins) assert.ok(skins.includes(skin), `bot có thể dùng ${skin}`);
+  room.close();
+});
+
+test('danh mục hình bot đọc món shop đang bật và cache kết quả', async () => {
+  let calls = 0;
+  const getBotSkins = shopBotSkinProvider('http://api.test:4000', async (url) => {
+    calls += 1;
+    assert.equal(url.href, 'http://api.test:4000/api/v1/shop');
+    return {
+      ok: true,
+      json: async () => ({ items: [
+        { kind: 'skin', skin: 'chibigirl' },
+        { kind: 'skin', skin: 'shop-kiem-si' },
+        { kind: 'other', skin: 'shop-bo-qua' },
+        { kind: 'skin', skin: 'khong-hop-le' },
+      ] }),
+    };
+  });
+  assert.deepEqual(await getBotSkins(), ['chibigirl', 'shop-kiem-si']);
+  assert.deepEqual(await getBotSkins(), ['chibigirl', 'shop-kiem-si']);
+  assert.equal(calls, 1);
 });
 
 test('thành viên đăng nhập: lễ vật được gửi ghi sổ, khách thì không; accountId giữ qua failover, không lộ ra phòng', () => {
@@ -789,7 +865,7 @@ test('bot có nhịp riêng, dâng hương nhiều nhất và không bao giờ t
   const seatedBots = () => bots().filter((person) => person.seatId);
   assert.equal(bots().length, Math.min(THIEN_RULES.bots.initial, room.botCount, THIEN_RULES.seats), 'bot ban đầu không vượt cấu hình và số bồ đoàn');
   assert.equal(new Set(bots().map((bot) => bot.displayName)).size, bots().length, 'không trùng tên');
-  assert.ok(bots().some((bot) => bot.skin === 'pilgrim') && bots().some((bot) => bot.skin === 'lotusgirl'), 'có đủ hai hình bot mới');
+  assert.equal(new Set(bots().map((bot) => bot.skin)).size, bots().length, 'hình bot được rút ngẫu nhiên không lặp trong lượt đầu');
   const kinds = { incense: 0, petal: 0, lotus: 0, bell: 0, chat: 0 };
   const original = Math.random;
   try {
@@ -1195,7 +1271,7 @@ test('rạp phim: đi lại trong rạp, ngồi ghế; thả cảm xúc phát c�
   room.close();
 });
 
-test('bot phòng Bầu Cua và Tài Xỉu chơi mô phỏng, có nhãn rõ và không gọi ví thật', () => {
+test('bot phòng Bầu Cua và Tài Xỉu chơi mô phỏng bằng tên thường và không gọi ví thật', () => {
   for (const roomId of ['game-1', 'taixiu-1']) {
     let stakeCalls = 0;
     const room = new Room(roomId, {
@@ -1209,7 +1285,7 @@ test('bot phòng Bầu Cua và Tài Xỉu chơi mô phỏng, có nhãn rõ và k
     room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-1', displayName: 'An' });
     const bots = [...room.participants.values()].filter((person) => person.bot);
     assert.equal(bots.length, 4);
-    assert.ok(bots.every((bot) => bot.displayName.endsWith('🤖') && bot.skin), 'bot có nhãn và hình nhân vật');
+    assert.ok(bots.every((bot) => !bot.displayName.includes('🤖') && bot.skin), 'bot dùng tên thường và có hình nhân vật');
     for (const bot of bots) room.botAct(bot);
     const state = room.table.stateMessage();
     assert.equal(state.bettors, 4);
@@ -1448,6 +1524,9 @@ test('phòng Lô Tô: mua vé qua ví, gọi số, người đợi, kinh sai b�
   const an = room.participants.get('an');
   const binh = room.participants.get('binh');
   assert.deepEqual(await table.buy(an, { requestId: 'buy-1', roundId, count: 1, autoMark: true }), { ok: true });
+  // Mới một người có vé: hết giờ mua vẫn chờ thêm người, chưa gọi số.
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.deepEqual([table.stateMessage().phase, table.stateMessage().players, table.stateMessage().called.length], ['buying', 1, 0]);
   assert.deepEqual(await table.buy(binh, { requestId: 'buy-2', roundId, count: 1, autoMark: false }), { ok: true });
   const mine = inbox.get('an').find((message) => message.type === 'lotto.tickets');
   assert.deepEqual([mine.tickets.length, mine.autoMark, mine.coins], [1, true, 90]);

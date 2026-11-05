@@ -114,9 +114,10 @@ let mySkin = (() => {
   if (isShopSkin(saved)) return saved;
   return ['woman', 'nun', 'granny'].includes(saved) ? 'woman' : 'man';
 })();
-// Hình Nam/Nữ thay thế của hình shop (danh mục shop báo): ảnh 2D chỉ có hình vẽ sẵn, và lúc tạm mặc khi chưa sở hữu.
-const shopBase = new Map([['chibigirl', 'woman'], ['pilgrim', 'man'], ['lotusgirl', 'woman']]);
-const baseSkin = (skin) => (isShopSkin(skin) ? shopBase.get(skin) || 'man' : skin);
+// Hình thay thế khi ảnh 2D chưa có sprite riêng. Bot mới vẫn khác nhau ở 2D (hình sư thầy/sư cô), còn 3D dùng
+// đúng áo xanh/hồng của pilgrim/lotusgirl. Hình Shop lấy base do danh mục API trả về.
+const shopBase = new Map([['chibigirl', 'woman'], ['pilgrim', 'monk'], ['lotusgirl', 'nun']]);
+const baseSkin = (skin) => shopBase.get(skin) || (isShopSkin(skin) ? 'man' : skin);
 const spriteSkin = baseSkin;
 let seatAttempts = 0;
 const seenOfferings = new Set();
@@ -500,7 +501,7 @@ function accountChanged(account) {
   social?.reset();
   session.join(name).then(() => {
     showToast(account ? t('toast.memberNow', { name }) : t('toast.guestNow'));
-  }).catch(() => showToast(t('toast.joinFailed')));
+  }).catch((error) => showToast(error?.serverMessage || t('toast.joinFailed')));
 }
 
 const me = () => participants.get(session.participantId);
@@ -736,6 +737,8 @@ function handleMessage(message) {
   if (garden?.onMessage(message)) return;
   if (communityProject?.onMessage(message)) return;
   if (message.type === 'welcome') {
+    // Kết nối mới thật sự: lệnh đổi hình gửi trước đó có thể đã rơi vào socket cũ — cho gửi lại ngay ở room.state.
+    skinSentAt = 0;
     seatAttempts = 0;
     for (const button of elements.offerings.querySelectorAll('button')) button.disabled = false;
   } else if (message.type === 'room.state') {
@@ -756,10 +759,15 @@ function handleMessage(message) {
     // Đứng dậy đi (server bỏ động tác) thì thôi tụng.
     if (!['chant', 'woodfish'].includes(me()?.emote)) audio.stopChant();
     renderBoard();
-    // Vào phòng, hoặc vừa đổi hình lúc đang mất kết nối (vd: quay lại từ Shop): báo server hình đang chọn.
+    // Vào phòng, hoặc vừa đổi hình (vd: quay lại từ Shop): báo server hình đang chọn; chỉ thôi khi server xác nhận
+    // (lệnh gửi lúc trang vừa khôi phục có thể rơi vào socket cũ đã chết), gửi lại tối đa mỗi 1,5 giây.
     if ((firstState || skinDirty) && me()) {
-      if (me().skin !== mySkin) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
-      skinDirty = false;
+      if (me().skin === mySkin) skinDirty = false;
+      else if (firstState || Date.now() - skinSentAt > 1_500) {
+        skinSentAt = Date.now();
+        skinDirty = true;
+        session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
+      }
     }
     takeSeatIfNeeded();
   } else if (message.type === 'room.count') {
@@ -825,8 +833,8 @@ function handleMessage(message) {
     }
     // Lỗi của tin gửi liên tục không có requestId (vị trí khi đi): bỏ qua, không hiện thông báo.
     if (message.code === 'INVALID_MESSAGE' && !message.requestId) return;
-    // Tài khoản vừa vào phòng từ trình duyệt / máy khác: tab này về cổng (giữ link phòng, bấm vào lại là chơi ở đây).
-    if (message.code === 'SESSION_REPLACED') {
+    // Tài khoản vừa vào phòng từ trình duyệt / máy khác, hoặc bị khóa (kiểm duyệt): tab này về cổng (giữ link phòng).
+    if (message.code === 'SESSION_REPLACED' || message.code === 'BANNED') {
       session.leave();
       explore.leave();
       audio.stop();
@@ -840,7 +848,7 @@ function handleMessage(message) {
       elements.presence.className = 'chip';
       statusKey = 'hud.notIn';
       elements.statusText.textContent = t(statusKey);
-      elements.gateError.textContent = t('err.SESSION_REPLACED');
+      elements.gateError.textContent = message.code === 'BANNED' ? errorText(message) : t('err.SESSION_REPLACED');
       return;
     }
     if (message.code === 'ROOM_FULL') {
@@ -863,18 +871,17 @@ function handleMessage(message) {
       elements.statusText.textContent = t(statusKey);
       elements.gateError.textContent = t('err.ROOM_FULL');
     } else if (message.code === 'SEAT_TAKEN') takeSeatIfNeeded();
-    else {
-      const known = t(`err.${message.code}`);
-      showToast(known === `err.${message.code}` ? message.message : known);
-    }
+    else showToast(errorText(message));
   }
 }
 
+// Câu báo lỗi theo ngôn ngữ đang chọn; mã chưa dịch (hoặc câu có số phút từ server) thì dùng câu server gửi.
+function errorText(message) {
+  const known = t(`err.${message.code}`);
+  return known === `err.${message.code}` ? message.message : known;
+}
+
 // ---- Thao tác ----
-// Chạm số người: điện thoại không có tooltip, nên báo rõ trong đó có bao nhiêu Phật tử ảo (máy).
-elements.presence.addEventListener('click', () => {
-  if (roomCount?.bots) showToast(t('hud.countBots', { n: roomCount.bots }));
-});
 elements.skins.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-skin]');
   if (!button) return;
@@ -917,8 +924,8 @@ elements.gateForm.addEventListener('submit', async (event) => {
     await session.join(name);
     enterHall(name);
     if (boot.active) finishBoot();
-  } catch {
-    elements.gateError.textContent = t('toast.joinFailed');
+  } catch (error) {
+    elements.gateError.textContent = error?.serverMessage || t('toast.joinFailed');
     boot.done();
   } finally {
     submit.disabled = false;
@@ -1255,8 +1262,8 @@ async function switchRoom(target) {
     await session.join(name);
     closeRoomSwitch();
     showToast(t('room.moved', { room: thienRoomName(target.roomId) }));
-  } catch {
-    showToast(t('toast.joinFailed'));
+  } catch (error) {
+    showToast(error?.serverMessage || t('toast.joinFailed'));
   } finally {
     switchingRoom = false;
     roomSwitch.auto.disabled = false;
@@ -1445,20 +1452,30 @@ function shopSkinButton(skin, name, thumb) {
 // Đọc lại hình đang chọn (vừa bấm "Mặc" ở Shop rồi vuốt quay lại: trình duyệt khôi phục trang từ bộ nhớ đệm, biến JS
 // vẫn là hình cũ). Đổi ngay nếu đang kết nối; đang nối lại thì đổi ở room.state kế tiếp.
 let skinDirty = false;
-function syncSkinChoice() {
+let skinSentAt = 0;
+// immediate = false khi trang vừa khôi phục từ bộ nhớ đệm: socket cũ đã chết dù còn báo mở, chờ kết nối mới.
+function syncSkinChoice(immediate = true) {
   let saved = null;
   try { saved = localStorage.getItem('thien-skin'); } catch {}
   if (!saved || saved === mySkin || !(['man', 'woman'].includes(saved) || isShopSkin(saved))) return;
   mySkin = saved;
   pressSkin();
   skinDirty = true;
-  if (session.participantId && me() && session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin })) skinDirty = false;
+  skinSentAt = 0;
+  if (immediate && session.participantId && me()) {
+    skinSentAt = Date.now();
+    session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
+  }
 }
 addEventListener('pageshow', (event) => {
   if (!event.persisted) return;
-  syncSkinChoice();
+  syncSkinChoice(false);
   garden?.refreshCoins();
   if (accountUI.account) refreshOwnedSkins();
+});
+// Shop có thể mở ở tab khác: storage phát sang tab chánh điện đang mở, đổi hình ngay mà không cần tải lại.
+addEventListener('storage', (event) => {
+  if (event.key === 'thien-skin') syncSkinChoice();
 });
 
 // Server từ chối hình shop: nếu tài khoản đã mua hình đó (vé vào phòng cấp trước lúc mua — vd: mua xong quay lại
@@ -1513,6 +1530,8 @@ async function refreshOwnedSkins() {
     pressSkin();
     if (session.participantId && me()) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
   }
+  // Danh mục mô hình vừa cho biết hình thay thế của bot shop-*; vẽ lại để 2D không giữ hình mặc định cũ.
+  renderer?.setParticipants(sceneParticipants());
 }
 
 // Góp ý / Báo lỗi: kèm trang đang mở (cả mã phòng) để quay về đúng chỗ và biết lỗi xảy ra đâu.

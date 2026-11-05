@@ -13,10 +13,11 @@ import { handleGardenRequest, openGardenStore } from './garden.mjs';
 import { handleCommunityProjectRequest, openCommunityProjectStore } from './community-project.mjs';
 import { handleGameRequest } from './games.mjs';
 import { handleChoreRewardRequest } from './chores.mjs';
-import { donateConfig, handleDonateRequest, handleTelegramDonateRequest, openDonateStore } from './donate.mjs';
+import { donateConfig, handleDonateRequest, handleTelegramDonateRequest, openDonateStore, realtimeBotController } from './donate.mjs';
 import { handleSupportRequest, openSupportStore } from './support.mjs';
 import { handleShopRequest, openShopStore, shopConfig } from './shop.mjs';
-import { createTelegramNotifier } from './notify.mjs';
+import { batchNotifier, banMessage, handleModerationRequest, openModerationStore, requestIpHash } from './moderation.mjs';
+import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
 import { openThienEventStore } from './thien-event.mjs';
 import { openPrayerSlipStore } from './prayer-slips.mjs';
 
@@ -68,6 +69,8 @@ export async function locateRoom(roomId, options = {}) {
 }
 
 // Phòng cố định trong danh mục, hoặc chánh điện theo tiểu bang/ngôn ngữ (thien-az-vi-2) mở theo nhu cầu.
+// Tài khoản tạo chưa tới 24 giờ là "nick mới" (dò clone nhắn trùng).
+const FRESH_ACCOUNT_MS = 24 * 60 * 60_000;
 const findOpenRoom = (roomId) => ROOMS.find((candidate) => candidate.id === roomId && candidate.status === 'open')
   || (parseThienRoomId(roomId) ? { id: roomId, type: 'thien', name: thienRoomName(roomId), status: 'open' } : null);
 
@@ -84,6 +87,9 @@ export function createJoinResponse(input, options = {}) {
   const account = options.account || null;
   const displayName = account ? account.displayName : typeof input.displayName === 'string' ? input.displayName.trim() : '';
   if (!displayName || displayName.length > 40) return { status: 400, body: { error: 'invalid_display_name' } };
+  if (!account && options.moderation?.check(displayName).action === 'block') {
+    return { status: 400, body: { error: 'display_name_not_allowed', message: 'Tên hiển thị có từ không phù hợp, xin chọn tên khác.' } };
+  }
 
   const participantId = `u-${randomUUID()}`;
   const secret = options.secret || DEFAULT_LOCAL_SECRET;
@@ -96,6 +102,8 @@ export function createJoinResponse(input, options = {}) {
       ...(options.ownedSkins?.length ? { skins: options.ownedSkins } : {}),
       // Hình chọn lần cuối của tài khoản: máy realtime dựng đúng nhân vật ngay khi vào phòng.
       ...(options.preferredSkin ? { skin: options.preferredSkin } : {}),
+      // Tài khoản tạo dưới 24 giờ: máy realtime coi như "nick mới" khi dò clone nhắn trùng.
+      ...(Number.isSafeInteger(account.createdAt) && (options.now ?? Date.now()) - account.createdAt < FRESH_ACCOUNT_MS ? { fresh: true } : {}),
     } : {}),
   };
   const ticket = createJoinTicket(claims, secret, { now: options.now });
@@ -157,6 +165,12 @@ export async function handleApiRequest(req, res, options = {}) {
       return;
     }
     const account = currentAccount(req, options);
+    // Nick đang bị khóa (hoặc khách bị chặn IP) không được cấp vé vào phòng nào.
+    const ban = options.moderation?.restriction({ accountId: account?.id || null, ipHash: requestIpHash(req, options) });
+    if (ban?.kind === 'ban') {
+      json(req, res, 403, { error: 'banned', message: banMessage(ban), until: ban.expiresAt || ban.ipUntil || null });
+      return;
+    }
     const accountLevel = account ? options.accounts.profile(account.id).stats.level.level : undefined;
     const ownedSkins = account ? options.shopStore?.ownedSkins(account.id) : undefined;
     const preferredSkin = account ? options.shopStore?.preferredSkin(account.id) : undefined;
@@ -182,6 +196,7 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleSupportRequest(req, res, pathname, options)) return;
   if (await handleShopRequest(req, res, pathname, options)) return;
   if (await handleThienRequest(req, res, pathname, options, roomSeatCounts)) return;
+  if (await handleModerationRequest(req, res, pathname, options)) return;
   json(req, res, 404, { error: 'not_found' });
 }
 
@@ -229,12 +244,18 @@ if (isMain) {
     adminUrl: process.env.SUPPORT_ADMIN_URL || null,
   });
   if (notifySupport) console.log('Phiếu hỗ trợ mới sẽ báo qua Telegram');
+  // Kiểm duyệt: khóa / tắt chat / từ khả nghi báo cùng nhóm Telegram (gom tin vài giây một lần).
+  const moderation = openModerationStore(accounts, batchNotifier(createTelegramSender({
+    token: process.env.TELEGRAM_BOT_TOKEN,
+    chatId: process.env.TELEGRAM_CHAT_ID,
+  })));
   const server = createApiServer({
     secret, adminSecret, realtimeUrl, directory: shared ? directory : null, accounts, garden, communityProject,
     googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, donate, donateStore,
     telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
     telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
-    supportStore, notifySupport, shopStore, shop, shopModelDir,
+    configureBots: realtimeBotController(realtimeInternalUrl, secret),
+    supportStore, notifySupport, shopStore, shop, shopModelDir, moderation,
   });
   server.listen(port, host, () => console.log(`API: http://${host}:${port} (${shared ? 'danh bạ Redis' : 'một máy realtime'})`));
 }

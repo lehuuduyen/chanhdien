@@ -77,6 +77,9 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 - Mã đóng `4002`: phòng đã chuyển máy (mất lease hoặc máy đang rút). Client nối lại qua `locate` bằng `resumeToken`.
 - Mã đóng `4001`: cùng participant vừa kết nối ở phiên khác.
 - Mã đóng `4003` (kèm `protocol.error` mã `SESSION_REPLACED`): cùng tài khoản vừa vào phòng từ trình duyệt / máy khác (vé khác). Mỗi tài khoản chỉ là một người trong phòng; phiên cũ bị bỏ khỏi phòng ngay (kể cả bản đang chờ nối lại) và client phải thôi tự nối lại. Khách (không tài khoản) không bị gộp.
+- Mã đóng `4004` (kèm `protocol.error` mã `BANNED`): tài khoản / IP đang bị khóa (kiểm duyệt). Client thôi tự nối lại và hiện `message`; xin vé lúc này bị API trả `403 {error: 'banned', message}`.
+- Kiểm duyệt chat (`chat.send`, lời nguyện của `offering.send`) trả `protocol.error`: `CHAT_BLOCKED` (có từ cấm, tin không phát), `CHAT_MUTED` (đang tắt chat; server cũng gửi mã này không kèm `requestId` lúc vừa bị tắt), `CHAT_PROMO` (khách / tài khoản mới gửi link, số điện thoại, lời mời sang app khác), `CHAT_REPEAT` (gửi lặp cùng nội dung quá 2 lần / 30 giây). Không đổi schema: `code` là chuỗi tự do, `message` là câu tiếng Việt hiện thẳng cho người dùng.
+- Vé thành viên có thể mang `fresh: true` (tài khoản tạo chưa tới 24 giờ) để máy realtime dò nick clone.
 - `epoch` tăng mỗi lần phòng đổi máy giữ; message mang epoch cũ hơn epoch đang biết có thể bỏ qua.
 - Resume token đúng chữ ký nhưng chỗ đã hết hạn: server nhận kết nối, gửi `protocol.error` mã `INVALID_RESUME_TOKEN` rồi đóng `1008`; client bỏ resume token và xin vé mới.
 - Kết nối không gửi `hello` trong 10 giây bị đóng `1008`.

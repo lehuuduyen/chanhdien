@@ -153,11 +153,44 @@
     const wornSkin = () => {
       try { return localStorage.getItem('thien-skin'); } catch { return null; }
     };
-    // Mặc hình: nhớ trên máy và theo tài khoản (vào chùa / rạp ở máy nào cũng đúng hình).
-    const wear = (skin) => {
+    // Mặc hình: nhớ trên máy và chờ tài khoản lưu xong trước khi quay lại phòng. Nếu đi ngay trong lúc request còn
+    // chạy, trình duyệt có thể hủy request và phòng vẫn nhận hình cũ.
+    const wear = async (skin, persist = true) => {
+      const previous = wornSkin();
       try { localStorage.setItem('thien-skin', skin); } catch {}
-      if (shop?.me) fetch('/api/v1/shop/skin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ skin }) }).catch(() => {});
+      if (!shop?.me || !persist) return true;
+      const result = await api('/api/v1/shop/skin', { skin }).catch(() => null);
+      if (result?.status === 200) return true;
+      try {
+        if (previous) localStorage.setItem('thien-skin', previous);
+        else localStorage.removeItem('thien-skin');
+      } catch {}
+      return false;
     };
+
+    function returnToRoom() {
+      let back = '/chanh-dien.html';
+      try { back = sessionStorage.getItem('thien-return') || back; } catch {}
+      const url = new URL(back, location.origin);
+      if (url.origin !== location.origin || !['/chanh-dien.html', '/room.html'].includes(url.pathname)) {
+        location.assign('/chanh-dien.html');
+        return;
+      }
+      location.assign(`${url.pathname}${url.search}`);
+    }
+
+    async function wearAndReturn(skin, element, persist = true) {
+      element.disabled = true;
+      element.textContent = 'Đang mặc…';
+      const saved = await wear(skin, persist);
+      if (!saved) {
+        element.disabled = false;
+        render();
+        toast('Chưa đổi được hình, xin thử lại');
+        return;
+      }
+      returnToRoom();
+    }
 
     async function api(path, body) {
       const response = await fetch(path, body
@@ -222,12 +255,12 @@
           if (off) price.append(Object.assign(document.createElement('span'), { className: 'off', textContent: `-${off}%` }));
         }
         if (!owned) {
-          actions.append(button('buy', `Mua · ${item.price} 💎`, () => buy(item), !me));
+          actions.append(button('buy', `Mua · ${item.price} 💎`, (event) => buy(item, event.currentTarget), !me));
         } else if (!worn) {
-          actions.append(button('wear', 'Mặc', () => { wear(item.skin); render(); toast(`Đã chọn ${text.name} · vào chùa hoặc rạp phim để mặc`); }));
+          actions.append(button('wear', 'Mặc', (event) => wearAndReturn(item.skin, event.currentTarget)));
         } else {
           const base = item.base === 'woman' ? 'woman' : 'man';
-          actions.append(button('unwear', base === 'woman' ? 'Về hình Nữ thường' : 'Về hình Nam thường', () => { wear(base); render(); }));
+          actions.append(button('unwear', base === 'woman' ? 'Về hình Nữ thường' : 'Về hình Nam thường', (event) => wearAndReturn(base, event.currentTarget)));
         }
         info.append(title, desc, ...(owned ? [] : [price]), actions);
         row.append(art, info);
@@ -261,10 +294,12 @@
       if (shop) render();
     }
 
-    async function buy(item) {
+    async function buy(item, element) {
       if (!shop?.me) return;
+      element.disabled = true;
       const text = ITEM_TEXT[item.id]?.name || item.id;
       if (shop.me.diamonds < item.price) {
+        element.disabled = false;
         toast(`Cần ${item.price} 💎 · nạp thêm ở mục Nạp kim cương`);
         $('topup').scrollIntoView({ behavior: 'smooth' });
         return;
@@ -272,11 +307,13 @@
       const result = await api('/api/v1/shop/buy', { itemId: item.id }).catch(() => null);
       if (result?.status === 200) {
         shop.me = result.body.me;
-        wear(item.skin);
-        render();
-        toast(`Đã mua ${text}! Vào chùa hoặc rạp phim để mặc 🎉`);
-      } else if (result?.body?.error === 'INSUFFICIENT_DIAMONDS') toast('Không đủ kim cương');
-      else toast('Chưa mua được, thử lại sau nhé');
+        // /buy đã lưu hình vừa mua làm hình đang chọn; chỉ cần ghi localStorage rồi quay lại phòng.
+        await wearAndReturn(item.skin, element, false);
+      } else {
+        element.disabled = false;
+        if (result?.body?.error === 'INSUFFICIENT_DIAMONDS') toast('Không đủ kim cương');
+        else toast(`Chưa mua được ${text}, thử lại sau nhé`);
+      }
     }
 
     // Nạp: server tạo phiên Stripe Checkout rồi chuyển sang trang thanh toán của Stripe.

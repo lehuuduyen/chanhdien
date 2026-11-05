@@ -81,22 +81,32 @@
     .buy label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
     .buy label input { width: 20px; height: 20px; accent-color: var(--gold); }
 
-    /* Vé 3 × 9. */
-    .tickets { display: grid; gap: 10px; }
-    .ticket { padding: 6px; background: #fff7e8; border: 3px solid #c43b5c; border-radius: 12px; box-shadow: 0 6px 16px rgba(0, 0, 0, .4); }
-    .ticket-head { display: flex; justify-content: space-between; padding: 0 2px 4px; color: #c43b5c; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
-    .ticket-row { position: relative; display: grid; grid-template-columns: repeat(9, 1fr); gap: 2px; margin-bottom: 2px; padding: 2px; border-radius: 8px; transition: background .2s, box-shadow .2s; }
-    .ticket-row.wait { background: #ffe07a; animation: wait 1s ease-in-out infinite; }
-    @keyframes wait { 50% { box-shadow: 0 0 0 3px #ffb300, 0 0 14px #ffcf5a; } }
-    .ticket-row.kinh { background: #6ee7a0; box-shadow: 0 0 0 3px #1f9d55, 0 0 18px #6ee7a0; }
-    .ticket-row .tag { position: absolute; right: -4px; top: -9px; z-index: 2; padding: 0 6px; color: #2a1404; background: #ffcf5a; border-radius: 999px; font-size: 10px; font-weight: 900; line-height: 16px; }
-    .ticket-row.kinh .tag { color: #fff; background: #1f9d55; }
-    .num { position: relative; display: grid; place-items: center; aspect-ratio: 1; color: #3a1020; background: #fff; border: 1px solid #e7c9a8; border-radius: 6px; font-size: clamp(13px, 4.2vw, 17px); font-weight: 800; font-variant-numeric: tabular-nums; }
-    .num.empty { background: #f3dfc4; border-color: transparent; }
-    .num.called:not(.marked) { color: #8a2b45; }
-    .num span { position: relative; z-index: 1; }
-    .num.marked { color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
-    .num.marked::after { content: ""; position: absolute; z-index: 0; width: 80%; aspect-ratio: 1; background: radial-gradient(circle at 35% 30%, #ff8a80, var(--bean) 60%, #8e1b17); border-radius: 50%; opacity: .88; box-shadow: 0 2px 3px rgba(0, 0, 0, .35); }
+    /* Vé 3 × 9 kiểu tờ vé giấy truyền thống: kẻ bảng liền khối bằng nét đen mảnh, không bo góc / đổ bóng / khe hở;
+       ô trống tô kín màu tờ vé (--sheet), ô có số nền trắng, số in đậm nét hẹp; đánh dấu = viên nhựa tròn đặt đè lên số. */
+    .tickets { display: grid; gap: 14px; }
+    .ticket { --sheet: #2e9e4f; background: var(--sheet); border: 1px solid #000; border-radius: 0; box-shadow: none; }
+    .ticket[data-sheet="1"] { --sheet: #d93a3a; }
+    .ticket[data-sheet="2"] { --sheet: #2f6fd0; }
+    .ticket[data-sheet="3"] { --sheet: #e8892b; }
+    .ticket[data-sheet="4"] { --sheet: #8a4fc4; }
+    .ticket-head { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 6px; color: #fff; border-bottom: 1px solid #000; font-family: "Arial Narrow", "Roboto Condensed", Arial, sans-serif; font-size: 13px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .ticket-head small { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: none; opacity: .9; }
+    /* Viền ngoài do .ticket vẽ: ô cuối hàng / hàng cuối bỏ nét để mọi đường kẻ chỉ một nét mảnh. */
+    .ticket-row .num:last-child { border-right: 0; }
+    .ticket-row:last-child .num { border-bottom: 0; }
+    .ticket-row { position: relative; display: grid; grid-template-columns: repeat(9, 1fr); gap: 0; }
+    .ticket-row.wait { outline: 2px dashed #111; outline-offset: -2px; z-index: 1; }
+    .ticket-row.kinh { outline: 3px solid #111; outline-offset: -2px; z-index: 1; }
+    /* Con dấu cạnh hàng: chữ nhật viền đen như dấu mực, không bo góc. */
+    .ticket-row .tag { position: absolute; right: 2px; top: -8px; z-index: 3; padding: 0 5px; color: #111; background: #ffe24a; border: 1px solid #000; border-radius: 0; font-family: "Arial Narrow", Arial, sans-serif; font-size: 10px; font-weight: 900; line-height: 14px; letter-spacing: .04em; }
+    .ticket-row.kinh .tag { color: #fff; background: #111; }
+    .num { position: relative; display: grid; place-items: center; aspect-ratio: 1 / 1.08; min-width: 0; padding: 0; color: #000; background: #fff; border: 0; border-right: 1px solid #000; border-bottom: 1px solid #000; border-radius: 0; box-shadow: none;
+      font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif; font-stretch: condensed; font-size: clamp(18px, 6.2vw, 24px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; cursor: pointer; }
+    .num.empty { background: var(--sheet); cursor: default; }
+    /* Nét hẹp như mực in kể cả máy không có font condensed. */
+    .num span { position: relative; z-index: 1; display: inline-block; transform: scaleX(.84); letter-spacing: -.02em; }
+    /* Viên nhựa đỏ trong suốt 80% đặt đè lên số; nền ô giữ trắng. */
+    .num.marked::after { content: ""; position: absolute; z-index: 2; inset: 0; margin: auto; width: 78%; aspect-ratio: 1; background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, .45), rgba(255, 255, 255, 0) 38%), rgba(239, 68, 68, .8); border-radius: 50%; pointer-events: none; }
     .num.nope { animation: nope .3s; }
     @keyframes nope { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
     .no-ticket { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
@@ -163,7 +173,7 @@
       <label><input type="checkbox" id="autoMark"> 🤖 Tự động đánh dấu (+5 xu / ván)</label>
     </section>
 
-    <section class="tickets" id="tickets"><p class="no-ticket" id="noTicket">Chưa có vé · mua vé ở pha mua vé (10 xu/vé, tối đa 2 vé)</p></section>
+    <section class="tickets" id="tickets"><p class="no-ticket" id="noTicket">Chưa có vé · mua vé ở pha mua vé (10 xu/vé, mỗi người tối đa 2 vé · cần ít nhất 2 người chơi mới mở ván, không giới hạn số người)</p></section>
 
     <button type="button" class="kinh-button" id="kinh" hidden>KINH!</button>
     <p class="message" id="message" role="status" aria-live="polite"></p>
@@ -183,6 +193,8 @@
     let coins = null;
     let signedIn = false;
     let state = null;
+    // Bàn chỉ bắt đầu gọi số khi có ít nhất ngần này người có vé (khớp LOTO_RULES.interaction.minPlayers).
+    const MIN_PLAYERS = 2;
     let mine = { roundId: null, tickets: [], autoMark: false };
     let marks = new Set(); // "vé:hàng:cột"
     let people = 0;
@@ -238,16 +250,20 @@
       return null;
     }
 
+    // Màu tờ vé theo ván + số vé, như bốc ngẫu nhiên một tờ giấy màu (xanh lá, đỏ, xanh dương, cam, tím).
+    const sheetOf = (ticketNo) => [...String(mine.roundId || '')].reduce((sum, char) => sum + char.charCodeAt(0), ticketNo) % 5;
+
     function renderTickets() {
-      const called = calledSet();
       const nodes = mine.tickets.map((ticket) => {
         const card = document.createElement('div');
         card.className = 'ticket';
+        card.dataset.sheet = sheetOf(ticket.no);
         const head = document.createElement('div');
         head.className = 'ticket-head';
-        head.append(Object.assign(document.createElement('span'), { textContent: `Vé ${ticket.no}` }),
-          Object.assign(document.createElement('span'), { textContent: mine.autoMark ? '🤖 tự đánh dấu' : 'tự dò' }));
-        card.append(head);
+        head.append(Object.assign(document.createElement('span'), { textContent: `Lô Tô · Vé ${ticket.no}` }),
+          Object.assign(document.createElement('small'), { textContent: mine.autoMark ? 'tự đánh dấu' : 'tự dò' }));
+        const grid = document.createElement('div');
+        grid.className = 'ticket-grid';
         ticket.rows.forEach((row, rowIndex) => {
           const line = document.createElement('div');
           const { marked, missing } = rowState(ticket, rowIndex);
@@ -256,16 +272,21 @@
           row.forEach((number, column) => {
             const cell = document.createElement('button');
             cell.type = 'button';
-            cell.className = `num${number ? '' : ' empty'}${called.has(number) ? ' called' : ''}${marks.has(`${ticket.no}:${rowIndex}:${column}`) ? ' marked' : ''}`;
+            cell.className = `num${number ? '' : ' empty'}${marks.has(`${ticket.no}:${rowIndex}:${column}`) ? ' marked' : ''}`;
             if (number) {
               cell.append(Object.assign(document.createElement('span'), { textContent: number }));
               cell.dataset.mark = `${ticket.no}:${rowIndex}:${column}`;
               cell.dataset.number = number;
-            } else cell.disabled = true;
+              cell.setAttribute('aria-pressed', String(marks.has(cell.dataset.mark)));
+            } else {
+              cell.disabled = true;
+              cell.setAttribute('aria-hidden', 'true');
+            }
             line.append(cell);
           });
-          card.append(line);
+          grid.append(line);
         });
+        card.append(head, grid);
         return card;
       });
       $('noTicket').hidden = mine.tickets.length > 0;
@@ -313,7 +334,10 @@
       if (state) {
         const left = Math.max(0, state.endsAt - serverNow());
         const label = PHASE_LABELS[state.phase];
-        elements.phaseLabel.textContent = state.phase === 'buying' ? `${label} · ${Math.ceil(left / 1000)}s` : state.phase === 'calling' ? `${label} · ${state.called.length}/90` : label;
+        // Cần ít nhất 2 người có vé mới mở ván: chưa đủ thì báo đang chờ, không đếm ngược.
+        const short = state.phase === 'buying' && state.players < MIN_PLAYERS;
+        elements.phaseLabel.textContent = short ? `Cần ít nhất ${MIN_PLAYERS} người mua vé · đang có ${state.players}`
+          : state.phase === 'buying' ? `${label} · ${Math.ceil(left / 1000)}s` : state.phase === 'calling' ? `${label} · ${state.called.length}/90` : label;
         elements.phaseLabel.className = `phase-label ${state.phase}`;
         elements.timerBar.style.transform = `scaleX(${Math.min(1, left / (PHASE_LENGTH[state.phase] || 1))})`;
       }
@@ -390,6 +414,11 @@
         else if (message.payout && message.payout === message.staked) say(`Hoàn ${money(message.payout)}`);
         else say(`Ván này chưa may · ${money(message.net)}`, 'lose');
         render();
+      } else if (message.type === 'protocol.error' && message.code === 'BANNED') {
+        // Bị khóa (kiểm duyệt): thôi tự nối lại, hiện lý do.
+        sessionReplaced = true;
+        elements.phaseLabel.textContent = 'Đã bị khóa';
+        say(message.message, 'lose');
       } else if (message.type === 'protocol.error' && message.code === 'SESSION_REPLACED') {
         // Tài khoản vừa vào bàn từ trình duyệt / máy khác: tab này thôi tự nối lại (tải lại trang để chơi ở đây).
         sessionReplaced = true;
@@ -424,6 +453,16 @@
           body: JSON.stringify({ roomId: ROOM_ID, displayName: rememberedName() || 'Khách' }),
         });
         if (!response.ok) {
+          // Nick bị khóa: không thử lại, hiện lý do server gửi.
+          if (response.status === 403) {
+            const body = await response.json().catch(() => null);
+            if (body?.error === 'banned') {
+              sessionReplaced = true;
+              elements.phaseLabel.textContent = 'Đã bị khóa';
+              say(body.message, 'lose');
+              return;
+            }
+          }
           if (response.status === 404) {
             elements.phaseLabel.textContent = 'Chưa vào được bàn';
             say('Máy chủ chưa có bàn Lô Tô · cần khởi động lại server', 'lose');

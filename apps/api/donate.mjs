@@ -9,7 +9,9 @@
 //   DONATE_CONTACT        email liên hệ (tùy chọn)
 //   TELEGRAM_WEBHOOK_SECRET khóa Telegram gửi trong header; TELEGRAM_CHAT_ID là chat duy nhất được phép cập nhật
 import { timingSafeEqual } from 'node:crypto';
+import { internalKey } from '@chanh-dien/session-token';
 import { json, readJson } from './http.mjs';
+import { MODERATION_HELP, moderationTelegramCommand } from './moderation.mjs';
 
 const text = (value, max) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null);
 const amount = (value) => (/^\d{1,7}$/.test(String(value ?? '')) ? Number(value) : null);
@@ -119,11 +121,28 @@ export function handleDonateRequest(req, res, pathname, options) {
   return true;
 }
 
+// API chỉ chuyển lệnh quản trị sang máy realtime qua mạng nội bộ. Khóa được suy ra từ SESSION_SECRET như các
+// endpoint nội bộ khác; Telegram không bao giờ nhận được khóa này.
+export function realtimeBotController(realtimeInternalUrl, secret, fetcher = fetch) {
+  if (!realtimeInternalUrl || !secret) return null;
+  return (total) => fetcher(new URL('/internal/bots', realtimeInternalUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': internalKey(secret) },
+    body: JSON.stringify({ total }),
+    signal: AbortSignal.timeout(5_000),
+  }).then(async (response) => {
+    const result = await response.json().catch(() => null);
+    return response.ok ? result : null;
+  }).catch(() => null);
+}
+
 // Webhook chỉ nhận từ Telegram có secret header và chỉ cho đúng TELEGRAM_CHAT_ID. Cú pháp:
 //   donate 1       (cộng 1 USD)
 //   /donate 25     (cộng 25 USD)
 //   xu tam.an +100 / xu tam.an -20
 //   kimcuong tam.an +50 / kimcuong a-<uuid> -10
+//   addbot 100     (chia tổng 100 bot vào các phòng; addbot 0 để tắt)
+//   /blockchattu dm · /boblockchattu dm · /unban k-ab12cd34 · /ban tam.an 24 · /dsban (xem moderation.mjs)
 // Trả method sendMessage ngay trong response để Telegram tự gửi xác nhận, không cần thêm một HTTP call.
 export async function handleTelegramDonateRequest(req, res, pathname, options) {
   if (!['/api/v1/telegram', '/api/v1/telegram/donate'].includes(pathname)) return false;
@@ -146,6 +165,37 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
   const chatId = String(message?.chat?.id ?? '');
   if (!Number.isSafeInteger(update?.update_id) || chatId !== String(options.telegramChatId)) {
     json(req, res, 200, { ok: true });
+    return true;
+  }
+  // Lệnh kiểm duyệt: /blockchattu dm, /unban k-…, /ban, /dsban…
+  const by = message.from?.username ? `@${message.from.username}` : String(message.from?.first_name || 'Telegram').slice(0, 40);
+  const moderationReply = moderationTelegramCommand(message.text, options.moderation, `Telegram ${by}`);
+  if (moderationReply) {
+    json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: moderationReply });
+    return true;
+  }
+  const addBotMatch = typeof message.text === 'string'
+    && /^\/?addbot(?:@[A-Za-z0-9_]+)?\s+(\d{1,4})$/i.exec(message.text.trim());
+  if (addBotMatch) {
+    const total = Number(addBotMatch[1]);
+    if (!Number.isSafeInteger(total) || total > 1_000) {
+      json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: 'Số bot phải từ 0 đến 1000.' });
+      return true;
+    }
+    const result = options.configureBots ? await options.configureBots(total) : null;
+    if (!result || !Number.isSafeInteger(result.assigned)) {
+      json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: 'Máy realtime đang tạm mất kết nối, chưa đổi được số bot.' });
+      return true;
+    }
+    const rooms = Array.isArray(result.rooms) ? result.rooms.filter((room) => room.bots > 0) : [];
+    const allocation = rooms.map((room) => `${room.name || room.roomId}: ${room.bots}`).join(' · ');
+    const capped = result.assigned < total ? ` (sức chứa hiện tại nhận ${result.assigned}/${total})` : '';
+    json(req, res, 200, {
+      method: 'sendMessage', chat_id: message.chat.id,
+      text: total === 0
+        ? '✅ Đã tắt toàn bộ bot do Telegram quản lý.'
+        : `✅ Đã chia ${result.assigned} bot${capped}.${allocation ? `\n${allocation}` : ''}`,
+    });
     return true;
   }
   const walletMatch = typeof message.text === 'string'
@@ -189,7 +239,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
   if (!match) {
     json(req, res, 200, {
       method: 'sendMessage', chat_id: message.chat.id,
-      text: 'Cú pháp:\ndonate 1\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50',
+      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
     });
     return true;
   }

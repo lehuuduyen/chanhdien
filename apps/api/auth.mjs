@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { createAccountStore, OFFERING_RULES } from '@chanh-dien/accounts';
 import { createSessionToken, DEFAULT_LOCAL_SECRET, internalKey, SESSION_TTL_MS, verifySessionToken } from '@chanh-dien/session-token';
+import { requestIp } from '../../packages/moderation/src/index.mjs';
 import { json, readJson } from './http.mjs';
 
 const COOKIE = 'cd_session';
@@ -56,8 +57,9 @@ export function sameOrigin(req) {
   }
 }
 
+// X-Real-IP (nginx) rồi phần tử cuối X-Forwarded-For: phần tử đầu do trình duyệt tự khai, không dùng để giới hạn / khóa.
 export function clientIp(req) {
-  return String(req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'local').split(',')[0].trim();
+  return requestIp(req.headers || {}, req.socket?.remoteAddress) || 'local';
 }
 
 export function allow(options, key, [limit, windowMs]) {
@@ -236,6 +238,11 @@ export async function handleAuthRequest(req, res, pathname, options) {
     const input = await body(req, res);
     if (!input) return true;
     if (action === 'register') {
+      const names = [input.username, input.displayName].filter((value) => typeof value === 'string').join(' ');
+      if (options.moderation?.check(names).action === 'block') {
+        json(req, res, 400, { error: 'display_name_not_allowed', message: 'Tên có từ không phù hợp, xin chọn tên khác.' });
+        return true;
+      }
       const result = accounts.register({
         username: typeof input.username === 'string' ? input.username : '',
         password: typeof input.password === 'string' ? input.password : '',

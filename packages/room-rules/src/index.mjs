@@ -39,6 +39,19 @@ export const CINEMA_RULES = defineRoomRules({
   moderation: 'standard',
   content: { source: 'youtube' },
   interaction: { queue: 'everyone', skipVotePercent: 35 },
+  // Mặc định rạp không có bot; lệnh Telegram `addbot N` mới chia bot vào. Bot chỉ trò chuyện mô phỏng, không vote
+  // đổi phim và không chiếm quyền điều khiển hàng chờ.
+  bots: {
+    count: 0,
+    max: 100,
+    initial: 5,
+    arrivalMs: [2_000, 7_000],
+    actionMs: [12_000, 35_000],
+    churnMs: [180_000, 360_000],
+    skins: ['man', 'woman'],
+    names: ['An Nhiên', 'Mây Trắng', 'Sen Nhỏ', 'Tâm Vui', 'Bình Minh', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Hoa Đăng', 'Thiện Tâm', 'Pháp Lạc', 'Suối Trong', 'Nắng Mai', 'Tịnh Lạc', 'Diệu Âm', 'Bình An', 'Từ Tâm', 'Hương Sen', 'Mộc Miên', 'Ngọc Sáng'],
+    lines: ['Phim hay quá', 'Mọi người xem vui nhé', 'Đoạn này ý nghĩa thật', 'Chúc cả phòng một buổi tối bình an'],
+  },
   // Nhân vật nam/nữ chọn ở cổng chùa (avatar.set); ở rạp mặc đồ thường ngày, đầu/mặt giữ nguyên. Hình mua trong
   // shop (PREMIUM_SKINS) chỉ người sở hữu mới mặc được.
   skins: ['man', 'woman', 'chibigirl'],
@@ -102,8 +115,8 @@ export const THIEN_RULES = defineRoomRules({
       { id: 'make-tea', kind: 'tea', x: 8.5, z: 68, radius: 2.8, durationMs: 36_000 },
     ],
   },
-  // Bot ngồi sẵn cho chánh điện không vắng. Số người hiện trong phòng có tính bot (theo yêu cầu), kèm số bot riêng
-  // để giao diện ghi rõ "gồm N Phật tử ảo (máy)"; vote, sức chứa và sảnh chỉ đếm người thật. Bot không chào hỏi
+  // Bot ngồi sẵn cho chánh điện không vắng. Số người hiện trong phòng có tính bot; server vẫn giữ số bot riêng để
+  // vận hành nhưng giao diện gộp vào tổng theo yêu cầu. Vote, sức chứa và sảnh chỉ đếm người thật. Bot không chào hỏi
   // riêng, không thỉnh chuông, và phải bị loại khỏi bảng công đức trước khi có ủng hộ bằng tiền thật. Đổi số lượng
   // bằng BOTS_THIEN.
   bots: {
@@ -182,7 +195,7 @@ export const GAME_RULES = defineRoomRules({
   moderation: 'standard',
   bots: {
     count: 8,
-    max: 20,
+    max: 100,
     initial: 5,
     arrivalMs: [2_000, 7_000],
     actionMs: [1_000, 4_000],
@@ -190,7 +203,7 @@ export const GAME_RULES = defineRoomRules({
     play: 'dice',
     stakes: [1, 5, 10, 20, 50],
     skins: ['pilgrim', 'lotusgirl', 'man', 'woman', 'child', 'granny', 'nun', 'monk'],
-    names: ['An Nhiên 🤖', 'Mây Trắng 🤖', 'Sen Nhỏ 🤖', 'Tâm Vui 🤖', 'Bình Minh 🤖', 'Gió Mát 🤖', 'Hạt Mưa 🤖', 'Trăng Non 🤖', 'Lá Bồ Đề 🤖', 'Hoa Đăng 🤖', 'Thiện Tâm 🤖', 'Pháp Lạc 🤖', 'Suối Trong 🤖', 'Nắng Mai 🤖', 'Tịnh Lạc 🤖', 'Diệu Âm 🤖', 'Bình An 🤖', 'Từ Tâm 🤖', 'Hương Sen 🤖', 'Mộc Miên 🤖'],
+    names: ['An Nhiên', 'Mây Trắng', 'Sen Nhỏ', 'Tâm Vui', 'Bình Minh', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Lá Bồ Đề', 'Hoa Đăng', 'Thiện Tâm', 'Pháp Lạc', 'Suối Trong', 'Nắng Mai', 'Tịnh Lạc', 'Diệu Âm', 'Bình An', 'Từ Tâm', 'Hương Sen', 'Mộc Miên'],
   },
   interaction: {
     game: 'bau-cua',
@@ -211,7 +224,7 @@ export const TAI_XIU_RULES = defineRoomRules({
   moderation: 'standard',
   bots: {
     count: 8,
-    max: 20,
+    max: 100,
     initial: 5,
     arrivalMs: [2_000, 7_000],
     actionMs: [1_000, 4_000],
@@ -219,7 +232,7 @@ export const TAI_XIU_RULES = defineRoomRules({
     play: 'dice',
     stakes: [1, 5, 10, 20, 50],
     skins: ['lotusgirl', 'pilgrim', 'woman', 'man', 'granny', 'child', 'nun', 'monk'],
-    names: ['Tí Xúc Xắc 🤖', 'Mèo May Mắn 🤖', 'Sáu Mặt 🤖', 'Chấm Đỏ 🤖', 'Mây Trắng 🤖', 'Sen Nhỏ 🤖', 'Tâm Vui 🤖', 'Gió Mát 🤖', 'Hạt Mưa 🤖', 'Trăng Non 🤖', 'Hoa Đăng 🤖', 'Bình Minh 🤖', 'Song Hỷ 🤖', 'Tam Hoa 🤖', 'Cầu Vồng 🤖', 'Mầm Non 🤖', 'May Mắn 🤖', 'Tài Lộc 🤖', 'Ngọc Sáng 🤖', 'Đom Đóm 🤖'],
+    names: ['Tí Xúc Xắc', 'Mèo May Mắn', 'Sáu Mặt', 'Chấm Đỏ', 'Mây Trắng', 'Sen Nhỏ', 'Tâm Vui', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Hoa Đăng', 'Bình Minh', 'Song Hỷ', 'Tam Hoa', 'Cầu Vồng', 'Mầm Non', 'May Mắn', 'Tài Lộc', 'Ngọc Sáng', 'Đom Đóm'],
   },
   interaction: {
     game: 'tai-xiu',
@@ -231,8 +244,9 @@ export const TAI_XIU_RULES = defineRoomRules({
   },
 });
 
-// Shop nhân vật: mua bằng kim cương (💎, chỉ có khi nạp tiền qua Stripe). Hình trong PREMIUM_SKINS không bao giờ
-// được chia ngẫu nhiên cho người mới/bot; máy realtime chỉ nhận avatar.set khi vé vào phòng ghi đã sở hữu.
+// Shop nhân vật: mua bằng kim cương (💎, chỉ có khi nạp tiền qua Stripe). Người thật không bao giờ được chia ngẫu
+// nhiên hình trong PREMIUM_SKINS; máy realtime chỉ nhận avatar.set khi vé vào phòng ghi đã sở hữu. Bot được phép lấy
+// danh mục shop đang bật từ API để cảnh có nhiều nhân vật hơn, nhưng không mang quyền sở hữu của tài khoản.
 // base: hình khối thay thế khi máy không tải được mô hình .glb (và ảnh 2D).
 export const SHOP_ITEMS = deepFreeze([
   // thumb: ảnh chân dung dựng sẵn (shop/cổng hiện ngay, không phải tải three.js và mô hình mới thấy hình).
@@ -255,6 +269,18 @@ export const LOTO_RULES = defineRoomRules({
   maxParticipants: 500,
   lang: 'vi',
   moderation: 'standard',
+  bots: {
+    count: 0,
+    max: 100,
+    initial: 5,
+    arrivalMs: [2_000, 7_000],
+    actionMs: [1_000, 4_000],
+    churnMs: [150_000, 300_000],
+    play: 'loto',
+    skins: ['pilgrim', 'lotusgirl', 'man', 'woman', 'child', 'granny', 'nun', 'monk'],
+    names: ['Lô Tô Vui', 'Bông Sen', 'Mây Trắng', 'Tâm Vui', 'Bình Minh', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Hoa Đăng', 'Thiện Tâm', 'Pháp Lạc', 'Suối Trong', 'Nắng Mai', 'Tịnh Lạc', 'Diệu Âm', 'Bình An', 'Từ Tâm', 'Hương Sen', 'Mộc Miên', 'Ngọc Sáng'],
+    lines: ['Chúc mọi người may mắn'],
+  },
   interaction: {
     game: 'loto',
     buyMs: 30_000,
@@ -265,6 +291,8 @@ export const LOTO_RULES = defineRoomRules({
     falseClaimLockMs: 10_000,
     ticketPrice: 10,
     maxTickets: 2,
+    // Cần ít nhất 2 người có vé mới bắt đầu gọi số.
+    minPlayers: 2,
     autoMarkPrice: 5,
     houseCutPercent: 10,
   },
