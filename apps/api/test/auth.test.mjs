@@ -249,6 +249,19 @@ test('hỗ trợ: gửi báo lỗi/góp ý (kiểm tra kiểu, cắt độ dài,
   assert.equal((await request(options, 'PATCH', `/api/v1/admin/support/${bug.id}`, { body: { status: 'xoa' }, headers: { 'x-admin-key': 'khoa-quan-tri' } })).status, 400);
 });
 
+test('hỗ trợ: nhận phiếu hỗ trợ xu và hiện đúng loại cho quản trị', async () => {
+  const { createMemorySupportStore } = await import('../support.mjs');
+  const options = setup({ adminSecret: 'khoa-quan-tri', supportStore: createMemorySupportStore() });
+  const sent = await request(options, 'POST', '/api/v1/support', {
+    body: { kind: 'coins', message: 'Tưới cây xong nhưng chưa nhận được 20 xu', page: '/chanh-dien.html' },
+  });
+  assert.equal(sent.status, 201);
+  const listed = await request(options, 'GET', '/api/v1/admin/support', { headers: { 'x-admin-key': 'khoa-quan-tri' } });
+  assert.equal(listed.status, 200);
+  assert.equal(listed.json.tickets[0].kind, 'coins');
+  assert.equal(listed.json.tickets[0].message, 'Tưới cây xong nhưng chưa nhận được 20 xu');
+});
+
 test('hỗ trợ: có phiếu mới thì báo Telegram (chữ thường, không parse_mode); thiếu cấu hình thì không báo', async () => {
   const { createTelegramNotifier, supportMessage } = await import('../notify.mjs');
   const { createMemorySupportStore } = await import('../support.mjs');
@@ -270,6 +283,7 @@ test('hỗ trợ: có phiếu mới thì báo Telegram (chữ thường, không 
   assert.match(calls[0].body.text, /Không nghe được tiếng chuông <b>to<\/b>/);
   assert.match(calls[0].body.text, /Liên hệ: an@example\.com/);
   assert.match(calls[0].body.text, /Xem & xử lý: https:\/\/vi-du\.example\/admin-thien\.html/);
+  assert.match(supportMessage({ id: 'ht-xu', kind: 'coins', message: 'Chưa nhận được xu' }), /🪙 Hỗ trợ xu/);
   assert.ok(supportMessage({ id: 'ht-1', kind: 'idea', message: 'x'.repeat(9_000) }).length <= 4_000);
   // Telegram lỗi: phiếu vẫn lưu, API vẫn trả 201.
   const failing = createTelegramNotifier({ token: '1:A', chatId: '2', fetchImpl: async () => { throw new Error('offline'); } });

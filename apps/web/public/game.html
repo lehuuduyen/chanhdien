@@ -45,6 +45,11 @@
     .balance { margin-left: auto; color: var(--gold); font-weight: 800; font-variant-numeric: tabular-nums; }
     .balance small { color: var(--muted); font-weight: 500; font-size: 10px; }
 
+    /* Chọn trò trong phòng game (Bầu Cua / Tài Xỉu). */
+    .games { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+    .games a { display: grid; place-items: center; height: 32px; color: var(--muted); border-radius: 999px; font-weight: 700; font-size: 14px; text-decoration: none; }
+    .games a[aria-current="page"] { color: #2a1404; background: var(--gold); }
+
     h1 { margin: 2px 0 0; text-align: center; font-family: Georgia, serif; font-size: clamp(22px, 6vw, 30px); font-weight: 600; letter-spacing: .02em; color: var(--gold); text-shadow: 0 2px 12px rgba(255, 180, 60, .35); }
 
     /* Dải trạng thái ván: pha + đồng hồ đếm ngược (theo giờ server, ai cũng thấy như nhau) + người chơi. */
@@ -148,6 +153,11 @@
       </div>
       <span class="chip balance" aria-live="polite">🪙 <span id="balance">…</span><small>xu</small></span>
     </div>
+
+    <nav class="games" aria-label="Chọn trò">
+      <a href="/game.html" aria-current="page">🦀 Bầu Cua</a>
+      <a href="/tai-xiu.html">🎲 Tài Xỉu</a>
+    </nav>
 
     <h1>Bầu Cua Tôm Cá</h1>
 

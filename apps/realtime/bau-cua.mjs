@@ -5,21 +5,33 @@
 //   cả bàn, rồi phát kết quả và gửi riêng từng người `game.payout`. API không trả lời được thì ván bị hủy (void);
 //   API tự hoàn cược ván treo sau vài phút.
 // Mọi người trong phòng thấy cùng một đồng hồ (endsAt theo giờ server) và cùng một lần lắc.
+// Tài Xỉu dùng chung bàn này (rules.game = 'tai-xiu'): khác ô cược, cách lắc (3 số 1–6) và có giữ 10 ván gần nhất.
 import { createHash, randomInt } from 'node:crypto';
-import { BAU_CUA_ANIMALS, PROTOCOL_VERSION } from '@chanh-dien/protocol';
+import { BAU_CUA_ANIMALS, PROTOCOL_VERSION, TAI_XIU_SPOTS } from '@chanh-dien/protocol';
 
 const STATE_THROTTLE_MS = 300;
 const SETTLE_ATTEMPTS = 3;
-const emptyTotals = () => Object.fromEntries(BAU_CUA_ANIMALS.map((animal) => [animal, 0]));
+// Mỗi trò xúc xắc chung bàn: tiền tố mã ván (API chọn cách trả thưởng theo đó), ô cược, tên trường ô cược trong
+// bet.place, cách lắc ba xúc xắc.
+export const DICE_TABLE_GAMES = Object.freeze({
+  'bau-cua': { prefix: 'bc', spots: BAU_CUA_ANIMALS, field: 'animal', roll: (random) => [0, 1, 2].map(() => BAU_CUA_ANIMALS[random(BAU_CUA_ANIMALS.length)]) },
+  'tai-xiu': { prefix: 'tx', spots: TAI_XIU_SPOTS, field: 'spot', roll: (random) => [0, 1, 2].map(() => random(6) + 1) },
+});
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
 
 export class BauCuaTable {
   // stake({ accountId, roundId, animal, amount, key }) → { ok, mine, coins } | { ok: false, code } | null (lỗi mạng)
   // unstake({ accountId, roundId, key }) → { ok, removed, refunded, coins } | { ok: false, code } | null
   // settle({ roundId, dice }) → { ok, results: [{ accountId, staked, payout, net, coins }] } | { ok: false, code } | null
-  // rules: room rules interaction (bettingMs, rollingMs, resultMs, maxStakePerRound); test có thể truyền nhịp ngắn.
+  // rules: room rules interaction (game, bettingMs, rollingMs, resultMs, maxStakePerRound, historyRounds); test có thể
+  // truyền nhịp ngắn.
   constructor({ room, rules, stake, unstake, settle, now = Date.now, random = randomInt }) {
     this.room = room;
+    this.game = DICE_TABLE_GAMES[rules.game] ? rules.game : 'bau-cua';
+    this.definition = DICE_TABLE_GAMES[this.game];
+    // Ván gần nhất (mới nhất trước), chỉ giữ trong bộ nhớ: người vào sau xem cầu.
+    this.historyRounds = rules.historyRounds || 0;
+    this.history = [];
     this.bettingMs = rules.bettingMs;
     this.rollingMs = rules.rollingMs;
     this.resultMs = rules.resultMs;
@@ -55,10 +67,10 @@ export class BauCuaTable {
     this.serial += 1;
     const suffix = randomInt(36 ** 4).toString(36).padStart(4, '0');
     this.round = {
-      id: `bc-${this.room.id}-${this.room.epoch}-${this.serial}-${suffix}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 79),
+      id: `${this.definition.prefix}-${this.room.id}-${this.room.epoch}-${this.serial}-${suffix}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 79),
       phase: 'betting',
       endsAt: this.now() + this.bettingMs,
-      totals: emptyTotals(),
+      totals: Object.fromEntries(this.definition.spots.map((spot) => [spot, 0])),
       bettors: new Set(),
       mine: new Map(),
       pending: new Set(),
@@ -80,7 +92,7 @@ export class BauCuaTable {
     this.broadcastState();
     // Lệnh đặt cược gửi trước giờ đóng nhưng API chưa trả lời: chờ xong để ván chốt đủ cược.
     await Promise.allSettled([...round.pending]);
-    const dice = [0, 1, 2].map(() => BAU_CUA_ANIMALS[this.random(BAU_CUA_ANIMALS.length)]);
+    const dice = this.definition.roll(this.random);
     let settled = { ok: true, results: [] };
     if (round.bettors.size) {
       settled = null;
@@ -97,6 +109,7 @@ export class BauCuaTable {
     round.phase = 'result';
     round.endsAt = this.now() + this.resultMs;
     round.dice = dice;
+    if (this.historyRounds) this.history = [[...dice], ...this.history].slice(0, this.historyRounds);
     if (settled?.ok) {
       round.winners = settled.results.filter((item) => item.net > 0).sort((a, b) => b.net - a.net).slice(0, 5)
         .map((item) => ({ displayName: this.nameOf(item.accountId), net: item.net }));
@@ -113,9 +126,12 @@ export class BauCuaTable {
   }
 
   // Đặt cược của một thành viên. Trả { ok } hoặc { ok: false, code, message } để báo lỗi riêng người đặt.
-  async placeBet(participant, { requestId, roundId, animal, amount }) {
+  async placeBet(participant, { requestId, roundId, animal, spot, amount }) {
     const round = this.round;
     if (!participant?.accountId) return { ok: false, code: 'SIGN_IN_REQUIRED', message: 'Đăng nhập để cược bằng xu' };
+    // Ô cược của đúng trò ở bàn này (Bầu Cua: animal, Tài Xỉu: spot).
+    const key = this.definition.field === 'spot' ? spot : animal;
+    if (!this.definition.spots.includes(key)) return { ok: false, code: 'INVALID_BET', message: 'Ô cược không có ở bàn này' };
     if (!round || round.phase !== 'betting' || round.id !== roundId || this.now() >= round.endsAt) {
       return { ok: false, code: 'BETTING_CLOSED', message: 'Đã hết giờ đặt cược ván này' };
     }
@@ -123,8 +139,8 @@ export class BauCuaTable {
     if (placed + amount > this.maxStake) return { ok: false, code: 'STAKE_LIMIT', message: `Mỗi ván cược tối đa ${this.maxStake} xu` };
     if (!this.stake) return { ok: false, code: 'GAME_UNAVAILABLE', message: 'Bàn chưa nối được ví xu, thử lại sau' };
     // Khóa idempotency cho API: cùng người + cùng requestId (gửi lại) thì không trừ hai lần.
-    const key = createHash('sha256').update(`${participant.accountId}:${requestId}`).digest('base64url').slice(0, 40);
-    const call = Promise.resolve(this.stake({ accountId: participant.accountId, roundId, animal, amount, key }));
+    const requestKey = createHash('sha256').update(`${participant.accountId}:${requestId}`).digest('base64url').slice(0, 40);
+    const call = Promise.resolve(this.stake({ accountId: participant.accountId, roundId, animal: key, amount, key: requestKey }));
     round.pending.add(call);
     let result = null;
     try { result = await call; } catch {}
@@ -138,7 +154,7 @@ export class BauCuaTable {
     }
     if (this.round !== round) return { ok: true };
     if (!result.replayed) {
-      round.totals[animal] += amount;
+      round.totals[key] += amount;
       round.bettors.add(participant.accountId);
     }
     round.mine.set(participant.accountId, result.mine);
@@ -189,7 +205,7 @@ export class BauCuaTable {
       v: PROTOCOL_VERSION,
       type: 'game.state',
       epoch: this.room.epoch,
-      game: 'bau-cua',
+      game: this.game,
       roundId: round.id,
       phase: round.phase,
       endsAt: round.endsAt,
@@ -198,6 +214,7 @@ export class BauCuaTable {
       ...(round.dice ? { dice: [...round.dice] } : {}),
       ...(round.winners ? { winners: round.winners } : {}),
       ...(round.void ? { void: true } : {}),
+      ...(this.historyRounds ? { history: this.history.map((dice) => [...dice]) } : {}),
     };
   }
 

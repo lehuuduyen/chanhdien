@@ -18,7 +18,7 @@ import {
   verifyResumeToken,
 } from '@chanh-dien/session-token';
 import { WebSocket, WebSocketServer } from 'ws';
-import { bauCuaBank, BauCuaTable } from './bau-cua.mjs';
+import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
 
 const HEARTBEAT_MS = 15_000;
 const MAX_PAYLOAD = 64 * 1_024;
@@ -187,7 +187,8 @@ export class Room {
     this.friendRequests = new Map();
     this.challenges = new Map();
     // Phòng game: bàn Bầu Cua chơi chung (chạy khi có người trong phòng). options.bauCua: { stake, settle } gọi API.
-    this.table = this.rules.interaction?.game === 'bau-cua'
+    // Tài Xỉu dùng chung bàn (khác ô cược / cách lắc), cùng ví xu qua API.
+    this.table = DICE_TABLE_GAMES[this.rules.interaction?.game]
       ? new BauCuaTable({ room: this, rules: this.rules.interaction, ...(options.bauCua || {}) })
       : null;
   }
@@ -1757,7 +1758,7 @@ function handleRoomMessage(socket, context, raw) {
   }
   if (message.type === 'bet.place') {
     if (!room.table) {
-      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Bầu Cua', message.requestId);
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn cược', message.requestId);
       return;
     }
     if (!room.allow(`${context.participantId}:bet`, 10, 5_000)) {
@@ -1772,7 +1773,7 @@ function handleRoomMessage(socket, context, raw) {
   }
   if (message.type === 'bet.cancel') {
     if (!room.table) {
-      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Bầu Cua', message.requestId);
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn cược', message.requestId);
       return;
     }
     if (!room.allow(`${context.participantId}:bet-cancel`, 3, 5_000)) {

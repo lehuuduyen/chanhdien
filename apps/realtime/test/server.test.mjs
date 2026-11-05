@@ -1333,3 +1333,39 @@ test('phòng game: hủy cược trong pha đặt — hoàn xu, trừ khỏi t�
   assert.equal((await room.table.cancelBets(room.participants.get('binh'), { requestId: 'c-3', roundId })).code, 'BETTING_CLOSED');
   room.close();
 });
+
+test('phòng Tài Xỉu: chung bàn với Bầu Cua — ô cược riêng (spot), xúc xắc 1–6, giữ 10 ván gần nhất', async () => {
+  const stakes = [];
+  const settled = [];
+  let face = 0;
+  const bank = {
+    rules: { game: 'tai-xiu', bettingMs: 30, rollingMs: 10, resultMs: 10, maxStakePerRound: 1_000, historyRounds: 10 },
+    random: () => (face++ % 6),
+    stake: async ({ accountId, roundId, animal, amount }) => {
+      stakes.push({ accountId, roundId, spot: animal, amount });
+      return { ok: true, mine: { [animal]: amount }, coins: 100 - amount };
+    },
+    settle: async ({ roundId, dice }) => { settled.push({ roundId, dice }); return { ok: true, results: [] }; },
+  };
+  const room = new Room('taixiu-1', { bauCua: bank });
+  const sent = [];
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => sent.push(JSON.parse(raw)), close() {} }, { participantId: 'an', displayName: 'An', accountId: 'a-an-00000001' });
+  const first = room.table.stateMessage();
+  assert.equal(first.game, 'tai-xiu');
+  assert.match(first.roundId, /^tx-/);
+  assert.equal(Object.keys(first.totals).length, 22);
+  assert.deepEqual(first.history, []);
+  const an = room.participants.get('an');
+  assert.equal((await room.table.placeBet(an, { requestId: 'x-1', roundId: first.roundId, animal: 'cua', amount: 5 })).code, 'INVALID_BET', 'linh vật Bầu Cua không có ở bàn Tài Xỉu');
+  assert.deepEqual(await room.table.placeBet(an, { requestId: 'x-2', roundId: first.roundId, spot: 'tai', amount: 10 }), { ok: true });
+  assert.equal(room.table.stateMessage().totals.tai, 10);
+  assert.deepEqual(stakes[0], { accountId: 'a-an-00000001', roundId: first.roundId, spot: 'tai', amount: 10 });
+  // Chạy qua 12 ván: lịch sử chỉ còn 10 ván mới nhất, mới nhất đứng đầu.
+  await waitForCondition(() => room.table.serial >= 13, 5_000);
+  const state = room.table.stateMessage();
+  assert.equal(state.history.length, 10);
+  assert.ok(state.history.every((dice) => dice.length === 3 && dice.every((value) => value >= 1 && value <= 6)));
+  assert.deepEqual(settled[0].dice.every((value) => Number.isInteger(value)), true, 'ván có cược được chốt với 3 số');
+  assert.ok(sent.filter((message) => message.type === 'game.state').every((message) => parseServerMessage(message).ok), 'mọi game.state đúng protocol');
+  room.close();
+});

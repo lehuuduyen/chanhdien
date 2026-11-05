@@ -31,7 +31,14 @@ const STAGES = ['seed', 'sprout', 'young'];
 export const BAU_CUA_ANIMALS = Object.freeze(['nai', 'bau', 'ga', 'ca', 'cua', 'tom']);
 export const BAU_CUA_MAX_STAKE = 1_000;
 export const BAU_CUA_STALE_MS = 3 * 60_000;
-const ROUND_ID = /^bc-[a-z0-9-]{4,76}$/;
+// Tài Xỉu (Sic Bo) chung khung với Bầu Cua: cùng bảng cược / sổ ván, khác ô cược và cách trả thưởng. Mã ván cho biết
+// trò: "bc-…" Bầu Cua, "tx-…" Tài Xỉu.
+//   xiu / tai: tổng 4–10 / 11–17, ăn 1:1, thua khi ra bộ ba (ba mặt giống nhau)
+//   t4 … t17: đúng tổng điểm, ăn theo TAI_XIU_TOTAL_ODDS
+//   f1 … f6: mặt đó ra k con, ăn 1:k (như Bầu Cua)
+export const TAI_XIU_TOTAL_ODDS = Object.freeze({ 4: 50, 5: 18, 6: 14, 7: 12, 8: 8, 9: 6, 10: 6, 11: 6, 12: 6, 13: 8, 14: 12, 15: 14, 16: 18, 17: 50 });
+export const TAI_XIU_SPOTS = Object.freeze(['xiu', 'tai', ...Object.keys(TAI_XIU_TOTAL_ODDS).map((sum) => `t${sum}`), ...[1, 2, 3, 4, 5, 6].map((face) => `f${face}`)]);
+const ROUND_ID = /^(bc|tx)-[a-z0-9-]{4,76}$/;
 // Nhiệm vụ hằng ngày (theo ngày của vườn): làm xong thì bấm nhận xu, mỗi nhiệm vụ một lần mỗi ngày. Server tự kiểm
 // tra lịch sử vườn và đóng góp công trình chung; `location` chỉ là hướng dẫn UI, không dùng để xác nhận hoàn thành.
 export const DAILY_QUESTS = Object.freeze([
@@ -280,6 +287,31 @@ const MIGRATIONS = [
   ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
   CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);`,
 ];
+
+// Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
+export function settleTaiXiu(bets, dice) {
+  const sum = dice.reduce((total, face) => total + face, 0);
+  const triple = dice[0] === dice[1] && dice[1] === dice[2];
+  let staked = 0;
+  let payout = 0;
+  for (const [spot, amount] of Object.entries(bets)) {
+    staked += amount;
+    let odds = 0;
+    if (spot === 'xiu') odds = !triple && sum <= 10 ? 1 : 0;
+    else if (spot === 'tai') odds = !triple && sum >= 11 ? 1 : 0;
+    else if (spot.startsWith('t')) odds = Number(spot.slice(1)) === sum ? TAI_XIU_TOTAL_ODDS[sum] : 0;
+    else if (spot.startsWith('f')) odds = dice.filter((face) => face === Number(spot.slice(1))).length;
+    if (odds) payout += amount + amount * odds;
+  }
+  return { staked, payout, net: payout - staked, sum, triple };
+}
+
+// Mỗi trò xúc xắc: ô cược hợp lệ, mặt xúc xắc hợp lệ, cách trả thưởng, tên ghi sổ (game_rounds.game).
+const DICE_GAMES = {
+  bc: { name: 'bau_cua', spots: BAU_CUA_ANIMALS, face: (item) => BAU_CUA_ANIMALS.includes(item), settle: (bets, dice) => settleBauCua(bets, dice) },
+  tx: { name: 'tai_xiu', spots: TAI_XIU_SPOTS, face: (item) => Number.isSafeInteger(item) && item >= 1 && item <= 6, settle: (bets, dice) => settleTaiXiu(bets, dice) },
+};
+const gameOfRound = (roundId) => DICE_GAMES[roundId.slice(0, 2)];
 
 // Trả thưởng một ván Bầu Cua. bets: { linh vật: xu }, dice: 3 linh vật. Linh vật có cược xuất hiện k lần: nhận lại
 // tiền gốc + cược × k; không xuất hiện: mất cược. Trả { staked, payout, net, hits }.
@@ -661,7 +693,8 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     // Ván đã chốt thì từ chối. Cùng key gửi lại trả nguyên kết quả cũ. Trả { ok, mine: { linh vật: xu }, coins }.
     stakeBauCua({ accountId, roundId, animal, amount, key }) {
       if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
-      if (typeof roundId !== 'string' || !ROUND_ID.test(roundId) || !BAU_CUA_ANIMALS.includes(animal)
+      // animal: ô cược của trò theo mã ván (linh vật Bầu Cua / ô Tài Xỉu).
+      if (typeof roundId !== 'string' || !ROUND_ID.test(roundId) || !gameOfRound(roundId).spots.includes(animal)
         || !Number.isSafeInteger(amount) || amount < 1 || amount > BAU_CUA_MAX_STAKE) return { ok: false, code: 'INVALID' };
       if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
       return transaction(() => {
@@ -689,7 +722,8 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     // Trả { ok, results: [{ accountId, staked, payout, net, coins }] }.
     settleBauCuaRound({ roundId, dice }) {
       if (typeof roundId !== 'string' || !ROUND_ID.test(roundId) || !Array.isArray(dice) || dice.length !== 3
-        || !dice.every((item) => BAU_CUA_ANIMALS.includes(item))) return { ok: false, code: 'INVALID' };
+        || !dice.every(gameOfRound(roundId)?.face || (() => false))) return { ok: false, code: 'INVALID' };
+      const game = gameOfRound(roundId);
       return transaction(() => {
         const done = q.roundDone.get(roundId);
         if (done) return done.status === 'void' ? { ok: false, code: 'ROUND_VOID' } : { ok: true, results: JSON.parse(done.results), replayed: true };
@@ -700,9 +734,9 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         }
         const results = [];
         for (const [accountId, bets] of byAccount) {
-          const { staked, payout, net } = settleBauCua(bets, dice);
+          const { staked, payout, net } = game.settle(bets, dice);
           const coins = payout ? changeCoins(accountId, payout, 'game_win', null, null) : ensureWallet(accountId);
-          q.gameRound.run(accountId, 'bau_cua', JSON.stringify(bets), JSON.stringify(dice), staked, payout, coins, now());
+          q.gameRound.run(accountId, game.name, JSON.stringify(bets), JSON.stringify(dice), staked, payout, coins, now());
           results.push({ accountId, staked, payout, net, coins });
         }
         q.closeRound.run(roundId, 'settled', JSON.stringify(dice), JSON.stringify(results), now());

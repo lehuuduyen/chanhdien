@@ -1,4 +1,4 @@
-// Hỗ trợ: người dùng gửi báo lỗi / góp ý nâng cấp; quản trị xem trong trang admin. Lưu file JSON ở DATA_DIR (giống
+// Hỗ trợ: người dùng gửi báo lỗi / hỗ trợ xu / góp ý nâng cấp; quản trị xem trong trang admin. Lưu file JSON ở DATA_DIR (giống
 // sớ cầu nguyện). Kiểm tra kiểu và cắt độ dài mọi trường; văn bản người dùng chỉ hiện bằng textContent.
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { allow, body, clientIp, currentAccount, sameOrigin } from './auth.mjs';
 import { json } from './http.mjs';
 
-export const SUPPORT_KINDS = Object.freeze(['bug', 'idea', 'other']);
+export const SUPPORT_KINDS = Object.freeze(['bug', 'coins', 'idea', 'other']);
 export const SUPPORT_STATUSES = Object.freeze(['new', 'seen', 'done']);
 const MAX_TICKETS = 2_000;
 const SUBMIT_LIMIT = [5, 10 * 60_000];

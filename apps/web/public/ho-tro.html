@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#2a0f06">
   <title>Góp ý & Báo lỗi · Chánh Điện Online</title>
   <style>
-    /* Trang Hỗ trợ: người dùng gửi báo lỗi / góp ý nâng cấp (API /api/v1/support); quản trị xem ở trang admin.
+    /* Trang Hỗ trợ: người dùng gửi báo lỗi / hỗ trợ xu / góp ý nâng cấp (API /api/v1/support); quản trị xem ở trang admin.
        Kèm trang vừa mở và tên trình duyệt để dễ tìm lỗi. */
     :root {
       color-scheme: dark;
@@ -33,7 +33,7 @@
     .lead { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 
     form, .done { display: grid; gap: 14px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
-    fieldset { margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    fieldset { margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
     legend, label > span { margin-bottom: 6px; color: var(--muted); font-size: 13px; }
     .kind input { position: absolute; opacity: 0; pointer-events: none; }
     .kind span { display: grid; justify-items: center; gap: 4px; padding: 12px 6px; text-align: center; background: rgba(0, 0, 0, .25); border: 2px solid var(--line); border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -65,14 +65,15 @@
     </div>
 
     <header>
-      <h1>Góp ý & Báo lỗi</h1>
-      <p class="lead">Gặp lỗi, muốn thêm tính năng hay có điều muốn nhắn? Viết vài dòng, nhóm phát triển sẽ đọc từng phiếu.</p>
+      <h1>Trung tâm hỗ trợ</h1>
+      <p class="lead">Gặp lỗi, cần hỗ trợ xu, muốn thêm tính năng hay có điều muốn nhắn? Viết vài dòng, nhóm phát triển sẽ đọc từng phiếu.</p>
     </header>
 
     <form id="form" novalidate>
       <fieldset>
         <legend>Bạn muốn gửi gì?</legend>
         <label class="kind"><input type="radio" name="kind" value="bug" checked><span><b>🐞</b>Báo lỗi</span></label>
+        <label class="kind"><input type="radio" name="kind" value="coins"><span><b>🪙</b>Hỗ trợ xu</span></label>
         <label class="kind"><input type="radio" name="kind" value="idea"><span><b>💡</b>Góp ý nâng cấp</span></label>
         <label class="kind"><input type="radio" name="kind" value="other"><span><b>💬</b>Khác</span></label>
       </fieldset>
@@ -116,6 +117,7 @@
 
     const LABELS = {
       bug: ['Lỗi xảy ra thế nào? (ở đâu, bấm gì, thấy gì)', 'Ví dụ: Vào rạp phim, xoay ngang điện thoại thì video bị che…'],
+      coins: ['Bạn gặp vấn đề gì với xu?', 'Ví dụ: Tôi đã hoàn thành nhiệm vụ tưới cây nhưng chưa nhận được 20 xu…'],
       idea: ['Bạn muốn thêm hoặc sửa gì?', 'Ví dụ: Thêm phòng nghe nhạc, cho đổi màu áo nhân vật…'],
       other: ['Bạn muốn nhắn gì?', 'Viết điều bạn muốn gửi tới nhóm phát triển…'],
     };
