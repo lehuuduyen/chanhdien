@@ -162,3 +162,18 @@ test('nhiều máy: xếp phòng theo số chỗ người thật đang giữ, kh
   assert.equal(assigned.status, 200);
   assert.equal(assigned.json.roomId, 'thien-az-vi-2');
 });
+
+test('danh sách phòng đang mở kèm mã mời để đổi sang đúng phòng; chỉ phòng đang có người', async () => {
+  const directory = {
+    listNodes: async () => [{ nodeId: 'rt-1', url: '/ws', roomCounts: { 'thien-az-vi-1': 3, 'thien-az-vi-2': 0, 'thien-az-vi-3': 1, 'thien-ca-vi-1': 2 } }],
+    getRoomOwner: async () => null,
+  };
+  const options = { secret: SECRET, directory };
+  const listed = await request(options, 'GET', '/api/v1/thien/rooms?state=az&lang=vi');
+  assert.deepEqual(listed.json.rooms.map((room) => [room.roomId, room.count]), [['thien-az-vi-1', 3], ['thien-az-vi-3', 1]]);
+  const target = listed.json.rooms[1];
+  const joined = await request(options, 'POST', '/api/v1/rooms/join', { roomId: target.roomId, inviteCode: target.inviteCode, displayName: 'An' });
+  assert.equal(joined.status, 200);
+  // Mã mời của phòng này không vào được phòng khác.
+  assert.equal((await request(options, 'POST', '/api/v1/rooms/join', { roomId: 'thien-az-vi-9', inviteCode: target.inviteCode, displayName: 'An' })).status, 403);
+});

@@ -341,6 +341,7 @@ Người dùng muốn tượng "giống thật". Đã dùng bản quét bảo t�
 
 - **Kinh văn:** Kinh A Di Đà, Phổ Môn, Dược Sư, Vu Lan mới có khung (`apps/web/public/sutras.js`, chỗ `TODO(nhà chùa)`). Chờ nhà chùa gửi toàn văn bản chuẩn. Hai thần chú (Vãng sanh, Dược Sư) cần nhà chùa đối chiếu.
 - **Mô hình thật:** chú tiểu .glb có khung xương + động tác Mixamo (người dùng chọn CC0 + Mixamo). Mixamo cần tài khoản Adobe nên người dùng tự tải. `chibi3d.mjs` là bản dựng tạm, thay được mà không đổi điều khiển.
+- **Nhân vật chibigirl (04/11/2026):** mô hình Meshy của người dùng (`nhanvat/chibigirl.glb`, 48 MB, 427k tam giác, không khung xương), nay là hình `chibigirl` bán trong Shop nhân vật (Nữ mặc định trở lại hình khối); giữ nguyên bộ đồ (mũ đỏ, áo trắng, quần túi hộp) ở mọi nơi. `assets-src/characters/build-chibi.py` (Blender): gộp đỉnh trùng → Decimate còn 10k → trải UV mới + bake màu từ bản gốc → tách `upper` / `thighL|R` / `shinL|R`; nén bằng gltf-transform (meshopt + WebP 1024, `--join false --flatten false`) còn ~310 KB ở `apps/web/public/models/characters/chibi-girl.glb`. `chibi3d.mjs`: `loadChibiModels()` (tải trước khi dựng người; lỗi thì dùng hình khối), `rig.pose({ hip, stride, kneel, sit })` gập đùi/cẳng chân cho đi, quỳ, lạy, ngồi ghế; người ngồi bồ đoàn duỗi chân. Lưu ý: không gộp đỉnh trước khi Decimate thì mỗi tam giác thành một đảo UV và texture lem vệt trắng.
 - **Load test** phần di chuyển để chốt `maxWalkers` (đang 200).
 - **Rạp phim 3D** (Giai đoạn 9.4).
 - **Chưa thử trên điện thoại thật:**

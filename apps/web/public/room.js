@@ -1,6 +1,8 @@
 import { createSceneRenderer } from '/engine/renderer.mjs';
 import { parseYouTubeId } from '/youtube.js';
 import { createBootLoader, waitFor } from '/boot-loader.js';
+import { createGemUI } from '/gem-ui.js';
+import { loadShopCharacters } from '/shop-models.js';
 import { theaterSeats } from '/engine/theater.mjs';
 
 const PROTOCOL_VERSION = 1;
@@ -91,10 +93,11 @@ let cameraId = 'overview';
 let playback = { current: null, queue: [], votes: 0, votesNeeded: 1 };
 let votedItemId = null;
 
-// Nam/Nữ chọn ở cổng chùa (lưu trong máy); hình cũ (sư cô, bà cụ…) quy về nữ, còn lại nam.
+// Nam/Nữ (hoặc hình mua trong shop) chọn ở cổng chùa, lưu trong máy; hình cũ (sư cô, bà cụ…) quy về nữ, còn lại nam.
 function chosenSkin() {
   let saved = null;
   try { saved = localStorage.getItem('thien-skin'); } catch {}
+  if (saved === 'chibigirl' || /^shop-[a-z0-9-]{2,30}$/.test(saved || '')) return saved;
   return ['woman', 'nun', 'granny'].includes(saved) ? 'woman' : 'man';
 }
 
@@ -191,6 +194,8 @@ async function setupScene() {
       const { createCinemaRenderer3D } = await import('/engine/cinema3d.mjs');
       elements.scene3d.hidden = false;
       elements.scene.hidden = true;
+      // Nhân vật admin tải lên (shop-…): nạp mô hình trước khi dựng khán giả / người đi lại.
+      await loadShopCharacters();
       renderer = await createCinemaRenderer3D({
         canvas: elements.scene3d, scene, onSeatClick: selectSeat,
         onMove: (position) => send({ type: 'move', ...position }),
@@ -483,7 +488,10 @@ function renderPlayback() {
   const voted = Boolean(current) && votedItemId === current.itemId;
   elements.skipButton.disabled = !current || voted || !isOnline();
   elements.skipButton.classList.toggle('voted', voted);
-  elements.skipButton.textContent = current ? `⏭ Vote bỏ qua ${votes}/${votesNeeded}` : '⏭ Vote bỏ qua';
+  // Chữ "Vote bỏ qua" tách riêng để điện thoại ẩn đi (chỉ còn ⏭ và số phiếu) cho đủ chỗ nút nhanh bên phải.
+  const label = Object.assign(document.createElement('span'), { className: 'skip-label', textContent: ' Vote bỏ qua' });
+  elements.skipButton.replaceChildren('⏭', label, current ? ` ${votes}/${votesNeeded}` : '');
+  elements.skipButton.title = 'Vote bỏ qua';
   elements.skipBar.style.width = current ? `${Math.min(100, (votes / votesNeeded) * 100)}%` : '0';
   elements.voteInfo.textContent = current ? `${votes}/${votesNeeded} người đồng ý thì chuyển bài` : '';
   elements.liveState.textContent = current ? '● Đang chiếu' : '● Chờ chiếu';
@@ -562,7 +570,14 @@ function handleMessage(event) {
       reconnectAttempt = 0;
       saveSession();
     }
-    if (message.code === 'WALKERS_FULL') notify('Rạp đông, bạn đang xem như khán giả (vẫn chọn ghế được)');
+    // Hình shop chưa mua (chưa đăng nhập, hoặc vé cũ): mặc hình Nữ thường.
+    if (message.code === 'SKIN_LOCKED') {
+      // Tạm mặc hình Nam/Nữ thay thế của hình đó; vẫn nhớ lựa chọn trên máy (đăng nhập lại là mặc được).
+      import('/engine/chibi3d.mjs').then(({ chibiBaseOf }) => {
+        send({ type: 'avatar.set', requestId: requestId('skin'), skin: chibiBaseOf(chosenSkin()) });
+      });
+      notify('Bạn chưa sở hữu hình này · tạm mặc hình thường');
+    } else if (message.code === 'WALKERS_FULL') notify('Rạp đông, bạn đang xem như khán giả (vẫn chọn ghế được)');
     else if (['UNKNOWN_MESSAGE_TYPE', 'INVALID_MESSAGE'].includes(message.code) && Date.now() - reactedAt < 3_000) {
       notify('Máy chủ rạp chưa cập nhật tính năng thả cảm xúc: cần khởi động lại server');
     }
@@ -913,6 +928,9 @@ elements.coinChip.addEventListener('click', () => {
 });
 loadCoins();
 setInterval(() => { if (!document.hidden) loadCoins(); }, 60_000);
+// Kim cương: bấm mở các gói nạp (admin đặt) → Stripe; trong bảng có lối vào Shop nhân vật.
+const gems = createGemUI({ chip: $('gemChip'), count: $('gemCount'), showToast: notify });
+gems.refresh();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) loadCoins(); });
 
 // Góp ý / Báo lỗi: mở tab mới để phim đang chiếu không bị dừng.

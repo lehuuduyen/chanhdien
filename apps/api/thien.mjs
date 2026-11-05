@@ -63,13 +63,17 @@ export function assignThienRoom(state, lang, counts, options = {}) {
   return null;
 }
 
-// Các phòng đang có người của một (tiểu bang, ngôn ngữ), để cổng vào hiện "PV1 · 12/20".
-function activeRooms(state, lang, counts) {
+// Các phòng đang có người của một (tiểu bang, ngôn ngữ), để cổng vào hiện "PV1 · 12/20". Kèm mã mời của từng
+// phòng để người đang ở chùa bấm đổi sang đúng phòng đó (chỉ phòng đang có người, không mở được phòng mới).
+function activeRooms(state, lang, counts, secret) {
   return Object.entries(counts)
     .map(([roomId, count]) => ({ info: parseThienRoomId(roomId), roomId, count }))
     .filter(({ info, count }) => info && info.state === state && info.lang === lang && count > 0)
     .sort((a, b) => a.info.shard - b.info.shard)
-    .map(({ roomId, count, info }) => ({ roomId, shard: info.shard, name: thienRoomName(roomId), count, capacity: THIEN_RULES.maxParticipants }));
+    .map(({ roomId, count, info }) => ({
+      roomId, shard: info.shard, name: thienRoomName(roomId), count, capacity: THIEN_RULES.maxParticipants,
+      inviteCode: createRoomInvite(roomId, secret),
+    }));
 }
 
 const validState = (value) => typeof value === 'string' && US_STATES.some((state) => state.code === value);
@@ -199,7 +203,7 @@ export async function handleThienRequest(req, res, pathname, options, roomCounts
       json(req, res, 400, { error: 'invalid_state_or_lang' });
       return true;
     }
-    json(req, res, 200, { rooms: activeRooms(state, lang, await liveRoomCounts(options, roomCounts)) });
+    json(req, res, 200, { rooms: activeRooms(state, lang, await liveRoomCounts(options, roomCounts), options.secret || DEFAULT_LOCAL_SECRET) });
     return true;
   }
   return false;

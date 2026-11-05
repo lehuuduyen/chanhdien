@@ -4,6 +4,8 @@ import { createRoomSession } from '/realtime-session.js';
 import { parseThienRoomId, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, thienRoomName, US_STATES } from '/shared/room-rules.mjs';
 import { BELL_PERIOD_MS, createTempleAudio, MO_PERIOD_MS } from '/temple-audio.js';
 import { createAccountUI } from '/account-ui.js';
+import { createGemUI } from '/gem-ui.js';
+import { loadShopCharacters } from '/shop-models.js';
 import { avatarNode, levelBadge, levelName, nameWithBadge, rankBadge } from '/badges.js';
 import { applyDom, guessLang, lang, locale, onLangChange, setLang, t } from '/thien-i18n.js';
 import { createLecture } from '/lecture.js';
@@ -15,6 +17,7 @@ import { createMala } from '/mala.js';
 import { createPlayerSocial } from '/player-social.js';
 import { createGardenUI } from '/garden-ui.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
+import { createZoneGuide } from '/zone-guide.js';
 import { limitThienScene } from '/thien-scene.js';
 import { createBootLoader, waitFor } from '/boot-loader.js';
 import { renderChibiPortraits } from '/chibi-preview.js';
@@ -102,12 +105,19 @@ let roomCount = null;
 let fallbackRoomTotal = null;
 let countPollTimer = null;
 let countPollBusy = false;
-// Nhân vật chỉ chọn Nam/Nữ. Người đã chọn hình cũ (sư cô, bà cụ… / sư thầy, chú tiểu) được quy về nữ/nam.
+// Nhân vật chọn Nam/Nữ, hoặc hình đã mua trong Shop nhân vật (chibigirl và nhân vật admin tải lên "shop-…"; server
+// kiểm tra quyền sở hữu). Người đã chọn hình cũ (sư cô, bà cụ… / sư thầy, chú tiểu) được quy về nữ/nam.
+const isShopSkin = (skin) => skin === 'chibigirl' || /^shop-[a-z0-9-]{2,30}$/.test(skin || '');
 let mySkin = (() => {
   let saved = null;
   try { saved = localStorage.getItem('thien-skin'); } catch {}
+  if (isShopSkin(saved)) return saved;
   return ['woman', 'nun', 'granny'].includes(saved) ? 'woman' : 'man';
 })();
+// Hình Nam/Nữ thay thế của hình shop (danh mục shop báo): ảnh 2D chỉ có hình vẽ sẵn, và lúc tạm mặc khi chưa sở hữu.
+const shopBase = new Map([['chibigirl', 'woman']]);
+const baseSkin = (skin) => (isShopSkin(skin) ? shopBase.get(skin) || 'man' : skin);
+const spriteSkin = baseSkin;
 let seatAttempts = 0;
 const seenOfferings = new Set();
 let lastBellAt = 0;
@@ -132,9 +142,11 @@ const labelMala = () => { malaButton.textContent = `📿 ${t('emote.mala')}`; };
 labelMala();
 onLangChange(labelMala);
 // Viết sớ cũng chuyển vào menu ▾ của thanh động tác (giữ nguyên nút và sự kiện).
+const zoneGuide = createZoneGuide({ stage: elements.stage });
 const explore = createExploreUI({
   stage: elements.stage, session, showToast, extraButtons: [malaButton, $('prayerOpen')], onWalkerTap: (id) => social?.open(id),
   onGardenTap: (target) => garden?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
+  onGuideTap: (place) => zoneGuide.open(place),
   onPlaceChange: (place) => setCurrentPlace(place), travelHost: elements.roomBar,
   exits: [{ id: 'cinema', icon: '🎬', go: goToCinema }, { id: 'games', icon: '🎲', go: goToGames }],
 });
@@ -202,12 +214,16 @@ const lecture = createLecture({
   onStart: (title) => showToast(t('event.started', { title })),
 });
 
+let currentPlace = null;
 function setCurrentPlace(place) {
+  currentPlace = place;
   if (!place) return;
   const inHall = place === 'hall';
   elements.stage.classList.toggle('in-hall', inHall);
   lecture.setVisible(inHall);
   if (!inHall) elements.ledger.hidden = true;
+  // Bộ vẽ có thể báo vị trí ngay khi còn ở màn tải/cổng vào; chỉ mở hướng dẫn sau khi đã thật sự vào phòng.
+  if (session.participantId && elements.gate.hidden) zoneGuide.enter(place);
   requestAnimationFrame(updateInsets);
 }
 
@@ -469,6 +485,8 @@ function showGuestName(account) {
 
 function accountChanged(account) {
   showGuestName(account);
+  // Đăng nhập ngay ở cổng: hỏi lại hình đã mua để hiện ô "Bé Mũ Đỏ" mà không phải tải lại trang.
+  refreshOwnedSkins();
   garden?.accountChanged();
   communityProject?.accountChanged();
   if (!session.participantId) return;
@@ -500,7 +518,7 @@ function sceneParticipants() {
     id: person.id,
     name: person.displayName,
     seatId: person.seatId,
-    skin: `c_${person.skin || 'man'}`,
+    skin: `c_${viewMode === '3d' ? person.skin || 'man' : spriteSkin(person.skin || 'man')}`,
     me: person.id === session.participantId,
   }));
 }
@@ -563,6 +581,8 @@ async function setViewMode(mode) {
       const { createTempleRenderer3D } = await import('/engine/renderer3d.mjs');
       // Mọi người (ngồi bồ đoàn, hành lễ, đi lại) là chú tiểu kiểu chibi.
       const { createChibiPersonFactory } = await import('/engine/chibi3d.mjs');
+      // Hình mua trong shop (chibigirl) dùng mô hình .glb: tải xong mới dựng người, lỗi thì tự dùng hình khối.
+      await loadShopCharacters();
       renderer = await createTempleRenderer3D({ canvas: elements.scene3d, scene: sceneData, onSeatClick: moveTo, plugin: explore.plugin, personFactory: createChibiPersonFactory });
       explore.attach(renderer);
       if (explore.active) elements.hint3d.textContent = t('explore.hint');
@@ -579,7 +599,7 @@ async function setViewMode(mode) {
     setCurrentPlace('hall');
   }
   renderer.setParticipants(sceneParticipants());
-  renderer.setCommunityProject?.(communityProject?.state());
+  for (const project of communityProject?.states?.() || []) renderer.setCommunityProject?.(project);
   renderer.setCeremony?.(ceremonySettings());
   renderer.setCeremonyActive?.(!lecture.active);
   updateInsets();
@@ -771,6 +791,11 @@ function handleMessage(message) {
     prayerReceived(message);
   } else if (message.type === 'room.moves') {
     explore.onMoves(message);
+  } else if (message.type === 'chore.state') {
+    explore.onChores(message);
+  } else if (message.type === 'chore.reward') {
+    explore.onChoreReward(message);
+    garden?.refreshCoins();
   } else if (message.type === 'emote') {
     explore.onEmote(message);
     if (message.participantId === session.participantId) myEmoteChanged(message.kind, message.sutra);
@@ -780,6 +805,13 @@ function handleMessage(message) {
     say(nameOf(message.participantId, message.displayName), message.text, false, badgesOf(message.participantId));
     if (!renderer?.say(message.participantId, message.text)) explore.say(message.participantId, message.text);
   } else if (message.type === 'protocol.error') {
+    // Hình shop chưa mua (hoặc vé cũ chưa ghi): mặc lại hình Nữ thường.
+    if (message.code === 'SKIN_LOCKED') {
+      useFreeSkin();
+      if (me()?.skin !== mySkin) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
+      showToast(t('skin.locked'));
+      return;
+    }
     if (social?.onError(message)) return;
     if (explore.onError(message)) return;
     // Phòng không báo được "đã nhận sớ" (server cũ, gửi sớ quá nhanh…): sớ đã lưu, thầy vẫn đọc cho mình, không báo lỗi.
@@ -823,7 +855,7 @@ elements.presence.addEventListener('click', () => {
   if (roomCount?.bots) showToast(t('hud.countBots', { n: roomCount.bots }));
 });
 elements.skins.addEventListener('click', (event) => {
-  const button = event.target.closest('button');
+  const button = event.target.closest('button[data-skin]');
   if (!button) return;
   mySkin = button.dataset.skin;
   for (const item of elements.skins.querySelectorAll('button')) item.setAttribute('aria-pressed', String(item === button));
@@ -873,6 +905,7 @@ function showHall(visible) {
 
 function enterHall(name) {
   showHall(true);
+  zoneGuide.enter(currentPlace || 'hall');
   if (ARRIVED_FROM_MAP) {
     greeted = false;
     return;
@@ -1112,6 +1145,119 @@ elements.leave.addEventListener('click', () => {
   updateGateInfo();
 });
 
+// ---- Đổi phòng: bấm tên phòng (vd: Arizona · PV1) → chọn tiểu bang / ngôn ngữ, rồi phòng đang mở hoặc phòng còn chỗ ----
+const roomSwitch = { panel: $('roomSwitch'), state: $('switchState'), lang: $('switchLang'), list: $('roomSwitchList'), auto: $('roomSwitchAuto') };
+let switchingRoom = false;
+
+async function listSwitchRooms() {
+  const state = roomSwitch.state.value;
+  const langCode = roomSwitch.lang.value;
+  const note = (text) => Object.assign(document.createElement('p'), { textContent: text });
+  roomSwitch.list.replaceChildren(note(t('room.loading')));
+  let rooms = [];
+  try {
+    const response = await fetch(`/api/v1/thien/rooms?state=${state}&lang=${langCode}`, { cache: 'no-store' });
+    if (response.ok) rooms = (await response.json()).rooms || [];
+  } catch {}
+  if (state !== roomSwitch.state.value || langCode !== roomSwitch.lang.value) return;
+  if (!rooms.length) {
+    roomSwitch.list.replaceChildren(note(t('room.none')));
+    return;
+  }
+  roomSwitch.list.replaceChildren(...rooms.map((room) => {
+    const here = room.roomId === URL_ROOM;
+    const full = !here && room.count >= room.capacity;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = here ? 'here' : '';
+    button.disabled = here || full || !room.inviteCode;
+    const name = document.createElement('b');
+    name.textContent = room.name;
+    const info = document.createElement('small');
+    info.textContent = here ? t('room.here') : full ? t('room.full') : t('room.people', { count: room.count, capacity: room.capacity });
+    button.append(name, info);
+    button.addEventListener('click', () => switchRoom({ roomId: room.roomId, inviteCode: room.inviteCode }));
+    return button;
+  }));
+}
+
+function openRoomSwitch() {
+  const info = urlInfo || { state: selectedState, lang: selectedLang };
+  roomSwitch.state.replaceChildren(...US_STATES.map((state) => new Option(state.name, state.code, false, state.code === info.state)));
+  roomSwitch.lang.replaceChildren(...Object.entries(THIEN_LANGS).map(([code, item]) => new Option(item.label, code, false, code === info.lang)));
+  $('roomSwitchCurrent').textContent = t('room.current', { room: thienRoomName(URL_ROOM) || '' });
+  roomSwitch.panel.hidden = false;
+  listSwitchRooms();
+}
+const closeRoomSwitch = () => { roomSwitch.panel.hidden = true; };
+
+// Sang phòng khác: rời phòng cũ rồi vào phòng mới bằng vé mới (giữ tên, hình nhân vật, chỗ đang đứng trong cảnh).
+// Phòng khác ngôn ngữ thì đổi luôn ngôn ngữ giao diện và giọng đọc theo phòng.
+async function switchRoom(target) {
+  if (switchingRoom || target.roomId === URL_ROOM) return;
+  const info = parseThienRoomId(target.roomId);
+  if (!info) return;
+  switchingRoom = true;
+  roomSwitch.auto.disabled = true;
+  const name = me()?.displayName || accountUI.account?.displayName || session.displayName;
+  try {
+    explore.keepPosition();
+    session.leave();
+    participants = new Map();
+    roomCount = null;
+    social?.reset();
+    renderer?.setParticipants([]);
+    renderBoard();
+    selectedState = info.state;
+    elements.stateSelect.value = selectedState;
+    if (info.lang !== selectedLang) {
+      selectedLang = info.lang;
+      elements.langSelect.value = selectedLang;
+      setLang(selectedLang);
+    }
+    try {
+      localStorage.setItem('thien-state', selectedState);
+      localStorage.setItem('thien-lang', selectedLang);
+    } catch {}
+    audio.setLang(THIEN_LANGS[selectedLang].tts);
+    enterRoom(target);
+    audio.setLecture(lecture.active);
+    await session.join(name);
+    closeRoomSwitch();
+    showToast(t('room.moved', { room: thienRoomName(target.roomId) }));
+  } catch {
+    showToast(t('toast.joinFailed'));
+  } finally {
+    switchingRoom = false;
+    roomSwitch.auto.disabled = false;
+  }
+}
+
+elements.roomName.addEventListener('click', openRoomSwitch);
+$('roomSwitchClose').addEventListener('click', closeRoomSwitch);
+roomSwitch.panel.addEventListener('click', (event) => { if (event.target === roomSwitch.panel) closeRoomSwitch(); });
+roomSwitch.state.addEventListener('change', listSwitchRooms);
+roomSwitch.lang.addEventListener('change', listSwitchRooms);
+// Phòng còn chỗ của tiểu bang / ngôn ngữ đang chọn (mở phòng mới nếu chưa có ai).
+roomSwitch.auto.addEventListener('click', async () => {
+  roomSwitch.auto.disabled = true;
+  try {
+    const response = await fetch('/api/v1/thien/assign', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: roomSwitch.state.value, lang: roomSwitch.lang.value }),
+    });
+    if (!response.ok) throw new Error();
+    const target = await response.json();
+    if (target.roomId === URL_ROOM) showToast(t('room.here'));
+    else await switchRoom(target);
+  } catch {
+    showToast(t('toast.joinFailed'));
+  } finally {
+    roomSwitch.auto.disabled = false;
+  }
+});
+
 // Giọng đọc: chọn giọng đúng ngôn ngữ phòng (máy có nhiều giọng) và thử ngay trên máy. Không có giọng của ngôn ngữ
 // này thì báo để người dùng cài giọng (đọc bằng giọng khác ngôn ngữ nghe sai hết).
 const voiceTest = document.createElement('div');
@@ -1153,7 +1299,7 @@ garden = createGardenUI({
     $('coinCount').textContent = coins === null ? '—' : coins.toLocaleString(locale());
     $('coinChip').title = ready ? t('coins.quests') : t('coins.title');
     // Nút 📜: số nhiệm vụ đã nhận / tổng; chấm đỏ khi có nhiệm vụ đã xong mà chưa nhận xu.
-    $('questCount').textContent = quests?.total ? `${quests.claimed}/${quests.total}` : '0/4';
+    $('questCount').textContent = quests?.total ? `${quests.claimed}/${quests.total}` : '0/7';
     $('questChip').classList.toggle('has-quest', Boolean(ready));
   },
 });
@@ -1173,6 +1319,7 @@ communityProject = createCommunityProjectUI({
   openSignIn: () => $('meChip').click(),
   showToast,
   applyProject: (project) => renderer?.setCommunityProject?.(project),
+  onContribution: () => garden?.refreshCoins(),
 });
 communityProject.start();
 try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienGarden = garden; } catch {}
@@ -1202,6 +1349,88 @@ donateButton.addEventListener('click', () => {
   location.href = '/ung-ho.html';
 });
 
+// Shop nhân vật (mua hình bằng kim cương). Nhớ link phòng để quay về đúng phòng.
+const shopButton = document.createElement('button');
+shopButton.type = 'button';
+shopButton.className = 'chip';
+const labelShop = () => { shopButton.textContent = `🛍 ${t('shop.open')}`; };
+labelShop();
+onLangChange(labelShop);
+const openShop = () => {
+  try { sessionStorage.setItem('thien-return', `${location.pathname}${location.search}`); } catch {}
+  location.href = '/shop.html';
+};
+shopButton.addEventListener('click', openShop);
+$('openShop').addEventListener('click', openShop);
+$('shopChip').addEventListener('click', openShop);
+// Ô 💎 trên header: số kim cương; bấm mở các gói nạp (admin đặt) → Stripe.
+const gems = createGemUI({
+  chip: $('gemChip'),
+  count: $('gemCount'),
+  showToast,
+  beforeLeave: () => { try { sessionStorage.setItem('thien-return', `${location.pathname}${location.search}`); } catch {} },
+  text: () => Object.fromEntries(['title', 'balance', 'signIn', 'off', 'empty', 'shop', 'close', 'failed', 'note'].map((name) => [name, t(`gem.${name}`)])),
+});
+
+// Hình đã mua: hiện ô chọn "Bé Mũ Đỏ" ở cổng. Chưa mua (hoặc chưa đăng nhập) thì tạm mặc Nữ nhưng vẫn nhớ lựa chọn
+// trên máy, để đăng nhập xong là mặc lại đúng hình đã mua.
+function pressSkin() {
+  for (const item of elements.skins.querySelectorAll('button[data-skin]')) item.setAttribute('aria-pressed', String(item.dataset.skin === mySkin));
+}
+function useFreeSkin() {
+  if (!isShopSkin(mySkin)) return;
+  mySkin = baseSkin(mySkin);
+  pressSkin();
+}
+// Ô chọn của một hình shop (chibigirl có sẵn trong HTML; nhân vật admin tải lên thì tạo khi tài khoản đã mua).
+function shopSkinButton(skin, name, thumb) {
+  let button = [...elements.skins.querySelectorAll('button[data-skin]')].find((item) => item.dataset.skin === skin);
+  if (!button) {
+    button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.skin = skin;
+    button.setAttribute('aria-pressed', String(skin === mySkin));
+    const looks = document.createElement('span');
+    looks.className = 'skin-looks';
+    const image = Object.assign(document.createElement('img'), { alt: '', src: `/thien/assets/c_${baseSkin(skin)}.png` });
+    image.dataset.look = 'robe';
+    looks.append(image);
+    const label = document.createElement('span');
+    label.className = 'skin-name';
+    button.append(looks, label);
+    elements.skins.querySelector('.skin-note').before(button);
+    // Có ảnh chân dung dựng sẵn thì hiện ngay; chưa có thì dựng từ mô hình 3D.
+    if (thumb) image.src = thumb;
+    else renderChibiPortraits([{ skin }]).then((images) => { if (images[skin]) image.src = images[skin]; }).catch(() => {});
+  }
+  if (skin !== 'chibigirl') button.querySelector('.skin-name').textContent = name || skin;
+  return button;
+}
+async function refreshOwnedSkins() {
+  // Cùng lần đọc với ô 💎 trên header (số kim cương + đồ đã mua).
+  const shop = await gems.refresh();
+  const owned = new Set(shop?.me?.owned || []);
+  // Món đang bán + mô hình của món đã ẩn (người đã mua vẫn mặc được).
+  const skins = new Map();
+  for (const item of shop?.items || []) if (item.kind === 'skin') skins.set(item.skin, { name: item.name, thumb: item.thumb });
+  for (const model of shop?.models || []) {
+    shopBase.set(model.skin, model.base);
+    if (!skins.has(model.skin)) skins.set(model.skin, { name: model.name, thumb: model.thumb });
+  }
+  for (const [skin, { name, thumb }] of skins) {
+    if (owned.has(skin)) shopSkinButton(skin, name, thumb).hidden = false;
+    else for (const button of elements.skins.querySelectorAll('button[data-skin]')) if (button.dataset.skin === skin) button.hidden = true;
+  }
+  let saved = null;
+  try { saved = localStorage.getItem('thien-skin'); } catch {}
+  if (!owned.has(mySkin) && isShopSkin(mySkin)) useFreeSkin();
+  if (isShopSkin(saved) && owned.has(saved) && mySkin !== saved) {
+    mySkin = saved;
+    pressSkin();
+    if (session.participantId && me()) session.send({ type: 'avatar.set', requestId: `skin-${crypto.randomUUID()}`, skin: mySkin });
+  }
+}
+
 // Góp ý / Báo lỗi: kèm trang đang mở (cả mã phòng) để quay về đúng chỗ và biết lỗi xảy ra đâu.
 const supportButton = document.createElement('button');
 supportButton.type = 'button';
@@ -1223,6 +1452,7 @@ createSettingsMenu({
     { element: elements.nextTrack, container: elements.tools, label: 'menu.music', keepOpen: true },
     { element: elements.mute, container: elements.tools, label: 'menu.sound', keepOpen: true },
     { element: voiceTest, label: 'menu.voice', keepOpen: true },
+    { element: shopButton, label: 'menu.shop' },
     { element: donateButton, label: 'menu.donate' },
     { element: supportButton, label: 'menu.support' },
     { element: elements.leave, container: elements.tools },
@@ -1296,16 +1526,19 @@ async function start() {
   if (invalidInvite) elements.gateError.textContent = t('gate.invalidInvite');
   setInterval(refreshEventConfig, 60_000);
   try { elements.dharma.value = localStorage.getItem('phapdanh') || localStorage.getItem('displayName') || ''; } catch {}
-  for (const item of elements.skins.querySelectorAll('button')) item.setAttribute('aria-pressed', String(item.dataset.skin === mySkin));
+  for (const item of elements.skins.querySelectorAll('button[data-skin]')) item.setAttribute('aria-pressed', String(item.dataset.skin === mySkin));
   // Ảnh Nam/Nữ dựng từ mô hình 3D (áo tràng ở chùa, đồ thường ngày ở rạp); không có WebGL thì giữ ảnh vẽ sẵn.
   renderChibiPortraits([
     { skin: 'man' }, { skin: 'woman' },
     { skin: 'man', look: { outfit: 'casual', top: '#4cc9f0', bottom: '#2b4c7e', accent: '#ffffff' } },
     { skin: 'woman', look: { outfit: 'casual', top: '#f15bb5', bottom: '#ffd166', accent: '#ffffff' } },
   ]).then((images) => {
+    // Chỉ ô Nam/Nữ; hình shop dùng ảnh chân dung dựng sẵn (thumb).
     for (const button of elements.skins.querySelectorAll('[data-skin]')) {
+      if (!images[button.dataset.skin]) continue;
       button.querySelector('[data-look="robe"]').src = images[button.dataset.skin];
       const casual = button.querySelector('[data-look="casual"]');
+      if (!casual) continue;
       casual.src = images[`${button.dataset.skin}:casual`];
       casual.hidden = false;
     }
@@ -1316,6 +1549,7 @@ async function start() {
   const accountReady = accountUI.start().then(showGuestName).catch(() => {});
   // Biết đã đăng nhập hay chưa rồi mới đọc ví (ô xu trên header).
   accountReady.then(() => garden?.refreshCoins());
+  accountReady.then(refreshOwnedSkins);
 
   // Tải lại trang: nối lại ngay, nhưng trình duyệt chỉ cho phát tiếng sau một lần chạm.
   const restored = Boolean(URL_ROOM) && session.restore();

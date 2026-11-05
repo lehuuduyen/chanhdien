@@ -15,5 +15,9 @@ Thumbs.db
 assets-src/statues/*
 !assets-src/statues/README.md
 
+# Mô hình nhân vật gốc (Meshy, hàng chục–trăm MB); bản nén ở apps/web/public/models/characters
+nhanvat/
+assets-src/characters/*.glb
+
 # Kết quả load test chạy trên máy (báo cáo tổng hợp thì ghi vào loadtest/README.md)
 loadtest/results/

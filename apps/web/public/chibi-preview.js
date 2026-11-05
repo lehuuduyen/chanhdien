@@ -3,6 +3,8 @@
 export async function renderChibiPortraits(entries, { width = 180, height = 220 } = {}) {
   const THREE = await import('three');
   const { buildChibiWalker } = await import('/engine/chibi3d.mjs');
+  // Hình có mô hình .glb (Bé Mũ Đỏ, nhân vật admin tải lên shop-…) mới cần tải file; Nam/Nữ dựng bằng hình khối.
+  if (entries.some(({ skin }) => skin === 'chibigirl' || /^shop-/.test(skin))) await (await import('/shop-models.js')).loadShopCharacters();
   const canvas = document.createElement('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(2);

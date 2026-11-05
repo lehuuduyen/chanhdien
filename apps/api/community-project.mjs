@@ -57,9 +57,14 @@ export async function handleCommunityProjectRequest(req, res, pathname, options)
   }
   const input = await body(req, res);
   if (!input) return true;
-  const clean = input && typeof input === 'object' && !Array.isArray(input) && Object.keys(input).length === 1
-    && typeof input.action === 'string' ? input.action : null;
-  const result = store.contribute(account.id, clean, req.headers?.['idempotency-key']);
+  const keys = input && typeof input === 'object' && !Array.isArray(input) ? Object.keys(input) : [];
+  const validKeys = keys.length >= 1 && keys.length <= 2 && keys.every((key) => ['projectId', 'action'].includes(key));
+  const cleanAction = validKeys && typeof input.action === 'string' ? input.action : null;
+  const cleanProject = validKeys && (input.projectId === undefined || typeof input.projectId === 'string')
+    ? input.projectId : null;
+  const result = cleanProject === undefined
+    ? store.contribute(account.id, cleanAction, req.headers?.['idempotency-key'])
+    : store.contribute(account.id, cleanProject, cleanAction, req.headers?.['idempotency-key']);
   if (result.ok && !result.replayed) notifyCommunityProject(options, result.project);
   json(req, res, result.ok ? 200 : STATUS[result.code] || (result.code === 'NOT_SIGNED_IN' ? 401 : 400), result);
   return true;

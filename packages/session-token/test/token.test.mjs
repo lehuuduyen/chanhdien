@@ -53,3 +53,11 @@ test('mã mời phòng che roomId, sửa mã bị từ chối và mã có hạn 
   assert.equal(verifyRoomInvite(changed, SECRET, { now: 2_000 }).error, 'INVALID_INVITE');
   assert.equal(verifyRoomInvite(invite, SECRET, { now: 6_000 }).error, 'EXPIRED_INVITE');
 });
+
+test('vé thành viên mang danh sách hình đã mua; khách thì không', () => {
+  const member = createJoinTicket({ ...CLAIMS, accountId: 'a-12345678-aaaa', skins: ['chibigirl'] }, SECRET, { now: 1_000 });
+  assert.deepEqual(verifyJoinTicket(member, SECRET, { now: 2_000 }).value.skins, ['chibigirl']);
+  const guest = createJoinTicket({ ...CLAIMS, skins: ['chibigirl'] }, SECRET, { now: 1_000 });
+  assert.equal(verifyJoinTicket(guest, SECRET, { now: 2_000 }).value.skins, undefined);
+  assert.throws(() => createJoinTicket({ ...CLAIMS, accountId: 'a-12345678-aaaa', skins: ['<b>'] }, SECRET), TypeError);
+});

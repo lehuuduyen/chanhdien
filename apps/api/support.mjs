@@ -66,7 +66,7 @@ export function openSupportStore(dataDir) {
   };
 }
 
-function isAdmin(req, options) {
+export function isAdmin(req, options) {
   const given = Buffer.from(String(req.headers?.['x-admin-key'] || ''));
   const expected = Buffer.from(String(options.adminSecret || ''));
   return expected.length > 0 && given.length === expected.length && timingSafeEqual(given, expected);

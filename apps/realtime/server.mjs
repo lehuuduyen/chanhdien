@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { AVATAR_URL, parseClientMessage, parseServerMessage, PROTOCOL_VERSION, RPS_CHOICES } from '@chanh-dien/protocol';
 import {
@@ -9,7 +9,7 @@ import {
   NODE_TTL_MS,
   SNAPSHOT_TTL_MS,
 } from '@chanh-dien/room-directory';
-import { getRoomRules, parseThienRoomId, roomLangOf, roomTypeOf } from '@chanh-dien/room-rules';
+import { getRoomRules, isPremiumSkin, isShopSkin, parseThienRoomId, roomLangOf, roomTypeOf } from '@chanh-dien/room-rules';
 import {
   createResumeToken,
   DEFAULT_LOCAL_SECRET,
@@ -144,6 +144,8 @@ export class Room {
     this.type = options.type || roomTypeOf(id) || 'cinema';
     this.lang = roomLangOf(id);
     this.rules = getRoomRules(this.type);
+    // Hình chia cho người mới và bot: bỏ hình mua trong shop.
+    this.freeSkins = (this.rules.skins || []).filter((skin) => !isPremiumSkin(skin));
     this.seatIds = seatIdsFor(this.rules);
     this.benchIds = benchIdsFor(this.rules);
     this.seatsPerBench = this.rules.benches?.seatsPerBench || 0;
@@ -168,8 +170,16 @@ export class Room {
     this.onEmpty = options.onEmpty || (() => {});
     this.pendingMoves = new Map();
     this.moveTimer = null;
+    // Sáu công việc phối hợp trong sân. Tiến độ do đúng máy đang giữ phòng tính; client chỉ xin bắt đầu/dừng.
+    this.chores = new Map((this.rules.world?.chores || []).map((item) => [item.id, {
+      ...item, progress: 0, workers: new Set(), completedAt: null, resetAt: null,
+    }]));
+    this.choreTimer = null;
+    this.choreTickAt = Date.now();
     // Ghi lễ vật của thành viên đã đăng nhập vào sổ công đức (API); khách và bot không ghi.
     this.onOffering = options.onOffering || (() => {});
+    // Trả xu công việc qua API. Chỉ thành viên có accountId được ghi ví; khách vẫn cùng làm bình thường.
+    this.onChoreReward = options.onChoreReward || null;
     // Hỏi / ghi bạn bè giữa hai thành viên (API); không có thì kết bạn chỉ trong phiên.
     this.onFriend = options.onFriend || null;
     // Chuyển báo cáo người chơi tới API để lưu.
@@ -210,6 +220,142 @@ export class Room {
       // pos để cuối: bản không có pos dùng làm khóa so sánh (đi lại không làm gửi lại cả danh sách).
       ...(pos && !seatId ? { pos } : {}),
     };
+  }
+
+  choreMessage() {
+    return {
+      v: PROTOCOL_VERSION,
+      type: 'chore.state',
+      epoch: this.epoch,
+      chores: [...this.chores.values()].map(({ id, kind, progress, workers, completedAt }) => ({
+        id, kind, progress: Math.round(progress), workers: [...workers], ...(completedAt ? { completedAt } : {}),
+      })),
+    };
+  }
+
+  broadcastChores(socket = null) {
+    const message = this.choreMessage();
+    if (socket) send(socket, message);
+    else this.broadcast(message);
+  }
+
+  activeChoreOf(participantId) {
+    return [...this.chores.values()].find((chore) => chore.workers.has(participantId)) || null;
+  }
+
+  startChore(participantId, choreId) {
+    const participant = this.participants.get(participantId);
+    const chore = this.chores.get(choreId);
+    if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
+    if (!chore || !participant.pos || participant.seatId || participant.benchId) return { ok: false, error: 'INVALID_CHORE' };
+    if (!this.allow(`${participantId}:chore`, 6, 10_000)) return { ok: false, error: 'RATE_LIMITED' };
+    if (Math.hypot(participant.pos.x - chore.x, participant.pos.z - chore.z) > chore.radius) {
+      return { ok: false, error: 'TOO_FAR' };
+    }
+    const current = this.activeChoreOf(participantId);
+    if (current && current !== chore) current.workers.delete(participantId);
+    if (chore.completedAt) {
+      chore.progress = 0;
+      chore.completedAt = null;
+      chore.resetAt = null;
+    }
+    chore.workers.add(participantId);
+    const hadEmote = Boolean(participant.emote);
+    participant.emote = null;
+    participant.sutra = null;
+    this.revision += 1;
+    if (hadEmote) this.broadcastState();
+    this.startChoreTimer();
+    this.broadcastChores();
+    return { ok: true };
+  }
+
+  stopChore(participantId, choreId = null) {
+    let changed = false;
+    for (const chore of this.chores.values()) {
+      if (choreId && chore.id !== choreId) continue;
+      changed = chore.workers.delete(participantId) || changed;
+    }
+    if (changed) {
+      this.revision += 1;
+      this.broadcastChores();
+    }
+    return changed ? { ok: true } : { ok: false, error: 'NOT_WORKING' };
+  }
+
+  startChoreTimer() {
+    if (this.choreTimer || !this.chores.size) return;
+    this.choreTickAt = Date.now();
+    this.choreTimer = setInterval(() => this.tickChores(), 500);
+    this.choreTimer.unref?.();
+  }
+
+  rewardChoreCompletion(participantId, chore, completedAt) {
+    const participant = this.participants.get(participantId);
+    if (!participant?.accountId || !this.onChoreReward) return;
+    const key = createHash('sha256')
+      .update(`${this.id}:${this.epoch}:${chore.id}:${completedAt}:${participant.accountId}`)
+      .digest('base64url');
+    Promise.resolve(this.onChoreReward({ accountId: participant.accountId, chore: chore.kind, key }))
+      .then((result) => {
+        if (!result?.ok) return;
+        const current = this.participants.get(participantId);
+        if (!current?.socket) return;
+        const message = {
+          v: PROTOCOL_VERSION,
+          type: 'chore.reward',
+          epoch: this.epoch,
+          choreId: chore.id,
+          kind: chore.kind,
+          reward: result.reward,
+          coins: result.coins,
+          count: result.count,
+          limit: result.limit,
+        };
+        if (parseServerMessage(message).ok) send(current.socket, message);
+      })
+      .catch((error) => console.warn(`Không trả được xu công việc: ${error.message}`));
+  }
+
+  tickChores(now = Date.now()) {
+    const elapsed = Math.min(1_000, Math.max(0, now - this.choreTickAt));
+    this.choreTickAt = now;
+    let changed = false;
+    let active = false;
+    for (const chore of this.chores.values()) {
+      if (chore.resetAt && now >= chore.resetAt) {
+        chore.progress = 0;
+        chore.completedAt = null;
+        chore.resetAt = null;
+        changed = true;
+      }
+      const workers = chore.workers.size;
+      if (!workers || chore.completedAt) {
+        if (chore.resetAt) active = true;
+        continue;
+      }
+      active = true;
+      // Hai người: 2,5 lần nhanh hơn một người; ba người: 4,5 lần. Khuyến khích phối hợp nhưng không bán sức mạnh.
+      const collaboration = workers * (1 + Math.max(0, workers - 1) * 0.25);
+      chore.progress = Math.min(1_000, chore.progress + (elapsed / chore.durationMs) * 1_000 * collaboration);
+      changed = true;
+      if (chore.progress >= 1_000) {
+        const completedBy = [...chore.workers];
+        chore.progress = 1_000;
+        chore.completedAt = now;
+        chore.resetAt = now + 8_000;
+        chore.workers.clear();
+        for (const participantId of completedBy) this.rewardChoreCompletion(participantId, chore, now);
+      }
+    }
+    if (changed) {
+      this.revision += 1;
+      this.broadcastChores();
+    }
+    if (!active) {
+      clearInterval(this.choreTimer);
+      this.choreTimer = null;
+    }
   }
 
   // ---- Phòng đông: ai thấy ai ----
@@ -374,6 +520,10 @@ export class Room {
     participant.pos = { x: clamp(next.x, world.bounds.x), z: clamp(next.z, world.bounds.z), ry: Math.round(ry * 100) / 100 };
     participant.movedAt = now;
     participant.moving = moving;
+    const activeChore = this.activeChoreOf(participantId);
+    if (activeChore && Math.hypot(participant.pos.x - activeChore.x, participant.pos.z - activeChore.z) > activeChore.radius) {
+      this.stopChore(participantId, activeChore.id);
+    }
     if (this.view && zoneBefore !== this.zoneOf(participant.pos)) this.viewsStale = true;
     // Đứng dậy đi thì rời bồ đoàn/ghế đá và thôi quỳ/lạy.
     if (moving && (participant.seatId || participant.benchId || participant.emote)) {
@@ -414,6 +564,7 @@ export class Room {
     participant.benchSpot = null;
     participant.emote = null;
     participant.sutra = null;
+    this.stopChore(participantId);
     if (this.view && zoneBefore !== this.zoneOf(participant.pos)) this.viewsStale = true;
     if (hadState) {
       this.revision += 1;
@@ -478,6 +629,7 @@ export class Room {
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     if (!this.rules.world) return { ok: false, error: 'NOT_ALLOWED' };
     if (!this.allow(`${participantId}:emote`, 5, 10_000)) return { ok: false, error: 'RATE_LIMITED' };
+    this.stopChore(participantId);
     const leftBench = Boolean(participant.benchId);
     participant.benchId = null;
     participant.benchSpot = null;
@@ -750,6 +902,7 @@ export class Room {
     return {
       revision: this.revision,
       playback: { current: this.playback.current, queue: this.playback.queue },
+      chores: [...this.chores.values()].map(({ id, progress, completedAt, resetAt }) => ({ id, progress: Math.round(progress), completedAt, resetAt })),
       participants: [...this.participants.values()].filter((participant) => !participant.bot)
         .map(({ id, displayName, seatId, benchId, benchSpot, resumeToken, skin, merit, accountId, level, avatarUrl }) => ({
           id, displayName, seatId, benchId, benchSpot, resumeToken, skin, merit, ...(accountId ? { accountId, level, avatarUrl } : {}),
@@ -791,6 +944,14 @@ export class Room {
       this.scheduleExpiry(participant);
     }
     this.revision = (Number.isSafeInteger(record?.revision) ? record.revision : 0) + 1;
+    for (const item of Array.isArray(record?.chores) ? record.chores : []) {
+      const chore = this.chores.get(item?.id);
+      if (!chore || !Number.isSafeInteger(item.progress) || item.progress < 0 || item.progress > 1_000) continue;
+      chore.progress = item.progress;
+      chore.completedAt = Number.isSafeInteger(item.completedAt) && item.completedAt >= 0 ? item.completedAt : null;
+      chore.resetAt = Number.isSafeInteger(item.resetAt) && item.resetAt >= 0 ? item.resetAt : null;
+      if (chore.resetAt) this.startChoreTimer();
+    }
     if (this.realCount > 0) this.ensureBots();
     const playback = record?.playback;
     if (playback && typeof playback === 'object') {
@@ -1001,7 +1162,7 @@ export class Room {
       bot: true,
       resumeToken: null,
       expireTimer: null,
-      skin: this.rules.skins[Math.floor(Math.random() * this.rules.skins.length)],
+      skin: this.freeSkins[Math.floor(Math.random() * this.freeSkins.length)],
       merit: seeded ? [120, 80, 55, 30, 20, 12, 8, 5][state.serial - 1] || 0 : Math.floor(Math.random() * 40),
       // Nhịp riêng: 0,6 → tụng nhiều; 1,8 → ít nói.
       pace: 0.6 + Math.random() * 1.2,
@@ -1165,6 +1326,8 @@ export class Room {
         accountId: claims.accountId,
         level: validLevel(claims.level) ? claims.level : previous?.level || 1,
         ...(claims.avatarUrl ? { avatarUrl: claims.avatarUrl } : {}),
+        // Hình đã mua (theo vé); nối lại bằng resume token thì giữ danh sách cũ.
+        ownedSkins: claims.skins || previous?.ownedSkins || [],
       } : {}),
       resumeExpiresAt: 0,
       expireTimer: null,
@@ -1196,6 +1359,7 @@ export class Room {
     participant.socket = null;
     participant.connected = false;
     participant.resumeExpiresAt = Date.now() + this.resumeTtlMs;
+    this.stopChore(participantId);
     this.scheduleExpiry(participant);
     this.revision += 1;
     this.broadcastState();
@@ -1206,6 +1370,7 @@ export class Room {
     const participant = this.participants.get(participantId);
     if (!participant || participant.connected || participant.resumeToken !== resumeToken) return false;
     this.participants.delete(participantId);
+    this.stopChore(participantId);
     this.dropSocial(participantId);
     for (const key of this.rates.keys()) if (key.startsWith(`${participantId}:`)) this.rates.delete(key);
     if (this.realCount === 0) {
@@ -1223,7 +1388,9 @@ export class Room {
   personalization(participantId, previous) {
     const skins = this.rules.skins;
     if (!skins) return {};
-    const skin = skins.includes(previous?.skin) ? previous.skin : skins[hashText(participantId) % skins.length];
+    // Hình mua trong shop không chia cho ai; chỉ giữ lại khi người đó đang mặc (nối lại).
+    const keep = skins.includes(previous?.skin) || isShopSkin(previous?.skin);
+    const skin = keep ? previous.skin : this.freeSkins[hashText(participantId) % this.freeSkins.length];
     // Công đức chỉ có ở phòng có lễ vật (chánh điện); rạp phim chỉ có hình nhân vật Nam/Nữ.
     if (!this.rules.interaction?.offerings) return { skin };
     const merit = Number.isSafeInteger(previous?.merit) && previous.merit >= 0 ? previous.merit : 0;
@@ -1233,7 +1400,9 @@ export class Room {
   setSkin(participantId, skin) {
     const participant = this.participants.get(participantId);
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
-    if (!this.rules.skins?.includes(skin)) return { ok: false, error: 'INVALID_SKIN' };
+    // Phòng có hình nhân vật thì nhận cả nhân vật admin tải lên (shop-…), miễn là người đó đã mua.
+    if (!this.rules.skins || !(this.rules.skins.includes(skin) || isShopSkin(skin))) return { ok: false, error: 'INVALID_SKIN' };
+    if (isPremiumSkin(skin) && !participant.ownedSkins?.includes(skin)) return { ok: false, error: 'SKIN_LOCKED' };
     if (participant.skin !== skin) {
       participant.skin = skin;
       this.revision += 1;
@@ -1294,6 +1463,7 @@ export class Room {
     participant.seatId = seatId;
     participant.benchId = null;
     participant.benchSpot = null;
+    this.stopChore(participantId);
     this.revision += 1;
     this.broadcastState();
     return { ok: true };
@@ -1315,6 +1485,7 @@ export class Room {
     participant.benchSpot = spot;
     participant.emote = null;
     participant.sutra = null;
+    this.stopChore(participantId);
     this.revision += 1;
     this.broadcastState();
     return { ok: true, spot };
@@ -1328,6 +1499,7 @@ export class Room {
     clearTimeout(this.playback.timer);
     clearTimeout(this.moveTimer);
     clearInterval(this.botTimer);
+    clearInterval(this.choreTimer);
     this.stopViews();
     for (const challenge of this.challenges.values()) clearTimeout(challenge.timer);
     const participants = [...this.participants.values()];
@@ -1378,6 +1550,7 @@ export class RoomRegistry {
     this.issueResumeToken = options.issueResumeToken;
     this.botCounts = options.botCounts || {};
     this.onOffering = options.onOffering;
+    this.onChoreReward = options.onChoreReward;
     this.onFriend = options.onFriend;
     this.onReport = options.onReport;
     this.bauCua = options.bauCua;
@@ -1406,6 +1579,7 @@ export class RoomRegistry {
       issueResumeToken: this.issueResumeToken,
       onEmpty: () => this.removeIfEmpty(roomId),
       onOffering: this.onOffering,
+      onChoreReward: this.onChoreReward,
       onFriend: this.onFriend,
       onReport: this.onReport,
       bauCua: this.bauCua,
@@ -1562,6 +1736,7 @@ function handleRoomMessage(socket, context, raw) {
     room.broadcastState();
     if (room.view) room.sendCounts();
     send(socket, room.playbackState());
+    if (room.chores.size) room.broadcastChores(socket);
     // Phòng game: trạng thái bàn Bầu Cua và cược của mình trong ván đang chạy (vào lại giữa ván).
     if (room.table) {
       const state = room.table.stateMessage();
@@ -1666,6 +1841,18 @@ function handleRoomMessage(socket, context, raw) {
     }
     return;
   }
+  if (message.type === 'chore.start' || message.type === 'chore.stop') {
+    const result = message.type === 'chore.start'
+      ? room.startChore(context.participantId, message.choreId)
+      : room.stopChore(context.participantId, message.choreId);
+    if (!result.ok && result.error !== 'NOT_WORKING') {
+      const detail = result.error === 'TOO_FAR' ? 'Hãy lại gần công việc hơn'
+        : result.error === 'RATE_LIMITED' ? 'Bạn thao tác quá nhanh'
+          : 'Công việc này không hợp lệ';
+      protocolError(socket, room.epoch, result.error, detail, message.requestId);
+    }
+    return;
+  }
   if (message.type === 'prayer.announce') {
     const result = room.announcePrayer(context.participantId, message.kind);
     if (!result.ok) protocolError(socket, room.epoch, result.error, result.error === 'RATE_LIMITED' ? 'Bạn gửi sớ quá nhanh, xin đợi ít phút' : 'Phòng này không nhận sớ', message.requestId);
@@ -1700,7 +1887,10 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     const result = room.setSkin(context.participantId, message.skin);
-    if (!result.ok) protocolError(socket, room.epoch, result.error, 'Phòng này không đổi được hình nhân vật', message.requestId);
+    if (!result.ok) {
+      const text = result.error === 'SKIN_LOCKED' ? 'Bạn chưa sở hữu hình nhân vật này (mua trong Shop nhân vật)' : 'Phòng này không đổi được hình nhân vật';
+      protocolError(socket, room.epoch, result.error, text, message.requestId);
+    }
     return;
   }
   if (message.type === 'offering.send') {
@@ -1805,7 +1995,7 @@ async function authorizeUpgrade(url, registry, secret) {
   // Hết hạn giữ chỗ: nhận kết nối để báo mã lỗi rõ ràng, client sẽ xin vé mới thay vì thử lại mãi.
   if (!participant) return { rejected: 'INVALID_RESUME_TOKEN', room: opened.room };
   const claims = participant.accountId
-    ? { participantId: participant.id, roomId, displayName: participant.displayName, role: 'member', accountId: participant.accountId, level: participant.level, avatarUrl: participant.avatarUrl }
+    ? { participantId: participant.id, roomId, displayName: participant.displayName, role: 'member', accountId: participant.accountId, level: participant.level, avatarUrl: participant.avatarUrl, skins: participant.ownedSkins }
     : { participantId: participant.id, roomId, displayName: participant.displayName, role: 'guest' };
   return { claims, room: opened.room };
 }
@@ -1902,6 +2092,25 @@ export function offeringRecorder(apiInternalUrl, secret) {
   });
 }
 
+// API là nơi duy nhất đổi số dư. event key khiến việc gửi lại sau timeout không thể cộng xu hai lần.
+export function choreRewardRecorder(apiInternalUrl, secret) {
+  const key = internalKey(secret);
+  const url = new URL('/internal/chores/reward', apiInternalUrl);
+  return (event) => fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: JSON.stringify(event),
+    signal: AbortSignal.timeout(5_000),
+  }).then((response) => {
+    if (response.ok) return response.json();
+    console.warn(`Không trả được xu công việc (${response.status})`);
+    return null;
+  }).catch((error) => {
+    console.warn(`Không trả được xu công việc: ${error.message}`);
+    return null;
+  });
+}
+
 // Hỏi / ghi bạn bè giữa hai thành viên qua API. Lỗi mạng: coi như chưa lưu (vẫn là bạn trong phiên).
 export function friendRecorder(apiInternalUrl, secret) {
   const key = internalKey(secret);
@@ -1943,6 +2152,7 @@ export function createRealtimeServer(options = {}) {
     botCounts: options.botCounts,
     issueResumeToken: (claims) => createResumeToken(claims, secret),
     onOffering: options.recordOffering || (options.apiInternalUrl ? offeringRecorder(options.apiInternalUrl, secret) : undefined),
+    onChoreReward: options.recordChoreReward || (options.apiInternalUrl ? choreRewardRecorder(options.apiInternalUrl, secret) : undefined),
     onFriend: options.recordFriend || (options.apiInternalUrl ? friendRecorder(options.apiInternalUrl, secret) : undefined),
     onReport: options.recordReport || (options.apiInternalUrl ? reportRecorder(options.apiInternalUrl, secret) : undefined),
     // Bầu Cua: đặt cược / chốt ván qua ví xu ở API.

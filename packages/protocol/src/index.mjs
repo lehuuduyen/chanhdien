@@ -24,7 +24,11 @@ export const AVATAR_URL = /^https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[A-Za-
 // Id video YouTube: 11 ký tự [A-Za-z0-9_-].
 export const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 export const PLAYBACK_EVENTS = Object.freeze(['duration', 'ended', 'error']);
-export const SKINS = Object.freeze(['man', 'woman', 'granny', 'nun', 'monk', 'child']);
+// chibigirl: hình mua trong shop (máy realtime kiểm tra quyền sở hữu theo vé vào phòng).
+export const SKINS = Object.freeze(['man', 'woman', 'granny', 'nun', 'monk', 'child', 'chibigirl']);
+// Nhân vật admin tải lên (shop-<tên>); cùng mẫu với SHOP_SKIN trong @chanh-dien/room-rules.
+export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;
+const validSkin = (skin) => SKINS.includes(skin) || (typeof skin === 'string' && SHOP_SKIN.test(skin));
 export const OFFERING_KINDS = Object.freeze(['petal', 'incense', 'lotus', 'bell']);
 // Động tác của nhân vật (chế độ nhập vai): đứng, quỳ, lạy 3 lạy, lạy 108 lạy.
 // chant: tụng kinh (kèm mã bài kinh `sutra`), woodfish: gõ mõ.
@@ -45,8 +49,12 @@ const RESULT_SIDES = ['from', 'to', 'draw'];
 export const GARDEN_PLANTS = Object.freeze(['apple', 'orange', 'peach']);
 export const GARDEN_STAGES = Object.freeze(['seed', 'sprout', 'young', 'fruiting']);
 export const GARDEN_EFFECTS = Object.freeze(['plant', 'water', 'harvest']);
-// Công trình Bồ Đề dùng chung toàn hệ thống. Đóng góp đi qua REST có đăng nhập; realtime chỉ phát snapshot công khai.
+// Công việc phối hợp trong chùa. `chore.state` chỉ chứa tiến độ và id người cùng làm; nội dung hiển thị nằm ở
+// bản dịch phía client, không nhận văn bản tùy ý từ mạng.
+export const CHORE_KINDS = Object.freeze(['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
+// Các công trình dùng chung toàn hệ thống. Đóng góp đi qua REST có đăng nhập; realtime chỉ phát snapshot công khai.
 export const COMMUNITY_PROJECT_STAGES = Object.freeze(['ground', 'sprout', 'young', 'mature', 'complete']);
+export const COMMUNITY_PROJECT_KINDS = Object.freeze(['bodhi', 'lotus']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
 export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
@@ -72,6 +80,8 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'avatar.set': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'offering.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: 'theo từng lễ vật (room rules), tối đa 6/10 giây' },
   'travel.go': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 giây, đích cố định theo room rules' },
+  'chore.start': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây, phải ở gần điểm việc' },
+  'chore.stop': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây' },
   move: { roles: ['guest', 'member', 'moderator', 'host'], rate: '8/giây, chỉ khi đang đi; server gom 200 ms rồi phát' },
   emote: { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
   'reaction.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây' },
@@ -161,7 +171,7 @@ const clientSchemas = {
   'avatar.set'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'skin'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
-      && SKINS.includes(message.skin);
+      && validSkin(message.skin);
   },
   // Lễ vật ở chánh điện, kèm lời nguyện tùy chọn.
   'offering.send'(message) {
@@ -175,6 +185,16 @@ const clientSchemas = {
     return exactKeys(message, ['v', 'type', 'requestId', 'destination'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && TRAVEL_DESTINATIONS.includes(message.destination);
+  },
+  'chore.start'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'choreId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.choreId, LIMITS.itemId, ID_PATTERN);
+  },
+  'chore.stop'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'choreId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.choreId, LIMITS.itemId, ID_PATTERN);
   },
   // Vị trí nhân vật khi đang đi (moving = false ở lần gửi cuối khi dừng lại).
   move(message) {
@@ -291,7 +311,7 @@ const participant = (value) => isRecord(value)
   && (value.avatarUrl === undefined || (typeof value.avatarUrl === 'string' && value.avatarUrl.length <= LIMITS.avatarUrl && AVATAR_URL.test(value.avatarUrl)))
   && (value.bot === undefined || value.bot === true)
   && (value.level === undefined || (isInteger(value.level) && value.level >= 1 && value.level <= 99))
-  && (value.skin === undefined || SKINS.includes(value.skin))
+  && (value.skin === undefined || validSkin(value.skin))
   && (value.merit === undefined || (isInteger(value.merit) && value.merit >= 0))
   && isString(value.id, LIMITS.participantId, ID_PATTERN)
   && isString(value.displayName, LIMITS.displayName)
@@ -368,6 +388,30 @@ const serverSchemas = {
       && message.moves.every((item) => isRecord(item) && exactKeys(item, ['id', 'x', 'z', 'ry', 'm'])
         && isString(item.id, LIMITS.participantId, ID_PATTERN) && isCoord(item.x) && isCoord(item.z) && isAngle(item.ry)
         && typeof item.m === 'boolean');
+  },
+  // Snapshot nhỏ của sáu công việc. Tất cả người đang làm cùng một việc dùng chung progress để hoạt ảnh phối hợp.
+  'chore.state'(message) {
+    const chore = (value) => isRecord(value)
+      && exactKeys(value, ['id', 'kind', 'progress', 'workers'], ['completedAt'])
+      && isString(value.id, LIMITS.itemId, ID_PATTERN)
+      && CHORE_KINDS.includes(value.kind)
+      && isInteger(value.progress) && value.progress >= 0 && value.progress <= 1_000
+      && Array.isArray(value.workers) && value.workers.length <= 500
+      && value.workers.every((id) => isString(id, LIMITS.participantId, ID_PATTERN))
+      && (value.completedAt === undefined || (isInteger(value.completedAt) && value.completedAt >= 0));
+    return exactKeys(message, ['v', 'type', 'epoch', 'chores'])
+      && Array.isArray(message.chores) && message.chores.length <= CHORE_KINDS.length
+      && message.chores.every(chore);
+  },
+  // Gửi riêng cho thành viên vừa hoàn thành việc. reward = 0 khi loại việc đó đã đủ giới hạn trong ngày.
+  'chore.reward'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'choreId', 'kind', 'reward', 'coins', 'count', 'limit'])
+      && isString(message.choreId, LIMITS.itemId, ID_PATTERN)
+      && CHORE_KINDS.includes(message.kind)
+      && (message.reward === 0 || message.reward === 20)
+      && isInteger(message.coins) && message.coins >= 0
+      && isInteger(message.limit) && message.limit === 3
+      && isInteger(message.count) && message.count >= 0 && message.count <= message.limit;
   },
   emote(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'participantId', 'kind', 'at'], ['sutra'])
@@ -471,11 +515,13 @@ const serverSchemas = {
   },
   'community.project'(message) {
     const project = message.project;
+    const expectedKind = project?.id === 'bodhi-global-1' ? 'bodhi'
+      : project?.id === 'lotus-global-1' ? 'lotus' : null;
     return exactKeys(message, ['v', 'type', 'epoch', 'project'])
       && isRecord(project)
       && exactKeys(project, ['id', 'kind', 'stage', 'stageIndex', 'progress', 'target', 'percent', 'completed', 'contributors', 'contributions', 'updatedAt'])
-      && project.id === 'bodhi-global-1'
-      && project.kind === 'bodhi'
+      && expectedKind !== null
+      && project.kind === expectedKind
       && COMMUNITY_PROJECT_STAGES.includes(project.stage)
       && isInteger(project.stageIndex) && project.stageIndex === COMMUNITY_PROJECT_STAGES.indexOf(project.stage)
       && isInteger(project.progress) && project.progress >= 0

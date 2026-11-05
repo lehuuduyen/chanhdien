@@ -12,6 +12,9 @@ export const WATER_DAYS_TO_FRUIT = 3;
 export const FRUITS_PER_CROP = 10;
 export const VISITOR_HARVEST_LIMIT = 2;
 export const STARTING_COINS = 50;
+export const CHORE_REWARD_COINS = 20;
+export const CHORE_REWARD_DAILY_LIMIT = 3;
+export const CHORE_REWARD_KINDS = Object.freeze(['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
 export const WATER_INTERVAL_MS = 8 * 60 * 60 * 1_000;
 export const WILT_AFTER_MS = 24 * 60 * 60 * 1_000;
 export const FRUIT_KEEP_DAYS = 7;
@@ -30,12 +33,15 @@ export const BAU_CUA_MAX_STAKE = 1_000;
 export const BAU_CUA_STALE_MS = 3 * 60_000;
 const ROUND_ID = /^bc-[a-z0-9-]{4,76}$/;
 // Nhiệm vụ hằng ngày (theo ngày của vườn): làm xong thì bấm nhận xu, mỗi nhiệm vụ một lần mỗi ngày. Server tự kiểm
-// tra trong lịch sử tưới / hái / dâng quả; điểm danh thì chỉ cần đăng nhập.
+// tra lịch sử vườn và đóng góp công trình chung; `location` chỉ là hướng dẫn UI, không dùng để xác nhận hoàn thành.
 export const DAILY_QUESTS = Object.freeze([
-  Object.freeze({ id: 'checkin', reward: 5 }),
-  Object.freeze({ id: 'water', reward: 5 }),
-  Object.freeze({ id: 'harvest', reward: 5 }),
-  Object.freeze({ id: 'offer', reward: 5 }),
+  Object.freeze({ id: 'checkin', reward: 5, location: 'hall' }),
+  Object.freeze({ id: 'plant', reward: 5, location: 'garden' }),
+  Object.freeze({ id: 'water', reward: 5, location: 'garden' }),
+  Object.freeze({ id: 'harvest', reward: 5, location: 'garden' }),
+  Object.freeze({ id: 'offer', reward: 5, location: 'hall' }),
+  Object.freeze({ id: 'bodhi', reward: 5, location: 'courtyard' }),
+  Object.freeze({ id: 'lotus', reward: 5, location: 'courtyard' }),
 ]);
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{8,64}$/;
 const DAY_MS = 86_400_000;
@@ -231,6 +237,48 @@ const MIGRATIONS = [
     results TEXT NOT NULL,
     at INTEGER NOT NULL
   );`,
+  // Công việc trong chùa: mỗi loại được thưởng tối đa 3 lần/ngày. Sự kiện hoàn thành có khóa duy nhất để máy
+  // realtime gửi lại sau lỗi mạng cũng không thể cộng xu hai lần.
+  `CREATE TABLE coin_transactions_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('grant', 'buy_seed', 'sell_fruit', 'game_bet', 'game_win', 'game_refund', 'quest', 'chore')),
+    plant_type TEXT,
+    quantity INTEGER,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO coin_transactions_new SELECT * FROM coin_transactions;
+  DROP TABLE coin_transactions;
+  ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
+  CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);
+  CREATE TABLE IF NOT EXISTS chore_reward_events (
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    event_key TEXT NOT NULL,
+    day TEXT NOT NULL,
+    chore TEXT NOT NULL CHECK (chore IN ('sweep', 'water', 'light', 'feed', 'clean', 'tea')),
+    reward INTEGER NOT NULL CHECK (reward = ${CHORE_REWARD_COINS}),
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (account_id, event_key)
+  );
+  CREATE INDEX IF NOT EXISTS chore_reward_daily ON chore_reward_events(account_id, day, chore);`,
+  // Điều chỉnh ví bởi kênh quản trị đã xác thực (Telegram). Vẫn đi qua sổ giao dịch và khóa idempotency.
+  `CREATE TABLE coin_transactions_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('grant', 'buy_seed', 'sell_fruit', 'game_bet', 'game_win', 'game_refund', 'quest', 'chore', 'admin_adjustment')),
+    plant_type TEXT,
+    quantity INTEGER,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO coin_transactions_new SELECT * FROM coin_transactions;
+  DROP TABLE coin_transactions;
+  ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
+  CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);`,
 ];
 
 // Trả thưởng một ván Bầu Cua. bets: { linh vật: xu }, dice: 3 linh vật. Linh vật có cược xuất hiện k lần: nhận lại
@@ -305,6 +353,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     saveRequest: db.prepare('INSERT INTO garden_requests (account_id, idem_key, action, response, at) VALUES (?, ?, ?, ?, ?)'),
     claimed: db.prepare('SELECT quest FROM quest_claims WHERE account_id = ? AND day = ?'),
     claimQuest: db.prepare('INSERT INTO quest_claims (account_id, day, quest, reward, at) VALUES (?, ?, ?, ?, ?)'),
+    plantedOn: db.prepare('SELECT 1 FROM crop_cycles WHERE owner_account = ? AND planted_day = ? LIMIT 1'),
     wateredOn: db.prepare('SELECT 1 FROM crop_watering_events WHERE account_id = ? AND day = ? LIMIT 1'),
     harvestsSince: db.prepare('SELECT at FROM crop_harvest_events WHERE account_id = ? AND at >= ?'),
     offeringsSince: db.prepare('SELECT at FROM fruit_offerings WHERE account_id = ? AND at >= ?'),
@@ -318,9 +367,25 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     staleRounds: db.prepare(`SELECT s.round_id AS roundId FROM bau_cua_stakes s LEFT JOIN bau_cua_rounds r ON r.round_id = s.round_id
       WHERE r.round_id IS NULL GROUP BY s.round_id HAVING MAX(s.at) < ?`),
     gameRound: db.prepare('INSERT INTO game_rounds (account_id, game, bets, dice, staked, payout, balance_after, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+    choreRewardCount: db.prepare('SELECT COUNT(*) AS n FROM chore_reward_events WHERE account_id = ? AND day = ? AND chore = ?'),
+    choreReward: db.prepare(`INSERT INTO chore_reward_events
+      (account_id, event_key, day, chore, reward, balance_after, at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
   };
 
   const today = () => gardenDay(now(), timeZone);
+  const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
+  let communityContributionsSince = null;
+
+  // Community store được khởi tạo sau garden store trên API; chỉ chuẩn bị câu query lúc bảng đã tồn tại.
+  // Vì vậy bộ garden vẫn chạy độc lập trong test hoặc khi tắt tính năng công trình chung.
+  function contributedToProjectToday(accountId, projectId, day, since) {
+    if (!communityContributionsSince && tableExists.get('community_project_contributions')) {
+      communityContributionsSince = db.prepare(`SELECT at FROM community_project_contributions
+        WHERE account_id = ? AND project_id = ? AND at >= ?`);
+    }
+    return Boolean(communityContributionsSince?.all(accountId, projectId, since)
+      .some((row) => gardenDay(row.at, timeZone) === day));
+  }
 
   function transaction(work) {
     db.exec('BEGIN IMMEDIATE');
@@ -414,12 +479,15 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     const onToday = (rows) => rows.some((row) => gardenDay(row.at, timeZone) === day);
     const done = {
       checkin: true,
+      plant: Boolean(q.plantedOn.get(accountId, day)),
       water: Boolean(q.wateredOn.get(accountId, day)),
       harvest: onToday(q.harvestsSince.all(accountId, since)),
       offer: onToday(q.offeringsSince.all(accountId, since)),
+      bodhi: contributedToProjectToday(accountId, 'bodhi-global-1', day, since),
+      lotus: contributedToProjectToday(accountId, 'lotus-global-1', day, since),
     };
     const claimed = new Set(q.claimed.all(accountId, day).map((row) => row.quest));
-    return DAILY_QUESTS.map(({ id, reward }) => ({ id, reward, done: done[id], claimed: claimed.has(id) }));
+    return DAILY_QUESTS.map(({ id, reward, location }) => ({ id, reward, location, done: done[id], claimed: claimed.has(id) }));
   }
 
   function me(accountId) {
@@ -533,6 +601,60 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
 
     history(accountId, { limit = 30 } = {}) {
       return q.transactions.all(accountId, Math.min(Math.max(1, limit), 100));
+    },
+
+    // Máy realtime gọi sau khi công việc thật sự hoàn thành. Mỗi loại việc được 20 xu, tối đa 3 lần theo ngày
+    // của vườn. Cùng event key luôn trả lại đúng kết quả cũ và không cộng lần hai.
+    rewardChore({ accountId, chore, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (!CHORE_REWARD_KINDS.includes(chore)) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const action = `chore:${chore}`;
+        const previous = q.request.get(accountId, key);
+        if (previous) {
+          if (previous.action !== action) return { ok: false, code: 'IDEMPOTENCY_KEY_REUSED' };
+          return { ...JSON.parse(previous.response), replayed: true };
+        }
+        const day = today();
+        const count = q.choreRewardCount.get(accountId, day, chore).n;
+        let result;
+        if (count >= CHORE_REWARD_DAILY_LIMIT) {
+          result = {
+            ok: true, reward: 0, coins: ensureWallet(accountId), count,
+            limit: CHORE_REWARD_DAILY_LIMIT, limited: true,
+          };
+        } else {
+          const coins = changeCoins(accountId, CHORE_REWARD_COINS, 'chore', null, null);
+          q.choreReward.run(accountId, key, day, chore, CHORE_REWARD_COINS, coins, now());
+          result = {
+            ok: true, reward: CHORE_REWARD_COINS, coins, count: count + 1,
+            limit: CHORE_REWARD_DAILY_LIMIT, limited: false,
+          };
+        }
+        q.saveRequest.run(accountId, key, action, JSON.stringify(result), now());
+        return result;
+      });
+    },
+
+    // Quản trị cộng/trừ xu. `key` lấy từ Telegram update_id nên gửi lại không đổi số dư lần hai.
+    adjustCoins({ accountId, amount, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (!Number.isSafeInteger(amount) || amount === 0 || Math.abs(amount) > 1_000_000) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const previous = q.request.get(accountId, key);
+        if (previous) {
+          if (previous.action !== 'admin_coins') return { ok: false, code: 'IDEMPOTENCY_KEY_REUSED' };
+          return { ...JSON.parse(previous.response), replayed: true };
+        }
+        const before = ensureWallet(accountId);
+        const result = before + amount < 0
+          ? { ok: false, code: 'INSUFFICIENT_COINS', coins: before }
+          : { ok: true, amount, coins: changeCoins(accountId, amount, 'admin_adjustment', null, null) };
+        q.saveRequest.run(accountId, key, 'admin_coins', JSON.stringify(result), now());
+        return result;
+      });
     },
 
     // Bầu Cua chơi chung — đặt cược (máy realtime gọi qua /internal): trừ xu ngay, cộng dồn vào cược của ván.

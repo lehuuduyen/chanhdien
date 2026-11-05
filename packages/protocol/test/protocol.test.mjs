@@ -143,6 +143,9 @@ test('nhập vai: tin di chuyển và động tác', () => {
   assert.equal(parseClientMessage({ v: 1, type: 'travel.go', requestId: 't1', destination: 'garden' }).ok, true);
   assert.equal(parseClientMessage({ v: 1, type: 'travel.go', requestId: 't1', destination: 'pond' }).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ v: 1, type: 'travel.go', requestId: 't1', destination: 'hall', x: 0 }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ v: 1, type: 'chore.start', requestId: 'c1', choreId: 'sweep-yard' }).ok, true);
+  assert.equal(parseClientMessage({ v: 1, type: 'chore.stop', requestId: 'c2', choreId: 'sweep-yard' }).ok, true);
+  assert.equal(parseClientMessage({ v: 1, type: 'chore.start', requestId: 'c1', choreId: '<script>' }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({ v: 1, type: 'room.moves', epoch: 1, moves: [{ id: 'u-1', x: 0, z: 1, ry: 0, m: true }] }).ok, true);
   assert.equal(parseServerMessage({ v: 1, type: 'emote', epoch: 1, participantId: 'u-1', kind: 'kneel', at: 5 }).ok, true);
   assert.equal(parseServerMessage({
@@ -157,6 +160,26 @@ test('nhập vai: tin di chuyển và động tác', () => {
     v: 1, type: 'room.state', epoch: 1, roomId: 'thien-1', revision: 1,
     participants: [{ id: 'u-1', displayName: 'An', pos: { x: 0, z: 12, ry: 0 }, emote: 'kneel' }],
   }).ok, true);
+});
+
+test('công việc chung: tiến độ và người phối hợp có schema chặt chẽ', () => {
+  const message = {
+    v: 1, type: 'chore.state', epoch: 2,
+    chores: [{ id: 'sweep-yard', kind: 'sweep', progress: 420, workers: ['u-1', 'u-2'] }],
+  };
+  assert.equal(parseServerMessage(message).ok, true);
+  assert.equal(parseServerMessage({ ...message, chores: [{ ...message.chores[0], progress: 1001 }] }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...message, chores: [{ ...message.chores[0], kind: 'gamble' }] }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...message, chores: [{ ...message.chores[0], text: 'x' }] }).error, 'INVALID_MESSAGE');
+  const reward = {
+    v: 1, type: 'chore.reward', epoch: 2, choreId: 'sweep-yard', kind: 'sweep',
+    reward: 20, coins: 90, count: 2, limit: 3,
+  };
+  assert.equal(parseServerMessage(reward).ok, true);
+  assert.equal(parseServerMessage({ ...reward, reward: 10 }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...reward, count: 4 }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...reward, coins: -1 }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...reward, note: 'x' }).error, 'INVALID_MESSAGE');
 });
 
 test('sớ: báo đã gửi sớ và thông báo thầy nhận sớ', () => {
@@ -227,6 +250,11 @@ test('community.project chỉ nhận snapshot công trình chung hợp lệ', ()
     contributors: 18, contributions: 74, updatedAt: 1_000,
   };
   assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project }).ok, true);
+  assert.equal(parseServerMessage({
+    v: 1, type: 'community.project', epoch: 3,
+    project: { ...project, id: 'lotus-global-1', kind: 'lotus' },
+  }).ok, true);
+  assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project: { ...project, id: 'lotus-global-1' } }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project: { ...project, stageIndex: 4 } }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project: { ...project, progress: 1_200 } }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({ v: 1, type: 'community.project', epoch: 3, project: { ...project, state: 'AZ' } }).error, 'INVALID_MESSAGE');

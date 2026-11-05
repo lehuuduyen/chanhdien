@@ -37,8 +37,9 @@
         <span class="chip" id="presence"><i></i><span id="statusText" data-i18n="hud.notIn">Chưa vào</span><b id="count">0</b> <span data-i18n="hud.people">phật tử</span></span>
         <!-- Xu Vườn Công Đức (bán trái cây; dùng cược ở phòng game): luôn hiện, bấm để mở ví. -->
         <button type="button" class="chip coin-chip" id="coinChip" data-i18n-title="coins.title" title="Xu Vườn Công Đức">🪙 <b id="coinCount">—</b></button>
-        <!-- Nhiệm vụ hằng ngày: luôn hiện, bấm để mở phần nhiệm vụ ở Quầy (đếm số đã nhận / tổng). -->
-        <button type="button" class="chip coin-chip quest-chip" id="questChip" data-i18n-title="quest.title" title="Nhiệm vụ hôm nay">📜 <b id="questCount">0/4</b></button>
+        <!-- Kim cương (nạp qua Stripe, mua hình nhân vật): bấm để mở các gói nạp; 🛍 mở Shop nhân vật. -->
+        <button type="button" class="chip coin-chip gem-chip" id="gemChip" data-i18n-title="gem.chip" title="Kim cương · bấm để nạp">💎 <b id="gemCount">—</b></button>
+        <button type="button" class="chip shop-chip" id="shopChip" data-i18n-title="shop.open" title="Shop nhân vật">🛍</button>
         <span class="spacer"></span>
         <button type="button" class="chip me-chip" id="meChip" hidden></button>
         <span class="tools" id="tools" hidden>
@@ -47,8 +48,30 @@
           <button type="button" class="chip" id="leave" data-i18n="hud.leave">Rời</button>
         </span>
       </div>
+      <!-- Đổi phòng: các phòng đang mở của (tiểu bang, ngôn ngữ) đã chọn, hoặc tự xếp vào phòng còn chỗ. -->
+      <div class="room-switch" id="roomSwitch" hidden>
+        <div class="room-switch-sheet" role="dialog" aria-modal="true" aria-labelledby="roomSwitchTitle">
+          <header>
+            <h2 id="roomSwitchTitle" data-i18n="room.switch">Đổi phòng</h2>
+            <button type="button" class="chip" id="roomSwitchClose" data-i18n-aria="room.close" aria-label="Đóng">✕</button>
+          </header>
+          <p class="room-switch-current" id="roomSwitchCurrent"></p>
+          <div class="room-switch-pick">
+            <label class="field"><span data-i18n="gate.state">Tiểu bang</span><select id="switchState"></select></label>
+            <label class="field"><span data-i18n="gate.lang">Ngôn ngữ</span><select id="switchLang"></select></label>
+          </div>
+          <div class="room-switch-list" id="roomSwitchList"></div>
+          <button type="button" class="room-switch-auto" id="roomSwitchAuto" data-i18n="room.auto">Vào phòng còn chỗ</button>
+        </div>
+      </div>
+      <!-- Nhiệm vụ hằng ngày: nút lớn giữa mép trái (dễ bấm bằng ngón cái), mở phần nhiệm vụ ở Quầy
+           (đếm số đã nhận / tổng; chấm đỏ khi có nhiệm vụ xong mà chưa nhận xu). -->
+      <button type="button" class="quest-dock" id="questChip" data-i18n-title="quest.title" title="Nhiệm vụ hôm nay">
+        <span class="quest-icon" aria-hidden="true">📜</span><b id="questCount">0/7</b><small data-i18n="quest.short">Nhiệm vụ</small>
+      </button>
       <div class="room-bar" id="roomBar" hidden>
-        <span class="chip" id="roomName"></span>
+        <!-- Bấm tên phòng để đổi phòng (tiểu bang / ngôn ngữ / phòng PV khác). -->
+        <button type="button" class="chip room-name" id="roomName" data-i18n-title="room.switch" title="Đổi phòng"></button>
         <button type="button" class="chip" id="copyRoom" data-i18n-title="room.copy" title="Sao chép mã phòng">🔗 <span data-i18n="room.copy">Sao chép mã phòng</span></button>
         <button type="button" class="chip community-project-chip" id="communityProjectChip">🌳</button>
         <button type="button" class="chip hall-only" id="eventChip"></button>
@@ -247,7 +270,13 @@
               <span class="skin-looks"><img data-look="robe" src="/thien/assets/c_woman.png" alt=""><img data-look="casual" alt="" hidden></span>
               <span class="skin-name" data-i18n="skin.woman">Nữ</span>
             </button>
-            <p class="skin-note" data-i18n="skin.note">Ở chùa mặc áo tràng · vào rạp phim mặc đồ thường ngày</p>
+            <!-- Hình mua trong Shop nhân vật: chỉ hiện khi tài khoản đã sở hữu. -->
+            <button type="button" data-skin="chibigirl" aria-pressed="false" hidden>
+              <span class="skin-looks"><img data-look="robe" src="/models/characters/chibi-girl.png" alt=""></span>
+              <span class="skin-name" data-i18n="skin.chibigirl">Bé Mũ Đỏ</span>
+            </button>
+            <p class="skin-note" data-i18n="skin.note">Nam mặc áo tràng ở chùa, đồ thường ngày ở rạp phim</p>
+            <button type="button" class="link-button skin-shop" id="openShop" data-i18n="shop.more">🛍 Thêm hình nhân vật trong Shop</button>
           </fieldset>
           <p class="error" id="gateError" role="alert"></p>
           <button type="submit" class="primary" data-i18n="gate.enter">Vào chánh điện</button>

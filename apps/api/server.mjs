@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { createDirectoryFromEnv } from '@chanh-dien/room-directory';
@@ -11,8 +12,10 @@ import { handleThienRequest } from './thien.mjs';
 import { handleGardenRequest, openGardenStore } from './garden.mjs';
 import { handleCommunityProjectRequest, openCommunityProjectStore } from './community-project.mjs';
 import { handleGameRequest } from './games.mjs';
+import { handleChoreRewardRequest } from './chores.mjs';
 import { donateConfig, handleDonateRequest, handleTelegramDonateRequest, openDonateStore } from './donate.mjs';
 import { handleSupportRequest, openSupportStore } from './support.mjs';
+import { handleShopRequest, openShopStore, shopConfig } from './shop.mjs';
 import { createTelegramNotifier } from './notify.mjs';
 import { openThienEventStore } from './thien-event.mjs';
 import { openPrayerSlipStore } from './prayer-slips.mjs';
@@ -84,7 +87,15 @@ export function createJoinResponse(input, options = {}) {
 
   const participantId = `u-${randomUUID()}`;
   const secret = options.secret || DEFAULT_LOCAL_SECRET;
-  const claims = { participantId, roomId: room.id, displayName, ...(account ? { accountId: account.id, level: options.accountLevel || 1, ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}) } : {}) };
+  const claims = {
+    participantId, roomId: room.id, displayName,
+    ...(account ? {
+      accountId: account.id, level: options.accountLevel || 1,
+      ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}),
+      // Hình nhân vật đã mua trong shop: máy realtime chỉ cho mặc hình có trong vé.
+      ...(options.ownedSkins?.length ? { skins: options.ownedSkins } : {}),
+    } : {}),
+  };
   const ticket = createJoinTicket(claims, secret, { now: options.now });
   return {
     status: 200,
@@ -145,7 +156,8 @@ export async function handleApiRequest(req, res, options = {}) {
     }
     const account = currentAccount(req, options);
     const accountLevel = account ? options.accounts.profile(account.id).stats.level.level : undefined;
-    const result = createJoinResponse(input, { ...options, account, accountLevel });
+    const ownedSkins = account ? options.shopStore?.ownedSkins(account.id) : undefined;
+    const result = createJoinResponse(input, { ...options, account, accountLevel, ownedSkins });
     if (result.status === 200) {
       const located = await locateRoom(result.body.roomId, options);
       if (!located) {
@@ -160,10 +172,12 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleAuthRequest(req, res, pathname, options)) return;
   if (await handleCommunityProjectRequest(req, res, pathname, options)) return;
   if (await handleGardenRequest(req, res, pathname, options)) return;
+  if (await handleChoreRewardRequest(req, res, pathname, options)) return;
   if (await handleGameRequest(req, res, pathname, options)) return;
   if (await handleTelegramDonateRequest(req, res, pathname, options)) return;
   if (handleDonateRequest(req, res, pathname, options)) return;
   if (await handleSupportRequest(req, res, pathname, options)) return;
+  if (await handleShopRequest(req, res, pathname, options)) return;
   if (await handleThienRequest(req, res, pathname, options, roomSeatCounts)) return;
   json(req, res, 404, { error: 'not_found' });
 }
@@ -199,6 +213,12 @@ if (isMain) {
   const donateStore = openDonateStore(accounts, donate);
   // Phiếu hỗ trợ (báo lỗi / góp ý): file support.json ở DATA_DIR.
   const supportStore = openSupportStore(process.env.DATA_DIR || '.data');
+  // Shop nhân vật: ví kim cương chung file SQLite; nạp qua Stripe khi có STRIPE_SECRET_KEY (xem shop.mjs).
+  const shopStore = openShopStore(accounts);
+  // Nhân vật admin tải lên: file .glb đã nén lưu cạnh database.
+  const shopModelDir = path.join(process.env.DATA_DIR || '.data', 'models');
+  const shop = shopConfig();
+  if (shop.secretKey) console.log(`Shop: nạp kim cương qua Stripe${shop.webhookSecret ? ' (có webhook)' : ' (chưa có STRIPE_WEBHOOK_SECRET)'}`);
   // Báo phiếu hỗ trợ mới qua Telegram: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (tùy chọn SUPPORT_ADMIN_URL để kèm link).
   const notifySupport = createTelegramNotifier({
     token: process.env.TELEGRAM_BOT_TOKEN,
@@ -211,7 +231,7 @@ if (isMain) {
     googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, donate, donateStore,
     telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
     telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
-    supportStore, notifySupport,
+    supportStore, notifySupport, shopStore, shop, shopModelDir,
   });
   server.listen(port, host, () => console.log(`API: http://${host}:${port} (${shared ? 'danh bạ Redis' : 'một máy realtime'})`));
 }

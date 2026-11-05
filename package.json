@@ -24,7 +24,7 @@
     "test:protocol": "node --test packages/protocol/test/*.test.mjs",
     "legacy:start": "npm --prefix legacy/live start"
   },
-  "devDependencies": {
+  "dependencies": {
     "@gltf-transform/cli": "4.5.1"
   }
 }

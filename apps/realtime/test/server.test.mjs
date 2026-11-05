@@ -544,6 +544,97 @@ test('chánh điện: số bồ đoàn theo cấu hình, có hình nhân vật m
   restored.close();
 });
 
+test('công việc trong chùa: phải đứng gần, hai người làm nhanh hơn và snapshot giữ tiến độ', () => {
+  const socket = { readyState: WebSocket.CLOSED, close() {} };
+  const makeRoom = (count) => {
+    const room = new Room('thien-1', { botCount: 0 });
+    for (let index = 1; index <= count; index += 1) {
+      room.join(socket, { participantId: `u-${index}`, displayName: `Người ${index}` });
+      room.move(`u-${index}`, { x: 0, z: 41, ry: 0, moving: false });
+      assert.deepEqual(room.startChore(`u-${index}`, 'sweep-yard'), { ok: true });
+    }
+    clearInterval(room.choreTimer);
+    room.choreTimer = null;
+    room.choreTickAt = 1_000;
+    for (let second = 2; second <= 11; second += 1) room.tickChores(second * 1_000);
+    clearInterval(room.choreTimer);
+    room.choreTimer = null;
+    return room;
+  };
+
+  const far = new Room('thien-1', { botCount: 0 });
+  far.join(socket, { participantId: 'u-far', displayName: 'Ở xa' });
+  far.move('u-far', { x: 0, z: 20, ry: 0, moving: false });
+  assert.equal(far.startChore('u-far', 'sweep-yard').error, 'TOO_FAR');
+
+  const solo = makeRoom(1);
+  const together = makeRoom(2);
+  const soloProgress = solo.chores.get('sweep-yard').progress;
+  const togetherProgress = together.chores.get('sweep-yard').progress;
+  assert.ok(soloProgress > 250 && soloProgress < 300);
+  assert.ok(togetherProgress > soloProgress * 2, 'hai người có thưởng phối hợp nên nhanh hơn hai lần');
+
+  const restored = new Room('thien-1', { epoch: 2, botCount: 0 });
+  restored.restore(JSON.parse(JSON.stringify(together.toRecord())));
+  assert.equal(Math.round(restored.chores.get('sweep-yard').progress), Math.round(togetherProgress));
+  assert.deepEqual(parseServerMessage(restored.choreMessage()).ok, true);
+
+  far.close();
+  solo.close();
+  together.close();
+  restored.close();
+});
+
+test('hoàn thành công việc chỉ yêu cầu trả xu cho thành viên đăng nhập', async () => {
+  const recorded = [];
+  const socket = { readyState: WebSocket.CLOSED, close() {} };
+  const room = new Room('thien-1', {
+    botCount: 0,
+    onChoreReward: async (event) => {
+      recorded.push(event);
+      return { ok: true, reward: 20, coins: 70, count: 1, limit: 3 };
+    },
+  });
+  room.join(socket, { participantId: 'u-member', accountId: 'a-1', displayName: 'Thành viên' });
+  room.join(socket, { participantId: 'u-guest', displayName: 'Khách' });
+  for (const id of ['u-member', 'u-guest']) {
+    room.move(id, { x: 0, z: 41, ry: 0, moving: false });
+    assert.equal(room.startChore(id, 'sweep-yard').ok, true);
+  }
+  clearInterval(room.choreTimer);
+  room.choreTimer = null;
+  room.chores.get('sweep-yard').durationMs = 1_000;
+  room.choreTickAt = 1_000;
+  room.tickChores(2_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(recorded.length, 1);
+  assert.deepEqual({ accountId: recorded[0].accountId, chore: recorded[0].chore }, { accountId: 'a-1', chore: 'sweep' });
+  assert.match(recorded[0].key, /^[A-Za-z0-9_-]{43}$/);
+  room.close();
+});
+
+test('hình mua trong shop (chibigirl): chỉ người có trong vé mới mặc được, không chia cho người mới hay bot', () => {
+  for (const roomId of ['cinema-1', 'thien-1']) {
+    const room = new Room(roomId, { botCount: 0 });
+    const socket = { readyState: WebSocket.CLOSED, close() {} };
+    room.join(socket, { participantId: 'u-guest', displayName: 'Khách', role: 'guest' });
+    room.join(socket, { participantId: 'u-member', displayName: 'An', role: 'member', accountId: 'a-12345678-aaaa' });
+    room.join(socket, { participantId: 'u-owner', displayName: 'Bình', role: 'member', accountId: 'a-12345678-bbbb', skins: ['chibigirl'] });
+    assert.equal(room.setSkin('u-guest', 'chibigirl').error, 'SKIN_LOCKED');
+    assert.equal(room.setSkin('u-member', 'chibigirl').error, 'SKIN_LOCKED');
+    assert.deepEqual(room.setSkin('u-owner', 'chibigirl'), { ok: true });
+    const people = room.snapshot().participants;
+    assert.equal(people.find((person) => person.id === 'u-owner').skin, 'chibigirl');
+    assert.equal(JSON.stringify(people).includes('ownedSkins'), false, 'danh sách đồ đã mua không lộ ra phòng');
+    room.close();
+  }
+  // Hình mặc định chia theo mã người: không bao giờ ra hình shop.
+  const room = new Room('thien-1', { botCount: 0 });
+  for (let index = 0; index < 200; index += 1) room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: `u-${index}`, displayName: `N${index}`, role: 'guest' });
+  assert.ok(room.snapshot().participants.every((person) => person.skin !== 'chibigirl'));
+  room.close();
+});
+
 test('thành viên đăng nhập: lễ vật được gửi ghi sổ, khách thì không; accountId giữ qua failover, không lộ ra phòng', () => {
   const recorded = [];
   const room = new Room('thien-1', { botCount: 0, onOffering: (event) => recorded.push(event) });

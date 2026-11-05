@@ -3,6 +3,7 @@ import http from 'node:http';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
+import { internalKey } from '@chanh-dien/session-token';
 import { handleApiRequest } from '../server.mjs';
 import { openGardenStore } from '../garden.mjs';
 
@@ -44,6 +45,24 @@ test('vườn: khách xem được 10 luống nhưng không gieo / mua được'
   assert.equal(view.json.plants.apple.seedPrice, 10);
   assert.equal((await request(options, 'POST', '/api/v1/garden/buy', { body: { plantType: 'apple', quantity: 1 }, headers: { 'idempotency-key': key() } })).status, 401);
   assert.equal((await request(options, 'GET', '/api/v1/garden/me')).status, 401);
+});
+
+test('API nội bộ công việc: cần khóa máy, cộng xu idempotent và áp giới hạn ngày', async () => {
+  const options = setup();
+  const accountId = options.accounts.register({ username: 'cong.viec', password: 'matkhau123', displayName: 'Công Việc' }).account.id;
+  const url = '/internal/chores/reward';
+  const denied = await request(options, 'POST', url, { body: { accountId, chore: 'sweep', key: 'chore-api-1' } });
+  assert.equal(denied.status, 403);
+  const headers = { 'x-internal-key': internalKey(SECRET) };
+  const first = await request(options, 'POST', url, { body: { accountId, chore: 'sweep', key: 'chore-api-1' }, headers });
+  assert.deepEqual([first.status, first.json.reward, first.json.count], [200, 20, 1]);
+  const replay = await request(options, 'POST', url, { body: { accountId, chore: 'sweep', key: 'chore-api-1' }, headers });
+  assert.equal(replay.json.replayed, true);
+  await request(options, 'POST', url, { body: { accountId, chore: 'sweep', key: 'chore-api-2' }, headers });
+  await request(options, 'POST', url, { body: { accountId, chore: 'sweep', key: 'chore-api-3' }, headers });
+  const capped = await request(options, 'POST', url, { body: { accountId, chore: 'sweep', key: 'chore-api-4' }, headers });
+  assert.deepEqual([capped.json.reward, capped.json.count, capped.json.limited], [0, 3, true]);
+  assert.equal(options.garden.me(accountId).coins, 110);
 });
 
 test('vườn: thao tác cần khóa idempotency, cùng origin; số liệu do server quyết định', async () => {

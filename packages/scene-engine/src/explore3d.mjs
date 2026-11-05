@@ -32,7 +32,7 @@ function shortestAngle(from, to) {
   return delta;
 }
 
-export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onNearbyChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onNearbyChange, onNearbyChoreChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -52,6 +52,89 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
     const slitGeometry = new THREE.BoxGeometry(0.2, 0.016, 0.024);
     const malletGeometry = new THREE.CylinderGeometry(0.018, 0.018, 0.28, 8);
     const malletHeadGeometry = new THREE.SphereGeometry(0.042, 12, 10);
+
+    // Đạo cụ cầm tay dựng bằng hình khối nhẹ. Mỗi người đang làm chỉ có một bộ; khi dừng sẽ huỷ geometry/material.
+    function choreTool(kind) {
+      const group = new THREE.Group();
+      const material = (color, options = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.72, ...options });
+      const wood = material('#744226');
+      const metal = material('#6d8790', { metalness: 0.55, roughness: 0.35 });
+      const gold = material('#d5a23b', { metalness: 0.35, emissive: '#4d2a00', emissiveIntensity: 0.25 });
+      const green = material('#4f8b45');
+      const cloth = material('#f0d25f');
+      const add = (geometry, mat, position, rotation = [0, 0, 0], scale = [1, 1, 1]) => {
+        const mesh = new THREE.Mesh(geometry, mat);
+        mesh.position.set(...position);
+        mesh.rotation.set(...rotation);
+        mesh.scale.set(...scale);
+        mesh.castShadow = true;
+        group.add(mesh);
+        return mesh;
+      };
+      if (kind === 'sweep') {
+        add(new THREE.CylinderGeometry(0.018, 0.022, 0.92, 7), wood, [0, 0, 0]);
+        add(new THREE.BoxGeometry(0.42, 0.09, 0.18), material('#c79a54'), [0, -0.5, 0]);
+      } else if (kind === 'water') {
+        add(new THREE.CylinderGeometry(0.16, 0.2, 0.28, 12), metal, [0, -0.12, 0]);
+        add(new THREE.TorusGeometry(0.17, 0.025, 6, 16, Math.PI), metal, [0, 0.08, 0], [0, 0, Math.PI]);
+        add(new THREE.CylinderGeometry(0.035, 0.07, 0.38, 8), metal, [0.22, -0.08, -0.02], [0, 0, -1.05]);
+        add(new THREE.CylinderGeometry(0.075, 0.045, 0.08, 10), metal, [0.39, 0.02, -0.02], [0, 0, -1.05]);
+      } else if (kind === 'light') {
+        add(new THREE.TorusGeometry(0.14, 0.018, 6, 14, Math.PI), metal, [0, 0.17, 0], [0, 0, Math.PI]);
+        add(new THREE.BoxGeometry(0.25, 0.3, 0.25), material('#ffd18a', { emissive: '#ff9f32', emissiveIntensity: 1.4 }), [0, -0.03, 0]);
+        add(new THREE.ConeGeometry(0.2, 0.14, 4), gold, [0, 0.19, 0], [0, Math.PI / 4, 0]);
+      } else if (kind === 'feed') {
+        add(new THREE.CylinderGeometry(0.22, 0.16, 0.13, 14), wood, [0, -0.08, 0]);
+        for (let index = 0; index < 6; index += 1) add(new THREE.SphereGeometry(0.025, 6, 5), gold, [((index % 3) - 1) * 0.06, 0, Math.floor(index / 3) * 0.05 - 0.025]);
+      } else if (kind === 'clean') {
+        add(new THREE.BoxGeometry(0.32, 0.025, 0.25), cloth, [0, -0.04, 0], [0.15, 0, 0.18]);
+        add(new THREE.CylinderGeometry(0.05, 0.06, 0.2, 8), material('#72a9c7'), [0.2, -0.12, 0]);
+      } else if (kind === 'tea') {
+        add(new THREE.SphereGeometry(0.17, 12, 9), green, [0, -0.08, 0], [0, 0, 0], [1, 0.8, 1]);
+        add(new THREE.CylinderGeometry(0.06, 0.09, 0.12, 10), green, [0, 0.08, 0]);
+        add(new THREE.TorusGeometry(0.18, 0.024, 6, 16, Math.PI), gold, [0, 0.07, 0.02], [0, 0, Math.PI]);
+        add(new THREE.CylinderGeometry(0.025, 0.06, 0.28, 8), green, [0.19, -0.05, 0], [0, 0, -1.08]);
+      }
+      // Bình tưới và đèn có thân rộng; thu vừa bàn tay chibi để đạo cụ không che khuất người đang làm.
+      const heldScale = kind === 'water' ? 0.52 : kind === 'light' ? 0.82 : 1;
+      group.scale.setScalar(heldScale);
+      group.userData.dispose = () => group.traverse((item) => {
+        if (!item.isMesh) return;
+        item.geometry.dispose();
+        item.material.dispose();
+      });
+      return group;
+    }
+
+    // Lá khô bay khi quét và lá non bật lên khi tưới; các việc khác có hạt cá/tia sáng/hơi trà tương ứng.
+    function choreEffect(kind) {
+      const group = new THREE.Group();
+      const leafKinds = ['sweep', 'water'].includes(kind);
+      const count = kind === 'water' ? 16 : leafKinds ? 12 : 7;
+      for (let index = 0; index < count; index += 1) {
+        const waterDrop = kind === 'water' && index < 7;
+        const leaf = kind === 'sweep' || (kind === 'water' && !waterDrop);
+        const color = kind === 'sweep' ? ['#b86e2b', '#d1a13c', '#718f3d'][index % 3]
+          : waterDrop ? '#76d3ed' : kind === 'water' ? ['#65ad45', '#8fca57'][index % 2]
+            : kind === 'feed' ? '#d7a340' : kind === 'clean' ? '#fff2a3' : kind === 'tea' ? '#e5e0d2' : '#ffd36b';
+        const mesh = new THREE.Mesh(
+          leaf ? new THREE.SphereGeometry(0.055, 6, 4) : new THREE.SphereGeometry(waterDrop ? 0.025 : 0.03, 6, 4),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }),
+        );
+        if (leaf) mesh.scale.set(1.7, 0.35, 0.8);
+        else if (waterDrop) mesh.scale.set(0.7, 1.8, 0.7);
+        mesh.userData.phase = (index / count) * Math.PI * 2;
+        mesh.userData.waterDrop = waterDrop;
+        group.add(mesh);
+      }
+      group.userData.kind = kind;
+      group.userData.dispose = () => group.traverse((item) => {
+        if (!item.isMesh) return;
+        item.geometry.dispose();
+        item.material.dispose();
+      });
+      return group;
+    }
 
     // Nhân vật chú tiểu (chibi): đầu to, mắt nhắm cười, áo tràng, tay chắp (chibi3d.mjs).
     function buildWalker(skin) {
@@ -79,10 +162,11 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       woodfish.visible = false;
       mallet.visible = false;
       built.group.add(woodfish, mallet);
-      return { figure: built.group, upper, skirt, feet, shins, shadow, woodfish, mallet, hips: chibi.hips, labelY: chibi.labelY };
+      return { figure: built.group, upper, skirt, feet, shins, shadow, woodfish, mallet, hips: chibi.hips, labelY: chibi.labelY, rig: chibi.rig, workRig: chibi.workRig };
     }
 
     const walkers = new Map();
+    let choreStates = [];
     let selfId = null;
     let selfSeated = false;
     let spectator = false;
@@ -111,6 +195,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         x: pos.x, z: pos.z, ry: pos.ry ?? 0, target: { x: pos.x, z: pos.z, ry: pos.ry ?? 0 },
         moving: false, phase: Math.random() * 6, emote: item.emote || null, emoteT: 0, bubble: null,
         benchId: item.benchId || null, benchSpot: item.benchSpot || null, benchY: item.benchY || 0,
+        chore: null, choreTool: null, choreEffect: null, choreOffset: 0, choreRy: 0,
       };
       group.position.set(walker.x, 0, walker.z);
       walkers.set(item.id, walker);
@@ -124,6 +209,8 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       disposeSprite(walker.label);
       if (walker.status) disposeSprite(walker.status);
       if (walker.bubble) disposeSprite(walker.bubble.sprite);
+      if (walker.choreTool) walker.choreTool.userData.dispose?.();
+      if (walker.choreEffect) walker.choreEffect.userData.dispose?.();
       walker.parts.shadow.material.dispose();
       walkers.delete(id);
     }
@@ -194,6 +281,14 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       if (seat && self && Math.hypot(seat.x - self.x, seat.z - self.z) < NEAR) {
         ctx.onSeatClick?.(seat);
         return;
+      }
+      // Bảng hướng dẫn đặt trước mỗi khu. Bắt trước nền để chạm vào bảng không làm nhân vật chạy tới đó.
+      if (onGuideTap && courtyard?.guidePickables?.length) {
+        const hit = raycaster.intersectObjects(courtyard.guidePickables, false)[0];
+        if (hit) {
+          onGuideTap(hit.object.userData.zoneGuide);
+          return;
+        }
       }
       // Luống vườn / quầy hạt giống.
       if (onGardenTap && courtyard?.gardenPickables?.length) {
@@ -299,9 +394,10 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
     // Quỳ đúng kiểu ở chùa: hai đầu gối chạm sàn, đùi thẳng đứng, cẳng chân nằm phía sau, lưng thẳng, tay chắp.
     // Lạy: từ tư thế quỳ cúi rạp người về phía trước (trán gần sàn), hông lùi ngồi lên gót, rồi lên lại.
     function pose(walker, dt) {
-      const { figure, upper, skirt, feet, shins, woodfish, mallet, hips } = walker.parts;
+      const { figure, upper, skirt, feet, shins, woodfish, mallet, hips, rig, workRig } = walker.parts;
       const STAND_HIP = hips.stand;
       const KNEEL_HIP = hips.kneel;
+      workRig?.set(false);
       if (walker.benchId) {
         walker.phase += dt * 1.2;
         figure.position.y = walker.benchY;
@@ -309,6 +405,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         skirt.rotation.z = 0;
         upper.position.set(0, STAND_HIP * 0.76, 0);
         upper.rotation.set(0, 0, 0);
+        rig?.pose({ hip: STAND_HIP * 0.76, sit: 1, dt });
         woodfish.visible = false;
         mallet.visible = false;
         shins.forEach((shin, index) => {
@@ -349,6 +446,9 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       upper.position.z = bow * 0.08;
       upper.rotation.x = -bow * 1.25;
       upper.rotation.z = -stride * 0.03;
+      // Nhân vật mô hình .glb: gập đùi/cẳng chân theo cùng độ cao hông.
+      // Nhân vật có khung xương (shop-…) chạy động tác đi/chạy theo moving/running, quỳ/lạy theo kneel/bow.
+      rig?.pose({ hip, stride, kneel, bow, moving: walker.moving && !kneel, running: walker.running, dt });
       // Nhãn tên và bong bóng hạ theo khi quỳ/lạy.
       walker.label.position.y = walker.parts.labelY - kneel * 0.12 - bow * 0.3;
       if (walker.status) walker.status.position.y = walker.label.position.y + 0.26;
@@ -382,6 +482,56 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
           foot.rotation.x = 0;
         }
       });
+      // Công việc dùng cùng nhịp thời gian cho mọi người trên máy này. Hai tay rời thật sự cầm đạo cụ; mỗi loại
+      // có biên độ riêng để nhìn ra đang quét, tưới, thắp đèn, rải thức ăn, lau tượng hay rót trà.
+      if (walker.chore) {
+        const phase = reduceMotion ? 0 : performance.now() / 420;
+        const wave = Math.sin(phase);
+        const lift = (Math.sin(phase * 0.5) + 1) / 2;
+        figure.position.y = Math.abs(Math.cos(phase)) * 0.018;
+        upper.rotation.x = walker.chore === 'sweep' ? 0.18 + Math.abs(wave) * 0.18 : 0.08;
+        upper.rotation.z = wave * (walker.chore === 'clean' ? 0.16 : 0.05);
+        const armWave = wave * 0.28;
+        if (walker.chore === 'sweep') workRig?.set(true, { x: 0.95, z: -0.25 + armWave }, { x: 1.15, z: 0.25 + armWave });
+        else if (walker.chore === 'water') workRig?.set(true, { x: 1.05, z: -0.22 }, { x: 1.05, z: 0.22 });
+        else if (walker.chore === 'light') workRig?.set(true, { x: 0.82, z: -0.2 }, { x: 0.82, z: 0.2 });
+        else if (walker.chore === 'feed') workRig?.set(true, { x: 0.85, z: -0.15 }, { x: 0.55 + lift * 0.65, z: 0.24 });
+        else if (walker.chore === 'clean') workRig?.set(true, { x: 1.0, z: -0.2 + armWave }, { x: 1.0, z: 0.2 + armWave });
+        else workRig?.set(true, { x: 0.95, z: -0.18 }, { x: 0.95, z: 0.18 });
+        if (walker.choreTool) {
+          walker.choreTool.position.set(0, 0.04, -0.3);
+          walker.choreTool.rotation.set(0, 0, 0);
+          if (walker.chore === 'sweep') walker.choreTool.rotation.set(0.12, 0, -0.28 + wave * 0.5);
+          else if (walker.chore === 'water') {
+            walker.choreTool.position.set(0, 0.11, -0.32);
+            walker.choreTool.rotation.set(0, -0.12, -0.38 - lift * 0.24);
+          }
+          else if (walker.chore === 'light') walker.choreTool.position.y += Math.abs(wave) * 0.04;
+          else if (walker.chore === 'feed') walker.choreTool.rotation.x = -0.2 + lift * 0.32;
+          else if (walker.chore === 'clean') walker.choreTool.position.x = wave * 0.18;
+          else if (walker.chore === 'tea') walker.choreTool.rotation.z = -0.18 + lift * 0.22;
+        }
+        if (walker.choreEffect) {
+          walker.choreEffect.rotation.y = walker.ry;
+          walker.choreEffect.children.forEach((particle) => {
+            const p = (phase + particle.userData.phase) % (Math.PI * 2);
+            const unit = p / (Math.PI * 2);
+            if (walker.chore === 'sweep') particle.position.set(Math.sin(p) * 0.58, 0.05 + Math.abs(Math.sin(p * 2)) * 0.12, -0.42 + Math.cos(p) * 0.34);
+            else if (walker.chore === 'water' && particle.userData.waterDrop) {
+              const fall = (unit * 1.8) % 1;
+              particle.position.set(0.32 + fall * 0.38, 0.48 - fall * 0.43, -0.34 + Math.sin(p) * 0.05);
+            } else if (walker.chore === 'water') {
+              particle.position.set(0.48 + Math.sin(p * 1.7) * 0.24, 0.04 + unit * 0.58, -0.38 + Math.cos(p) * 0.16);
+            }
+            else if (walker.chore === 'feed') particle.position.set(Math.sin(p) * 0.38, 0.12 + Math.sin(unit * Math.PI) * 0.48, -0.25 - unit * 0.5);
+            else if (walker.chore === 'clean') particle.position.set(Math.sin(p) * 0.34, 0.42 + Math.cos(p * 2) * 0.25, -0.45);
+            else if (walker.chore === 'tea') particle.position.set(Math.sin(p * 1.4) * 0.08, 0.35 + unit * 0.55, -0.34);
+            else particle.position.set(Math.sin(p) * 0.2, 0.5 + Math.cos(p) * 0.2, -0.38);
+            particle.rotation.set(p, p * 0.7, p * 1.3);
+            particle.material.opacity = 0.35 + (1 - unit) * 0.65;
+          });
+        }
+      }
     }
 
 
@@ -402,6 +552,21 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         sx: 1.35 * (bench.scale || 1), sz: 0.62 * (bench.scale || 1),
       })),
     ];
+    const choreTargets = world.courtyard?.chores || [];
+    let nearbyChore = null;
+    let nearbyChoreKey = '';
+    function updateNearbyChore(self) {
+      const next = !self || selfSeated || self.benchId || spectator ? null : choreTargets
+        .map((target) => ({ target, distance: Math.hypot(target.x - self.x, target.z - self.z) }))
+        .filter((item) => item.distance <= (item.target.radius || 2.6))
+        .sort((a, b) => a.distance - b.distance)[0]?.target || null;
+      nearbyChore = next;
+      const key = next?.id || '';
+      if (key !== nearbyChoreKey) {
+        nearbyChoreKey = key;
+        onNearbyChoreChange?.(next ? { id: next.id, kind: next.kind } : null);
+      }
+    }
     const gardenData = world.courtyard?.garden;
     if (gardenData) {
       const ring = (gardenData.bed || 2.6) * 0.68;
@@ -497,6 +662,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       if (self) stepSelf(self, dt, time);
       reportPlace(self);
       updateRings(self, time);
+      updateNearbyChore(self);
       gardenView?.update(dt);
       for (const walker of walkers.values()) {
         if (walker.id !== selfId) {
@@ -526,7 +692,9 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
           walker.moving = walker.targetMoving || distance > 0.05;
         }
         walker.group.visible = !(walker.id === selfId && selfSeated);
-        walker.group.position.set(walker.x, 0, walker.z);
+        const choreX = walker.choreOffset * Math.cos(walker.choreRy || 0);
+        const choreZ = -walker.choreOffset * Math.sin(walker.choreRy || 0);
+        walker.group.position.set(walker.x + choreX, 0, walker.z + choreZ);
         walker.parts.figure.rotation.y = walker.ry;
         const outside = Boolean(world.courtyard && walker.z > world.courtyard.ground.z[0] - 0.5);
         if (outside) {
@@ -566,6 +734,44 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       // Vườn Công Đức: luống từ server ([{ id, crop }]), hiệu ứng gieo / tưới / hái, vẽ lại nhãn khi đổi ngôn ngữ.
       setGarden(list) {
         gardenView?.setPlots(list);
+      },
+      // Server phát một snapshot chung; worker id quyết định ai đang có hoạt ảnh và mọi người dùng cùng nhịp.
+      setChores(list = []) {
+        choreStates = list;
+        const byWorker = new Map();
+        for (const chore of list) {
+          const workers = [...(chore.workers || [])].sort();
+          const target = choreTargets.find((item) => item.id === chore.id);
+          workers.forEach((id, index) => byWorker.set(id, {
+            kind: chore.kind,
+            offset: (index - (workers.length - 1) / 2) * 0.68,
+            ry: target?.ry || 0,
+          }));
+        }
+        for (const walker of walkers.values()) {
+          const info = byWorker.get(walker.id) || null;
+          const next = info?.kind || null;
+          walker.choreOffset = info?.offset || 0;
+          walker.choreRy = info?.ry || 0;
+          if (next === walker.chore) continue;
+          if (walker.choreTool) {
+            walker.parts.upper.remove(walker.choreTool);
+            walker.choreTool.userData.dispose?.();
+            walker.choreTool = null;
+          }
+          if (walker.choreEffect) {
+            walker.group.remove(walker.choreEffect);
+            walker.choreEffect.userData.dispose?.();
+            walker.choreEffect = null;
+          }
+          walker.chore = next;
+          if (next) {
+            walker.choreTool = choreTool(next);
+            walker.choreEffect = choreEffect(next);
+            walker.parts.upper.add(walker.choreTool);
+            walker.group.add(walker.choreEffect);
+          }
+        }
       },
       gardenEffect(plotId, kind, plantType) {
         gardenView?.effect(plotId, kind, plantType);
@@ -650,6 +856,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
           controls.minDistance = followCamera.lockZoom ? followOrbitDistance : 2;
           controls.maxDistance = followCamera.lockZoom ? followOrbitDistance : 12;
         }
+        api.setChores(choreStates);
       },
       // Gói vị trí từ server (mỗi 200 ms). Bỏ qua của mình trừ khi server kéo lại xa (chống đi xuyên/nhanh).
       applyMoves(moves) {
@@ -818,6 +1025,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       api,
       dispose() {
         onNearbyChange?.(null);
+        onNearbyChoreChange?.(null);
         onPlaceChange?.(null);
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('keyup', onKeyUp);
