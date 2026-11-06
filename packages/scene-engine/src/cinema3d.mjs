@@ -17,7 +17,7 @@ import {
   windowToPixels,
 } from './theater.mjs';
 
-const SKINS = ['man', 'woman', 'child', 'granny', 'nun', 'monk', 'chibigirl'];
+const SKINS = ['man', 'woman', 'child', 'granny', 'nun', 'monk', 'chibigirl', 'swordsman'];
 
 // Ở rạp ai cũng mặc đồ thường ngày nhiều màu; màu cố định theo từng người (không đổi mỗi lần vào), đầu/mặt giữ
 // nguyên như ở chùa.

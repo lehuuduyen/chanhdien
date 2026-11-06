@@ -71,6 +71,20 @@ export function createAccountUI({ onChange, showToast }) {
   let historyBefore = null;
   let config = { accounts: false, googleClientId: null };
 
+  function showLoginReward(reward) {
+    const unlocked = reward?.unlocked?.[0];
+    const next = reward?.rewards?.find((item) => !item.claimed);
+    if (reward?.achievement?.newlyUnlocked) showToast(t('login.achievement', {
+      title: t(`title.${reward.achievement.id === 'steadfast-practitioner' ? 'steadfastPractitioner' : reward.achievement.id}`),
+      frame: t(`frame.${reward.achievement.frame === 'seven-day-lotus' ? 'sevenDayLotus' : reward.achievement.frame}`),
+    }));
+    else if (unlocked) showToast(t('login.unlocked', { day: reward.totalDays, skin: t(`skin.${unlocked.skin}`) }));
+    else if (reward?.newDay && next) showToast(t('login.checked', { day: reward.totalDays, left: Math.max(0, next.days - reward.totalDays), skin: t(`skin.${next.skin}`) }));
+    else if (reward?.newDay) showToast(t('login.complete', { day: reward.totalDays }));
+    else return false;
+    return true;
+  }
+
   function setAccount(next, notify = true) {
     const changed = (next?.id || null) !== (account?.id || null);
     account = next;
@@ -92,8 +106,9 @@ export function createAccountUI({ onChange, showToast }) {
     try {
       const data = await api('/api/v1/me');
       setAccount(data.account, false);
-      ui.gateName.replaceChildren(nameWithBadge(data.account.displayName, { level: data.stats.level.level }, 'span'));
+      ui.gateName.replaceChildren(nameWithBadge(data.account.displayName, { level: data.stats.level.level, title: data.account.title }, 'span'));
       ui.gateLevel.textContent = t('acct.gateLevel', { level: levelName(data.stats.level.level), merit: formatNumber(data.stats.merit), streak: data.stats.streak });
+      showLoginReward(data.loginReward);
       return data;
     } catch (error) {
       if (error.status === 401) setAccount(null, false);
@@ -117,7 +132,7 @@ export function createAccountUI({ onChange, showToast }) {
     ui.auth.hidden = true;
     ui.authPass.value = '';
     setAccount(data.account);
-    showToast(message);
+    if (!showLoginReward(data.loginReward)) showToast(message);
     await refresh();
   }
 
@@ -228,7 +243,7 @@ export function createAccountUI({ onChange, showToast }) {
     }
     const { stats } = data;
     const name = document.createElement('div');
-    const title = nameWithBadge(account.displayName, { level: stats.level.level }, 'h2');
+    const title = nameWithBadge(account.displayName, { level: stats.level.level, title: account.title }, 'h2');
     const sub = document.createElement('small');
     sub.textContent = account.provider === 'google' ? (account.email || t('acct.googleAccount')) : `@${account.username}`;
     name.append(title, sub);

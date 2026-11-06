@@ -6,7 +6,7 @@
 // Dùng: createTempleRenderer3D({ …, plugin: createExplorePlugin({ onMove, onArrive }) }) → renderer.plugin là api.
 import { findPath, resolveMove } from './walk.mjs';
 import { createGardenView } from './garden3d.mjs';
-import { buildChibiWalker } from './chibi3d.mjs';
+import { buildChibiWalker, danceStyleOf } from './chibi3d.mjs';
 
 const SEND_INTERVAL_MS = 200;
 const BOW_CYCLE_S = { bow3: 3.6, bow108: 3.0 };
@@ -32,7 +32,7 @@ function shortestAngle(from, to) {
   return delta;
 }
 
-export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onMeritBoardTap, onNearbyChange, onNearbyChoreChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onMeritBoardTap, onNearbyChange, onNearbyChoreChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -194,6 +194,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         id: item.id, group, label, parts, name: item.name, skin: item.skin, me: Boolean(item.me), status, statusText: item.status || null,
         x: pos.x, z: pos.z, ry: pos.ry ?? 0, target: { x: pos.x, z: pos.z, ry: pos.ry ?? 0 },
         moving: false, phase: Math.random() * 6, emote: item.emote || null, emoteT: 0, bubble: null,
+        danceStyle: danceStyleOf(String(item.skin || 'c_man').replace(/^c_/, '')),
         benchId: item.benchId || null, benchSpot: item.benchSpot || null, benchY: item.benchY || 0,
         chore: null, choreTool: null, choreEffect: null, choreOffset: 0, choreRy: 0,
       };
@@ -222,6 +223,9 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
     let path = [];
     let arrive = null;
     let lastSentAt = 0;
+    // Nắm tay: người đi theo tự đứng cách người dẫn HAND_GAP m về một bên (handSide ±1 theo trục ngang của người dẫn).
+    const HAND_GAP = 0.55;
+    let handBreakSent = false;
     const sentHistory = [];
     let sentMoving = false;
 
@@ -347,7 +351,27 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         selfSeated = false;
         cameraReady = false;
       }
-      if (direction) path = [];
+      // Đang nắm tay và là người đi theo: tự đi cạnh người dẫn; tự bấm đi (cần điều khiển / phím) là buông tay.
+      const leader = self.handWith && !self.handLead ? walkers.get(self.handWith) : null;
+      let following = false;
+      if (leader && direction) {
+        if (!handBreakSent) {
+          handBreakSent = true;
+          onHandBreak?.();
+        }
+      } else if (leader && !path.length && !self.benchId) {
+        const side = self.handSide || 1;
+        const goalX = leader.x + Math.cos(leader.ry) * HAND_GAP * side;
+        const goalZ = leader.z - Math.sin(leader.ry) * HAND_GAP * side;
+        const dx = goalX - self.x;
+        const dz = goalZ - self.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance > 0.06) {
+          direction = { x: dx / distance, z: dz / distance, limit: distance };
+          following = leader.moving || distance > 0.9;
+        } else if (!leader.moving) self.ry = wrapAngle(self.ry + shortestAngle(self.ry, leader.ry) * Math.min(1, dt * 6));
+      }
+      if (direction && !following) path = [];
       if (!direction && path.length) {
         const next = path[0];
         const dx = next.x - self.x;
@@ -369,7 +393,8 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         self.benchY = 0;
         cameraReady = false;
       }
-      const running = moving && (shift || joystickRunning);
+      // Đi theo người dẫn: chạy khi người dẫn chạy hoặc bị bỏ lại xa.
+      const running = moving && (shift || joystickRunning || (following && (leader.running || Math.hypot(leader.x - self.x, leader.z - self.z) > 1.4)));
       self.running = running;
       if (moving) {
         if (self.emote) self.emote = null;
@@ -402,6 +427,26 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
     // ---- Dáng: đi (nhún, bước chân), quỳ, lạy ----
     // Quỳ đúng kiểu ở chùa: hai đầu gối chạm sàn, đùi thẳng đứng, cẳng chân nằm phía sau, lưng thẳng, tay chắp.
     // Lạy: từ tư thế quỳ cúi rạp người về phía trước (trán gần sàn), hông lùi ngồi lên gót, rồi lên lại.
+    // Nhún nhảy bằng code (5 kiểu, xem DANCE_STYLES): đổi vị trí / nghiêng / xoay cả thân, gật phần trên.
+    function danceMove(walker, figure, upper) {
+      const t = walker.emoteT;
+      const style = walker.danceStyle;
+      if (style === 'sway') {
+        figure.rotation.z = Math.sin(t * 5) * 0.16;
+        figure.position.y = Math.abs(Math.sin(t * 5)) * 0.03;
+      } else if (style === 'spin') {
+        figure.rotation.y += (t * 5) % (Math.PI * 2);
+        figure.position.y = Math.abs(Math.sin(t * 10)) * 0.04;
+      } else if (style === 'hop') {
+        figure.position.y = Math.max(0, Math.sin(t * 9)) * 0.16;
+      } else if (style === 'nod') {
+        upper.rotation.x = -Math.max(0, Math.sin(t * 4)) * 0.18;
+        figure.position.y = Math.abs(Math.sin(t * 2)) * 0.015;
+      } else {
+        figure.position.y = Math.abs(Math.sin(t * 6.5)) * 0.08;
+      }
+    }
+
     function pose(walker, dt) {
       const { figure, upper, skirt, feet, shins, woodfish, mallet, hips, rig, workRig } = walker.parts;
       const STAND_HIP = hips.stand;
@@ -410,6 +455,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       if (walker.benchId) {
         walker.phase += dt * 1.2;
         figure.position.y = walker.benchY;
+        figure.rotation.z = 0;
         skirt.scale.y = 0.76;
         skirt.rotation.z = 0;
         upper.position.set(0, STAND_HIP * 0.76, 0);
@@ -430,14 +476,17 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         });
         walker.label.position.y = walker.parts.labelY + walker.benchY - 0.08;
         if (walker.status) walker.status.position.y = walker.label.position.y + 0.26;
-        if (walker.bubble) walker.bubble.sprite.position.y = walker.label.position.y + 0.26;
+        if (walker.bubble) walker.bubble.sprite.position.y = walker.label.position.y + 0.26 + walker.bubble.lift;
         return;
       }
       walker.phase += dt * (walker.moving ? (walker.running ? 14 : 9.5) : 1.2);
       let kneel = 0;
       let bow = 0;
-      if (walker.emote) {
-        walker.emoteT += dt;
+      if (walker.emote) walker.emoteT += dt;
+      else walker.emoteT = 0;
+      // Nhún nhảy là emote đứng (không quỳ); các emote khác quỳ / lạy / tụng.
+      const dancing = walker.emote === 'dance' && !walker.moving;
+      if (walker.emote && walker.emote !== 'dance') {
         kneel = Math.min(1, walker.emoteT / 0.6);
         const cycle = BOW_CYCLE_S[walker.emote];
         if (cycle) {
@@ -445,7 +494,7 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
           // Lạy xong số lạy thì quỳ yên.
           if (Math.floor(started / cycle) < BOW_COUNT[walker.emote]) bow = Math.sin(((started % cycle) / cycle) * Math.PI) ** 2;
         }
-      } else walker.emoteT = 0;
+      }
       const stride = walker.moving && !reduceMotion && !kneel ? Math.sin(walker.phase) : 0;
       figure.position.y = walker.moving && !kneel ? Math.abs(Math.cos(walker.phase)) * 0.035 : 0;
       const hip = STAND_HIP + (KNEEL_HIP - STAND_HIP) * kneel - bow * 0.14;
@@ -455,13 +504,16 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
       upper.position.z = bow * 0.08;
       upper.rotation.x = -bow * 1.25;
       upper.rotation.z = -stride * 0.03;
+      figure.rotation.z = 0;
+      // Nhân vật có điệu nhảy trong file thì rig chạy động tác đó; không thì nhún cả thân theo kiểu riêng của nhân vật.
+      if (dancing && !rig?.hasDance && !reduceMotion) danceMove(walker, figure, upper);
       // Nhân vật mô hình .glb: gập đùi/cẳng chân theo cùng độ cao hông.
       // Nhân vật có khung xương (shop-…) chạy động tác đi/chạy theo moving/running, quỳ/lạy theo kneel/bow.
-      rig?.pose({ hip, stride, kneel, bow, moving: walker.moving && !kneel, running: walker.running, dt });
+      rig?.pose({ hip, stride, kneel, bow, moving: walker.moving && !kneel, running: walker.running, dance: dancing, dt });
       // Nhãn tên và bong bóng hạ theo khi quỳ/lạy.
       walker.label.position.y = walker.parts.labelY - kneel * 0.12 - bow * 0.3;
       if (walker.status) walker.status.position.y = walker.label.position.y + 0.26;
-      if (walker.bubble) walker.bubble.sprite.position.y = walker.label.position.y + 0.26;
+      if (walker.bubble) walker.bubble.sprite.position.y = walker.label.position.y + 0.26 + walker.bubble.lift;
       const knelt = kneel > 0.5;
       // Tụng kinh / gõ mõ: quỳ, dùi gõ xuống mõ theo nhịp 0,7 giây.
       const chanting = walker.emote === 'chant' || walker.emote === 'woodfish';
@@ -491,6 +543,20 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
           foot.rotation.x = 0;
         }
       });
+      // Nắm tay: tay phía người kia giơ ngang ra nắm, tay còn lại đánh nhẹ theo bước chân (nhân vật khối có tay rời).
+      const partner = walker.handWith && walkers.get(walker.handWith);
+      if (partner && workRig && !walker.chore && !knelt && !partner.benchId) {
+        const dx = partner.x - walker.x;
+        const dz = partner.z - walker.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance < 1.4) {
+          const side = dx * Math.cos(walker.ry) - dz * Math.sin(walker.ry) >= 0 ? 1 : -1;
+          const reach = Math.min(1.25, 0.75 + Math.max(0, distance - HAND_GAP) * 1.2);
+          const hold = { x: 0.1, z: side * reach };
+          const free = { x: -stride * 0.35, z: -side * 0.1 };
+          workRig.set(true, side < 0 ? hold : free, side < 0 ? free : hold);
+        }
+      }
       // Công việc dùng cùng nhịp thời gian cho mọi người trên máy này. Hai tay rời thật sự cầm đạo cụ; mỗi loại
       // có biên độ riêng để nhìn ra đang quét, tưới, thắp đèn, rải thức ăn, lau tượng hay rót trà.
       if (walker.chore) {
@@ -830,6 +896,14 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
           if (!walker) walker = addWalker(item);
           walker.benchId = item.benchId || null;
           walker.benchSpot = item.benchSpot || null;
+          if ((item.handWith || null) !== (walker.handWith || null)) {
+            walker.handWith = item.handWith || null;
+            // Người đi theo đứng về phía mình đang đứng so với người dẫn (không vòng qua người kia).
+            const lead = walker.handWith && walkers.get(walker.handWith);
+            walker.handSide = lead ? ((walker.x - lead.x) * Math.cos(lead.ry) - (walker.z - lead.z) * Math.sin(lead.ry) >= 0 ? 1 : -1) : 1;
+            if (item.me) handBreakSent = false;
+          }
+          walker.handLead = Boolean(item.handLead);
           walker.benchY = item.benchY || 0;
           if (item.me) selfId = item.id;
           if (item.benchId && item.pos) {
@@ -928,9 +1002,16 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
         }
         const chars = [...String(text).replace(/\s+/g, ' ').trim()];
         const sprite = makeBubble(chars.length > 40 ? `${chars.slice(0, 39).join('')}…` : chars.join(''), walker.me);
-        sprite.position.y = walker.label.position.y + 0.26;
+        // Người đứng sát (nắm tay, đứng cạnh) đang có bong bóng: đẩy bong bóng mới lên một bậc để hai câu không đè nhau.
+        const now = performance.now();
+        let crowded = 0;
+        for (const other of walkers.values()) {
+          if (other !== walker && other.bubble && now - other.bubble.at < 6_000 && Math.hypot(other.x - walker.x, other.z - walker.z) < 1.6) crowded += 1;
+        }
+        const lift = Math.min(2, crowded) * 0.3;
+        sprite.position.y = walker.label.position.y + 0.26 + lift;
         walker.group.add(sprite);
-        walker.bubble = { sprite, at: performance.now() };
+        walker.bubble = { sprite, at: now, lift };
         return true;
       },
       // Đi tới một điểm (tìm đường quanh vật cản); then() chạy khi tới nơi (vd: ngồi xuống bồ đoàn).
@@ -996,6 +1077,9 @@ export function createExplorePlugin({ onMove, onTapEmpty, onWalkerTap, onBenchTa
             id: item.id, name: item.name, x: item.x, z: item.z, ry: item.ry,
             moving: item.moving, running: Boolean(item.running), benchId: item.benchId, benchSpot: item.benchSpot,
             emote: item.emote, visible: item.group.visible,
+            // Nhún nhảy: 'clip' (điệu trong file .glb) hoặc kiểu nhún bằng code; lift/tilt để kiểm tra chuyển động.
+            dance: item.emote === 'dance' ? (item.parts.rig?.hasDance ? 'clip' : item.danceStyle) : null,
+            lift: Math.round(item.parts.figure.position.y * 1000) / 1000, tilt: Math.round(item.parts.figure.rotation.z * 1000) / 1000,
           })),
         };
       },

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { createJoinTicket } from '@chanh-dien/session-token';
+import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { WebSocket } from 'ws';
 import { createModerationGuard } from '../moderation.mjs';
 import { createRealtimeServer } from '../server.mjs';
@@ -64,12 +65,12 @@ async function startServer(t, remote, { now = Date.now } = {}) {
     sockets.push(socket);
     const messages = inbox(socket);
     await once(socket, 'open');
-    socket.send(JSON.stringify({ v: 1, type: 'hello', roomId: 'cinema-1', displayName }));
+    socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', roomId: 'cinema-1', displayName }));
     await waitFor(() => messages.find((message) => message.type === 'welcome' || message.type === 'protocol.error'));
     return { socket, messages };
   }
   const chat = (client, text, requestId = `r-${Math.random().toString(36).slice(2, 10)}`) => {
-    client.socket.send(JSON.stringify({ v: 1, type: 'chat.send', text, requestId }));
+    client.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'chat.send', text, requestId }));
     return requestId;
   };
   return { server, moderation, join, chat };

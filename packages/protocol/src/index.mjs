@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export const LIMITS = Object.freeze({
   roomId: 64,
@@ -24,16 +24,20 @@ export const AVATAR_URL = /^https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[A-Za-
 // Id video YouTube: 11 ký tự [A-Za-z0-9_-].
 export const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 export const PLAYBACK_EVENTS = Object.freeze(['duration', 'ended', 'error']);
-// chibigirl: hình mua trong shop (máy realtime kiểm tra quyền sở hữu theo vé vào phòng).
+// chibigirl / swordsman: hình thưởng hoặc mua trong shop (máy realtime kiểm tra quyền sở hữu theo vé vào phòng).
 // pilgrim / lotusgirl là hai hình khối dành cho bot, không nằm trong danh sách hình người dùng được chọn ở room rules.
-export const SKINS = Object.freeze(['man', 'woman', 'granny', 'nun', 'monk', 'child', 'pilgrim', 'lotusgirl', 'chibigirl']);
+export const SKINS = Object.freeze(['man', 'woman', 'granny', 'nun', 'monk', 'child', 'pilgrim', 'lotusgirl', 'chibigirl', 'swordsman']);
+// Mỹ phẩm hồ sơ chỉ truyền id cố định; chữ hiển thị được dịch ở client.
+export const PLAYER_TITLES = Object.freeze(['steadfast-practitioner']);
+export const AVATAR_FRAMES = Object.freeze(['seven-day-lotus']);
 // Nhân vật admin tải lên (shop-<tên>); cùng mẫu với SHOP_SKIN trong @chanh-dien/room-rules.
 export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;
 const validSkin = (skin) => SKINS.includes(skin) || (typeof skin === 'string' && SHOP_SKIN.test(skin));
 export const OFFERING_KINDS = Object.freeze(['petal', 'incense', 'lotus', 'bell']);
 // Động tác của nhân vật (chế độ nhập vai): đứng, quỳ, lạy 3 lạy, lạy 108 lạy.
 // chant: tụng kinh (kèm mã bài kinh `sutra`), woodfish: gõ mõ.
-export const EMOTES = Object.freeze(['stand', 'kneel', 'bow3', 'bow108', 'chant', 'woodfish']);
+// dance: nhún nhảy (đứng, chỉ ngoài sân chùa); nhân vật có điệu nhảy trong file .glb chạy điệu đó.
+export const EMOTES = Object.freeze(['stand', 'kneel', 'bow3', 'bow108', 'chant', 'woodfish', 'dance']);
 const SUTRA_ID = /^[a-z0-9-]{1,32}$/;
 // Sớ: cầu an (peace) hoặc cầu siêu (memorial). Cả phòng chỉ biết ai dâng sớ loại gì; tên người trong sớ không đi qua phòng.
 export const PRAYER_KINDS = Object.freeze(['peace', 'memorial']);
@@ -43,6 +47,10 @@ export const GAMES = Object.freeze(['rps']);
 export const RPS_CHOICES = Object.freeze(['rock', 'paper', 'scissors']);
 export const CHALLENGE_STATUSES = Object.freeze(['pending', 'declined', 'cancelled', 'expired', 'playing', 'finished']);
 export const FRIEND_STATUSES = Object.freeze(['pending', 'accepted', 'declined']);
+// Nắm tay đi dạo: mời → chấp nhận / từ chối; đang nắm thì buông (tự buông, ngồi, đi nhanh, rời phòng, đi quá xa).
+export const HAND_STATUSES = Object.freeze(['pending', 'accepted', 'declined', 'released']);
+// Phòng game bot có thể mời người chơi sang (trang riêng phía client).
+export const GAME_ROOMS = Object.freeze(['loto', 'tai-xiu', 'bau-cua']);
 // Báo cáo người chơi: lý do cố định, kèm ghi chú ngắn tùy chọn.
 export const REPORT_REASONS = Object.freeze(['spam', 'harassment', 'inappropriate', 'other']);
 const RESULT_SIDES = ['from', 'to', 'draw'];
@@ -112,6 +120,10 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'challenge.cancel': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
   'player.block': { roles: ['guest', 'member', 'moderator', 'host'], rate: '20/60 giây' },
   'player.report': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
+  'hand.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây, hai người đang đứng cách nhau ≤ 6 m' },
+  'hand.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
+  'hand.release': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
+  'bot.quiet': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
 });
 
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/;
@@ -316,6 +328,28 @@ const clientSchemas = {
       && typeof message.blocked === 'boolean';
   },
   // Báo cáo một người trong phòng cho người quản lý.
+  // Mời một người đang đứng gần nắm tay đi dạo; người nhận trả lời bằng hand.respond. Đang nắm thì hand.release để buông.
+  'hand.request'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'targetId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.targetId, LIMITS.participantId, ID_PATTERN);
+  },
+  'hand.respond'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'fromId', 'accept'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.fromId, LIMITS.participantId, ID_PATTERN)
+      && typeof message.accept === 'boolean';
+  },
+  'hand.release'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  // Không muốn bot tự bắt chuyện / khiêu chiến / mời sang phòng game (quiet: true), hoặc bật lại.
+  'bot.quiet'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'quiet'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && typeof message.quiet === 'boolean';
+  },
   'player.report'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'targetId', 'reason'], ['note'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
@@ -342,11 +376,16 @@ const queueItem = (value) => isRecord(value)
   && isString(value.addedBy, LIMITS.displayName);
 
 const participant = (value) => isRecord(value)
-  && exactKeys(value, ['id', 'displayName'], ['seatId', 'benchId', 'benchSpot', 'connected', 'skin', 'merit', 'bot', 'level', 'avatarUrl', 'pos', 'emote', 'sutra'])
+  && exactKeys(value, ['id', 'displayName'], ['seatId', 'benchId', 'benchSpot', 'connected', 'skin', 'merit', 'bot', 'level', 'avatarUrl', 'title', 'frame', 'pos', 'emote', 'sutra', 'handWith', 'handLead'])
+  // Đang nắm tay người khác (handWith = id người kia); handLead: người dẫn đường, người kia đi theo.
+  && (value.handWith === undefined || isString(value.handWith, LIMITS.participantId, ID_PATTERN))
+  && (value.handLead === undefined || (value.handLead === true && value.handWith !== undefined))
   && (value.pos === undefined || position(value.pos))
   && (value.emote === undefined || EMOTES.includes(value.emote))
   && (value.sutra === undefined || (typeof value.sutra === 'string' && SUTRA_ID.test(value.sutra)))
   && (value.avatarUrl === undefined || (typeof value.avatarUrl === 'string' && value.avatarUrl.length <= LIMITS.avatarUrl && AVATAR_URL.test(value.avatarUrl)))
+  && (value.title === undefined || PLAYER_TITLES.includes(value.title))
+  && (value.frame === undefined || AVATAR_FRAMES.includes(value.frame))
   && (value.bot === undefined || value.bot === true)
   && (value.level === undefined || (isInteger(value.level) && value.level >= 1 && value.level <= 99))
   && (value.skin === undefined || validSkin(value.skin))
@@ -411,12 +450,14 @@ const serverSchemas = {
       && isInteger(message.total) && message.total >= 0
       && isInteger(message.bots) && message.bots >= 0 && message.bots <= message.total
       && Array.isArray(message.top) && message.top.length <= 20
-      && message.top.every((item) => isRecord(item) && exactKeys(item, ['id', 'displayName', 'merit'], ['level', 'avatarUrl'])
+      && message.top.every((item) => isRecord(item) && exactKeys(item, ['id', 'displayName', 'merit'], ['level', 'avatarUrl', 'title', 'frame'])
         && isString(item.id, LIMITS.participantId, ID_PATTERN)
         && isString(item.displayName, LIMITS.displayName)
         && isInteger(item.merit) && item.merit > 0
         && (item.level === undefined || (isInteger(item.level) && item.level >= 1))
-        && (item.avatarUrl === undefined || (typeof item.avatarUrl === 'string' && item.avatarUrl.length <= LIMITS.avatarUrl && AVATAR_URL.test(item.avatarUrl))))
+        && (item.avatarUrl === undefined || (typeof item.avatarUrl === 'string' && item.avatarUrl.length <= LIMITS.avatarUrl && AVATAR_URL.test(item.avatarUrl)))
+        && (item.title === undefined || PLAYER_TITLES.includes(item.title))
+        && (item.frame === undefined || AVATAR_FRAMES.includes(item.frame)))
       && (message.rank === undefined || (isInteger(message.rank) && message.rank >= 1));
   },
   // Vị trí đã gom của những người vừa di chuyển (mỗi 200 ms). m = đang đi.
@@ -534,6 +575,25 @@ const serverSchemas = {
       && (message.displayName === undefined || isString(message.displayName, LIMITS.displayName))
       && PRAYER_KINDS.includes(message.kind)
       && isInteger(message.at) && message.at >= 0;
+  },
+  // Nắm tay, chỉ gửi cho hai người: fromId là người mời (người dẫn), toId người được mời (đi theo); byId: ai buông tay.
+  'hand.state'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'fromId', 'toId', 'status'], ['byId'])
+      && isString(message.fromId, LIMITS.participantId, ID_PATTERN)
+      && isString(message.toId, LIMITS.participantId, ID_PATTERN)
+      && HAND_STATUSES.includes(message.status)
+      && (message.byId === undefined || isString(message.byId, LIMITS.participantId, ID_PATTERN));
+  },
+  // Có lời nhắn / lời mời bạn bè mới (gửi tới mọi kết nối của tài khoản nhận); trang tự tải hộp thư qua API.
+  'inbox.notify'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'kind'])
+      && ['note', 'invite'].includes(message.kind);
+  },
+  // Bot mời một người sang phòng game, chỉ gửi cho người được mời (bot nói câu mời trong chat riêng).
+  'game.invite'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'fromId', 'game'])
+      && isString(message.fromId, LIMITS.participantId, ID_PATTERN)
+      && GAME_ROOMS.includes(message.game);
   },
   // Trạng thái lời mời kết bạn, chỉ gửi cho hai người liên quan. saved: đã lưu vào tài khoản (cả hai đã đăng nhập).
   'friend.state'(message) {

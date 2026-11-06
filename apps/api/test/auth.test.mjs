@@ -3,6 +3,8 @@ import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
 import { internalKey, verifyJoinTicket } from '@chanh-dien/session-token';
+import { botAllocation, realtimeBotController } from '../donate.mjs';
+import { createShopStore } from '../shop.mjs';
 import { handleApiRequest } from '../server.mjs';
 
 const SECRET = 'test-secret-with-at-least-thirty-two-characters';
@@ -75,6 +77,37 @@ test('Google: ẩn khi chưa cấu hình; có client ID thì xác minh token r�
   assert.equal(signed.json.account.provider, 'google');
   const joined = await request(options, 'POST', '/api/v1/rooms/join', { body: { roomId: 'thien-1' }, headers: { cookie: cookieOf(signed) } });
   assert.equal(verifyJoinTicket(joined.json.ticket, SECRET).value.avatarUrl, 'https://lh3.googleusercontent.com/x', 'vé mang ảnh Google để cả phòng thấy');
+});
+
+test('sự kiện đăng nhập: ngày 3 tặng Bé Mũ Đỏ, ngày 7 tặng Kiếm Sĩ vĩnh viễn và không cấp trùng', async () => {
+  let clock = Date.parse('2026-11-01T03:00:00Z');
+  const accounts = createAccountStore({ now: () => clock });
+  const shopStore = createShopStore({ db: accounts.database, now: () => clock });
+  const options = setup({ accounts, shopStore });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'qua.login', password: 'matkhau123', displayName: 'Nhận Quà' } });
+  const cookie = cookieOf(registered);
+  assert.deepEqual([registered.json.loginReward.totalDays, registered.json.loginReward.newDay], [1, true]);
+  assert.equal((await request(options, 'POST', '/api/v1/shop/skin', { body: { skin: 'swordsman' }, headers: { cookie } })).status, 409, 'chưa đủ ngày không thể tự mở skin');
+  assert.equal((await request(options, 'GET', '/api/v1/me', { headers: { cookie } })).json.loginReward.totalDays, 1, 'tải lại không tăng ngày');
+
+  for (let day = 2; day <= 7; day += 1) {
+    clock += 86_400_000;
+    const me = await request(options, 'GET', '/api/v1/me', { headers: { cookie } });
+    assert.equal(me.json.loginReward.totalDays, day);
+    if (day === 3) assert.deepEqual(me.json.loginReward.unlocked.map((item) => item.skin), ['chibigirl']);
+    if (day === 7) {
+      assert.deepEqual(me.json.loginReward.unlocked.map((item) => item.skin), ['swordsman']);
+      assert.equal(me.json.loginReward.achievement.newlyUnlocked, true);
+      assert.deepEqual([me.json.account.title, me.json.account.frame], ['steadfast-practitioner', 'seven-day-lotus']);
+    }
+  }
+  assert.deepEqual(shopStore.ownedSkins(registered.json.account.id), ['chibigirl', 'swordsman']);
+  assert.equal((await request(options, 'GET', '/api/v1/me', { headers: { cookie } })).json.loginReward.unlocked.length, 0, 'không cấp trùng cùng ngày');
+  assert.equal((await request(options, 'POST', '/api/v1/shop/skin', { body: { skin: 'swordsman' }, headers: { cookie } })).status, 200);
+  const join = await request(options, 'POST', '/api/v1/rooms/join', { body: { roomId: 'thien-1' }, headers: { cookie } });
+  const ticket = verifyJoinTicket(join.json.ticket, SECRET).value;
+  assert.deepEqual([ticket.skin, ticket.skins], ['swordsman', ['chibigirl', 'swordsman']]);
+  assert.deepEqual([ticket.title, ticket.frame], ['steadfast-practitioner', 'seven-day-lotus']);
 });
 
 test('thành viên vào phòng bằng tên tài khoản; lễ vật nội bộ cần khóa; lịch sử và bảng xếp hạng', async () => {
@@ -182,8 +215,11 @@ test('Telegram addbot đặt tổng bot realtime, báo phân bổ và nhận 0 �
   const options = setup({
     telegramWebhookSecret: 'telegram-secret-123',
     telegramChatId: '-100123',
-    configureBots: async (total) => {
-      calls.push(total);
+    configureBots: async (total, roomId = null) => {
+      calls.push([total, roomId]);
+      if (roomId) {
+        return { requested: total, assigned: total, rooms: [{ roomId, name: 'Phòng riêng', bots: total }] };
+      }
       return {
         requested: total,
         assigned: total,
@@ -201,16 +237,55 @@ test('Telegram addbot đặt tổng bot realtime, báo phân bổ và nhận 0 �
   });
 
   const added = await send(9050, '/addbot 100');
-  assert.deepEqual(calls, [100]);
+  assert.deepEqual(calls, [[100, null]]);
   assert.match(added.json.text, /Đã chia 100 bot/);
   assert.match(added.json.text, /Bầu Cua: 34/);
   assert.match(added.json.text, /Lô Tô: 33/);
   const stopped = await send(9051, 'addbot 0');
-  assert.deepEqual(calls, [100, 0]);
+  assert.deepEqual(calls, [[100, null], [0, null]]);
   assert.match(stopped.json.text, /Đã tắt toàn bộ bot/);
   const invalid = await send(9052, 'addbot 1001');
-  assert.deepEqual(calls, [100, 0]);
+  assert.deepEqual(calls, [[100, null], [0, null]]);
   assert.match(invalid.json.text, /0 đến 1000/);
+  const oneRoom = await send(9053, 'addbot baucua 12');
+  assert.deepEqual(calls.at(-1), [12, 'game-1']);
+  assert.match(oneRoom.json.text, /Bầu Cua: 12 bot/);
+  assert.match(oneRoom.json.text, /Các phòng khác giữ nguyên/);
+  const stopLoto = await send(9054, 'addbot 0 loto');
+  assert.deepEqual(calls.at(-1), [0, 'loto-1']);
+  assert.match(stopLoto.json.text, /Đã tắt bot riêng phòng Lô Tô/);
+  const unknown = await send(9055, 'addbot unknown 5');
+  assert.match(unknown.json.text, /Không nhận ra phòng/);
+});
+
+test('addbot lập một kế hoạch cho ba game và gửi tới mọi node realtime', async () => {
+  let serial = 0;
+  const plan = botAllocation(100, () => ((serial += 17) % 101) / 101);
+  assert.equal(Object.values(plan.allocations).reduce((sum, count) => sum + count, 0), 100);
+  for (const roomId of ['game-1', 'taixiu-1', 'loto-1']) assert.ok(plan.allocations[roomId] >= 2);
+
+  const calls = [];
+  const controller = realtimeBotController('http://rt1:4001, http://rt2:4002', SECRET, async (url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push({ url: String(url), body });
+    const targeted = body.replace === false;
+    const room = targeted
+      ? { roomId: 'taixiu-1', type: 'taixiu', name: 'Tài Xỉu', bots: 6 }
+      : String(url).includes('rt1')
+        ? { roomId: 'game-1', type: 'game', name: 'Bầu Cua', bots: 12 }
+        : { roomId: 'loto-1', type: 'loto', name: 'Lô Tô', bots: 7 };
+    return { ok: true, json: async () => ({ rooms: targeted && String(url).includes('rt2') ? [] : [room] }) };
+  });
+  const result = await controller(20);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].body, calls[1].body, 'hai node nhận cùng một kế hoạch, không tự chia lệch nhau');
+  assert.equal(result.assigned, 19);
+  assert.deepEqual(result.rooms.map((room) => room.roomId), ['game-1', 'loto-1']);
+  calls.length = 0;
+  const targeted = await controller(6, 'taixiu');
+  assert.equal(targeted.assigned, 6);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].body, { allocations: { 'taixiu-1': 6 }, replace: false });
 });
 
 test('Telegram quản trị cộng/trừ xu và kim cương theo tên tài khoản, chống xử lý trùng', async () => {

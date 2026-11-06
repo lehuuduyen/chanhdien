@@ -209,6 +209,7 @@ button.chip { cursor: pointer; }
 /* Tài khoản: ảnh đại diện (ảnh Google hoặc chữ cái đầu), hộp thoại đăng nhập, hồ sơ, bảng xếp hạng. */
 .avatar { --hue: 30; display: inline-grid; place-items: center; flex: none; width: 40px; height: 40px; overflow: hidden; color: #fff8e6; background: hsl(var(--hue) 45% 32%); border: 1px solid var(--line); border-radius: 50%; font-family: var(--display); font-weight: 600; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar.frame-seven-day-lotus { border-color: #ffe5a0; box-shadow: 0 0 0 2px #a62f38, 0 0 0 4px #edbd4f, 0 0 12px rgba(255, 205, 92, .8); }
 .avatar.small { width: clamp(20px, 6cqw, 26px); height: clamp(20px, 6cqw, 26px); font-size: .8em; }
 .avatar.large { width: 56px; height: 56px; font-size: 24px; }
 .me-chip.signed-in { padding: 0 .6cqw; }
@@ -289,7 +290,9 @@ button.chip { cursor: pointer; }
 .lv-7 { --lv: #c28a12; color: #3a2400; background: linear-gradient(135deg, #fff1b8, #e8b43a 45%, #b07a10); text-shadow: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5), 0 0 6px rgba(255, 210, 90, .8); }
 .toast .lv { margin-right: .1em; vertical-align: -.15em; }
 .who-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-title { flex: none; padding: .18em .48em; color: #fff4c5; background: linear-gradient(135deg, #8f2332, #bf3f3d 52%, #7d1c2a); border: 1px solid #efc45f; border-radius: 999px; font-family: var(--body); font-size: max(.68em, 8px); font-weight: 800; line-height: 1.2; white-space: nowrap; box-shadow: 0 0 6px rgba(239, 196, 95, .45); }
 .msg .who-name { white-space: normal; }
+.msg .player-title, .board .player-title { display: none; }
 .profile-head h2.who { display: flex; }
 
 /* Huy hiệu hạng TOP 1/2/3 kiểu TikTok LIVE: vương miện vàng, bạc, đồng. */
@@ -479,6 +482,8 @@ button.chip { cursor: pointer; }
 .social-actions .chip:disabled { opacity: .55; cursor: default; }
 .social-note { margin: 0; color: #a99677; font-size: 12px; line-height: 1.45; }
 .social-invites { position: absolute; z-index: 12; top: calc(env(safe-area-inset-top, 0) + 64px); left: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.hand-chip { position: absolute; z-index: 12; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0) + 168px); transform: translateX(-50%); max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: auto; }
+.hand-chip[hidden] { display: none; }
 .social-invite { padding: 12px 14px; color: var(--fg); background: rgba(24, 14, 8, .96); border: 1px solid var(--gold); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); pointer-events: auto; animation: social-in .25s ease-out; }
 .social-invite p { margin: 0 0 8px; font-size: 15px; }
 @keyframes social-in { from { opacity: 0; transform: translateY(-8px); } }
@@ -524,6 +529,13 @@ button.chip { cursor: pointer; }
 .friend-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .friend-sub { color: #a99677; font-size: 12px; }
 .friend-row .chip { min-height: 40px; cursor: pointer; }
+.friend-row { flex-wrap: wrap; }
+.friend-row.unread { border-color: var(--gold); }
+.friend-actions { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.friend-message { width: 100%; margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.friend-note { display: flex; gap: 6px; width: 100%; }
+.friend-note input { flex: 1; min-width: 0; min-height: 40px; padding: 0 12px; color: var(--fg); font: inherit; background: rgba(0, 0, 0, .35); border: 1px solid var(--line); border-radius: 999px; }
+.friend-hide { align-self: flex-start; min-height: 40px; }
 
 /* Vườn Công Đức: bảng thông tin luống, quầy hạt giống. */
 .garden-sheet { position: absolute; z-index: 12; inset: 0; top: 6cqw; display: flex; flex-direction: column; gap: 10px; padding: 18px 18px max(18px, env(safe-area-inset-bottom, 0)); overflow-y: auto; color: var(--fg); background: radial-gradient(circle at 50% 25%, #23301a, #0f150b 75%); border-top: 1px solid rgba(143, 196, 104, .35); border-radius: 22px 22px 0 0; box-shadow: 0 -20px 50px rgba(0, 0, 0, .6); }

@@ -105,9 +105,9 @@ let roomCount = null;
 let fallbackRoomTotal = null;
 let countPollTimer = null;
 let countPollBusy = false;
-// Nhân vật chọn Nam/Nữ, hoặc hình đã mua trong Shop nhân vật (chibigirl và nhân vật admin tải lên "shop-…"; server
-// kiểm tra quyền sở hữu). Người đã chọn hình cũ (sư cô, bà cụ… / sư thầy, chú tiểu) được quy về nữ/nam.
-const isShopSkin = (skin) => skin === 'chibigirl' || /^shop-[a-z0-9-]{2,30}$/.test(skin || '');
+// Nhân vật chọn Nam/Nữ, hoặc hình cao cấp đã mua/được tặng (chibigirl, swordsman và nhân vật admin tải lên
+// "shop-…"; server kiểm tra quyền sở hữu). Người đã chọn hình cũ được quy về nữ/nam.
+const isShopSkin = (skin) => ['chibigirl', 'swordsman'].includes(skin) || /^shop-[a-z0-9-]{2,30}$/.test(skin || '');
 let mySkin = (() => {
   let saved = null;
   try { saved = localStorage.getItem('thien-skin'); } catch {}
@@ -116,7 +116,7 @@ let mySkin = (() => {
 })();
 // Hình thay thế khi ảnh 2D chưa có sprite riêng. Bot mới vẫn khác nhau ở 2D (hình sư thầy/sư cô), còn 3D dùng
 // đúng áo xanh/hồng của pilgrim/lotusgirl. Hình Shop lấy base do danh mục API trả về.
-const shopBase = new Map([['chibigirl', 'woman'], ['pilgrim', 'monk'], ['lotusgirl', 'nun']]);
+const shopBase = new Map([['chibigirl', 'woman'], ['swordsman', 'man'], ['pilgrim', 'monk'], ['lotusgirl', 'nun']]);
 const baseSkin = (skin) => shopBase.get(skin) || (isShopSkin(skin) ? 'man' : skin);
 const spriteSkin = baseSkin;
 let seatAttempts = 0;
@@ -156,9 +156,11 @@ const explore = createExploreUI({
 explore.arriveAt(PARAMS.get('go'));
 
 // Sang phòng game (trang riêng, chơi một mình bằng tiền ảo). Nhớ link phòng chùa để nút Đi nhanh quay về đúng phòng.
-function goToGames() {
+// game: phòng bot mời sang (game.invite); không có thì vào Bầu Cua như nút 🎲.
+const GAME_PAGES = { 'bau-cua': '/game.html', 'tai-xiu': '/tai-xiu.html', loto: '/loto.html' };
+function goToGames(game) {
   try { sessionStorage.setItem('thien-return', `${location.pathname}${location.search}`); } catch {}
-  location.href = '/game.html';
+  location.href = GAME_PAGES[game] || '/game.html';
 }
 
 // Sang map rạp phim (phòng cinema-1, trang riêng). Nhớ link phòng chùa đang ở để rạp có nút quay về đúng phòng.
@@ -511,7 +513,10 @@ const rankedByMerit = () => roomCount?.top || [...participants.values()].filter(
 let roomRanks = new Map();
 function badgesOf(id) {
   const person = participants.get(id);
-  return { level: person?.level, rank: roomRanks.get(id), avatarUrl: person?.avatarUrl, displayName: person?.displayName };
+  return {
+    level: person?.level, rank: roomRanks.get(id), avatarUrl: person?.avatarUrl,
+    title: person?.title, frame: person?.frame, displayName: person?.displayName,
+  };
 }
 
 // ---- Cảnh ----
@@ -665,7 +670,7 @@ function meritRow(person, index) {
   if (person.id === session.participantId) item.className = 'me';
   const rank = document.createElement('i');
   rank.append(rankBadge(index + 1, { compact: true }) || document.createTextNode(String(index + 1)));
-  const name = nameWithBadge(nameOf(person.id, person.displayName), { level: person.level }, 'span');
+  const name = nameWithBadge(nameOf(person.id, person.displayName), { level: person.level, title: person.title }, 'span');
   const merit = document.createElement('b');
   merit.textContent = person.merit;
   item.append(rank, avatarNode(person, 'avatar small'), name, merit);
@@ -687,7 +692,7 @@ function renderBoard() {
   // số người thật của shard từ API; trong lúc API chưa trả lời không bao giờ hiển thấp hơn danh sách đang thấy.
   if (roomCount) {
     elements.count.textContent = String(roomCount.total);
-    elements.presence.title = roomCount.bots ? t('hud.countBots', { n: roomCount.bots }) : '';
+    elements.presence.title = '';
   } else {
     const visible = [...participants.values()].filter((person) => !person.bot && person.connected !== false).length;
     elements.count.textContent = String(Math.max(fallbackRoomTotal || 0, visible));
@@ -711,7 +716,7 @@ function say(name, text, gift = false, badges = {}) {
   item.className = `msg${gift ? ' gift' : ''}`;
   const body = document.createElement('span');
   body.append(nameWithBadge(name, badges), document.createTextNode(` ${text}`));
-  item.append(avatarNode({ displayName: name, avatarUrl: badges.avatarUrl }, 'avatar small'), body);
+  item.append(avatarNode({ displayName: name, avatarUrl: badges.avatarUrl, frame: badges.frame }, 'avatar small'), body);
   elements.feed.append(item);
   // Tối đa 3 tin, mỗi tin mờ dần sau 7 giây: khung tin luôn nằm gọn trên vùng tường, không che bồ đoàn.
   while (elements.feed.children.length > 3) elements.feed.firstElementChild.remove();
@@ -756,6 +761,7 @@ function handleMessage(message) {
     }
     renderer?.setParticipants(sceneParticipants());
     explore.onState(message.participants);
+    if (followFriendId && walkToFriend(followFriendId)) followFriendId = null;
     // Đứng dậy đi (server bỏ động tác) thì thôi tụng.
     if (!['chant', 'woodfish'].includes(me()?.emote)) audio.stopChant();
     renderBoard();
@@ -1371,11 +1377,43 @@ social = createPlayerSocial({
   session,
   showToast,
   participant: (id) => participants.get(id),
+  everyone: () => participants.values(),
   nameOf,
   audio,
   // Bảng oẳn tù xì phủ kín cảnh: ngừng WebGL phía sau để animation DOM không tranh CPU/GPU với ~250k tam giác.
   onGameActive: (active) => renderer?.setPaused?.(active),
+  // Nhắn bot: tin bắt đầu bằng "@Tên bot" được server chuyển tới quản trị (Telegram) để trả lời thay bot.
+  onMessageBot: (person) => {
+    elements.chatInput.value = `@${person.displayName} `;
+    elements.chatInput.focus();
+  },
+  onGoGame: (game) => goToGames(game),
+  currentRoomId: () => URL_ROOM,
+  onGoRoom: goToFriendRoom,
 });
+
+// "Tới chỗ bạn" / "Tới ngay" (lời mời của bạn): cùng phòng thì đi bộ tới cạnh bạn; chánh điện khác thì đổi phòng rồi
+// đi tới bạn khi đã vào; rạp phim / phòng game thì sang trang đó.
+let followFriendId = null;
+function walkToFriend(participantId) {
+  const friend = participantId && participants.get(participantId);
+  if (!friend?.pos) return false;
+  return explore.walkTo({ x: friend.pos.x + 0.8, z: friend.pos.z }) !== false;
+}
+function goToFriendRoom(room) {
+  if (room.roomId === URL_ROOM) {
+    if (!walkToFriend(room.participantId)) showToast(t('friends.sameRoom'));
+    return;
+  }
+  if (room.type === 'thien' && room.inviteCode) {
+    followFriendId = room.participantId || null;
+    switchRoom({ roomId: room.roomId, inviteCode: room.inviteCode });
+    return;
+  }
+  if (!room.href) return;
+  try { sessionStorage.setItem('thien-return', `${location.pathname}${location.search}`); } catch {}
+  location.href = room.href;
+}
 // Kiểm tra khi phát triển: localStorage 'debug-explore' = '1' thì window.chanhDienSocial là thẻ người chơi / khiêu chiến.
 try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienSocial = social; } catch {}
 
@@ -1550,6 +1588,7 @@ createSettingsMenu({
   rows: [
     { element: $('meChip'), label: 'menu.account' },
     { element: social.friendsButton },
+    { element: social.quietButton, keepOpen: true },
     { element: elements.copyRoom, container: elements.roomBar },
     { element: elements.viewMode, label: 'menu.view' },
     { element: elements.nextTrack, container: elements.tools, label: 'menu.music', keepOpen: true },

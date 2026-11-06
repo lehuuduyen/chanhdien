@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { createAccountStore, OFFERING_RULES } from '@chanh-dien/accounts';
+import { LOGIN_ACHIEVEMENT, LOGIN_REWARDS } from '@chanh-dien/room-rules';
 import { createSessionToken, DEFAULT_LOCAL_SECRET, internalKey, SESSION_TTL_MS, verifySessionToken } from '@chanh-dien/session-token';
 import { requestIp } from '../../packages/moderation/src/index.mjs';
 import { json, readJson } from './http.mjs';
@@ -94,10 +95,44 @@ export async function verifyGoogleCredential(credential, clientId) {
   };
 }
 
+export function loginRewardView(options, accountId, { record = false } = {}) {
+  const status = record ? options.accounts.recordLogin(accountId) : options.accounts.loginStatus(accountId);
+  if (!status?.ok) return null;
+  const unlocked = [];
+  for (const reward of LOGIN_REWARDS) {
+    if (status.totalDays < reward.days) continue;
+    const granted = options.shopStore?.grantLoginReward(accountId, reward.itemId);
+    if (granted?.granted) unlocked.push({ ...reward });
+  }
+  const owned = new Set(options.shopStore?.me(accountId).owned || []);
+  return {
+    day: status.day,
+    totalDays: status.totalDays,
+    todayCheckedIn: status.todayCheckedIn,
+    newDay: Boolean(status.newDay),
+    rewards: LOGIN_REWARDS.map((reward) => ({ ...reward, claimed: owned.has(reward.itemId) })),
+    achievement: {
+      ...LOGIN_ACHIEVEMENT,
+      unlocked: status.totalDays >= LOGIN_ACHIEVEMENT.days,
+      newlyUnlocked: Boolean(status.newDay && status.totalDays === LOGIN_ACHIEVEMENT.days),
+    },
+    unlocked,
+  };
+}
+
+// Gắn phần thưởng hoàn thành vào hồ sơ công khai. Không nhận title/frame do client gửi lên.
+function publicAccount(account, loginReward) {
+  const view = publicView(account);
+  return loginReward?.achievement?.unlocked
+    ? { ...view, title: loginReward.achievement.id, frame: loginReward.achievement.frame }
+    : view;
+}
+
 function signIn(req, res, options, account) {
   const token = createSessionToken({ accountId: account.id, version: account.sessionVersion }, options.secret || DEFAULT_LOCAL_SECRET);
   res.setHeader?.('Set-Cookie', sessionCookie(req, token, SESSION_TTL_MS));
-  json(req, res, 200, { account: publicView(account) });
+  const loginReward = loginRewardView(options, account.id, { record: true });
+  json(req, res, 200, { account: publicAccount(account, loginReward), loginReward });
 }
 
 // Không trả sessionVersion ra trình duyệt.
@@ -298,11 +333,17 @@ export async function handleAuthRequest(req, res, pathname, options) {
     }
     if (pathname === '/api/v1/me') {
       const { stats } = accounts.profile(account.id);
-      json(req, res, 200, { account: publicView(account), stats });
+      // Cookie đăng nhập tồn tại lâu: lần mở trang đầu tiên trong ngày cũng phải được điểm danh, không bắt người dùng
+      // đăng xuất rồi nhập lại mật khẩu. Khóa (account_id, day) đảm bảo tải lại trang không tăng thêm ngày.
+      const loginReward = loginRewardView(options, account.id, { record: true });
+      json(req, res, 200, { account: publicAccount(account, loginReward), stats, loginReward });
       return true;
     }
     if (pathname === '/api/v1/me/friends') {
-      json(req, res, 200, { friends: accounts.friends(account.id) });
+      // friendLinks (friend-links.mjs): kèm bạn đang online ở phòng nào và mình có đang ẩn trạng thái không.
+      const friends = accounts.friends(account.id);
+      const links = options.friendLinks;
+      json(req, res, 200, links ? { friends: links.decorate(account.id, friends), botFriends: links.botFriends(account.id), hidden: links.hidden(account.id) } : { friends });
       return true;
     }
     const params = new URL(req.url, 'http://local').searchParams;

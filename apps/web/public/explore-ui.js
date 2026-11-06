@@ -87,6 +87,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   }
   const stand = makeButton('stand');
   const kneel = makeButton('kneel');
+  // Nhún nhảy (ngoài sân): mỗi nhân vật một điệu riêng (điệu trong file .glb, hoặc kiểu admin chọn).
+  const dance = makeButton('dance', 'option');
   const bows = group([makeButton('bow3', 'option'), makeButton('bow108', 'option')]);
   const chants = group([makeButton('woodfish', 'option'), ...SUTRAS.map((sutra) => makeButton('chant', 'option', sutra.id))]);
   const more = document.createElement('div');
@@ -101,7 +103,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   // Nút thêm (Tràng hạt, Viết sớ…) được chuyển vào menu nguyên vẹn, giữ sự kiện đã gắn. Nút vốn có chỗ trên trang
   // (Viết sớ) trả về chỗ cũ khi không ở chế độ nhập vai (2D), để vẫn dùng được.
   const homes = extraButtons.map((button) => ({ button, parent: button.parentNode, next: button.nextSibling }));
-  panel.append(bows.wrap, chants.wrap);
+  panel.append(dance, bows.wrap, chants.wrap);
   function placeExtras(inMenu) {
     for (const { button, parent, next } of homes) {
       if (inMenu || !parent) {
@@ -124,6 +126,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   moreToggle.addEventListener('click', () => openMore(panel.hidden));
   const label = () => {
     for (const button of [stand, kneel, ...bows.options, chants.options[0]]) button.textContent = t(`emote.${button.dataset.emote}`);
+    dance.textContent = `💃 ${t('emote.dance')}`;
     for (const button of chants.options.slice(1)) button.textContent = sutraTitle(sutraById(button.dataset.sutra), lang());
     bows.head.textContent = `🙇 ${t('emote.bow')} ▸`;
     chants.head.textContent = `📿 ${t('emote.chant')} ▸`;
@@ -357,6 +360,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
         benchY: seated?.benchY || 0,
         emote: person.emote || null,
         status: statusOf(person.emote, person.sutra),
+        handWith: person.handWith || null,
+        handLead: Boolean(person.handLead),
       };
     });
     // Vừa từ map khác về (vd: rạp phim → "Khu vườn"): xin server đặt mình ở khu đã chọn thay vì cửa chánh điện.
@@ -393,6 +398,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     // Gắn vào createTempleRenderer3D({ plugin }); sau khi tạo bộ vẽ gọi attach(renderer).
     plugin: createExplorePlugin({
       onMove: (position) => session.send({ type: 'move', ...position }),
+      // Người đi theo tự điều khiển nhân vật: buông tay (server báo hand.state cho cả hai).
+      onHandBreak: () => session.send({ type: 'hand.release', requestId: `social-${crypto.randomUUID()}` }),
       onWalkerTap: (id) => onWalkerTap?.(id),
       hintText: (kind) => t(kind === 'plot' ? 'garden.hintPlot' : kind === 'shop' ? 'garden.hintShop' : 'explore.tapToSit'),
       onGardenTap: (target) => onGardenTap?.(target),
@@ -439,6 +446,10 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     // Vào phòng xong thì đi thẳng tới khu này (hall/courtyard/garden), dùng khi quay về từ map khác.
     arriveAt(destination) {
       if (['hall', 'courtyard', 'garden'].includes(destination)) arrival = destination;
+    },
+    // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
+    walkTo(point, then) {
+      return api?.walkTo?.(point, then) || false;
     },
     // Gọi trước khi rời phòng để vào lại ngay (đổi tài khoản): nhớ chỗ đang đứng.
     keepPosition() {

@@ -7,7 +7,7 @@ import { createDirectoryFromEnv } from '@chanh-dien/room-directory';
 import { getRoomRules, parseThienRoomId, ROOM_CATALOG, thienRoomName } from '@chanh-dien/room-rules';
 import { createJoinTicket, DEFAULT_LOCAL_SECRET, verifyRoomInvite } from '@chanh-dien/session-token';
 import { corsHeaders, json, readJson } from './http.mjs';
-import { currentAccount, handleAuthRequest, openAccountStore } from './auth.mjs';
+import { currentAccount, handleAuthRequest, loginRewardView, openAccountStore } from './auth.mjs';
 import { handleThienRequest } from './thien.mjs';
 import { handleGardenRequest, openGardenStore } from './garden.mjs';
 import { handleCommunityProjectRequest, openCommunityProjectStore } from './community-project.mjs';
@@ -16,6 +16,8 @@ import { handleChoreRewardRequest } from './chores.mjs';
 import { donateConfig, handleDonateRequest, handleTelegramDonateRequest, openDonateStore, realtimeBotController } from './donate.mjs';
 import { handleSupportRequest, openSupportStore } from './support.mjs';
 import { handleShopRequest, openShopStore, shopConfig } from './shop.mjs';
+import { handleBotChatRequest, openBotChatStore, realtimeBotSpeaker } from './bot-chat.mjs';
+import { handleFriendLinksRequest, openFriendLinks, realtimeInboxNotifier } from './friend-links.mjs';
 import { batchNotifier, banMessage, handleModerationRequest, openModerationStore, requestIpHash } from './moderation.mjs';
 import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
 import { openThienEventStore } from './thien-event.mjs';
@@ -98,6 +100,8 @@ export function createJoinResponse(input, options = {}) {
     ...(account ? {
       accountId: account.id, level: options.accountLevel || 1,
       ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}),
+      ...(options.accountTitle ? { title: options.accountTitle } : {}),
+      ...(options.accountFrame ? { frame: options.accountFrame } : {}),
       // Hình nhân vật đã mua trong shop: máy realtime chỉ cho mặc hình có trong vé.
       ...(options.ownedSkins?.length ? { skins: options.ownedSkins } : {}),
       // Hình chọn lần cuối của tài khoản: máy realtime dựng đúng nhân vật ngay khi vào phòng.
@@ -174,7 +178,12 @@ export async function handleApiRequest(req, res, options = {}) {
     const accountLevel = account ? options.accounts.profile(account.id).stats.level.level : undefined;
     const ownedSkins = account ? options.shopStore?.ownedSkins(account.id) : undefined;
     const preferredSkin = account ? options.shopStore?.preferredSkin(account.id) : undefined;
-    const result = createJoinResponse(input, { ...options, account, accountLevel, ownedSkins, preferredSkin });
+    const achievement = account ? loginRewardView(options, account.id)?.achievement : null;
+    const accountTitle = achievement?.unlocked ? achievement.id : undefined;
+    const accountFrame = achievement?.unlocked ? achievement.frame : undefined;
+    const result = createJoinResponse(input, {
+      ...options, account, accountLevel, ownedSkins, preferredSkin, accountTitle, accountFrame,
+    });
     if (result.status === 200) {
       const located = await locateRoom(result.body.roomId, options);
       if (!located) {
@@ -186,6 +195,7 @@ export async function handleApiRequest(req, res, options = {}) {
     json(req, res, result.status, result.body);
     return;
   }
+  if (await handleFriendLinksRequest(req, res, pathname, options)) return;
   if (await handleAuthRequest(req, res, pathname, options)) return;
   if (await handleCommunityProjectRequest(req, res, pathname, options)) return;
   if (await handleGardenRequest(req, res, pathname, options)) return;
@@ -197,6 +207,7 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleShopRequest(req, res, pathname, options)) return;
   if (await handleThienRequest(req, res, pathname, options, roomSeatCounts)) return;
   if (await handleModerationRequest(req, res, pathname, options)) return;
+  if (await handleBotChatRequest(req, res, pathname, options)) return;
   json(req, res, 404, { error: 'not_found' });
 }
 
@@ -224,6 +235,9 @@ if (isMain) {
   const googleClientId = process.env.GOOGLE_CLIENT_ID || null;
   // Một máy realtime (không Redis): API hỏi thẳng máy realtime số người từng phòng để tự mở phòng kế tiếp.
   const realtimeInternalUrl = process.env.REALTIME_INTERNAL_URL || 'http://127.0.0.1:4001';
+  // Cụm nhiều node: gửi lệnh quản trị bot tới tất cả node; lease quyết định node nào thực sự giữ từng phòng.
+  const realtimeInternalUrls = process.env.REALTIME_INTERNAL_URLS
+    || (shared ? `${realtimeInternalUrl},http://127.0.0.1:4002` : realtimeInternalUrl);
   // ADMIN_SECRET riêng nếu có; local mặc định dùng SESSION_SECRET. Trang admin không lưu khóa này trên server.
   const adminSecret = process.env.ADMIN_SECRET || secret;
   // Trang Ủng hộ: thông tin Zelle từ biến môi trường DONATE_* (xem donate.mjs), không ghi trong repo.
@@ -254,8 +268,13 @@ if (isMain) {
     googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, donate, donateStore,
     telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
     telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
-    configureBots: realtimeBotController(realtimeInternalUrl, secret),
+    configureBots: realtimeBotController(realtimeInternalUrls, secret),
+    // Chat với bot: tin người chơi nhắn bot báo về Telegram ngay (không gom), /tl trả lời thay bot.
+    botChats: openBotChatStore(accounts, createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID })),
+    botSpeaker: realtimeBotSpeaker(realtimeInternalUrls, secret),
     supportStore, notifySupport, shopStore, shop, shopModelDir, moderation,
+    // Bạn bè: online ở phòng nào, mời vào phòng, lời nhắn (báo trang người nhận qua máy realtime).
+    friendLinks: openFriendLinks(accounts, { secret, notify: realtimeInboxNotifier(realtimeInternalUrls, secret) }),
   });
   server.listen(port, host, () => console.log(`API: http://${host}:${port} (${shared ? 'danh bạ Redis' : 'một máy realtime'})`));
 }

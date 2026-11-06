@@ -1,5 +1,5 @@
 // Nhân vật có khung xương (file .glb admin tải lên, kiểu Meshy "Rig & Animate" / Mixamo): đi lại bằng động tác có
-// trong file (Walking, Running, Idle nếu có); các dáng đứng chắp tay, ngồi ghế, ngồi xếp bằng, quỳ, lạy dựng bằng cách
+// trong file (Walking, Running, Idle nếu có; nhún nhảy chạy động tác Dance/Hip Hop/Cheering… nếu file có); các dáng đứng chắp tay, ngồi ghế, ngồi xếp bằng, quỳ, lạy dựng bằng cách
 // xoay xương cho đúng hướng (không cần file có sẵn động tác đó, chạy được với mọi rig có tên xương chuẩn Mixamo).
 //
 // Người ngồi (ghế rạp, bồ đoàn) được "nướng" thành lưới tĩnh theo dáng ngồi: vẽ hàng loạt như hình khối, không tốn
@@ -100,6 +100,7 @@ function blendPose(bones, from, to, amount) {
   bones.hips.position.copy(from.hipsPosition).lerp(to.hipsPosition, amount);
 }
 
+export const DANCE_CLIP = /danc|hip ?hop|samba|salsa|twerk|shuffl|cheer|celebrat|happy|jump/i;
 const clipBy = (clips, pattern, not) => clips.find((clip) => pattern.test(clip.name) && !(not && not.test(clip.name))) || null;
 
 // Đọc file, đo chiều cao theo dáng gốc, tính sẵn các dáng. SkeletonUtils dùng để nhân bản mô hình có xương.
@@ -124,6 +125,8 @@ export async function loadRiggedModel(url, loader) {
     walk: clipBy(gltf.animations, /walk/i),
     run: clipBy(gltf.animations, /run/i),
     idle: clipBy(gltf.animations, /idle|breath/i),
+    // Điệu nhảy riêng của nhân vật (Meshy / Mixamo đặt tên theo động tác đã chọn khi xuất file).
+    dance: clipBy(gltf.animations, DANCE_CLIP),
   };
   const poses = {};
   for (const [name, spec] of Object.entries(POSE_SPECS)) {
@@ -169,7 +172,9 @@ export function buildRiggedWalker(template, look = null) {
   }
 
   const rig = {
-    pose({ hip = null, kneel = 0, bow = 0, sit = 0, moving = false, running = false, dt = 0 } = {}) {
+    // Có điệu nhảy trong file: nhún nhảy chạy động tác đó; không có thì explore3d nhún nhảy cả thân theo kiểu admin chọn.
+    hasDance: Boolean(actions.dance),
+    pose({ hip = null, kneel = 0, bow = 0, sit = 0, moving = false, running = false, dance = false, dt = 0 } = {}) {
       if (sit > 0.5) {
         play(null);
         applyPose(bones, template.poses.chair);
@@ -187,6 +192,12 @@ export function buildRiggedWalker(template, look = null) {
           y += (ground(template.poses.bow) - ground(template.poses.kneel)) * Math.min(1, bow);
         }
         inner.position.y = y;
+        return;
+      }
+      if (dance && actions.dance && !moving) {
+        play('dance');
+        mixer.update(dt);
+        inner.position.y = ground(template.poses.rest);
         return;
       }
       if (moving && actions.walk) {

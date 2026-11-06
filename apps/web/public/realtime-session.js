@@ -1,6 +1,6 @@
 // Kết nối realtime dùng chung cho các trang phòng: xin vé, nối lại bằng resume token, hỏi API máy đang giữ phòng,
 // backoff + jitter, đo giờ server bằng ping/pong. Trang chỉ xử lý message của phòng qua onMessage.
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const RESUME_WINDOW_MS = 60_000;
 
 function realtimeEndpoint(url) {

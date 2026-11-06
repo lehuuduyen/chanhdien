@@ -1,4 +1,4 @@
-# Protocol v1
+# Protocol v2
 
 `@chanh-dien/protocol` là hợp đồng duy nhất cho message giữa client và realtime server. Mọi message có envelope `{ v, type }`; message server → client luôn có `epoch` của phòng.
 
@@ -11,7 +11,7 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `hello` | mọi người | 1/kết nối | `roomId`, `displayName`, `resumeToken?` |
 | `chat.send` | mọi người | 5/10 giây | `requestId`, `text` (≤ 280 ký tự) |
 | `seat.select` | mọi người | 3/10 giây | `requestId`, `seatId` |
-| `avatar.set` | mọi người (phòng có `skins`) | 5/phút | `requestId`, `skin` (`man`, `woman`, `granny`, `nun`, `monk`, `child`, `chibigirl`). `chibigirl` và mã `shop-<tên>` (nhân vật admin tải lên, mẫu `SHOP_SKIN`) là hình mua trong Shop nhân vật: server chỉ nhận khi vé vào phòng (claim `skins`, do API ghi theo đồ đã mua) có hình đó, không thì `protocol.error` `SKIN_LOCKED`; hình mặc định của người mới và bot không bao giờ là hình shop |
+| `avatar.set` | mọi người (phòng có `skins`) | 5/phút | `requestId`, `skin` (`man`, `woman`, `granny`, `nun`, `monk`, `child`, `chibigirl`, `swordsman`). `chibigirl`, `swordsman` và mã `shop-<tên>` (nhân vật admin tải lên, mẫu `SHOP_SKIN`) là hình cao cấp: server chỉ nhận khi vé vào phòng (claim `skins`, do API ghi theo đồ đã mua/được tặng) có hình đó, không thì `protocol.error` `SKIN_LOCKED`; hình mặc định của người mới không bao giờ là hình cao cấp |
 | `bench.select` | mọi người trong chánh điện | 3/10 giây | `requestId`, `benchId`; server cấp `benchSpot` trống, tối đa theo room rules |
 | `travel.go` | mọi người trong chánh điện 3D | 3/10 giây | `requestId`, `destination` (`hall`, `courtyard`, `garden`); server tự tra tọa độ cố định |
 | `chore.start` / `chore.stop` | mọi người trong chánh điện 3D | 6/10 giây | `requestId`, `choreId`; bắt đầu chỉ được chấp nhận khi vị trí server giữ nằm trong bán kính điểm việc |
@@ -27,6 +27,10 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `ping` | mọi người | 1/10 giây | `sentAt` |
 | `friend.request` | mọi người | 5/60 giây | `requestId`, `targetId` (người trong phòng, không phải bot) |
 | `friend.respond` | mọi người | 10/60 giây | `requestId`, `fromId`, `accept` (boolean) |
+| `hand.request` | mọi người | 5/60 giây | `requestId`, `targetId` (người thật, cả hai đang đứng trong khuôn viên, cách ≤ 6 m, chưa nắm tay ai) |
+| `hand.respond` | mọi người | 10/60 giây | `requestId`, `fromId`, `accept` (boolean) |
+| `hand.release` | mọi người | 10/60 giây | `requestId` (buông tay người đang nắm) |
+| `bot.quiet` | mọi người | 5/60 giây | `requestId`, `quiet` (boolean; `true`: bot không tự bắt chuyện, khiêu chiến hay mời sang phòng game) |
 | `challenge.send` | mọi người | 5/60 giây, mỗi người một trận một lúc | `requestId`, `targetId`, `game` (`rps`) |
 | `challenge.respond` | người được mời | 10/60 giây | `requestId`, `challengeId`, `accept` |
 | `challenge.move` | hai người chơi | 10/10 giây | `requestId`, `challengeId`, `choice` (`rock`, `paper`, `scissors`) |
@@ -41,10 +45,13 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 | Type | Ý nghĩa | Trường chính |
 | --- | --- | --- |
 | `welcome` | chấp nhận kết nối | `epoch`, `connectionId`, `serverTime`, `heartbeatMs`, `resumeToken?` |
-| `room.state` | snapshot khi vào/nối lại và khi người/ghế đổi; phòng đông (room rules có `world.view`): chỉ gồm người máy nhận đang thấy (chính mình, người ngồi bồ đoàn/ghế đá, người đang mời/đấu với mình, `view[vùng]` người gần nhất cùng vùng chánh điện/sân), gửi riêng từng người và chỉ khi phần đó đổi | `epoch`, `roomId`, `revision`, `participants` (`connected?`, `skin?`, `merit?`, `bot?`, `benchId?` + `benchSpot?`, `level?`: cấp công đức 1–7 của thành viên đã đăng nhập, khách không có; `avatarUrl?`: ảnh Google của thành viên, chỉ nhận `https://*.googleusercontent.com/…`) |
+| `room.state` | snapshot khi vào/nối lại và khi người/ghế đổi; phòng đông (room rules có `world.view`): chỉ gồm người máy nhận đang thấy (chính mình, người ngồi bồ đoàn/ghế đá, người đang mời/đấu với mình, `view[vùng]` người gần nhất cùng vùng chánh điện/sân), gửi riêng từng người và chỉ khi phần đó đổi | `epoch`, `roomId`, `revision`, `participants` (`connected?`, `skin?`, `merit?`, `bot?`, `benchId?` + `benchSpot?`, `level?`: cấp công đức của thành viên; `avatarUrl?`: ảnh Google; `title?`: danh hiệu sự kiện; `frame?`: khung đại diện sự kiện; `handWith?`: id người đang nắm tay, `handLead?`: true ở người dẫn đường) |
 | `chat.message` | chat đã được server chấp nhận | `epoch`, `messageId`, `participantId`, `text`, `sentAt`, `displayName?` (tên người gửi, cho máy không thấy người đó) |
 | `room.count` | phòng đông: số người cả phòng, gửi riêng từng người khi đổi (tối đa 2 lần/giây) | `epoch`, `total` (có tính bot), `bots`, `top` (≤ 20 `{ id, displayName, merit, level?, avatarUrl? }` theo công đức), `rank?` (hạng công đức của người nhận) |
 | `playback.state` | bài đang chiếu và hàng chờ, gửi khi vào phòng và mỗi khi đổi | `epoch`, `current` (`itemId`, `videoId`, `title`, `addedBy`, `startedAt`, `duration?`) hoặc `null`, `queue`, `votes`, `votesNeeded` |
+| `hand.state` | nắm tay (chỉ gửi hai người): người mời dẫn đường, người nhận tự đi bên cạnh | `epoch`, `fromId`, `toId`, `status` (`pending`, `accepted`, `declined`, `released`), `byId?` (ai buông; tự buông khi ngồi, đi nhanh, rời phòng, cách quá 12 m) |
+| `inbox.notify` | có lời nhắn / lời mời của bạn bè (gửi mọi kết nối của tài khoản nhận); nội dung tải qua `GET /api/v1/me/inbox` | `epoch`, `kind` (`note`, `invite`) |
+| `game.invite` | bot mời sang phòng game (chỉ gửi người được mời; câu mời nằm trong `chat.message` của bot) | `epoch`, `fromId` (bot), `game` (`loto`, `tai-xiu`, `bau-cua`) |
 | `friend.state` | lời mời kết bạn (chỉ gửi hai người liên quan) | `epoch`, `fromId`, `toId`, `status` (`pending`, `accepted`, `declined`), `saved?` (đã lưu vào tài khoản khi cả hai đăng nhập) |
 | `challenge.state` | trận khiêu chiến (chỉ gửi hai người chơi); server làm trọng tài, lựa chọn chỉ lộ ra ở `last` khi lượt xong | `epoch`, `challengeId`, `game`, `fromId`, `toId`, `status` (`pending`, `declined`, `cancelled`, `expired`, `playing`, `finished`), `round`, `fromScore`, `toScore`, `target` (số lượt thắng để thắng trận), `deadline?`, `moved?` (`from`, `to`), `last?` (`from`, `to`, `winner`), `winner?` (`from`, `to`, `draw`) |
 | `garden.plot` | luống Vườn Công Đức vừa đổi (phát cho mọi phòng chánh điện; thao tác thật đi qua API `/api/v1/garden/*`) | `epoch`, `plots` (1–10 `{ id, crop }`; `crop` là `null` khi luống trống, hoặc `plantType`, `ownerName`, `stage` (`seed`, `sprout`, `young`, `fruiting`), `waterDays`, `waterNeeded`, `wateredToday` (tương thích client cũ), `canWater?`, `wilted?`, `lastWateredAt?`, `nextWaterAt?`, `wiltsAt?`, `fruitsLeft`, `fruitsTotal`, `plantedAt`), `effect?` (`plotId`, `kind`: `plant`/`water`/`harvest`, `by`) |

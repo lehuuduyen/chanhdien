@@ -429,6 +429,7 @@ async function uploadModel(file, query) {
   }
   return body;
 }
+const DANCE_LABELS = [['bounce', 'Nhún lên xuống'], ['sway', 'Lắc lư'], ['spin', 'Xoay vòng'], ['hop', 'Nhảy tưng tưng'], ['nod', 'Gật gù']];
 async function loadShopItems() {
   if (!requireKey()) return;
   const response = await fetch('/api/v1/admin/shop/items', { headers: { 'x-admin-key': key.value } });
@@ -448,6 +449,11 @@ function renderShopItems(items) {
     const price = Object.assign(document.createElement('input'), { type: 'number', value: item.price, min: 0, max: 1_000_000, step: 1, title: 'Giá bán' });
     const active = Object.assign(document.createElement('input'), { type: 'checkbox', checked: item.active, title: 'Đang bán' });
     const clips = Object.assign(document.createElement('small'), { textContent: item.clips?.length ? item.clips.join(' · ') : 'có sẵn' });
+    // Nhún nhảy (menu ▾ ngoài sân chùa): file có điệu nhảy (Dance, Hip Hop…) thì dùng điệu đó; không thì dùng kiểu chọn ở đây.
+    const dance = document.createElement('select');
+    for (const [value, text] of DANCE_LABELS) dance.append(Object.assign(document.createElement('option'), { value, textContent: text }));
+    dance.value = item.dance || 'bounce';
+    dance.title = item.danceClip ? 'File đã có điệu nhảy riêng; kiểu này chỉ dùng khi điệu trong file không tải được' : 'File chưa có điệu nhảy: dùng kiểu này';
     const actions = document.createElement('div');
     actions.className = 'model-actions';
     const save = Object.assign(document.createElement('button'), { type: 'button', className: 'secondary', textContent: 'Lưu' });
@@ -457,6 +463,7 @@ function renderShopItems(items) {
         price: Number(price.value),
         originalPrice: original.value === '' ? null : Number(original.value),
         active: active.checked,
+        ...(item.model ? { dance: dance.value } : {}),
         // Bé Mũ Đỏ có sẵn trong code: tên cố định (dịch theo ngôn ngữ ở trang chùa).
         ...(item.model ? { name: name.value } : {}),
       };
@@ -496,6 +503,7 @@ function renderShopItems(items) {
       return wrap;
     };
     row.append(image, label('Tên', name), label('Giá gốc 💎', original), label('Giá bán 💎', price), label('Bán', active),
+      ...(item.model ? [label(item.danceClip ? '💃 Có điệu nhảy trong file' : '💃 Nhún nhảy', dance)] : []),
       Object.assign(document.createElement('small'), { textContent: item.id }), actions);
     // Nhân vật tải lên chưa có ảnh chân dung (vừa tải / vừa thay file): dựng từ mô hình 3D rồi lưu lên server để shop,
     // cổng chùa hiện ngay mà không phải dựng lại trên máy người xem.
@@ -515,7 +523,7 @@ $('#uploadModel').addEventListener('click', async () => {
   button.disabled = true;
   try {
     const result = await uploadModel(file, { name: $('#modelName').value, price: $('#modelPrice').value, base: $('#modelBase').value });
-    modelMessage(`Đã thêm ${result.item.name} (${result.item.id}) · ${result.triangles.toLocaleString('vi-VN')} tam giác · động tác: ${(result.item.clips || []).join(', ')}. Đã hiện trong Shop.`);
+    modelMessage(`Đã thêm ${result.item.name} (${result.item.id}) · ${result.triangles.toLocaleString('vi-VN')} tam giác · động tác: ${(result.item.clips || []).join(', ')}${result.item.danceClip ? ' · 💃 có điệu nhảy riêng' : ' · chưa có điệu nhảy trong file (dùng kiểu ở ô 💃)'}. Đã hiện trong Shop.`);
     $('#modelFile').value = '';
     $('#modelName').value = '';
     // Nạp lại danh mục shop để ảnh xem trước có nhân vật mới.

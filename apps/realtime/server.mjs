@@ -1,7 +1,9 @@
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { AVATAR_URL, parseClientMessage, parseServerMessage, PROTOCOL_VERSION, RPS_CHOICES } from '@chanh-dien/protocol';
+import {
+  AVATAR_FRAMES, AVATAR_URL, GAME_ROOMS, parseClientMessage, parseServerMessage, PLAYER_TITLES, PROTOCOL_VERSION, RPS_CHOICES,
+} from '@chanh-dien/protocol';
 import {
   createDirectoryFromEnv,
   createMemoryDirectory,
@@ -19,6 +21,7 @@ import {
 } from '@chanh-dien/session-token';
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
+import { BOT_AI_MODEL, createBotAi } from './bot-ai.mjs';
 import { LottoTable, lottoBank } from './loto.mjs';
 import { createModerationGuard, hasPromo, moderationRemote, repeatKey } from './moderation.mjs';
 
@@ -47,6 +50,7 @@ const VIEW_INSTANT_LIMIT = 80;
 // Người đang thấy được ưu tiên giữ (khoảng cách nhân hệ số này) để danh sách không nhảy qua lại ở mép.
 const VIEW_KEEP = 0.8;
 const COUNT_TOP = 10;
+const PRESENCE_REPORT_MS = 15_000;
 // Kết bạn và khiêu chiến giữa hai người trong phòng.
 const FRIEND_REQUEST_TTL_MS = 60_000;
 const CHALLENGE_INVITE_MS = 20_000;
@@ -55,6 +59,28 @@ const CHALLENGE_TARGET = 2;
 const CHALLENGE_MAX_ROUNDS = 9;
 const CHALLENGE_LINGER_MS = 5_000;
 const BEATS = { rock: 'scissors', paper: 'rock', scissors: 'paper' };
+// Nắm tay đi dạo: mời khi hai người đứng cách ≤ HAND_REACH m; cách nhau quá HAND_BREAK m (kẹt vật cản, mạng lag) thì tự buông.
+const HAND_REQUEST_TTL_MS = 30_000;
+const HAND_REACH = 6;
+const HAND_BREAK = 12;
+const HAND_GAP = 0.55;
+// Người chơi nhắn bot (tin bắt đầu bằng @Tên bot): bot ở lại phòng ít nhất ngần này để quản trị kịp trả lời qua Telegram.
+const BOT_TALK_HOLD_MS = 15 * 60_000;
+// Bot nhận lời kết bạn / nắm tay sau một chốc như người thật.
+const botDelay = () => 1_200 + Math.random() * 1_800;
+// Bot tự bắt chuyện (cần botAi): thưa thôi cho đỡ tốn lượt AI — mỗi phòng một lần mỗi 3–6 phút, với người đứng cách
+// ≤ 8 m; mỗi người tối đa một lần mỗi 30 phút. Bot dừng đi dạo một lúc để người kia kịp trả lời.
+const BOT_APPROACH_GAP_MS = [3 * 60_000, 6 * 60_000];
+const BOT_APPROACH_RANGE = 8;
+const BOT_APPROACH_PERSON_MS = 30 * 60_000;
+const BOT_APPROACH_HOLD_MS = 25_000;
+// Người chơi nhắn "chơi oẳn tù tì" / tên phòng game: bot trả lời rồi khiêu chiến / gửi lời mời luôn.
+const WANTS_RPS = /oẳn|tù tì|kéo búa|búa bao|rock|paper|scissors|猜拳|剪刀|piedra|tijera/i;
+const WANTS_GAME = [
+  ['loto', /lô ?tô|loto|bingo|樂透/i],
+  ['tai-xiu', /tài ?xỉu|tai ?xiu|大小/i],
+  ['bau-cua', /bầu ?cua|bau ?cua|魚蝦蟹/i],
+];
 const seatIdsFor = (rules) => new Set(Array.from({ length: rules.seats || 0 }, (_, index) => `S-${index + 1}`));
 const benchIdsFor = (rules) => new Set(Array.from({ length: rules.benches?.count || 0 }, (_, index) => `B-${index + 1}`));
 
@@ -137,6 +163,8 @@ const validQueueItem = (item) => item !== null && typeof item === 'object'
 const validLevel = (level) => Number.isSafeInteger(level) && level >= 1 && level <= 99;
 const validRecordParticipant = (item, seatIds, benchIds, seatsPerBench) => item !== null && typeof item === 'object'
   && typeof item.id === 'string' && typeof item.displayName === 'string' && typeof item.resumeToken === 'string'
+  && (item.title === undefined || PLAYER_TITLES.includes(item.title))
+  && (item.frame === undefined || AVATAR_FRAMES.includes(item.frame))
   && (item.seatId === null || item.seatId === undefined || seatIds.has(item.seatId))
   && !(item.seatId && item.benchId)
   && ((item.benchId === null || item.benchId === undefined) && (item.benchSpot === null || item.benchSpot === undefined)
@@ -194,9 +222,15 @@ export class Room {
     this.onFriend = options.onFriend || null;
     // Chuyển báo cáo người chơi tới API để lưu.
     this.onReport = options.onReport || (() => {});
+    // Tin người chơi nhắn bot: chuyển tới API → Telegram để quản trị trả lời thay bot.
+    this.onBotChat = options.onBotChat || null;
+    // Lời bot do AI viết (bot-ai.mjs): có thì bot tự bắt chuyện và tự trả lời tin nhắn; không có thì chỉ quản trị trả lời.
+    this.botAi = options.botAi || null;
     // Kiểm duyệt chữ (moderation.mjs): không có thì không lọc.
     this.moderation = options.moderation || null;
     this.friendRequests = new Map();
+    // Lời mời nắm tay `${from}>${to}` → hết hạn lúc nào.
+    this.handRequests = new Map();
     this.challenges = new Map();
     // Phòng game: bàn Bầu Cua chơi chung (chạy khi có người trong phòng). options.bauCua: { stake, settle } gọi API.
     // Tài Xỉu dùng chung bàn (khác ô cược / cách lắc), cùng ví xu qua API.
@@ -218,7 +252,7 @@ export class Room {
     };
   }
 
-  entryOf({ id, displayName, seatId, benchId, benchSpot, connected, skin, merit, bot, level, avatarUrl, pos, emote, sutra }) {
+  entryOf({ id, displayName, seatId, benchId, benchSpot, connected, skin, merit, bot, level, avatarUrl, title, frame, pos, emote, sutra, handWith, handLead }) {
     return {
       id,
       displayName,
@@ -230,8 +264,11 @@ export class Room {
       ...(bot ? { bot: true } : {}),
       ...(level ? { level } : {}),
       ...(avatarUrl ? { avatarUrl } : {}),
+      ...(title ? { title } : {}),
+      ...(frame ? { frame } : {}),
       ...(emote ? { emote } : {}),
       ...(emote === 'chant' && sutra ? { sutra } : {}),
+      ...(handWith ? { handWith, ...(handLead ? { handLead: true } : {}) } : {}),
       // pos để cuối: bản không có pos dùng làm khóa so sánh (đi lại không làm gửi lại cả danh sách).
       ...(pos && !seatId ? { pos } : {}),
     };
@@ -407,6 +444,12 @@ export class Room {
       link(challenge.fromId, challenge.toId);
       link(challenge.toId, challenge.fromId);
     }
+    for (const key of this.handRequests.keys()) {
+      const [from, to] = key.split('>');
+      link(from, to);
+      link(to, from);
+    }
+    for (const participant of this.participants.values()) if (participant.handWith) link(participant.id, participant.handWith);
     for (const viewer of this.participants.values()) {
       if (!viewer.socket) continue;
       const door = this.rules.world.zones?.hall?.z[1] ?? 0;
@@ -473,8 +516,9 @@ export class Room {
     }
     ranked.sort((a, b) => b.merit - a.merit);
     const ranks = new Map(ranked.map((participant, index) => [participant.id, index + 1]));
-    const top = JSON.stringify(ranked.slice(0, COUNT_TOP).map(({ id, displayName, merit, level, avatarUrl }) => ({
+    const top = JSON.stringify(ranked.slice(0, COUNT_TOP).map(({ id, displayName, merit, level, avatarUrl, title, frame }) => ({
       id, displayName, merit, ...(level ? { level } : {}), ...(avatarUrl ? { avatarUrl } : {}),
+      ...(title ? { title } : {}), ...(frame ? { frame } : {}),
     })));
     const head = `{"v":${PROTOCOL_VERSION},"type":"room.count","epoch":${this.epoch},"total":${total},"bots":${bots},"top":${top}`;
     for (const viewer of this.participants.values()) {
@@ -540,6 +584,9 @@ export class Room {
       this.stopChore(participantId, activeChore.id);
     }
     if (this.view && zoneBefore !== this.zoneOf(participant.pos)) this.viewsStale = true;
+    const partner = participant.handWith && this.participants.get(participant.handWith);
+    if (partner?.pos && Math.hypot(partner.pos.x - participant.pos.x, partner.pos.z - participant.pos.z) > HAND_BREAK) this.releaseHand(participantId);
+    else if (partner?.bot && participant.handLead) this.followLeader(partner, participant);
     // Đứng dậy đi thì rời bồ đoàn/ghế đá và thôi quỳ/lạy.
     if (moving && (participant.seatId || participant.benchId || participant.emote)) {
       participant.seatId = null;
@@ -643,6 +690,8 @@ export class Room {
     const participant = this.participants.get(participantId);
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     if (!this.rules.world) return { ok: false, error: 'NOT_ALLOWED' };
+    // Nhún nhảy chỉ ngoài sân (đang đứng ngoài chánh điện), giữ trang nghiêm trong điện.
+    if (kind === 'dance' && (!participant.pos || participant.seatId || this.zoneOf(participant.pos) === 'hall')) return { ok: false, error: 'YARD_ONLY' };
     if (!this.allow(`${participantId}:emote`, 5, 10_000)) return { ok: false, error: 'RATE_LIMITED' };
     this.stopChore(participantId);
     const leftBench = Boolean(participant.benchId);
@@ -678,8 +727,17 @@ export class Room {
     const from = this.participants.get(fromId);
     const target = this.participants.get(targetId);
     if (!from || !target || fromId === targetId) return { ok: false, error: 'NOT_IN_ROOM' };
-    if (target.bot || this.blockedBetween(from, target)) return { ok: false, error: 'NOT_ALLOWED' };
+    if (this.blockedBetween(from, target)) return { ok: false, error: 'NOT_ALLOWED' };
     if (!this.allow(`${fromId}:friend`, 5, 60_000)) return { ok: false, error: 'RATE_LIMITED' };
+    // Bot nhận lời như người thật (bạn trong phiên, không lưu vào tài khoản vì bot không có tài khoản).
+    if (target.bot) {
+      this.friendState(fromId, targetId, 'pending');
+      const accept = setTimeout(() => {
+        if (this.participants.has(fromId) && this.participants.has(targetId)) this.friendState(fromId, targetId, 'accepted', false);
+      }, botDelay());
+      accept.unref?.();
+      return { ok: true };
+    }
     // Người kia đã mời mình trước: coi như hai bên cùng đồng ý.
     if (this.friendRequests.has(`${targetId}>${fromId}`)) return this.friendRespond(fromId, targetId, true);
     this.friendRequests.set(`${fromId}>${targetId}`, Date.now() + FRIEND_REQUEST_TTL_MS);
@@ -708,6 +766,102 @@ export class Room {
     Promise.resolve(this.onFriend({ action: 'add', first, second }))
       .then((result) => this.friendState(fromId, toId, 'accepted', Boolean(result?.ok)))
       .catch(() => this.friendState(fromId, toId, 'accepted', false));
+    return { ok: true };
+  }
+
+  // ---- Nắm tay: hai người đứng gần nhau trong khuôn viên đi dạo cùng nhau; người mời dẫn đường, người nhận tự đi
+  // bên cạnh (client của người đi theo tính vị trí và gửi move như đi bộ thường, server vẫn chặn tốc độ). ----
+  handState(fromId, toId, status, byId) {
+    const message = { v: PROTOCOL_VERSION, type: 'hand.state', epoch: this.epoch, fromId, toId, status, ...(byId ? { byId } : {}) };
+    this.sendTo(fromId, message);
+    this.sendTo(toId, message);
+  }
+
+  // Hai người cùng đang đứng trong khuôn viên (không ngồi bồ đoàn / ghế đá) và cách nhau không quá `reach` mét.
+  standingNear(first, second, reach) {
+    if (!first?.pos || !second?.pos || first.seatId || second.seatId || first.benchId || second.benchId) return false;
+    return Math.hypot(first.pos.x - second.pos.x, first.pos.z - second.pos.z) <= reach;
+  }
+
+  handRequest(fromId, targetId) {
+    const from = this.participants.get(fromId);
+    const target = this.participants.get(targetId);
+    if (!from || !target || fromId === targetId) return { ok: false, error: 'NOT_IN_ROOM' };
+    if (!this.rules.world || from.bot || target.connected === false || this.blockedBetween(from, target)) return { ok: false, error: 'NOT_ALLOWED' };
+    if (from.handWith || target.handWith) return { ok: false, error: 'HAND_BUSY' };
+    if (!this.standingNear(from, target, HAND_REACH)) return { ok: false, error: 'TOO_FAR' };
+    if (!this.allow(`${fromId}:hand`, 5, 60_000)) return { ok: false, error: 'RATE_LIMITED' };
+    // Người kia đã mời mình trước: coi như hai bên cùng đồng ý.
+    if (this.handRequests.has(`${targetId}>${fromId}`)) return this.handRespond(fromId, targetId, true);
+    this.handRequests.set(`${fromId}>${targetId}`, Date.now() + HAND_REQUEST_TTL_MS);
+    this.viewsStale = true;
+    this.handState(fromId, targetId, 'pending');
+    // Bot đang đi dạo nhận nắm tay sau một chốc rồi đi theo người mời.
+    if (target.bot) {
+      const accept = setTimeout(() => {
+        if (this.handRequests.has(`${fromId}>${targetId}`)) this.handRespond(targetId, fromId, true);
+      }, botDelay());
+      accept.unref?.();
+    }
+    return { ok: true };
+  }
+
+  handRespond(toId, fromId, accept) {
+    const key = `${fromId}>${toId}`;
+    const expiresAt = this.handRequests.get(key);
+    this.handRequests.delete(key);
+    if (!expiresAt || expiresAt < Date.now()) return { ok: false, error: 'NO_REQUEST' };
+    if (!accept) {
+      this.handState(fromId, toId, 'declined');
+      return { ok: true };
+    }
+    const from = this.participants.get(fromId);
+    const to = this.participants.get(toId);
+    if (!from || !to) return { ok: false, error: 'NOT_IN_ROOM' };
+    if (from.handWith || to.handWith) return { ok: false, error: 'HAND_BUSY' };
+    if (!this.standingNear(from, to, HAND_REACH + 2)) return { ok: false, error: 'TOO_FAR' };
+    from.handWith = toId;
+    from.handLead = true;
+    to.handWith = fromId;
+    to.handLead = false;
+    // Bên đứng của người đi theo so với người dẫn (giữ nguyên bên đó khi đi).
+    to.handSide = (to.pos.x - from.pos.x) * Math.cos(from.pos.ry) - (to.pos.z - from.pos.z) * Math.sin(from.pos.ry) >= 0 ? 1 : -1;
+    if (to.bot) this.followLeader(to, from);
+    this.revision += 1;
+    this.broadcastState();
+    this.handState(fromId, toId, 'accepted');
+    return { ok: true };
+  }
+
+  // Bot đi theo người dẫn: đứng cạnh người dẫn HAND_GAP m (client người thật tự tính phần này cho chính mình).
+  followLeader(bot, leader) {
+    if (!bot.pos || !leader.pos) return;
+    const side = bot.handSide || 1;
+    bot.movedAt = 0;
+    this.move(bot.id, {
+      x: leader.pos.x + Math.cos(leader.pos.ry) * HAND_GAP * side,
+      z: leader.pos.z - Math.sin(leader.pos.ry) * HAND_GAP * side,
+      ry: leader.pos.ry,
+      moving: Boolean(leader.moving),
+    });
+  }
+
+  // Buông tay (tự bấm, ngồi xuống, đi nhanh, đi quá xa). Không đang nắm tay ai thì không làm gì.
+  releaseHand(participantId) {
+    const participant = this.participants.get(participantId);
+    if (!participant?.handWith) return { ok: false, error: 'NO_REQUEST' };
+    const partner = this.participants.get(participant.handWith);
+    const fromId = participant.handLead ? participantId : participant.handWith;
+    const toId = participant.handLead ? participant.handWith : participantId;
+    participant.handWith = null;
+    participant.handLead = false;
+    if (partner) {
+      partner.handWith = null;
+      partner.handLead = false;
+    }
+    this.revision += 1;
+    this.broadcastState();
+    this.handState(fromId, toId, 'released', participantId);
     return { ok: true };
   }
 
@@ -905,6 +1059,16 @@ export class Room {
   // Người rời phòng hẳn: huỷ trận và lời mời kết bạn của người đó.
   dropSocial(participantId) {
     for (const key of this.friendRequests.keys()) if (key.split('>').includes(participantId)) this.friendRequests.delete(key);
+    for (const key of this.handRequests.keys()) if (key.split('>').includes(participantId)) this.handRequests.delete(key);
+    // Người rời phòng (đã xóa khỏi danh sách): người còn lại thôi nắm tay.
+    for (const other of this.participants.values()) {
+      if (other.handWith !== participantId) continue;
+      const lead = Boolean(other.handLead);
+      other.handWith = null;
+      other.handLead = false;
+      this.revision += 1;
+      this.handState(lead ? other.id : participantId, lead ? participantId : other.id, 'released', participantId);
+    }
     for (const challenge of this.challenges.values()) {
       if ([challenge.fromId, challenge.toId].includes(participantId) && ['pending', 'playing'].includes(challenge.status)) {
         this.endChallenge(challenge, 'cancelled');
@@ -919,8 +1083,9 @@ export class Room {
       playback: { current: this.playback.current, queue: this.playback.queue },
       chores: [...this.chores.values()].map(({ id, progress, completedAt, resetAt }) => ({ id, progress: Math.round(progress), completedAt, resetAt })),
       participants: [...this.participants.values()].filter((participant) => !participant.bot)
-        .map(({ id, displayName, seatId, benchId, benchSpot, resumeToken, skin, merit, accountId, level, avatarUrl }) => ({
-          id, displayName, seatId, benchId, benchSpot, resumeToken, skin, merit, ...(accountId ? { accountId, level, avatarUrl } : {}),
+        .map(({ id, displayName, seatId, benchId, benchSpot, resumeToken, skin, merit, accountId, level, avatarUrl, title, frame }) => ({
+          id, displayName, seatId, benchId, benchSpot, resumeToken, skin, merit,
+          ...(accountId ? { accountId, level, avatarUrl, title, frame } : {}),
         })),
     };
   }
@@ -950,7 +1115,13 @@ export class Room {
         connected: false,
         resumeToken: item.resumeToken,
         ...(typeof item.accountId === 'string' && /^a-[a-zA-Z0-9-]{8,64}$/.test(item.accountId)
-          ? { accountId: item.accountId, ...(validLevel(item.level) ? { level: item.level } : {}), ...(AVATAR_URL.test(item.avatarUrl || '') ? { avatarUrl: item.avatarUrl } : {}) } : {}),
+          ? {
+            accountId: item.accountId,
+            ...(validLevel(item.level) ? { level: item.level } : {}),
+            ...(AVATAR_URL.test(item.avatarUrl || '') ? { avatarUrl: item.avatarUrl } : {}),
+            ...(PLAYER_TITLES.includes(item.title) ? { title: item.title } : {}),
+            ...(AVATAR_FRAMES.includes(item.frame) ? { frame: item.frame } : {}),
+          } : {}),
         resumeExpiresAt: Date.now() + this.resumeTtlMs,
         expireTimer: null,
         ...this.personalization(item.id, item),
@@ -1222,7 +1393,7 @@ export class Room {
 
   advanceBotWalk(bot, now = Date.now()) {
     const config = this.rules.bots?.walk;
-    if (!bot.pos || !bot.walk || !config?.waypoints?.length) return false;
+    if (!bot.pos || !bot.walk || !config?.waypoints?.length || bot.handWith) return false;
     if (now < bot.walk.waitUntil) return false;
     const target = config.waypoints[bot.walk.waypointIndex];
     const dx = target.x - bot.pos.x;
@@ -1297,8 +1468,13 @@ export class Room {
     } else if (bots.length && now >= state.nextChurnAt) {
       const leaving = bots[Math.floor(Math.random() * bots.length)];
       // Bot đang chơi khiêu chiến thì không rời giữa trận.
-      const busy = this.activeChallengeOf(leaving.id) || this.table?.hasBotBet?.(leaving.id) || this.table?.hasBotTicket?.(leaving.id);
-      if (!busy) this.participants.delete(leaving.id);
+      // Bot đang nắm tay, hoặc vừa được nhắn tin (chờ quản trị trả lời qua Telegram) cũng ở lại.
+      const busy = this.activeChallengeOf(leaving.id) || this.table?.hasBotBet?.(leaving.id) || this.table?.hasBotTicket?.(leaving.id)
+        || leaving.handWith || (leaving.talkUntil || 0) > now;
+      if (!busy) {
+        this.participants.delete(leaving.id);
+        this.dropSocial(leaving.id);
+      }
       state.nextChurnAt = now + randomBetween(config.churnMs);
       state.nextArrivalAt = now + randomBetween(config.arrivalMs);
       changed = !busy;
@@ -1313,6 +1489,113 @@ export class Room {
       bot.nextActionAt = now + randomBetween(config.actionMs) * bot.pace;
       this.botAct(bot);
     }
+    if (this.botAi && this.rules.world) {
+      state.nextApproachAt ??= now + randomBetween(BOT_APPROACH_GAP_MS);
+      if (now >= state.nextApproachAt) {
+        state.nextApproachAt = now + randomBetween(BOT_APPROACH_GAP_MS);
+        this.botApproach(now);
+      }
+    }
+  }
+
+  // Một bot đang đi dạo dừng lại bắt chuyện với người đứng gần: chào, rủ oẳn tù tì, hoặc mời sang phòng game.
+  // Bỏ qua người đang ngồi, đang tụng kinh, đang nắm tay / đang chơi, người đã tắt (bot.quiet) và người đã chặn bot.
+  botApproach(now = Date.now()) {
+    const people = [];
+    const bots = [];
+    for (const participant of this.participants.values()) {
+      if (!participant.pos) continue;
+      if (participant.bot) {
+        if (!participant.handWith && (participant.talkUntil || 0) <= now && !this.activeChallengeOf(participant.id)) bots.push(participant);
+      } else if (participant.connected && !participant.botQuiet && !participant.seatId && !participant.benchId && !participant.handWith
+        && !participant.sutra && now - (participant.botApproachedAt || 0) >= BOT_APPROACH_PERSON_MS && !this.activeChallengeOf(participant.id)) {
+        people.push(participant);
+      }
+    }
+    const pairs = [];
+    for (const person of people) {
+      for (const bot of bots) {
+        if (!this.blockedBetween(person, bot) && Math.hypot(person.pos.x - bot.pos.x, person.pos.z - bot.pos.z) <= BOT_APPROACH_RANGE) pairs.push([bot, person]);
+      }
+    }
+    if (!pairs.length) return null;
+    const [bot, person] = pairs[Math.floor(Math.random() * pairs.length)];
+    person.botApproachedAt = now;
+    bot.talkUntil = now + BOT_APPROACH_HOLD_MS;
+    // Đứng lại, quay mặt về phía người kia.
+    if (bot.walk) bot.walk.waitUntil = now + BOT_APPROACH_HOLD_MS;
+    bot.movedAt = 0;
+    this.move(bot.id, { x: bot.pos.x, z: bot.pos.z, ry: headingOf(person.pos.x - bot.pos.x, person.pos.z - bot.pos.z), moving: false });
+    const roll = Math.random();
+    const kind = roll < 0.4 ? 'challenge' : roll < 0.8 ? 'invite' : 'greet';
+    const game = kind === 'invite' ? GAME_ROOMS[Math.floor(Math.random() * GAME_ROOMS.length)] : undefined;
+    const done = this.botAi.line(kind, { lang: this.lang, botName: bot.displayName, toName: person.displayName, game, sample: person.lastChat }).then((line) => {
+      if (!this.botStillWith(bot, person)) return;
+      this.botSpeak(bot, line);
+      this.botMemory(bot, person.id).push({ bot: true, text: line });
+      if (kind === 'challenge') this.challengeSend(bot.id, person.id, 'rps');
+      if (kind === 'invite') this.botInvite(bot, person, game);
+    });
+    return { botId: bot.id, personId: person.id, kind, game, done };
+  }
+
+  // Bot và người kia vẫn còn trong phòng (mã bot được dùng lại khi bot cũ rời: so cả đối tượng).
+  botStillWith(bot, person) {
+    return !this.closed && this.participants.get(bot.id) === bot && this.participants.get(person.id) === person && person.connected;
+  }
+
+  botInvite(bot, person, game) {
+    if (person.botQuiet) return;
+    this.sendTo(person.id, { v: PROTOCOL_VERSION, type: 'game.invite', epoch: this.epoch, fromId: bot.id, game });
+  }
+
+  // Vài câu gần nhất giữa bot và từng người (để AI trả lời có ngữ cảnh). Chỉ trong bộ nhớ, mất khi bot rời phòng.
+  botMemory(bot, personId) {
+    bot.memory ||= new Map();
+    let turns = bot.memory.get(personId);
+    if (!turns) {
+      if (bot.memory.size >= 20) bot.memory.delete(bot.memory.keys().next().value);
+      turns = [];
+      bot.memory.set(personId, turns);
+    }
+    if (turns.length > 6) turns.splice(0, turns.length - 6);
+    return turns;
+  }
+
+  // Người chơi nhắn bot (@Tên bot …): AI trả lời sau chốc lát như đang gõ. Muốn chơi oẳn tù tì / nhắc tên phòng game thì
+  // bot khiêu chiến / mời luôn. Quản trị vẫn nhận tin qua Telegram và trả lời thay được (/tl).
+  botReply(from, bot, text) {
+    if (!this.botAi || !from || from.bot || !this.allow(`${from.id}:bot-ai`, 3, 60_000)) return null;
+    const said = text.slice(bot.displayName.length + 1).replace(/^[\s,:.!?]+/, '').trim() || text;
+    const turns = this.botMemory(bot, from.id);
+    turns.push({ bot: false, text: said });
+    const history = turns.slice();
+    const game = WANTS_GAME.find(([, pattern]) => pattern.test(said))?.[0];
+    const rps = !game && WANTS_RPS.test(said);
+    const started = Date.now();
+    bot.talkUntil = Math.max(bot.talkUntil || 0, started + BOT_TALK_HOLD_MS);
+    return this.botAi.line('reply', { lang: this.lang, botName: bot.displayName, toName: from.displayName, history, sample: said }).then((line) => new Promise((resolve) => {
+      // Trả lời ngay quá trông như máy: chờ ít nhất 1,5 giây kể từ lúc nhận tin.
+      const timer = setTimeout(() => {
+        if (this.botStillWith(bot, from)) {
+          this.botSpeak(bot, line);
+          turns.push({ bot: true, text: line });
+          if (rps && !this.activeChallengeOf(bot.id) && !this.activeChallengeOf(from.id)) this.challengeSend(bot.id, from.id, 'rps');
+          if (game) this.botInvite(bot, from, game);
+        }
+        resolve(line);
+      }, Math.max(0, 1_500 - (Date.now() - started)));
+      timer.unref?.();
+    }));
+  }
+
+  // Không muốn bot tự bắt chuyện / mời (chỉ trong phiên; client nhớ lựa chọn và gửi lại khi vào phòng).
+  setBotQuiet(participantId, quiet) {
+    const participant = this.participants.get(participantId);
+    if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
+    if (!this.allow(`${participantId}:bot-quiet`, 5, 60_000)) return { ok: false, error: 'RATE_LIMITED' };
+    participant.botQuiet = quiet;
+    return { ok: true };
   }
 
   // Tụng một câu kinh, hoặc dâng lễ (dâng hương là thường nhất), đôi khi kèm lời nguyện. Bot không thỉnh chuông.
@@ -1400,6 +1683,8 @@ export class Room {
         accountId: claims.accountId,
         level: validLevel(claims.level) ? claims.level : previous?.level || 1,
         ...(claims.avatarUrl ? { avatarUrl: claims.avatarUrl } : {}),
+        ...(PLAYER_TITLES.includes(claims.title) ? { title: claims.title } : {}),
+        ...(AVATAR_FRAMES.includes(claims.frame) ? { frame: claims.frame } : {}),
         // Hình đã mua (theo vé); nối lại bằng resume token thì giữ danh sách cũ.
         ownedSkins: claims.skins || previous?.ownedSkins || [],
       } : {}),
@@ -1463,6 +1748,49 @@ export class Room {
       this.dropSocial(id);
       for (const key of this.rates.keys()) if (key.startsWith(`${id}:`)) this.rates.delete(key);
     }
+  }
+
+  // Tin bắt đầu bằng "@Tên bot" là nhắn bot đó (tên dài nhất khớp trước). Trả về bot hoặc null.
+  botMentioned(text) {
+    if (typeof text !== 'string' || !text.startsWith('@')) return null;
+    let found = null;
+    for (const participant of this.participants.values()) {
+      if (!participant.bot) continue;
+      const name = participant.displayName;
+      const rest = text.slice(1, name.length + 2);
+      if (rest.toLowerCase().startsWith(name.toLowerCase()) && (rest.length === name.length || /[\s,:.!?]/.test(rest[name.length]))
+        && (!found || name.length > found.displayName.length)) found = participant;
+    }
+    return found;
+  }
+
+  // Người chơi nhắn bot: giữ bot ở lại phòng và chuyển tin tới quản trị (Telegram) qua API.
+  forwardBotChat(from, bot, text) {
+    bot.talkUntil = Date.now() + BOT_TALK_HOLD_MS;
+    if (!this.onBotChat || !from || from.bot) return;
+    Promise.resolve(this.onBotChat({
+      roomId: this.id, botId: bot.id, botName: bot.displayName,
+      fromId: from.id, fromName: from.displayName, ...(from.accountId ? { accountId: from.accountId } : {}), text,
+    })).catch(() => {});
+  }
+
+  // Quản trị trả lời thay bot (lệnh Telegram /tl): bot nói câu đó trong phòng như chat thường.
+  // botName: tên bot lúc người chơi nhắn; mã bot được dùng lại cho bot mới nên khác tên là bot cũ đã rời phòng.
+  botSay(botId, text, botName = null) {
+    const bot = this.participants.get(botId);
+    if (!bot?.bot || this.closed || (botName && bot.displayName !== botName)) return { ok: false, error: 'BOT_GONE' };
+    const clean = String(text).replace(/\s+/g, ' ').trim().slice(0, 280);
+    if (!clean) return { ok: false, error: 'INVALID_TEXT' };
+    bot.talkUntil = Date.now() + BOT_TALK_HOLD_MS;
+    this.botSpeak(bot, clean);
+    return { ok: true, botName: bot.displayName };
+  }
+
+  botSpeak(bot, text) {
+    this.broadcast({
+      v: PROTOCOL_VERSION, type: 'chat.message', epoch: this.epoch, messageId: `m-${randomUUID()}`,
+      participantId: bot.id, displayName: bot.displayName, text: String(text).slice(0, 280), sentAt: Date.now(),
+    });
   }
 
   // Đá một người khỏi phòng ngay (bị khóa): báo mã lỗi, đóng kết nối (client thôi nối lại), bỏ cả chỗ chờ nối lại.
@@ -1682,11 +2010,15 @@ export class RoomRegistry {
     this.issueResumeToken = options.issueResumeToken;
     this.botCounts = options.botCounts || {};
     this.botManaged = false;
+    this.managedBotCounts = new Map();
+    this.botPlanReplacesDefaults = false;
     this.getBotSkins = options.getBotSkins || (async () => []);
     this.onOffering = options.onOffering;
     this.onChoreReward = options.onChoreReward;
     this.onFriend = options.onFriend;
     this.onReport = options.onReport;
+    this.onBotChat = options.onBotChat;
+    this.botAi = options.botAi || null;
     this.moderation = options.moderation || null;
     this.bauCua = options.bauCua;
     this.lotto = options.lotto;
@@ -1709,6 +2041,7 @@ export class RoomRegistry {
   async setBotTotal(total, random = Math.random) {
     if (!Number.isSafeInteger(total) || total < 0 || total > 1_000) return null;
     this.botManaged = true;
+    this.botPlanReplacesDefaults = true;
     for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto']) this.botCounts[type] = 0;
     const baseRooms = ['thien-1', 'cinema-1', 'game-1', 'taixiu-1', 'loto-1'];
     if (total > 0) await Promise.all(baseRooms.map((roomId) => this.open(roomId)));
@@ -1735,6 +2068,7 @@ export class RoomRegistry {
     }
 
     const result = [];
+    this.managedBotCounts = new Map(allocations);
     for (const room of rooms) {
       const bots = allocations.get(room.id) || 0;
       room.setBotCount(bots, { managed: true });
@@ -1743,6 +2077,40 @@ export class RoomRegistry {
     // Phòng không được chia bot và không có người thật thì trả lease; addbot 0 cũng dọn sạch các phòng bot-only.
     for (const room of [...rooms]) if (!allocations.get(room.id) && room.realCount === 0) this.removeIfEmpty(room.id);
     return { requested: total, assigned: total - remaining, rooms: result.sort((a, b) => a.roomId.localeCompare(b.roomId)) };
+  }
+
+  // API gửi cùng kế hoạch này tới mọi node. Mỗi node chỉ áp dụng các phòng nó đang giữ (hoặc giành được lease
+  // nếu phòng chưa mở), nên một phòng không bao giờ bị nhân đôi bot. Kế hoạch được giữ để phòng mở lại vẫn nhận
+  // đúng số bot thay vì rơi về BOTS_GAME/BOTS_TAIXIU hay 0 của Lô Tô.
+  async setBotAllocations(input, options = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    const allocations = new Map();
+    let requested = 0;
+    for (const [roomId, count] of Object.entries(input)) {
+      if (!roomTypeOf(roomId) || !Number.isSafeInteger(count) || count < 0 || count > 1_000) return null;
+      requested += count;
+      if (requested > 1_000) return null;
+      allocations.set(roomId, count);
+    }
+    const replace = options.replace !== false;
+    this.botManaged = true;
+    if (replace) {
+      this.managedBotCounts = allocations;
+      this.botPlanReplacesDefaults = true;
+    } else {
+      for (const [roomId, count] of allocations) this.managedBotCounts.set(roomId, count);
+    }
+    await Promise.all([...allocations].filter(([, count]) => count > 0).map(([roomId]) => this.open(roomId)));
+
+    const result = [];
+    for (const room of [...this.rooms.values()]) {
+      if (!room.rules.bots || room.closed) continue;
+      if (!replace && !allocations.has(room.id)) continue;
+      const bots = room.setBotCount(this.managedBotCounts.get(room.id) || 0, { managed: true });
+      if (bots > 0 || allocations.has(room.id)) result.push({ roomId: room.id, type: room.type, name: this.roomName(room.id), bots });
+      if (bots === 0 && room.realCount === 0) this.removeIfEmpty(room.id);
+    }
+    return { requested, assigned: result.reduce((sum, room) => sum + room.bots, 0), rooms: result.sort((a, b) => a.roomId.localeCompare(b.roomId)) };
   }
 
   roomName(roomId) {
@@ -1754,8 +2122,12 @@ export class RoomRegistry {
     const botSkins = await this.getBotSkins().catch(() => []);
     const lease = await this.directory.acquireRoom(roomId, this.nodeId, this.leaseTtlMs);
     if (!lease.ok) return { ok: false, error: 'ROOM_ELSEWHERE', owner: lease.owner };
+    const hasManagedBotCount = this.botManaged && this.managedBotCounts.has(roomId);
+    const managedBotCount = hasManagedBotCount
+      ? this.managedBotCounts.get(roomId)
+      : this.botPlanReplacesDefaults ? 0 : undefined;
     const room = new Room(roomId, {
-      botCount: this.botCounts[roomTypeOf(roomId)],
+      botCount: managedBotCount ?? this.botCounts[roomTypeOf(roomId)],
       botSkins,
       epoch: lease.epoch,
       resumeTtlMs: this.resumeTtlMs,
@@ -1765,6 +2137,8 @@ export class RoomRegistry {
       onChoreReward: this.onChoreReward,
       onFriend: this.onFriend,
       onReport: this.onReport,
+      onBotChat: this.onBotChat,
+      botAi: this.botAi,
       moderation: this.moderation,
       bauCua: this.bauCua,
       lotto: this.lotto,
@@ -1776,6 +2150,7 @@ export class RoomRegistry {
       await this.directory.releaseRoom(roomId, this.nodeId, lease.epoch).catch(() => {});
       throw error;
     }
+    if (managedBotCount !== undefined) room.setBotCount(managedBotCount, { managed: true });
     this.rooms.set(roomId, room);
     return { ok: true, room };
   }
@@ -1856,6 +2231,31 @@ export class RoomRegistry {
     await this.directory.removeNode(this.nodeId).catch(() => {});
   }
 
+  // Thành viên đã đăng nhập đang kết nối trên máy này: báo API để bạn bè thấy mình ở phòng nào.
+  presenceEntries() {
+    const entries = [];
+    for (const room of this.rooms.values()) {
+      if (room.closed) continue;
+      for (const participant of room.participants.values()) {
+        if (participant.accountId && participant.connected && !participant.bot) entries.push({ accountId: participant.accountId, roomId: room.id, participantId: participant.id });
+      }
+    }
+    return entries;
+  }
+
+  // Có lời nhắn / lời mời bạn bè mới: báo mọi kết nối của tài khoản này trên máy này để trang tải hộp thư.
+  notifyAccount(accountId, kind) {
+    let sent = 0;
+    for (const room of this.rooms.values()) {
+      for (const participant of room.participants.values()) {
+        if (participant.accountId !== accountId || !participant.connected) continue;
+        send(participant.socket, { v: PROTOCOL_VERSION, type: 'inbox.notify', epoch: room.epoch, kind });
+        sent += 1;
+      }
+    }
+    return sent;
+  }
+
   get connections() {
     let count = 0;
     for (const room of this.rooms.values()) count += room.connectedCount;
@@ -1910,6 +2310,7 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     if (context.ipHash) joined.participant.ipHash = context.ipHash;
+    if (joined.participant.accountId) context.presenceChanged?.();
     send(socket, {
       v: PROTOCOL_VERSION,
       type: 'welcome',
@@ -1996,6 +2397,14 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     if (!screenText(socket, room, room.participants.get(context.participantId), message.text, message.requestId, { chat: true })) return;
+    const mentioned = room.botMentioned(message.text);
+    // Câu gần nhất người này gõ: bot bắt chuyện bằng đúng ngôn ngữ họ dùng.
+    const speaker = room.participants.get(context.participantId);
+    if (speaker) speaker.lastChat = message.text.slice(0, 120);
+    if (mentioned) {
+      room.forwardBotChat(room.participants.get(context.participantId), mentioned, message.text);
+      room.botReply(room.participants.get(context.participantId), mentioned, message.text)?.catch(() => {});
+    }
     room.broadcast({
       v: PROTOCOL_VERSION,
       type: 'chat.message',
@@ -2014,6 +2423,8 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     const result = room.selectSeat(context.participantId, message.seatId);
+    // Ngồi xuống thì buông tay người đang nắm.
+    if (result.ok) room.releaseHand(context.participantId);
     if (!result.ok) protocolError(socket, room.epoch, result.error, result.error === 'SEAT_TAKEN' ? 'Ghế đã có người' : 'Ghế không hợp lệ', message.requestId);
     return;
   }
@@ -2023,6 +2434,7 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     const result = room.selectBench(context.participantId, message.benchId);
+    if (result.ok) room.releaseHand(context.participantId);
     if (!result.ok) protocolError(socket, room.epoch, result.error, result.error === 'BENCH_FULL' ? 'Ghế đá đã đủ hai người' : 'Ghế đá không hợp lệ', message.requestId);
     return;
   }
@@ -2036,6 +2448,8 @@ function handleRoomMessage(socket, context, raw) {
   }
   if (message.type === 'travel.go') {
     const result = room.travel(context.participantId, message.destination);
+    // Đi nhanh sang khu khác: người đi cùng không theo kịp, buông tay.
+    if (result.ok) room.releaseHand(context.participantId);
     if (!result.ok) {
       const detail = result.error === 'RATE_LIMITED' ? 'Bạn đang đổi khu quá nhanh'
         : result.error === 'WALKERS_FULL' ? 'Chánh điện đã đủ người đi lại'
@@ -2068,12 +2482,20 @@ function handleRoomMessage(socket, context, raw) {
   }
   if (message.type === 'emote') {
     const result = room.emote(context.participantId, message.kind, message.sutra);
-    if (!result.ok) protocolError(socket, room.epoch, result.error, result.error === 'RATE_LIMITED' ? 'Bạn đổi động tác quá nhanh' : 'Phòng này không có động tác', message.requestId);
+    if (!result.ok) protocolError(socket, room.epoch, result.error, result.error === 'RATE_LIMITED' ? 'Bạn đổi động tác quá nhanh' : result.error === 'YARD_ONLY' ? 'Nhún nhảy ngoài sân chùa nhé, trong chánh điện giữ trang nghiêm 🙏' : 'Phòng này không có động tác', message.requestId);
     return;
   }
-  if (message.type.startsWith('friend.') || message.type.startsWith('challenge.') || message.type.startsWith('player.')) {
+  if (message.type === 'bot.quiet') {
+    const result = room.setBotQuiet(context.participantId, message.quiet);
+    if (!result.ok) protocolError(socket, room.epoch, result.error, 'Bạn đổi quá nhanh', message.requestId);
+    return;
+  }
+  if (message.type.startsWith('friend.') || message.type.startsWith('challenge.') || message.type.startsWith('player.') || message.type.startsWith('hand.')) {
     const id = context.participantId;
     const result = message.type === 'player.block' ? room.block(id, message.targetId, message.blocked)
+      : message.type === 'hand.request' ? room.handRequest(id, message.targetId)
+      : message.type === 'hand.respond' ? room.handRespond(id, message.fromId, message.accept)
+      : message.type === 'hand.release' ? room.releaseHand(id)
       : message.type === 'player.report' ? room.reportPlayer(id, message.targetId, message.reason, message.note)
       : message.type === 'friend.request' ? room.friendRequest(id, message.targetId)
       : message.type === 'friend.respond' ? room.friendRespond(id, message.fromId, message.accept)
@@ -2201,6 +2623,8 @@ const SOCIAL_ERRORS = {
   BUSY: 'Một trong hai người đang có trận khác',
   NO_CHALLENGE: 'Trận đấu đã kết thúc',
   ALREADY_MOVED: 'Bạn đã ra tay ở lượt này',
+  HAND_BUSY: 'Một trong hai người đang nắm tay người khác',
+  TOO_FAR: 'Hai người cần cùng đứng gần nhau (không ngồi) mới nắm tay được',
 };
 
 const QUEUE_ERRORS = {
@@ -2248,7 +2672,11 @@ async function authorizeUpgrade(url, registry, secret) {
   // Hết hạn giữ chỗ: nhận kết nối để báo mã lỗi rõ ràng, client sẽ xin vé mới thay vì thử lại mãi.
   if (!participant) return { rejected: 'INVALID_RESUME_TOKEN', room: opened.room };
   const claims = participant.accountId
-    ? { participantId: participant.id, roomId, displayName: participant.displayName, role: 'member', accountId: participant.accountId, level: participant.level, avatarUrl: participant.avatarUrl, skins: participant.ownedSkins, fresh: participant.fresh }
+    ? {
+      participantId: participant.id, roomId, displayName: participant.displayName, role: 'member',
+      accountId: participant.accountId, level: participant.level, avatarUrl: participant.avatarUrl,
+      title: participant.title, frame: participant.frame, skins: participant.ownedSkins, fresh: participant.fresh,
+    }
     : { participantId: participant.id, roomId, displayName: participant.displayName, role: 'guest' };
   return { claims, room: opened.room };
 }
@@ -2266,6 +2694,49 @@ export function handleRealtimeRequest(req, res, registry = new RoomRegistry(), o
     return;
   }
   // API đã xác thực lệnh Telegram `addbot N`: đặt tổng bot cho node và trả phân bổ thực tế từng phòng.
+  // Quản trị trả lời thay bot từ Telegram (qua API): chỉ máy đang giữ phòng có bot đó trả 200.
+  if (req.method === 'POST' && req.url === '/internal/bot-say') {
+    const allowed = options.secret && req.headers?.['x-internal-key'] === internalKey(options.secret);
+    if (!allowed) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"forbidden"}');
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 4 * 1_024) req.destroy();
+    });
+    req.on('end', () => {
+      let input = null;
+      try { input = JSON.parse(raw); } catch {}
+      const valid = typeof input?.roomId === 'string' && typeof input?.botId === 'string' && typeof input?.text === 'string';
+      const room = valid ? registry.rooms.get(input.roomId) : null;
+      const result = room ? room.botSay(input.botId, input.text, typeof input.botName === 'string' ? input.botName : null) : { ok: false, error: valid ? 'ROOM_ELSEWHERE' : 'INVALID' };
+      res.writeHead(result.ok ? 200 : valid ? 404 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+        .end(JSON.stringify(result));
+    });
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/internal/account-notify') {
+    if (!options.secret || req.headers?.['x-internal-key'] !== internalKey(options.secret)) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"forbidden"}');
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1_024) req.destroy();
+    });
+    req.on('end', () => {
+      let input = null;
+      try { input = JSON.parse(raw); } catch {}
+      const valid = /^a-[a-zA-Z0-9-]{8,64}$/.test(input?.accountId || '') && ['note', 'invite'].includes(input?.kind);
+      const sent = valid ? registry.notifyAccount(input.accountId, input.kind) : 0;
+      res.writeHead(valid ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+        .end(JSON.stringify(valid ? { ok: true, sent } : { error: 'invalid' }));
+    });
+    return;
+  }
   if (req.method === 'POST' && req.url === '/internal/bots') {
     const allowed = options.secret && req.headers?.['x-internal-key'] === internalKey(options.secret);
     if (!allowed) {
@@ -2280,11 +2751,16 @@ export function handleRealtimeRequest(req, res, registry = new RoomRegistry(), o
     req.on('end', () => {
       let input = null;
       try { input = JSON.parse(raw); } catch {}
-      if (!input || !Number.isSafeInteger(input.total) || input.total < 0 || input.total > 1_000) {
+      const hasTotal = Number.isSafeInteger(input?.total) && input.total >= 0 && input.total <= 1_000;
+      const hasAllocations = input?.allocations && typeof input.allocations === 'object' && !Array.isArray(input.allocations);
+      if (!hasTotal && !hasAllocations) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"invalid_bot_total"}');
         return;
       }
-      registry.setBotTotal(input.total).then((result) => {
+      const operation = hasAllocations
+        ? registry.setBotAllocations(input.allocations, { replace: input.replace !== false })
+        : registry.setBotTotal(input.total);
+      operation.then((result) => {
         res.writeHead(result ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
           .end(JSON.stringify(result || { error: 'invalid_bot_total' }));
       }).catch(() => {
@@ -2393,6 +2869,18 @@ export function choreRewardRecorder(apiInternalUrl, secret) {
   });
 }
 
+// Báo API danh sách thành viên đang online trên máy này (cả danh sách mỗi lần, để người đã rời tự mất khỏi danh sách).
+export function presenceReporter(apiInternalUrl, secret, registry) {
+  const key = internalKey(secret);
+  const url = new URL('/internal/presence', apiInternalUrl);
+  return () => fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: JSON.stringify({ nodeId: registry.nodeId, entries: registry.presenceEntries() }),
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => {});
+}
+
 // Hỏi / ghi bạn bè giữa hai thành viên qua API. Lỗi mạng: coi như chưa lưu (vẫn là bạn trong phiên).
 export function friendRecorder(apiInternalUrl, secret) {
   const key = internalKey(secret);
@@ -2406,6 +2894,20 @@ export function friendRecorder(apiInternalUrl, secret) {
     console.warn(`Không lưu được bạn bè: ${error.message}`);
     return null;
   });
+}
+
+// Chuyển tin người chơi nhắn bot tới API (API báo Telegram để quản trị trả lời). Lỗi mạng chỉ ghi log.
+export function botChatRecorder(apiInternalUrl, secret) {
+  const key = internalKey(secret);
+  const url = new URL('/internal/bot-chat', apiInternalUrl);
+  return (event) => fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: JSON.stringify(event),
+    signal: AbortSignal.timeout(5_000),
+  }).then((response) => {
+    if (!response.ok) console.warn(`Không chuyển được tin nhắn bot (${response.status})`);
+  }).catch((error) => console.warn(`Không chuyển được tin nhắn bot: ${error.message}`));
 }
 
 // Chuyển báo cáo người chơi tới API (lỗi mạng chỉ ghi log).
@@ -2474,11 +2976,36 @@ export function createRealtimeServer(options = {}) {
     onChoreReward: options.recordChoreReward || (options.apiInternalUrl ? choreRewardRecorder(options.apiInternalUrl, secret) : undefined),
     onFriend: options.recordFriend || (options.apiInternalUrl ? friendRecorder(options.apiInternalUrl, secret) : undefined),
     onReport: options.recordReport || (options.apiInternalUrl ? reportRecorder(options.apiInternalUrl, secret) : undefined),
+    onBotChat: options.recordBotChat || (options.apiInternalUrl ? botChatRecorder(options.apiInternalUrl, secret) : undefined),
     // Bầu Cua: đặt cược / chốt ván qua ví xu ở API.
     bauCua: options.bauCua || (options.apiInternalUrl ? bauCuaBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     lotto: options.lotto || (options.apiInternalUrl ? lottoBank(options.apiInternalUrl, internalKey(secret)) : undefined),
   });
   registry.moderation ||= moderation;
+  // Bot nói bằng AI: options.botAi (test), hoặc tạo từ khóa Groq (botAiKey rỗng = chỉ câu mẫu). Câu AI viết phải qua
+  // bộ lọc chat (không từ cấm / khả nghi, không link) mới được nói.
+  const botAi = options.botAi ?? (options.botAiKey !== undefined ? createBotAi({
+    apiKey: options.botAiKey,
+    model: options.botAiModel || BOT_AI_MODEL,
+    screen: (text) => moderation.check(text).action === 'ok' && !hasPromo(text),
+  }) : null);
+  if (botAi) registry.botAi ||= botAi;
+  // Bạn bè thấy mình online ở phòng nào: báo API mỗi PRESENCE_REPORT_MS, và ~1 giây sau khi có thành viên vào phòng.
+  const reportPresence = options.reportPresence || (options.apiInternalUrl ? presenceReporter(options.apiInternalUrl, secret, registry) : null);
+  let presenceTimer = null;
+  let presenceSoon = null;
+  if (reportPresence) {
+    presenceTimer = setInterval(reportPresence, PRESENCE_REPORT_MS);
+    presenceTimer.unref?.();
+    registry.presenceChanged = () => {
+      if (presenceSoon) return;
+      presenceSoon = setTimeout(() => {
+        presenceSoon = null;
+        reportPresence();
+      }, 1_000);
+      presenceSoon.unref?.();
+    };
+  }
   moderation.onEnforce = () => registry.enforceBans(moderation);
   const server = http.createServer((req, res) => handleRealtimeRequest(req, res, registry, { secret }));
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
@@ -2523,7 +3050,9 @@ export function createRealtimeServer(options = {}) {
       socket.close(CLOSE_BANNED, 'Bị khóa');
       return;
     }
-    const context = { claims, participantId: null, room, ipHash: ipKey, fetchVideoInfo: options.fetchVideoInfo || fetchYouTubeInfo };
+    const context = {
+      claims, participantId: null, room, ipHash: ipKey, fetchVideoInfo: options.fetchVideoInfo || fetchYouTubeInfo, presenceChanged: registry.presenceChanged,
+    };
     const helloTimer = setTimeout(() => {
       if (!context.participantId) socket.close(1008, 'Chưa gửi hello');
     }, options.helloTimeoutMs || HELLO_TIMEOUT_MS);
@@ -2553,6 +3082,8 @@ export function createRealtimeServer(options = {}) {
   liveness.unref?.();
   server.on('close', () => {
     clearInterval(liveness);
+    clearInterval(presenceTimer);
+    clearTimeout(presenceSoon);
     moderation.stop();
     registry.stop();
   });
@@ -2579,7 +3110,9 @@ if (isMain) {
   }
   // API_INTERNAL_URL: địa chỉ API trong mạng nội bộ để ghi công đức của thành viên (không đặt thì không ghi).
   const apiInternalUrl = process.env.API_INTERNAL_URL || null;
-  const server = createRealtimeServer({ secret, nodeId, publicUrl, directory, botCounts, apiInternalUrl });
+  // Bot tự bắt chuyện / trả lời bằng AI: GROQ_API_KEY (không đặt thì dùng câu mẫu), BOT_AI_MODEL, BOT_AI=0 để tắt hẳn.
+  const botAiKey = process.env.BOT_AI === '0' ? undefined : (process.env.GROQ_API_KEY || '');
+  const server = createRealtimeServer({ secret, nodeId, publicUrl, directory, botCounts, apiInternalUrl, botAiKey, botAiModel: process.env.BOT_AI_MODEL });
   server.listen(port, host, () => {
     console.log(`Realtime ${nodeId}: ${publicUrl} (${shared ? 'Redis' : 'bộ nhớ, một máy'})`);
   });
