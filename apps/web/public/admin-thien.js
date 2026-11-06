@@ -448,7 +448,7 @@ function renderShopItems(items) {
     const original = Object.assign(document.createElement('input'), { type: 'number', value: item.originalPrice ?? '', min: 0, max: 1_000_000, step: 1, placeholder: 'không giảm', title: 'Giá gốc' });
     const price = Object.assign(document.createElement('input'), { type: 'number', value: item.price, min: 0, max: 1_000_000, step: 1, title: 'Giá bán' });
     const active = Object.assign(document.createElement('input'), { type: 'checkbox', checked: item.active, title: 'Đang bán' });
-    const clips = Object.assign(document.createElement('small'), { textContent: item.clips?.length ? item.clips.join(' · ') : 'có sẵn' });
+    const clips = Object.assign(document.createElement('small'), { textContent: item.clips?.length ? `${item.clips.join(' · ')}${item.model ? ` · ✨ ${item.actClips?.length || 0} động tác tương tác` : ''}` : 'có sẵn' });
     // Nhún nhảy (menu ▾ ngoài sân chùa): file có điệu nhảy (Dance, Hip Hop…) thì dùng điệu đó; không thì dùng kiểu chọn ở đây.
     const dance = document.createElement('select');
     for (const [value, text] of DANCE_LABELS) dance.append(Object.assign(document.createElement('option'), { value, textContent: text }));
@@ -523,7 +523,7 @@ $('#uploadModel').addEventListener('click', async () => {
   button.disabled = true;
   try {
     const result = await uploadModel(file, { name: $('#modelName').value, price: $('#modelPrice').value, base: $('#modelBase').value });
-    modelMessage(`Đã thêm ${result.item.name} (${result.item.id}) · ${result.triangles.toLocaleString('vi-VN')} tam giác · động tác: ${(result.item.clips || []).join(', ')}${result.item.danceClip ? ' · 💃 có điệu nhảy riêng' : ' · chưa có điệu nhảy trong file (dùng kiểu ở ô 💃)'}. Đã hiện trong Shop.`);
+    modelMessage(`Đã thêm ${result.item.name} (${result.item.id}) · ${result.triangles.toLocaleString('vi-VN')} tam giác · động tác: ${(result.item.clips || []).join(', ')}${result.item.danceClip ? ' · 💃 có điệu nhảy riêng' : ' · chưa có điệu nhảy trong file (dùng kiểu ở ô 💃)'}${result.item.actClips?.length ? ` · ✨ ${result.item.actClips.length} động tác tương tác (bấm ✨ chạy ngẫu nhiên)` : ' · ✨ chưa có động tác tương tác (bấm ✨ sẽ nhún nhảy kiểu ở ô 💃)'}. Đã hiện trong Shop.`);
     $('#modelFile').value = '';
     $('#modelName').value = '';
     // Nạp lại danh mục shop để ảnh xem trước có nhân vật mới.

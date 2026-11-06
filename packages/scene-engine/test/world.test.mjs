@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { THIEN_RULES } from '@chanh-dien/room-rules';
@@ -64,11 +64,30 @@ test('hồ sen công trình khai báo đủ mốc mở khóa cảnh', () => {
 
 test('mỗi khu có một bảng hướng dẫn đặt bằng dữ liệu cảnh', () => {
   const boards = scene.world.courtyard.guideBoards;
-  assert.deepEqual(boards.map((board) => board.id), ['hall', 'courtyard', 'garden']);
+  assert.deepEqual(boards.map((board) => board.id), ['hall', 'courtyard', 'garden', 'pets']);
   assert.ok(boards.every((board) => Number.isFinite(board.x) && Number.isFinite(board.z) && board.sign));
   const broken = structuredClone(scene);
   broken.world.courtyard.guideBoards[2].id = 'courtyard';
   assert.ok(validateWorld(broken).errors.some((error) => error.includes('bảng hướng dẫn')));
+});
+
+test('khu thú cưng có hàng rào, đồ chơi và mã thú khớp room rules', () => {
+  const { petZone, animals } = scene.world.courtyard;
+  assert.deepEqual(petZone.area, THIEN_RULES.world.petArea);
+  assert.ok(petZone.fence.length >= 5);
+  assert.deepEqual(petZone.props.map((item) => item.type), ['house', 'tunnel', 'seesaw', 'hoop', 'bowls', 'balls']);
+  assert.deepEqual(animals.map((item) => item.id), THIEN_RULES.world.pets);
+  assert.ok(animals.every((item) => item.name && ['dog', 'cat'].includes(item.type)));
+  const broken = structuredClone(scene);
+  broken.world.courtyard.animals[1].id = broken.world.courtyard.animals[0].id;
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('thú cưng')));
+  // Milo, Fox, Meomeo dùng mô hình nén trong /models/pets/ (file phải có thật).
+  const models = animals.filter((item) => item.model);
+  assert.deepEqual(models.map((item) => item.name), ['Milo', 'Fox', 'Meomeo']);
+  for (const item of models) assert.ok(existsSync(new URL(`../../../apps/web/public${item.model}`, import.meta.url)), item.model);
+  const badModel = structuredClone(scene);
+  badModel.world.courtyard.animals.find((item) => item.model).model = 'https://example.com/x.glb';
+  assert.ok(validateWorld(badModel).errors.some((error) => error.includes('mô hình')));
 });
 
 test('sáu công việc trong chùa khớp id, loại, vị trí kiểm tra của realtime', () => {

@@ -79,6 +79,16 @@ export class LottoTable {
     this.stateTimer = null;
   }
 
+  // Phòng đóng giữa ván (phòng riêng: chủ phòng rời): dừng bàn và hủy ván đang dở, API hoàn vé người đã mua.
+  async abort() {
+    const round = this.round;
+    this.stop();
+    if (!round || !round.tickets.size || !['buying', 'calling', 'claiming'].includes(round.phase)) return;
+    round.phase = 'settling';
+    await Promise.allSettled([...round.pending]);
+    await Promise.resolve(this.settleFn?.({ roundId: round.id, called: round.called, claims: [] })).catch(() => null);
+  }
+
   schedule(ms, work) {
     clearTimeout(this.timer);
     this.timer = setTimeout(work, ms);
@@ -119,9 +129,9 @@ export class LottoTable {
     return count;
   }
 
-  realTicketCount() {
+  botTicketCount() {
     let count = 0;
-    for (const tickets of this.round.tickets.values()) count += tickets.length;
+    for (const tickets of this.round.botTickets.values()) count += tickets.length;
     return count;
   }
 
@@ -291,10 +301,18 @@ export class LottoTable {
     round.phase = 'settling';
     let settled = null;
     if (!round.tickets.size) {
-      settled = { ok: true, ...(round.botClaims.length ? {} : { void: true }), winners: [], share: 0, results: [] };
+      // Ván toàn bot: không có xu thật, chỉ tính phần chia để hiện kết quả.
+      const prize = Math.floor((this.ticketCount() * this.rules.ticketPrice * (100 - (this.rules.houseCutPercent ?? 10))) / 100);
+      settled = round.botClaims.length
+        ? { ok: true, winners: [], share: Math.floor(prize / round.botClaims.length), results: [] }
+        : { ok: true, void: true, winners: [], share: 0, results: [] };
     } else {
       for (let attempt = 0; attempt < SETTLE_ATTEMPTS && !settled?.ok; attempt += 1) {
-        settled = this.settleFn ? await this.settleFn({ roundId: round.id, called: round.called, claims: round.claims, botWinners: Math.min(20, round.botClaims.length) }) : null;
+        // Vé bot góp quỹ như vé thật (hệ thống bù phần xu đó); bot kinh được chia phần nhưng phần đó không vào ví ai.
+        settled = this.settleFn ? await this.settleFn({
+          roundId: round.id, called: round.called, claims: round.claims,
+          botWinners: Math.min(20, round.botClaims.length), botTickets: Math.min(1_000, this.botTicketCount()),
+        }) : null;
         if (!settled?.ok && attempt + 1 < SETTLE_ATTEMPTS) await sleep(500);
       }
     }
@@ -336,7 +354,8 @@ export class LottoTable {
       phase: round.phase === 'settling' ? 'claiming' : round.phase,
       endsAt: round.endsAt,
       called: [...round.called],
-      pool: this.realTicketCount() * this.rules.ticketPrice,
+      // Quỹ gồm cả vé bot (vé bot góp quỹ như vé thật, hệ thống bù phần xu đó).
+      pool: tickets * this.rules.ticketPrice,
       tickets,
       players: this.playerCount(),
       ...(round.nextCallAt ? { nextCallAt: round.nextCallAt } : {}),

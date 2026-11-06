@@ -42,7 +42,7 @@ export async function handleGameRequest(req, res, pathname, options) {
   const result = game === 'loto'
     ? action === 'buy'
       ? options.garden.buyLotto({ accountId: input.accountId, roundId: input.roundId, count: input.count, autoMark: input.autoMark, key: input.key })
-      : action === 'settle' ? options.garden.settleLottoRound({ roundId: input.roundId, called: input.called, claims: input.claims, botWinners: input.botWinners }) : { ok: false, code: 'INVALID' }
+      : action === 'settle' ? options.garden.settleLottoRound({ roundId: input.roundId, called: input.called, claims: input.claims, botWinners: input.botWinners, botTickets: input.botTickets }) : { ok: false, code: 'INVALID' }
     : action === 'stake'
       ? options.garden.stakeBauCua({ accountId: input.accountId, roundId: input.roundId, animal: input.animal, amount: input.amount, key: input.key })
       : action === 'unstake'

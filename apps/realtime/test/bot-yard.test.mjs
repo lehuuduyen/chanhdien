@@ -74,3 +74,20 @@ test('người thật chào cả sân thì bot gần nhất chào lại theo ng�
   assert.equal(room.botGreetBack(room.participants.get('mia'), 'hello everyone'), null, 'cả phòng 20 giây một lần');
   room.close();
 });
+
+test('chat trong ngày: người vào sau nhận chat.history; tin hôm trước và tin quá 100 bị bỏ', async () => {
+  const { parseServerMessage } = await import('@chanh-dien/protocol');
+  const { dayStartOf } = await import('@chanh-dien/room-rules');
+  const room = new Room('thien-ca-vi-1', { botCount: 0 });
+  const today = dayStartOf(Date.now());
+  room.broadcast({ type: 'chat.message', participantId: 'p-old', displayName: 'Cũ', text: 'hôm qua', sentAt: today - 60_000 });
+  for (let index = 0; index < 105; index += 1) {
+    room.broadcast({ type: 'chat.message', participantId: 'p-an', displayName: 'An', text: `tin ${index}`, sentAt: Math.max(today, Date.now() - 1_000) });
+  }
+  const history = room.chatHistoryMessage();
+  assert.equal(history.messages.length, 100);
+  assert.deepEqual([history.messages[0].text, history.messages.at(-1).text], ['tin 5', 'tin 104']);
+  assert.ok(history.messages.every((item) => item.participantId === 'p-an'), 'tin hôm qua đã bị xóa');
+  assert.equal(parseServerMessage(history).ok, true);
+  room.close();
+});

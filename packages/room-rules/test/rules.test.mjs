@@ -37,11 +37,13 @@ test('Chánh điện: số bồ đoàn cấu hình được, lễ vật có côn
   assert.equal(getRoomRules('thien'), THIEN_RULES);
   assert.ok(THIEN_RULES.seats > 0 && THIEN_RULES.seats <= 20);
   assert.deepEqual(THIEN_RULES.benches, { count: 6, seatsPerBench: 2 });
-  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden']);
+  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden', 'pets']);
   for (const point of Object.values(THIEN_RULES.world.travel)) {
     assert.ok(point.x >= THIEN_RULES.world.bounds.x[0] && point.x <= THIEN_RULES.world.bounds.x[1]);
     assert.ok(point.z >= THIEN_RULES.world.bounds.z[0] && point.z <= THIEN_RULES.world.bounds.z[1]);
   }
+  assert.equal(THIEN_RULES.world.pets.length, 9, "6 thú khối + Milo, Fox, Meomeo có mô hình riêng");
+  assert.deepEqual(THIEN_RULES.world.petArea, { x: [7.2, 34], z: [77, 97] });
   assert.deepEqual(Object.keys(THIEN_RULES.interaction.offerings), ['petal', 'incense', 'lotus', 'bell']);
   assert.equal(THIEN_RULES.interaction.offerings.bell.merit, 99);
   for (const offering of Object.values(THIEN_RULES.interaction.offerings)) assert.equal(offering.cooldownMs, 0, 'lễ vật không có thời gian chờ');
@@ -53,7 +55,10 @@ test('Chánh điện: số bồ đoàn cấu hình được, lễ vật có côn
 
 test('chánh điện theo tiểu bang và ngôn ngữ: mã phòng, tên ngắn, ngôn ngữ, múi giờ, bài giảng mỗi ngôn ngữ', async () => {
   const { parseThienRoomId, roomLangOf, roomTypeOf, thienRoomId, thienRoomName, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, US_STATES } = await import('../src/index.mjs');
-  assert.equal(US_STATES.length, 51, '50 tiểu bang và DC');
+  assert.equal(US_STATES.length, 52, 'Việt Nam + 50 tiểu bang và DC');
+  assert.deepEqual(US_STATES[0], { code: 'vn', name: 'Việt Nam', timeZone: 'Asia/Ho_Chi_Minh' });
+  assert.deepEqual(parseThienRoomId('thien-vn-vi-1'), { state: 'vn', lang: 'vi', shard: 1 });
+  assert.equal(thienRoomName('thien-vn-vi-1'), 'Việt Nam · PV1');
   assert.equal(US_STATES.find((state) => state.code === 'az').timeZone, 'America/Phoenix');
   for (const state of US_STATES) assert.doesNotThrow(() => new Intl.DateTimeFormat('en-US', { timeZone: state.timeZone }));
   assert.equal(thienRoomId('az', 'vi', 2), 'thien-az-vi-2');

@@ -87,8 +87,9 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   }
   const stand = makeButton('stand');
   const kneel = makeButton('kneel');
-  // Nhún nhảy (ngoài sân): mỗi nhân vật một điệu riêng (điệu trong file .glb, hoặc kiểu admin chọn).
-  const dance = makeButton('dance', 'option');
+  // ✨ Tương tác (ngoài sân, thay cho nút Nhún nhảy cũ): mỗi lần bấm chạy ngẫu nhiên một động tác trong file nhân vật
+  // hoặc một kiểu nhún nhảy bằng code, không lặp lại động tác vừa làm.
+  const act = makeButton('act');
   const bows = group([makeButton('bow3', 'option'), makeButton('bow108', 'option')]);
   const chants = group([makeButton('woodfish', 'option'), ...SUTRAS.map((sutra) => makeButton('chant', 'option', sutra.id))]);
   const more = document.createElement('div');
@@ -103,7 +104,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   // Nút thêm (Tràng hạt, Viết sớ…) được chuyển vào menu nguyên vẹn, giữ sự kiện đã gắn. Nút vốn có chỗ trên trang
   // (Viết sớ) trả về chỗ cũ khi không ở chế độ nhập vai (2D), để vẫn dùng được.
   const homes = extraButtons.map((button) => ({ button, parent: button.parentNode, next: button.nextSibling }));
-  panel.append(dance, bows.wrap, chants.wrap);
+  panel.append(bows.wrap, chants.wrap);
   function placeExtras(inMenu) {
     for (const { button, parent, next } of homes) {
       if (inMenu || !parent) {
@@ -116,7 +117,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     }
   }
   more.append(panel, moreToggle);
-  bar.append(stand, kneel, more);
+  bar.append(stand, kneel, act, more);
   function openMore(next) {
     panel.hidden = !next;
     moreToggle.setAttribute('aria-expanded', String(next));
@@ -126,7 +127,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   moreToggle.addEventListener('click', () => openMore(panel.hidden));
   const label = () => {
     for (const button of [stand, kneel, ...bows.options, chants.options[0]]) button.textContent = t(`emote.${button.dataset.emote}`);
-    dance.textContent = `💃 ${t('emote.dance')}`;
+    act.textContent = `✨ ${t('emote.act')}`;
     for (const button of chants.options.slice(1)) button.textContent = sutraTitle(sutraById(button.dataset.sutra), lang());
     bows.head.textContent = `🙇 ${t('emote.bow')} ▸`;
     chants.head.textContent = `📿 ${t('emote.chant')} ▸`;
@@ -229,7 +230,37 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   });
   onLangChange(renderChore);
 
-  // Đi nhanh tới trước ba khu chính. Server giữ tọa độ thật; trình duyệt chỉ gửi tên đích để không thể sửa lệnh
+  // Lại gần một chó/mèo mới hiện bảng tương tác. Client chỉ chọn thú và hành động; server xác nhận người chơi
+  // đang ở trong khu, giới hạn spam rồi phát một pet.interaction để mọi máy cùng chạy hiệu ứng.
+  const petActions = document.createElement('div');
+  petActions.className = 'pet-actions';
+  petActions.hidden = true;
+  const petName = document.createElement('strong');
+  const petButtons = ['pet', 'feed', 'play'].map((action) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.petAction = action;
+    petActions.append(button);
+    return button;
+  });
+  petActions.prepend(petName);
+  let nearbyPet = null;
+  function renderPet() {
+    petActions.hidden = !nearbyPet;
+    if (!nearbyPet) return;
+    petName.textContent = `${nearbyPet.type === 'dog' ? '🐕' : '🐈'} ${nearbyPet.name}`;
+    petButtons.forEach((button) => { button.textContent = t(`pet.${button.dataset.petAction}`); });
+  }
+  petActions.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-pet-action]');
+    if (!button || !nearbyPet) return;
+    session.send({
+      type: 'pet.interact', requestId: `pet-${crypto.randomUUID()}`, petId: nearbyPet.id, action: button.dataset.petAction,
+    });
+  });
+  onLangChange(renderPet);
+
+  // Đi nhanh tới trước các khu chính. Server giữ tọa độ thật; trình duyệt chỉ gửi tên đích để không thể sửa lệnh
   // thành dịch chuyển xuyên vật thể. Nút nằm cùng thanh tên phòng nên luôn dễ thấy mà không che cảnh.
   const travel = document.createElement('div');
   travel.className = 'quick-travel';
@@ -243,8 +274,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelPanel.setAttribute('role', 'menu');
   travelPanel.hidden = true;
   // exits: map khác (vd: rạp phim) — { id, icon, go() }; bấm vào thì trang tự chuyển, không gửi travel.go.
-  const travelIcons = { hall: '🛕', courtyard: '🌳', garden: '🌱', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
-  const travelButtons = ['hall', 'courtyard', 'garden', ...exits.map((exit) => exit.id)].map((destination) => {
+  const travelIcons = { hall: '🛕', courtyard: '🌳', garden: '🌱', pets: '🐾', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
+  const travelButtons = ['hall', 'courtyard', 'garden', 'pets', ...exits.map((exit) => exit.id)].map((destination) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.destination = destination;
@@ -311,7 +342,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelHost.insertBefore(travel, lectureChip || null);
   stage.append(travelPanel);
 
-  stage.append(bar, pad, sitNearby, choreButton);
+  stage.append(bar, pad, sitNearby, choreButton, petActions);
 
   // Đặt thanh động tác và cần điều khiển ngay trên dải lễ vật (dải này cao thấp tùy nút đang có).
   const controls = document.getElementById('controls');
@@ -322,6 +353,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     pad.style.bottom = `${gap + bar.offsetHeight + 10}px`;
     sitNearby.style.bottom = `${gap + bar.offsetHeight + 18}px`;
     choreButton.style.bottom = `${gap + bar.offsetHeight + 18}px`;
+    petActions.style.bottom = `${gap + bar.offsetHeight + 18}px`;
   }
   if (controls) new ResizeObserver(place).observe(controls);
   new ResizeObserver(place).observe(stage);
@@ -334,6 +366,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     pad.hidden = !on || !matchMedia('(pointer: coarse)').matches;
     if (!on) sitNearby.hidden = true;
     if (!on) choreButton.hidden = true;
+    if (!on) petActions.hidden = true;
     if (on) requestAnimationFrame(place);
   }
 
@@ -405,6 +438,11 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       onGardenTap: (target) => onGardenTap?.(target),
       onGuideTap: (place) => onGuideTap?.(place),
       onMeritBoardTap: () => onMeritBoardTap?.(),
+      onPetTap: (target) => {
+        nearbyPet = target;
+        renderPet();
+        requestAnimationFrame(place);
+      },
       gardenLabel: (plot) => gardenLabel?.(plot) || '',
       onBenchTap: sitOnBench,
       onNearbyChange: (target) => {
@@ -415,6 +453,11 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       onNearbyChoreChange: (target) => {
         nearbyChore = target;
         renderChore();
+        if (target) requestAnimationFrame(place);
+      },
+      onNearbyPetChange: (target) => {
+        nearbyPet = target;
+        renderPet();
         if (target) requestAnimationFrame(place);
       },
       onPlaceChange: setPlace,
@@ -443,9 +486,9 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     previewSpawn() {
       api?.previewSpawn?.(resumePose || api.spawn);
     },
-    // Vào phòng xong thì đi thẳng tới khu này (hall/courtyard/garden), dùng khi quay về từ map khác.
+    // Vào phòng xong thì đi thẳng tới khu này, dùng khi quay về từ map khác.
     arriveAt(destination) {
-      if (['hall', 'courtyard', 'garden'].includes(destination)) arrival = destination;
+      if (['hall', 'courtyard', 'garden', 'pets'].includes(destination)) arrival = destination;
     },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {
@@ -480,6 +523,12 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
         ? t('chore.reward', { n: message.reward, count: message.count, limit: message.limit })
         : t('chore.rewardLimit', { limit: message.limit }));
     },
+    onPetInteraction(message) {
+      const pet = api?.petInteraction?.(message.petId, message.action);
+      if (pet && message.participantId === session.participantId) {
+        showToast(t('pet.done', { action: t(`pet.${message.action}`), name: pet.name }));
+      }
+    },
     // Dùng lại đi nhanh an toàn cho nút hướng dẫn nhiệm vụ; chỉ nhận các đích đã có trong menu.
     goTo,
     onState(participants) {
@@ -491,17 +540,21 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       api?.applyMoves(message.moves);
     },
     onEmote(message) {
-      api?.emote(message.participantId, message.kind);
+      api?.emote(message.participantId, message.kind, message.at);
       api?.setStatus(message.participantId, statusOf(message.kind, message.sutra));
     },
     onError(message) {
       if (['INVALID_MESSAGE', 'UNKNOWN_MESSAGE_TYPE'].includes(message.code)
-        && (message.requestId?.startsWith('bench-') || message.requestId?.startsWith('travel-') || message.requestId?.startsWith('chore-'))) {
+        && (message.requestId?.startsWith('bench-') || message.requestId?.startsWith('travel-') || message.requestId?.startsWith('chore-') || message.requestId?.startsWith('pet-'))) {
         showToast(t('err.SERVER_RESTART_REQUIRED'));
         return true;
       }
       if (message.requestId?.startsWith('chore-')) {
         showToast(t(`chore.err.${message.code}`));
+        return true;
+      }
+      if (message.requestId?.startsWith('pet-')) {
+        showToast(t(`pet.err.${message.code}`));
         return true;
       }
       if (message.code !== 'WALKERS_FULL') return false;
@@ -524,8 +577,10 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       showControls(false);
       api?.setWalkers([]);
       nearbyChore = null;
+      nearbyPet = null;
       choreStates.clear();
       choreButton.hidden = true;
+      petActions.hidden = true;
     },
   };
 }

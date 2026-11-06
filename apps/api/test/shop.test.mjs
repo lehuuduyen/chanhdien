@@ -7,7 +7,7 @@ import { Document, NodeIO } from '@gltf-transform/core';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
-import { verifyJoinTicket } from '@chanh-dien/session-token';
+import { internalKey, verifyJoinTicket } from '@chanh-dien/session-token';
 import { handleApiRequest } from '../server.mjs';
 import { createShopStore, DIAMOND_PACKS, inspectGlb, shopIdFor, verifyStripeSignature } from '../shop.mjs';
 
@@ -110,6 +110,27 @@ test('shop: database cũ được nâng cấp để Telegram điều chỉnh kim
   assert.deepEqual(store.me(account.id).history[0], {
     amount: 80, kind: 'admin_adjustment', ref: 'telegram-2001', at: store.me(account.id).history[0].at,
   });
+});
+
+test('mở phim tốn kim cương: máy realtime trừ qua đường nội bộ, gửi lại cùng khóa không trừ hai lần, hoàn đúng một lần', async () => {
+  const { options } = setup();
+  const an = await signUp(options, 'an.phim');
+  options.shopStore.adjustDiamonds({ accountId: an.accountId, amount: 30, key: 'telegram-3001' });
+  const internal = { 'x-internal-key': internalKey(SECRET) };
+  const spend = (key, extra = {}) => request(options, 'POST', '/internal/shop/spend', {
+    body: { accountId: an.accountId, amount: 20, reason: 'cinema_video', ref: 'dQw4w9WgXcQ', key, ...extra }, headers: internal,
+  }).then((result) => result.json);
+  assert.equal((await request(options, 'POST', '/internal/shop/spend', { body: { accountId: an.accountId, amount: 20, reason: 'cinema_video', ref: 'x', key: 'video-key-1' } })).status, 403, 'trình duyệt không gọi được');
+  assert.deepEqual(await spend('video-key-1'), { ok: true, diamonds: 10 });
+  assert.deepEqual(await spend('video-key-1'), { ok: true, replayed: true, diamonds: 10 }, 'gửi lại không trừ hai lần');
+  assert.deepEqual(await spend('video-key-2'), { ok: false, error: 'INSUFFICIENT_DIAMONDS', diamonds: 10 });
+  assert.equal((await spend('video-key-3', { reason: 'free_money' })).error, 'INVALID');
+  const refund = (key) => request(options, 'POST', '/internal/shop/refund', { body: { accountId: an.accountId, key }, headers: internal }).then((result) => result.json);
+  assert.deepEqual(await refund('video-key-1'), { ok: true, diamonds: 30 });
+  assert.deepEqual(await refund('video-key-1'), { ok: true, replayed: true, diamonds: 30 }, 'hoàn tối đa một lần');
+  assert.equal((await refund('video-key-2')).error, 'UNKNOWN_SPEND', 'chỉ hoàn lần tiêu có thật');
+  assert.deepEqual(options.shopStore.me(an.accountId).history.slice(0, 2).map(({ amount, kind, ref }) => [amount, kind, ref]),
+    [[20, 'refund', 'cinema_video:dQw4w9WgXcQ'], [-20, 'spend', 'cinema_video:dQw4w9WgXcQ']]);
 });
 
 test('shop: nạp qua Stripe Checkout, trang quay về cộng kim cương đúng một lần, rồi mua hình', async () => {
@@ -338,6 +359,9 @@ test('shop: admin tải nhân vật .glb → nén, hiện trong shop, mua đư�
     // Nhún nhảy: file chưa có điệu nhảy → dùng kiểu admin chọn (mặc định nhún lên xuống); danh mục mô hình kèm kiểu.
     const shopModel = () => request(options, 'GET', '/api/v1/shop').then((result) => result.json.models[0]);
     assert.deepEqual([(await shopModel()).dance, hidden.json.item.danceClip], ['bounce', false]);
+    assert.deepEqual(hidden.json.item.actClips, [], 'chỉ có Walking: chưa có động tác tương tác (✨ nhún nhảy mặc định)');
+    const { BASE_CLIP } = await import('../shop.mjs');
+    assert.deepEqual(['Walking', 'Running', 'Idle_Breathing', 'T-Pose', 'Wave_Hello', 'Bow', 'Hip_Hop_Dance'].filter((name) => !BASE_CLIP.test(name)), ['Wave_Hello', 'Bow', 'Hip_Hop_Dance']);
     assert.equal((await request(options, 'PATCH', '/api/v1/admin/shop/items/shop-kiem-si', { body: { dance: 'spin' }, headers: admin })).json.item.dance, 'spin');
     assert.equal((await shopModel()).dance, 'spin');
     assert.equal((await request(options, 'PATCH', '/api/v1/admin/shop/items/shop-kiem-si', { body: { dance: 'twerk' }, headers: admin })).status, 400);

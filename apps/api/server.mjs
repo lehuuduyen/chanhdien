@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { createDirectoryFromEnv } from '@chanh-dien/room-directory';
-import { getRoomRules, parseThienRoomId, ROOM_CATALOG, thienRoomName } from '@chanh-dien/room-rules';
+import { getRoomRules, isPrivateRoomId, parseThienRoomId, ROOM_CATALOG, thienRoomName } from '@chanh-dien/room-rules';
 import { createJoinTicket, DEFAULT_LOCAL_SECRET, verifyRoomInvite } from '@chanh-dien/session-token';
 import { corsHeaders, json, readJson } from './http.mjs';
 import { currentAccount, handleAuthRequest, loginRewardView, openAccountStore } from './auth.mjs';
@@ -18,6 +18,7 @@ import { handleSupportRequest, openSupportStore } from './support.mjs';
 import { handleShopRequest, openShopStore, shopConfig } from './shop.mjs';
 import { handleBotChatRequest, openBotChatStore, realtimeBotSpeaker } from './bot-chat.mjs';
 import { handleFriendLinksRequest, openFriendLinks, realtimeInboxNotifier } from './friend-links.mjs';
+import { createPrivateRooms, handlePrivateRoomRequest, realtimePrivateRoomNotifier } from './private-rooms.mjs';
 import { batchNotifier, banMessage, handleModerationRequest, openModerationStore, requestIpHash } from './moderation.mjs';
 import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
 import { openThienEventStore } from './thien-event.mjs';
@@ -74,7 +75,8 @@ export async function locateRoom(roomId, options = {}) {
 // Tài khoản tạo chưa tới 24 giờ là "nick mới" (dò clone nhắn trùng).
 const FRESH_ACCOUNT_MS = 24 * 60 * 60_000;
 const findOpenRoom = (roomId) => ROOMS.find((candidate) => candidate.id === roomId && candidate.status === 'open')
-  || (parseThienRoomId(roomId) ? { id: roomId, type: 'thien', name: thienRoomName(roomId), status: 'open' } : null);
+  || (parseThienRoomId(roomId) ? { id: roomId, type: 'thien', name: thienRoomName(roomId), status: 'open' } : null)
+  || (isPrivateRoomId(roomId) ? { id: roomId, type: 'loto-private', name: 'Lô Tô riêng', status: 'open' } : null);
 
 export function createJoinResponse(input, options = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { status: 400, body: { error: 'invalid_body' } };
@@ -84,6 +86,11 @@ export function createJoinResponse(input, options = {}) {
   if (parseThienRoomId(room.id)) {
     const invite = verifyRoomInvite(input.inviteCode, options.secret || DEFAULT_LOCAL_SECRET, { now: options.now });
     if (!invite.ok || invite.value.roomId !== room.id) return { status: 403, body: { error: 'invalid_room_invite' } };
+  }
+  // Phòng Lô Tô riêng: chủ phòng, người được mời hoặc thành viên mở link (tự thành khách); người bị đuổi / phòng đầy / đã đóng thì từ chối.
+  if (isPrivateRoomId(room.id)) {
+    const allowed = options.privateRooms?.canJoin(room.id, options.account?.id) || { ok: false, error: 'not_found' };
+    if (!allowed.ok) return { status: allowed.error === 'closed' ? 410 : allowed.error === 'not_found' ? 404 : 403, body: { error: allowed.error === 'closed' ? 'private_room_closed' : allowed.error === 'not_found' ? 'room_not_found' : allowed.error === 'kicked' ? 'private_room_kicked' : allowed.error === 'full' ? 'private_room_full' : 'private_room_not_invited' } };
   }
   // Thành viên đã đăng nhập vào phòng bằng tên tài khoản; vé mang accountId để công đức được ghi sổ.
   const account = options.account || null;
@@ -196,6 +203,7 @@ export async function handleApiRequest(req, res, options = {}) {
     return;
   }
   if (await handleFriendLinksRequest(req, res, pathname, options)) return;
+  if (await handlePrivateRoomRequest(req, res, pathname, options)) return;
   if (await handleAuthRequest(req, res, pathname, options)) return;
   if (await handleCommunityProjectRequest(req, res, pathname, options)) return;
   if (await handleGardenRequest(req, res, pathname, options)) return;
@@ -238,6 +246,8 @@ if (isMain) {
   // Cụm nhiều node: gửi lệnh quản trị bot tới tất cả node; lease quyết định node nào thực sự giữ từng phòng.
   const realtimeInternalUrls = process.env.REALTIME_INTERNAL_URLS
     || (shared ? `${realtimeInternalUrl},http://127.0.0.1:4002` : realtimeInternalUrl);
+  // Bạn bè: online ở phòng nào, mời vào phòng, lời nhắn (báo trang người nhận qua máy realtime).
+  const friendLinks = openFriendLinks(accounts, { secret, notify: realtimeInboxNotifier(realtimeInternalUrls, secret) });
   // ADMIN_SECRET riêng nếu có; local mặc định dùng SESSION_SECRET. Trang admin không lưu khóa này trên server.
   const adminSecret = process.env.ADMIN_SECRET || secret;
   // Trang Ủng hộ: thông tin Zelle từ biến môi trường DONATE_* (xem donate.mjs), không ghi trong repo.
@@ -273,8 +283,9 @@ if (isMain) {
     botChats: openBotChatStore(accounts, createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID })),
     botSpeaker: realtimeBotSpeaker(realtimeInternalUrls, secret),
     supportStore, notifySupport, shopStore, shop, shopModelDir, moderation,
-    // Bạn bè: online ở phòng nào, mời vào phòng, lời nhắn (báo trang người nhận qua máy realtime).
-    friendLinks: openFriendLinks(accounts, { secret, notify: realtimeInboxNotifier(realtimeInternalUrls, secret) }),
+    friendLinks,
+    // Phòng Lô Tô riêng cho nhóm bạn: trừ xu ở ví vườn, danh sách mời ở SQLite, báo máy realtime thêm bot / đuổi người.
+    privateRooms: accounts ? createPrivateRooms({ db: accounts.database, accounts, garden, friendLinks, notifyRealtime: realtimePrivateRoomNotifier(realtimeInternalUrls, secret) }) : null,
   });
   server.listen(port, host, () => console.log(`API: http://${host}:${port} (${shared ? 'danh bạ Redis' : 'một máy realtime'})`));
 }

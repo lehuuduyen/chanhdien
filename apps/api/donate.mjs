@@ -9,6 +9,8 @@
 //   DONATE_CONTACT        email liên hệ (tùy chọn)
 //   TELEGRAM_WEBHOOK_SECRET khóa Telegram gửi trong header; TELEGRAM_CHAT_ID là chat duy nhất được phép cập nhật
 import { timingSafeEqual } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { getRoomRules, ROOM_CATALOG, roomTypeOf } from '@chanh-dien/room-rules';
 import { internalKey } from '@chanh-dien/session-token';
 import { json, readJson } from './http.mjs';
@@ -18,11 +20,20 @@ import { MODERATION_HELP, moderationTelegramCommand } from './moderation.mjs';
 const text = (value, max) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null);
 const amount = (value) => (/^\d{1,7}$/.test(String(value ?? '')) ? Number(value) : null);
 
+// Ảnh mã VietQR (chuyển khoản ngân hàng Việt Nam) cho người chọn khu vực Việt Nam: file nằm ngoài repo, đường dẫn
+// ở DONATE_VIETQR_IMAGE (.png/.jpg/.webp). Trang chỉ nhận link /api/v1/donate/vietqr, không thấy đường dẫn trên máy.
+const VIETQR_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
+export function vietqrFile(env = process.env) {
+  const file = text(env.DONATE_VIETQR_IMAGE, 500);
+  return file && VIETQR_TYPES[path.extname(file).toLowerCase()] && existsSync(file) ? file : null;
+}
+
 export function donateConfig(env = process.env) {
   const name = text(env.DONATE_ZELLE_NAME, 80);
   const handle = text(env.DONATE_ZELLE_HANDLE, 120);
   return {
     zelle: name && handle ? { name, handle } : null,
+    vietqr: vietqrFile(env) ? { name: text(env.DONATE_VIETQR_NAME, 80), image: '/api/v1/donate/vietqr' } : null,
     memo: text(env.DONATE_MEMO, 60) || 'Ung ho Chanh Dien Online',
     goal: amount(env.DONATE_MONTHLY_GOAL),
     raised: amount(env.DONATE_MONTH_RAISED),
@@ -114,6 +125,16 @@ export function openDonateStore(accounts, config, options = {}) {
 }
 
 export function handleDonateRequest(req, res, pathname, options) {
+  if (pathname === '/api/v1/donate/vietqr') {
+    const file = options.vietqrFile === undefined ? vietqrFile() : options.vietqrFile;
+    if (req.method !== 'GET' || !file) {
+      json(req, res, 404, { error: 'not_found' });
+      return true;
+    }
+    res.writeHead(200, { 'Content-Type': VIETQR_TYPES[path.extname(file).toLowerCase()], 'Cache-Control': 'public, max-age=300' });
+    res.end(readFileSync(file));
+    return true;
+  }
   if (pathname !== '/api/v1/donate') return false;
   if (req.method !== 'GET') {
     json(req, res, 405, { error: 'method_not_allowed' });
@@ -271,7 +292,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
       method: 'sendMessage', chat_id: message.chat.id,
       text: total === 0
         ? `✅ Đã tắt bot riêng phòng ${botRoomName(roomId)}.`
-        : `✅ ${botRoomName(roomId)}: ${actual} bot${capped}. Các phòng khác giữ nguyên.`,
+        : `✅ ${botRoomName(roomId)}: ${actual} bot${capped}. Các phòng khác giữ nguyên.\nSố bot tự lên xuống ±10 quanh con số này cho giống người ra vào.`,
     });
     return true;
   }
@@ -295,7 +316,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
       method: 'sendMessage', chat_id: message.chat.id,
       text: total === 0
         ? '✅ Đã tắt toàn bộ bot do Telegram quản lý.'
-        : `✅ Đã chia ${result.assigned} bot${capped}.${allocation ? `\n${allocation}` : ''}`,
+        : `✅ Đã chia ${result.assigned} bot${capped}.${allocation ? `\n${allocation}` : ''}\nMỗi phòng tự lên xuống ±10 bot quanh con số này cho giống người ra vào.`,
     });
     return true;
   }

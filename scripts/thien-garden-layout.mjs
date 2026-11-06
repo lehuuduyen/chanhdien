@@ -29,6 +29,7 @@ c.paths = [
   { x: [-19, 19], z: [48.8, 51.2] },      // lối ngang tới bồ đề / Quan Âm
   { x: [-4.6, 4.6], z: [75.4, 84.6] },    // sân nhỏ quanh bồn nước
   { x: [1.8, 13.2], z: [67.4, 68.6] },     // lối đá từ lối giữa vào cổng Vườn Công Đức
+  { x: [1.8, 9.2], z: [85.8, 87.2] },      // lối vào Khu vui chơi thú cưng
 ];
 delete c.lawns;
 // 9 vị mỗi bên, cách 4,5 m; lối ngang z = 50 nằm giữa hàng thứ 4 và 5.
@@ -48,7 +49,12 @@ arhats.forEach((item, index) => {
   }
 });
 c.arhats = arhats;
-c.bodhi = { x: -22, z: 50, size: 1.75 };
+c.bodhi = {
+  ...c.bodhi,
+  x: -22, z: 50, size: 1.75,
+  projectId: c.bodhi?.projectId || 'bodhi-global-1',
+  stageScales: c.bodhi?.stageScales || [0, 0.18, 0.42, 0.72, 1],
+};
 c.guanyin = {
   x: 22, z: 50, scale: 2.35, ry: -1.5708,
   garden: {
@@ -58,7 +64,12 @@ c.guanyin = {
   },
 };
 c.fountain = { x: 0, z: 80, radius: 2.6 };
-c.pond = { x: -19.5, z: 80, radiusX: 12, radiusZ: 9, depth: 1.3, fish: 26 };
+c.pond = {
+  ...c.pond,
+  x: -19.5, z: 80, radiusX: 12, radiusZ: 9, depth: 1.3, fish: 26,
+  projectId: c.pond?.projectId || 'lotus-global-1',
+  stageVisibility: c.pond?.stageVisibility || { water: 0, rocks: 2, lotus: 3, fish: 0 },
+};
 c.benches = [
   { x: -6.4, z: 74.5, ry: -1.5708 }, { x: -6.4, z: 85.5, ry: -1.5708 },
   { x: 6.2, z: 77.5, ry: -1.5708 }, { x: 6.2, z: 82.5, ry: -1.5708 },
@@ -89,17 +100,47 @@ c.garden = {
     [GARDEN_FENCE.x[0], GARDEN_GATE.z - GARDEN_GATE.width / 2, GARDEN_FENCE.x[0], GARDEN_FENCE.z[0]],
   ],
 };
-c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 30, z: 57.5, size: 1.0 }, { x: 30, z: 91, size: 1.25 }, { x: -30, z: 40, size: 1.2 }, { x: 13, z: 93, size: 1.0 }];
+// Khu thú cưng phía sau bên phải: có cổng mở về lối giữa, đồ chơi và sáu chó mèo có tên riêng.
+const PET_FENCE = { x: [7.2, 34], z: [77, 97] };
+const PET_GATE = { z: 86.5, width: 3.2 };
+c.petZone = {
+  sign: 'KHU VUI CHƠI THÚ CƯNG',
+  area: PET_FENCE,
+  entrance: { x: PET_FENCE.x[0], z: PET_GATE.z, ry: -1.5708, width: PET_GATE.width },
+  fence: [
+    [PET_FENCE.x[0], PET_FENCE.z[0], PET_FENCE.x[1], PET_FENCE.z[0]],
+    [PET_FENCE.x[1], PET_FENCE.z[0], PET_FENCE.x[1], PET_FENCE.z[1]],
+    [PET_FENCE.x[1], PET_FENCE.z[1], PET_FENCE.x[0], PET_FENCE.z[1]],
+    [PET_FENCE.x[0], PET_FENCE.z[1], PET_FENCE.x[0], PET_GATE.z + PET_GATE.width / 2],
+    [PET_FENCE.x[0], PET_GATE.z - PET_GATE.width / 2, PET_FENCE.x[0], PET_FENCE.z[0]],
+  ],
+  props: [
+    { type: 'house', x: 30.5, z: 93.5, ry: 3.1416 },
+    { type: 'tunnel', x: 21.5, z: 93, ry: 1.5708 },
+    { type: 'seesaw', x: 25.5, z: 80.5, ry: 1.5708 },
+    { type: 'hoop', x: 12.2, z: 92, ry: 1.5708 },
+    { type: 'bowls', x: 10, z: 79.3, ry: 0 },
+    { type: 'balls', x: 17.5, z: 80.2, ry: 0 },
+  ],
+};
+c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 30, z: 57.5, size: 1.0 }, { x: -30, z: 40, size: 1.2 }, { x: 13, z: 93, size: 1.0 }];
 c.pines = [[-8.6, 20], [-9, 27], [9, 28.5], [-31, 20], [31, 22], [-31, 62], [31, 40], [-15, 95], [21, 95], [-32, 94]];
 c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [-24, 30], [24, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60]];
 c.animals = [
-  { type: 'dog', color: '#c8893f', x: 16, z: 84, area: { x: [7, 34], z: [77, 97] } },
-  { type: 'dog', color: '#2b2522', x: 24, z: 86, area: { x: [7, 34], z: [77, 97] } },
-  { type: 'dog', color: '#ece4d6', x: -14, z: 34, area: { x: [-34, -8], z: [32, 66] } },
-  { type: 'cat', color: '#d9853b', x: 12, z: 84, area: { x: [7, 34], z: [77, 97] } },
-  { type: 'cat', color: '#8e8f93', x: 28, z: 90, area: { x: [7, 34], z: [77, 97] } },
-  { type: 'cat', color: '#f2eee6', x: -26, z: 58, area: { x: [-34, -8], z: [32, 66] } },
-  { type: 'cat', color: '#3a3330', x: 20, z: 36, area: { x: [8, 34], z: [32, 46] } },
+  { id: 'pet-dog-moc', name: 'Mộc', type: 'dog', color: '#c8893f', x: 15, z: 84, area: { x: [8, 33], z: [78, 96] } },
+  { id: 'pet-dog-nau', name: 'Nâu', type: 'dog', color: '#2b2522', x: 24, z: 86, area: { x: [8, 33], z: [78, 96] } },
+  { id: 'pet-dog-sua', name: 'Sữa', type: 'dog', color: '#ece4d6', x: 28, z: 89, area: { x: [8, 33], z: [78, 96] } },
+  { id: 'pet-cat-miu', name: 'Miu', type: 'cat', color: '#d9853b', x: 12, z: 88, area: { x: [8, 33], z: [78, 96] } },
+  { id: 'pet-cat-may', name: 'Mây', type: 'cat', color: '#8e8f93', x: 26, z: 94, area: { x: [8, 33], z: [78, 96] } },
+  { id: 'pet-cat-bong', name: 'Bông', type: 'cat', color: '#f2eee6', x: 18, z: 90, area: { x: [8, 33], z: [78, 96] } },
+  // Thú có mô hình riêng (nén từ nhanvat/pet/<loài>_<tên>.glb): height là chiều cao đứng (m), modelRy xoay cho mõm hướng +z.
+  { id: 'pet-dog-milo', name: 'Milo', type: 'dog', model: '/models/pets/dog-milo.glb', height: 0.62, modelRy: 0, x: 20, z: 83, area: { x: [8, 33], z: [78, 96] } },
+  { id: 'pet-dog-fox', name: 'Fox', type: 'dog', model: '/models/pets/dog-fox.glb', height: 0.6, modelRy: 0, x: 30, z: 85, area: { x: [8, 33], z: [78, 96] } },
+  { id: 'pet-cat-meomeo', name: 'Meomeo', type: 'cat', model: '/models/pets/cat-meomeo.glb', height: 0.38, modelRy: 0, x: 14, z: 92, area: { x: [8, 33], z: [78, 96] } },
+];
+c.guideBoards = [
+  ...(c.guideBoards || []).filter((item) => item.id !== 'pets'),
+  { id: 'pets', x: 9.4, z: 83.3, ry: -1.5708, width: 2.2, height: 1.15, sign: 'HƯỚNG DẪN KHU THÚ CƯNG' },
 ];
 c.gate = { ...c.gate, z: GATE };
 // Đèn đá: hai bên sân lư hương như cũ, thêm dọc lối giữa tới cổng.
@@ -174,6 +215,22 @@ const obstacles = [
       Math.round((z0 + ((z1 - z0) * index) / steps) * 100) / 100,
       0.25,
     ));
+  }),
+  // Hàng rào và đồ chơi lớn trong khu thú cưng. Vòng nhảy, bát và bóng nhỏ không cản đường.
+  ...c.petZone.fence.flatMap(([x0, z0, x1, z1]) => {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const steps = Math.ceil(length / 0.5);
+    return Array.from({ length: steps + 1 }, (_, index) => circle(
+      Math.round((x0 + ((x1 - x0) * index) / steps) * 100) / 100,
+      Math.round((z0 + ((z1 - z0) * index) / steps) * 100) / 100,
+      0.25,
+    ));
+  }),
+  ...c.petZone.props.flatMap((item) => {
+    if (item.type === 'house') return [{ x: item.x, z: item.z, rx: 1.35, rz: 1.05 }];
+    if (item.type === 'tunnel') return [{ x: item.x, z: item.z, rx: 1.25, rz: 0.7 }];
+    if (item.type === 'seesaw') return [{ x: item.x, z: item.z, rx: 0.38, rz: 1.5 }];
+    return [];
   }),
 ];
 const gateWall = (x0, x1) => { for (let x = x0; x <= x1; x += 1.2) obstacles.push(circle(x, GATE, 0.6)); };

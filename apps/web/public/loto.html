@@ -120,6 +120,26 @@
     .winners { min-height: 16px; margin: 0; color: var(--gold); font-size: 13px; font-weight: 700; text-align: center; }
     .sign-in { justify-self: center; padding: 8px 16px; color: #2a1404; background: var(--gold); border: 0; border-radius: 999px; font-weight: 800; }
     .note { margin: 0; color: var(--muted); font-size: 10.5px; text-align: center; }
+    /* Phòng riêng cho nhóm bạn */
+    .private { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; font-size: 13px; }
+    .private[hidden] { display: none; }
+    .private .private-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+    .private button, .private-sheet button { min-height: 34px; padding: 0 12px; color: var(--ink, #fff4e2); background: rgba(0, 0, 0, .3); border: 1px solid var(--line); border-radius: 999px; font: inherit; font-weight: 700; cursor: pointer; }
+    .private button.primary, .private-sheet button.primary { color: #2a1404; background: var(--gold); border-color: var(--gold); }
+    .private-sheet { position: fixed; inset: 0; z-index: 40; display: grid; place-items: end center; padding: 12px; background: rgba(0, 0, 0, .55); }
+    .private-sheet[hidden] { display: none; }
+    .private-card { width: min(440px, 100%); max-height: 86dvh; overflow-y: auto; display: grid; gap: 8px; padding: 16px; background: #2a160b; border: 1px solid var(--line); border-radius: 18px; }
+    /* Ô grid mặc định rộng theo nội dung: link dài sẽ đẩy cả thẻ tràn ngang. */
+    .private-card > * { min-width: 0; }
+    .private-card header { display: flex; align-items: center; gap: 8px; }
+    .private-card h2 { flex: 1; margin: 0; color: var(--gold); font-size: 18px; }
+    .private-card h3 { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .private-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(0, 0, 0, .25); border-radius: 12px; }
+    .private-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .private-empty { margin: 0; color: var(--muted); font-size: 13px; }
+    .private-link { display: flex; align-items: center; gap: 8px; }
+    .private-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8px 10px; background: rgba(0, 0, 0, .25); border-radius: 12px; font-size: 12px; user-select: all; }
+    .private-link button { flex: none; }
     .note a { color: var(--gold); }
   </style>
 </head>
@@ -145,6 +165,19 @@
       <a href="/tai-xiu.html">🎲 Tài Xỉu</a>
       <a href="/loto.html" aria-current="page">🔢 Lô Tô</a>
     </nav>
+
+    <!-- Phòng riêng: ở bàn chung là nút tạo phòng (50 xu); trong phòng riêng là tên chủ phòng, mời / thành viên, rời. -->
+    <section class="private" id="privateBar" hidden>
+      <span class="private-title" id="privateTitle"></span>
+      <button type="button" id="privateMembers" hidden>👥 Thành viên</button>
+      <button type="button" class="primary" id="privateAction" hidden></button>
+    </section>
+    <div class="private-sheet" id="privateSheet" hidden role="dialog" aria-modal="true" aria-labelledby="privateSheetTitle">
+      <div class="private-card">
+        <header><h2 id="privateSheetTitle">Phòng riêng</h2><button type="button" id="privateClose" aria-label="Đóng">✕</button></header>
+        <div id="privateList"></div>
+      </div>
+    </div>
 
     <section class="phase" aria-live="polite">
       <div class="phase-top">
@@ -184,8 +217,11 @@
   </main>
 
   <script type="module">
-    const PROTOCOL_VERSION = 2;
-    const ROOM_ID = 'loto-1';
+    const PROTOCOL_VERSION = 3;
+    // Phòng riêng của nhóm bạn: /loto.html?room=loto-p-xxxxxxxx (chỉ người được mời vào được); không có thì bàn chung.
+    const PRIVATE_ID = /^loto-p-[a-z0-9]{8}$/.test(new URLSearchParams(location.search).get('room') || '') ? new URLSearchParams(location.search).get('room') : null;
+    const ROOM_ID = PRIVATE_ID || 'loto-1';
+    const PRIVATE_PRICE = 50;
     const PHASE_LABELS = { buying: 'Mua vé', calling: 'Đang gọi số', claiming: 'Có người KINH!', result: 'Kết quả' };
     const PHASE_LENGTH = { buying: 30_000, calling: 4_000, claiming: 3_000, result: 8_000 };
     const money = (value) => `${value < 0 ? '-' : ''}${Math.abs(value).toLocaleString('vi-VN')} xu`;
@@ -401,6 +437,7 @@
         elements.roomChip.classList.add('online');
       } else if (message.type === 'room.state') {
         people = message.participants.filter((person) => person.connected !== false).length;
+        if (PRIVATE_ID) loadPrivate();
         renderCaller();
       } else if (message.type === 'lotto.state') onState(message);
       else if (message.type === 'lotto.tickets') {
@@ -422,6 +459,8 @@
         sessionReplaced = true;
         elements.phaseLabel.textContent = 'Đã bị khóa';
         say(message.message, 'lose');
+      } else if (message.type === 'protocol.error' && (message.code === 'PRIVATE_KICKED' || message.code === 'PRIVATE_ROOM_CLOSED')) {
+        privateGone(message.message);
       } else if (message.type === 'protocol.error' && message.code === 'SESSION_REPLACED') {
         // Tài khoản vừa vào bàn từ trình duyệt / máy khác: tab này thôi tự nối lại (tải lại trang để chơi ở đây).
         sessionReplaced = true;
@@ -456,15 +495,23 @@
           body: JSON.stringify({ roomId: ROOM_ID, displayName: rememberedName() || 'Khách' }),
         });
         if (!response.ok) {
+          const body = [403, 404, 410].includes(response.status) ? await response.json().catch(() => null) : null;
           // Nick bị khóa: không thử lại, hiện lý do server gửi.
           if (response.status === 403) {
-            const body = await response.json().catch(() => null);
             if (body?.error === 'banned') {
               sessionReplaced = true;
               elements.phaseLabel.textContent = 'Đã bị khóa';
               say(body.message, 'lose');
               return;
             }
+          }
+          // Phòng riêng: chưa được mời / phòng đã đóng thì không thử lại, có nút về bàn chung.
+          if (PRIVATE_ID && [403, 404, 410].includes(response.status)) {
+            privateGone(body?.error === 'private_room_closed' || response.status === 404 ? 'Phòng riêng này đã đóng'
+              : body?.error === 'private_room_kicked' ? 'Chủ phòng đã mời bạn ra khỏi phòng riêng này'
+                : body?.error === 'private_room_full' ? 'Phòng riêng đã đủ 20 người'
+                  : 'Đăng nhập để vào phòng riêng bằng link mời');
+            return;
           }
           if (response.status === 404) {
             elements.phaseLabel.textContent = 'Chưa vào được bàn';
@@ -602,8 +649,185 @@
       location.href = `${url.pathname}${url.search}`;
     }
 
+    // ---- Phòng riêng cho nhóm bạn ----
+    const privateEls = {
+      bar: $('privateBar'), title: $('privateTitle'), members: $('privateMembers'), action: $('privateAction'),
+      sheet: $('privateSheet'), sheetTitle: $('privateSheetTitle'), list: $('privateList'),
+    };
+    let privateRoom = null;
+    let myPrivate = null;
+    let leaveArmed = false;
+    // Đã bị đuổi / phòng đã đóng: giữ nguyên thanh "Về bàn chung", không vẽ lại thông tin phòng cũ.
+    let privateEnded = false;
+    const el = (tag, text, className) => {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    };
+    const button = (text, onClick, className) => {
+      const node = el('button', text, className);
+      node.type = 'button';
+      node.addEventListener('click', onClick);
+      return node;
+    };
+    async function api(path, body) {
+      const response = await fetch(path, body === undefined ? { cache: 'no-store' } : {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      }).catch(() => null);
+      return { ok: Boolean(response?.ok), status: response?.status || 0, data: await response?.json().catch(() => ({})) || {} };
+    }
+    const PRIVATE_ERRORS = {
+      insufficient_coins: `Không đủ xu · cần ${PRIVATE_PRICE} xu để mở phòng riêng`, not_friends: 'Chỉ mời được bạn bè đã lưu',
+      full: 'Phòng đã đủ 20 người được mời', already_member: 'Người này đã được mời', closed: 'Phòng riêng đã đóng',
+      not_owner: 'Chỉ chủ phòng mới làm được việc này', not_signed_in: 'Đăng nhập để dùng phòng riêng',
+    };
+    const privateError = (data) => PRIVATE_ERRORS[data?.error] || 'Chưa làm được, thử lại sau';
+
+    // Bị đuổi / phòng đã đóng / chưa được mời: thôi nối lại, hiện nút về bàn chung.
+    function privateGone(text) {
+      privateEnded = true;
+      sessionReplaced = true;
+      clearTimeout(reconnectTimer);
+      socket?.close();
+      elements.phaseLabel.textContent = 'Đã rời phòng riêng';
+      say(text, 'lose');
+      privateEls.bar.hidden = false;
+      privateEls.title.textContent = `🔒 ${text}`;
+      privateEls.members.hidden = true;
+      privateEls.action.hidden = false;
+      privateEls.action.textContent = '🔢 Về bàn chung';
+      privateEls.action.onclick = () => { location.href = '/loto.html'; };
+      privateEls.sheet.hidden = true;
+    }
+
+    function renderPrivateBar() {
+      if (privateEnded) return;
+      if (PRIVATE_ID) {
+        if (!privateRoom) return;
+        elements.roomChip.lastChild.textContent = '🔒 Lô Tô riêng';
+        privateEls.bar.hidden = false;
+        privateEls.title.textContent = `🔒 Phòng của ${privateRoom.owner.displayName} · ${privateRoom.members.length}/${privateRoom.maxGuests} khách`;
+        privateEls.members.hidden = false;
+        privateEls.members.textContent = privateRoom.isOwner ? '📨 Mời bạn' : '👥 Thành viên';
+        privateEls.action.hidden = false;
+        privateEls.action.textContent = privateRoom.isOwner ? (leaveArmed ? 'Bấm lần nữa: đóng phòng' : '🚪 Đóng phòng') : '🚪 Rời phòng';
+        return;
+      }
+      // Bàn chung: thành viên tạo phòng riêng (hoặc quay về phòng riêng đang mở của mình).
+      privateEls.bar.hidden = !signedIn;
+      privateEls.title.textContent = myPrivate ? '🔒 Bạn đang có phòng riêng' : '🔒 Chơi riêng với nhóm bạn';
+      privateEls.members.hidden = true;
+      privateEls.action.hidden = false;
+      privateEls.action.textContent = myPrivate ? 'Về phòng riêng' : `Tạo phòng riêng · ${PRIVATE_PRICE} xu`;
+    }
+
+    async function loadPrivate() {
+      if (PRIVATE_ID) {
+        const result = await api(`/api/v1/private-rooms/${PRIVATE_ID}`);
+        if (result.ok) privateRoom = result.data.room;
+      } else if (signedIn) {
+        const result = await api('/api/v1/private-rooms/mine');
+        myPrivate = result.ok ? result.data.room : null;
+      }
+      renderPrivateBar();
+      if (!privateEls.sheet.hidden) renderSheet();
+    }
+
+    async function renderSheet() {
+      const room = privateRoom;
+      privateEls.sheetTitle.textContent = room.isOwner ? 'Mời bạn vào phòng' : 'Thành viên phòng';
+      const nodes = [el('h3', `Chủ phòng: ${room.owner.displayName}`)];
+      if (room.isOwner) {
+        // Link mời: ai đã đăng nhập mở link là vào được (trừ người đã bị đuổi), không cần kết bạn.
+        const link = `${location.origin}/loto.html?room=${encodeURIComponent(room.roomId)}`;
+        const share = el('div', undefined, 'private-link');
+        share.append(el('code', link), button('🔗 Gửi link mời', async () => {
+          if (navigator.share) {
+            try { await navigator.share({ title: 'Lô Tô riêng', text: `${room.owner.displayName} mời bạn chơi Lô Tô`, url: link }); return; } catch (error) { if (error?.name === 'AbortError') return; }
+          }
+          const copied = await navigator.clipboard?.writeText(link).then(() => true, () => false);
+          say(copied ? 'Đã sao chép link mời · gửi cho bạn qua tin nhắn' : 'Sao chép link ở ô trên để gửi cho bạn', copied ? 'win' : 'lose');
+        }, 'primary'));
+        nodes.push(el('h3', 'Link mời'), el('p', 'Ai có link (đã đăng nhập) đều vào được, không cần kết bạn.', 'private-empty'), share);
+      }
+      nodes.push(el('h3', `Khách (${room.members.length}/${room.maxGuests})`));
+      if (!room.members.length) nodes.push(el('p', room.isOwner ? 'Chưa có ai. Gửi link hoặc mời bạn bè bên dưới.' : 'Chưa có khách nào.', 'private-empty'));
+      for (const member of room.members) {
+        const row = el('div', undefined, 'private-row');
+        row.append(el('span', `${member.kind === 'bot' ? '🤖' : '👤'} ${member.kind === 'bot' ? member.name : member.displayName}`));
+        if (room.isOwner) {
+          row.append(button('Đuổi', async () => {
+            const result = await api(`/api/v1/private-rooms/${room.roomId}/kick`, member.kind === 'bot' ? { botName: member.name } : { accountId: member.accountId });
+            if (result.ok) privateRoom = result.data.room;
+            else say(privateError(result.data), 'lose');
+            renderPrivateBar();
+            renderSheet();
+          }));
+        }
+        nodes.push(row);
+      }
+      if (room.isOwner) {
+        // Chỉ mời bạn đã lưu (người và bot) chưa có trong phòng.
+        const friends = await api('/api/v1/me/friends');
+        const invited = new Set(room.members.map((member) => (member.kind === 'bot' ? `bot:${member.name}` : member.accountId)));
+        const people = (friends.data.friends || []).filter((friend) => !invited.has(friend.accountId));
+        const bots = (friends.data.botFriends || []).filter((bot) => !invited.has(`bot:${bot.name}`));
+        nodes.push(el('h3', 'Bạn bè'));
+        if (!people.length && !bots.length) nodes.push(el('p', 'Không còn bạn nào để mời. Kết bạn ở chánh điện (bấm vào người / bot rồi chọn Kết bạn).', 'private-empty'));
+        for (const [label, body] of [...people.map((friend) => [`👤 ${friend.displayName}${friend.online ? ' · 🟢' : ''}`, { accountId: friend.accountId }]), ...bots.map((bot) => [`🤖 ${bot.name}`, { botName: bot.name }])]) {
+          const row = el('div', undefined, 'private-row');
+          row.append(el('span', label), button('Mời', async () => {
+            const result = await api(`/api/v1/private-rooms/${room.roomId}/invite`, body);
+            if (result.ok) {
+              privateRoom = result.data.room;
+              say(body.botName ? `Đã mời ${body.botName} vào bàn` : 'Đã gửi lời mời', 'win');
+            } else say(privateError(result.data), 'lose');
+            renderPrivateBar();
+            renderSheet();
+          }, 'primary'));
+          nodes.push(row);
+        }
+      }
+      privateEls.list.replaceChildren(...nodes);
+    }
+
+    privateEls.members.addEventListener('click', () => {
+      if (!privateRoom) return;
+      privateEls.sheet.hidden = false;
+      renderSheet();
+    });
+    $('privateClose').addEventListener('click', () => { privateEls.sheet.hidden = true; });
+    privateEls.sheet.addEventListener('click', (event) => { if (event.target === privateEls.sheet) privateEls.sheet.hidden = true; });
+    privateEls.action.addEventListener('click', async () => {
+      if (PRIVATE_ID && privateRoom) {
+        // Chủ phòng rời = đóng phòng cho cả nhóm: bấm hai lần cho chắc.
+        if (privateRoom.isOwner && !leaveArmed) {
+          leaveArmed = true;
+          renderPrivateBar();
+          setTimeout(() => { leaveArmed = false; renderPrivateBar(); }, 4_000);
+          return;
+        }
+        sessionReplaced = true;
+        socket?.close(1000, 'Rời phòng');
+        setTimeout(() => { location.href = '/loto.html'; }, 300);
+        return;
+      }
+      if (PRIVATE_ID) return;
+      if (myPrivate) {
+        location.href = `/loto.html?room=${encodeURIComponent(myPrivate.roomId)}`;
+        return;
+      }
+      const result = await api('/api/v1/private-rooms', { game: 'loto' });
+      if (!result.ok) {
+        say(privateError(result.data), 'lose');
+        return;
+      }
+      location.href = `/loto.html?room=${encodeURIComponent(result.data.room.roomId)}`;
+    });
+
     render();
-    loadWallet().then(connect);
+    loadWallet().then(() => { loadPrivate(); connect(); });
     setInterval(tick, 250);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) loadWallet(); });
   </script>

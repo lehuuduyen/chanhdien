@@ -9,6 +9,22 @@ import { buildAnimals } from './animals3d.mjs';
 import { hallLayout } from './temple3d-models.mjs';
 
 const MAX_SMOKE = 12;
+const GRASS_ASSETS = Object.freeze({
+  all: {
+    color: '/models/ground/grass-all.base.567ae6b1.webp',
+    normal: '/models/ground/grass-all.normal.ddc960a5.webp',
+    roughness: '/models/ground/grass-all.roughness.3c775481.webp',
+    // Mẫu gốc rộng gần 1,9 m: UV của mặt đất dùng mét nên lặp khoảng nửa lần trên mỗi mét.
+    repeat: [0.53, 0.53],
+  },
+  pets: {
+    color: '/models/ground/grass-pets.base.9aa7b911.webp',
+    normal: '/models/ground/grass-pets.normal.bde06beb.webp',
+    roughness: '/models/ground/grass-pets.roughness.54db9e46.webp',
+    // Mẫu khu thú cưng là hình chữ nhật 1,9 × 0,92 m.
+    repeat: [0.53, 1.09],
+  },
+});
 
 function canvasTexture(width, height, draw, repeat) {
   const canvas = document.createElement('canvas');
@@ -49,31 +65,28 @@ function stoneTiles(repeat) {
   }, repeat);
 }
 
-// Cỏ: nền xanh lốm đốm sáng tối, nhiều nét lá nhỏ. Lặp theo mét (UV của mặt đất tính bằng mét).
-function grassTexture() {
-  return canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#5b8a3c';
-    ctx.fillRect(0, 0, w, h);
-    let seed = 7;
-    const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let spot = 0; spot < 40; spot += 1) {
-      ctx.fillStyle = random() > 0.5 ? 'rgba(120, 160, 70, 0.25)' : 'rgba(40, 80, 30, 0.22)';
-      ctx.beginPath();
-      ctx.arc(random() * w, random() * h, 10 + random() * 26, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.lineWidth = 1.4;
-    for (let blade = 0; blade < 1400; blade += 1) {
-      const x = random() * w;
-      const y = random() * h;
-      const tone = 70 + Math.floor(random() * 90);
-      ctx.strokeStyle = `rgba(${tone - 30}, ${tone + 50}, ${tone - 40}, 0.55)`;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + (random() - 0.5) * 3, y - 3 - random() * 5);
-      ctx.stroke();
-    }
-  }, [0.25, 0.25]);
+// Hai GLB người dùng cung cấp có tới hơn hai triệu đỉnh chỉ cho một ô cỏ. Lấy bộ màu/pháp tuyến/độ nhám đã tối ưu
+// từ chính GLB rồi lặp theo UV mét giúp giữ đúng vẻ cỏ mà không làm điện thoại phải tải và dựng hàng chục MB mesh.
+function grassMaterial(kind, renderer) {
+  const asset = GRASS_ASSETS[kind];
+  const loader = new THREE.TextureLoader();
+  const texture = (src, color = false) => {
+    const map = loader.load(src);
+    if (color) map.colorSpace = THREE.SRGBColorSpace;
+    map.wrapS = THREE.RepeatWrapping;
+    map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(...asset.repeat);
+    map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    return map;
+  };
+  return new THREE.MeshStandardMaterial({
+    map: texture(asset.color, true),
+    normalMap: texture(asset.normal),
+    normalScale: new THREE.Vector2(0.28, 0.28),
+    roughnessMap: texture(asset.roughness),
+    roughness: 1,
+    metalness: 0,
+  });
 }
 
 // Mặt phẳng ngang (hình chữ nhật, có thể khoét lỗ elip cho hồ) với UV tính bằng mét.
@@ -883,6 +896,69 @@ function addGuanyinGarden(batch, m, item, lanternGlows) {
   }
 }
 
+// Khu vui chơi thú cưng lấy toàn bộ vị trí từ scene: thảm cỏ riêng, hàng rào có cổng, nhà trú, ống chui,
+// cầu thăng bằng, vòng nhảy, bát ăn và bóng. Các khối tĩnh được gộp cùng sân để không tăng nhiều draw call.
+function addPetZone(root, batch, m, zone, signs) {
+  const area = zone.area;
+  if (!area?.x || !area?.z) return;
+  const grass = new THREE.Mesh(groundShape(area, [], 0.014), m.petGrass);
+  grass.receiveShadow = true;
+  root.add(grass);
+
+  for (const [x0, z0, x1, z1] of zone.fence || []) {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const ry = Math.atan2(x1 - x0, z1 - z0);
+    const x = (x0 + x1) / 2;
+    const z = (z0 + z1) / 2;
+    for (const y of [0.3, 0.68]) batch.add(new THREE.BoxGeometry(0.08, 0.08, length), m.fence, { position: [x, y, z], rotation: [0, ry, 0] });
+    const posts = Math.max(1, Math.ceil(length / 1.8));
+    for (let index = 0; index <= posts; index += 1) {
+      const ratio = index / posts;
+      batch.add(new THREE.BoxGeometry(0.12, 0.9, 0.12), m.wood, {
+        position: [x0 + (x1 - x0) * ratio, 0.45, z0 + (z1 - z0) * ratio],
+      });
+    }
+  }
+
+  const entrance = zone.entrance;
+  if (entrance) {
+    const sideX = Math.cos(entrance.ry || 0);
+    const sideZ = -Math.sin(entrance.ry || 0);
+    for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.18, 1.9, 0.18), m.wood, {
+      position: [entrance.x + sideX * entrance.width * 0.5 * side, 0.95, entrance.z + sideZ * entrance.width * 0.5 * side],
+    });
+    signs.push({ text: zone.sign, width: Math.max(2.8, entrance.width), height: 0.58, position: [entrance.x, 1.68, entrance.z], ry: entrance.ry || 0 });
+  }
+
+  const at = (item, point) => localTransform({ ...item, scale: 1 }, point);
+  for (const item of zone.props || []) {
+    if (item.type === 'house') {
+      batch.add(new THREE.BoxGeometry(2.3, 1.25, 1.7), m.wall, { position: at(item, [0, 0.62, 0]), rotation: [0, item.ry || 0, 0] });
+      batch.add(new THREE.ConeGeometry(1.7, 0.9, 4), m.roof, { position: at(item, [0, 1.68, 0]), rotation: [0, (item.ry || 0) + Math.PI / 4, 0], scale: [1, 1, 0.75] });
+      batch.add(new THREE.BoxGeometry(0.75, 0.85, 0.12), m.wood, { position: at(item, [0, 0.43, 0.91]), rotation: [0, item.ry || 0, 0] });
+    } else if (item.type === 'tunnel') {
+      for (let step = -2; step <= 2; step += 1) batch.add(new THREE.TorusGeometry(0.62, 0.09, 8, 18), step % 2 ? m.gold : m.lantern, {
+        position: at(item, [0, 0.62, step * 0.42]), rotation: [0, item.ry || 0, 0],
+      });
+    } else if (item.type === 'seesaw') {
+      batch.add(new THREE.CylinderGeometry(0.22, 0.28, 0.5, 10), m.darkStone, { position: at(item, [0, 0.25, 0]) });
+      batch.add(new THREE.BoxGeometry(3, 0.13, 0.45), m.gold, { position: at(item, [0, 0.58, 0]), rotation: [0.12, item.ry || 0, 0.08] });
+    } else if (item.type === 'hoop') {
+      batch.add(new THREE.TorusGeometry(0.66, 0.07, 8, 22), m.lantern, { position: at(item, [0, 0.82, 0]), rotation: [0, item.ry || 0, 0] });
+      for (const side of [-1, 1]) batch.add(new THREE.CylinderGeometry(0.035, 0.045, 0.75, 7), m.gold, { position: at(item, [side * 0.66, 0.38, 0]) });
+    } else if (item.type === 'bowls') {
+      for (const side of [-1, 1]) {
+        batch.add(new THREE.CylinderGeometry(0.32, 0.24, 0.14, 16), side < 0 ? m.lantern : m.water, { position: at(item, [side * 0.42, 0.08, 0]) });
+        if (side < 0) for (let crumb = 0; crumb < 5; crumb += 1) batch.add(new THREE.SphereGeometry(0.035, 6, 4), m.wood, { position: at(item, [side * 0.42 + (crumb - 2) * 0.06, 0.17, 0]) });
+      }
+    } else if (item.type === 'balls') {
+      ['#e95045', '#f0bd49', '#4b8dc8'].forEach((color, index) => batch.add(new THREE.SphereGeometry(0.18 + index * 0.03, 12, 8), new THREE.MeshStandardMaterial({ color, roughness: 0.75 }), {
+        position: at(item, [(index - 1) * 0.42, 0.2 + index * 0.02, (index % 2) * 0.22]),
+      }));
+    }
+  }
+}
+
 export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const data = world.courtyard;
   const ground = data.ground;
@@ -900,7 +976,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     leaf: new THREE.MeshStandardMaterial({ color: '#3d6b35', roughness: 0.9, flatShading: true }),
     leafDark: new THREE.MeshStandardMaterial({ color: '#2f5a33', roughness: 0.9, flatShading: true }),
     bark: new THREE.MeshStandardMaterial({ color: '#5a4030', roughness: 0.95 }),
-    grass: new THREE.MeshStandardMaterial({ color: '#547544', roughness: 1 }),
+    grass: grassMaterial('all', renderer),
+    petGrass: grassMaterial('pets', renderer),
     arhatStone: new THREE.MeshStandardMaterial({ color: '#b6925e', roughness: 0.92 }),
     whiteStone: new THREE.MeshStandardMaterial({ color: '#f1eee5', roughness: 0.72 }),
     pot: new THREE.MeshStandardMaterial({ color: '#8b3e28', roughness: 0.88 }),
@@ -940,7 +1017,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const bigPond = Boolean(pond && pond.depth);
   if (data.floor === 'grass') {
     const grass = new THREE.Mesh(groundShape(ground, bigPond ? [{ x: pond.x, z: pond.z, rx: pond.radiusX + 0.35, rz: pond.radiusZ + 0.35 }] : [], 0.002),
-      new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1 }));
+      m.grass);
     grass.receiveShadow = true;
     root.add(grass);
     const tiles = stoneTiles([1, 1]);
@@ -967,14 +1044,19 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   bakedShadow.renderOrder = 1;
   root.add(bakedShadow);
   for (const lawn of data.lawns || []) {
-    batch.add(new THREE.PlaneGeometry(lawn.width, lawn.depth), m.grass, {
-      position: [lawn.x, 0.007, lawn.z], rotation: [-Math.PI / 2, 0, 0],
-    });
+    const rect = {
+      x: [lawn.x - lawn.width / 2, lawn.x + lawn.width / 2],
+      z: [lawn.z - lawn.depth / 2, lawn.z + lawn.depth / 2],
+    };
+    const grass = new THREE.Mesh(groundShape(rect, [], 0.007), m.grass);
+    grass.receiveShadow = true;
+    root.add(grass);
   }
   // Đất ngoài sân (cỏ khô) tới chân núi.
   // Khoét cùng lỗ hồ lớn để thấy được lòng hồ bên dưới.
   const fieldHoles = bigPond ? [{ x: pond.x, z: pond.z, rx: pond.radiusX + 0.35, rz: pond.radiusZ + 0.35 }] : [];
-  const field = new THREE.Mesh(groundShape({ x: [-120, 120], z: [midZ - 80, midZ + 160] }, fieldHoles, -0.02), new THREE.MeshStandardMaterial({ color: '#56603e', roughness: 1 }));
+  const field = new THREE.Mesh(groundShape({ x: [-120, 120], z: [midZ - 80, midZ + 160] }, fieldHoles, -0.02), m.grass);
+  field.receiveShadow = true;
   root.add(field);
 
   // ---- Mặt tiền chánh điện: tường đỏ mở cửa giữa, thềm đá, hàng cột son, hoành phi, mái ngói ----
@@ -1278,6 +1360,16 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     addGarden(batch, m, data.garden, gardenPickables, root, gardenSigns);
     for (const sign of gardenSigns) {
       const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.width * 0.24), new THREE.MeshStandardMaterial({ map: textBoard(sign.text), roughness: 0.6, side: THREE.DoubleSide }));
+      board.position.set(...sign.position);
+      board.rotation.y = sign.ry;
+      root.add(board);
+    }
+  }
+  if (data.petZone) {
+    const petSigns = [];
+    addPetZone(root, batch, m, data.petZone, petSigns);
+    for (const sign of petSigns) {
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.height), new THREE.MeshStandardMaterial({ map: textBoard(sign.text), roughness: 0.6, side: THREE.DoubleSide }));
       board.position.set(...sign.position);
       board.rotation.y = sign.ry;
       root.add(board);

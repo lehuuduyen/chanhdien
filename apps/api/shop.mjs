@@ -19,6 +19,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { isPremiumSkin, isShopSkin, LOGIN_REWARD_ITEMS, LOGIN_REWARDS, SHOP_ITEMS } from '@chanh-dien/room-rules';
+import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
 import { allow, currentAccount, loginRewardView, sameOrigin } from './auth.mjs';
 import { json, readJson } from './http.mjs';
 import { isAdmin } from './support.mjs';
@@ -49,6 +50,8 @@ const BASES = ['man', 'woman'];
 // (cùng DANCE_CLIP trong rigged3d.mjs; hai gói không phụ thuộc nhau, sửa thì sửa cả hai).
 export const DANCE_STYLES = Object.freeze(['bounce', 'sway', 'spin', 'hop', 'nod']);
 export const DANCE_CLIP = /danc|hip ?hop|samba|salsa|twerk|shuffl|cheer|celebrat|happy|jump/i;
+// Động tác nền; các động tác còn lại là động tác tương tác (nút ✨). Cùng BASE_CLIP trong rigged3d.mjs.
+export const BASE_CLIP = /walk|run|idle|breath|t-?pose|a-?pose|bind/i;
 // Hình ai cũng chọn được (cổng chùa); hình khác phải mua.
 const FREE_SKINS = ['man', 'woman'];
 // "mixamorig:LeftUpLeg" / "LeftUpLeg" → "leftupleg" (cùng cách chibi3d.mjs tìm xương).
@@ -131,6 +134,12 @@ export function shopConfig(env = process.env) {
   return { secretKey, webhookSecret, publicUrl };
 }
 
+// Loại giao dịch trong sổ kim cương. spend / refund: tiêu trong phòng (mở phim) và hoàn khi không thực hiện được.
+const TX_KINDS = "'topup', 'purchase', 'admin_adjustment', 'spend', 'refund'";
+// Việc được phép tiêu kim cương qua máy realtime (lý do ghi vào sổ).
+export const SPEND_REASONS = Object.freeze(['cinema_video']);
+const SPEND_KEY = /^[A-Za-z0-9_-]{8,64}$/;
+
 export function createShopStore({ db, now = Date.now }) {
   db.exec(`CREATE TABLE IF NOT EXISTS shop_wallets (
       account_id TEXT PRIMARY KEY REFERENCES accounts(id),
@@ -141,7 +150,7 @@ export function createShopStore({ db, now = Date.now }) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id TEXT NOT NULL REFERENCES accounts(id),
       amount INTEGER NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('topup', 'purchase', 'admin_adjustment')),
+      kind TEXT NOT NULL CHECK (kind IN (${TX_KINDS})),
       ref TEXT NOT NULL,
       balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
       at INTEGER NOT NULL
@@ -196,6 +205,17 @@ export function createShopStore({ db, now = Date.now }) {
       active INTEGER NOT NULL CHECK (active IN (0, 1)),
       updated_at INTEGER NOT NULL
     );
+    -- Tiêu kim cương trong phòng (mở phim…): khóa chống trừ hai lần cho cùng một lần bấm, hoàn tiền tối đa một lần.
+    CREATE TABLE IF NOT EXISTS shop_spends (
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      idem_key TEXT NOT NULL,
+      amount INTEGER NOT NULL CHECK (amount > 0),
+      reason TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      refunded INTEGER NOT NULL DEFAULT 0,
+      at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, idem_key)
+    );
     CREATE TABLE IF NOT EXISTS shop_admin_requests (
       account_id TEXT NOT NULL REFERENCES accounts(id),
       idem_key TEXT NOT NULL,
@@ -203,14 +223,14 @@ export function createShopStore({ db, now = Date.now }) {
       at INTEGER NOT NULL,
       PRIMARY KEY (account_id, idem_key)
     );`);
-  // Database cũ có CHECK chỉ gồm topup/purchase; SQLite cần dựng lại bảng để thêm loại điều chỉnh quản trị.
+  // Database cũ có CHECK thiếu loại giao dịch mới (điều chỉnh quản trị, tiêu / hoàn trong phòng); SQLite cần dựng lại bảng.
   const transactionSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'shop_transactions'").get()?.sql || '';
-  if (!transactionSql.includes('admin_adjustment')) db.exec(`BEGIN IMMEDIATE;
+  if (!transactionSql.includes("'refund'")) db.exec(`BEGIN IMMEDIATE;
     CREATE TABLE shop_transactions_new (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id TEXT NOT NULL REFERENCES accounts(id),
       amount INTEGER NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('topup', 'purchase', 'admin_adjustment')),
+      kind TEXT NOT NULL CHECK (kind IN (${TX_KINDS})),
       ref TEXT NOT NULL,
       balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
       at INTEGER NOT NULL
@@ -257,6 +277,10 @@ export function createShopStore({ db, now = Date.now }) {
       VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`),
     replaceModel: db.prepare('UPDATE shop_catalog SET version = version + 1, bytes = ?, clips = ?, updated_at = ? WHERE id = ?'),
     updateItem: db.prepare('UPDATE shop_catalog SET name = ?, price = ?, original_price = ?, base = ?, active = ?, dance = ?, updated_at = ? WHERE id = ?'),
+    account: db.prepare('SELECT id FROM accounts WHERE id = ?'),
+    spend: db.prepare('SELECT amount, reason, ref, refunded FROM shop_spends WHERE account_id = ? AND idem_key = ?'),
+    addSpend: db.prepare('INSERT INTO shop_spends (account_id, idem_key, amount, reason, ref, at) VALUES (?, ?, ?, ?, ?, ?)'),
+    markRefunded: db.prepare('UPDATE shop_spends SET refunded = 1 WHERE account_id = ? AND idem_key = ?'),
     adminRequest: db.prepare('SELECT response FROM shop_admin_requests WHERE account_id = ? AND idem_key = ?'),
     saveAdminRequest: db.prepare('INSERT INTO shop_admin_requests (account_id, idem_key, response, at) VALUES (?, ?, ?, ?)'),
   };
@@ -297,6 +321,7 @@ export function createShopStore({ db, now = Date.now }) {
     ...(row.clips ? { clips: JSON.parse(row.clips) } : {}),
     // Có điệu nhảy trong file thì dùng điệu đó; dance là kiểu thay thế khi không có.
     danceClip: row.clips ? JSON.parse(row.clips).some((name) => DANCE_CLIP.test(name)) : false,
+    actClips: row.clips ? JSON.parse(row.clips).filter((name) => !BASE_CLIP.test(name)) : [],
     dance: DANCE_STYLES.includes(row.dance) ? row.dance : 'bounce',
   });
   // Hình có sẵn trong code: giá / bật-tắt admin chỉnh lưu ở shop_item_overrides.
@@ -378,6 +403,33 @@ export function createShopStore({ db, now = Date.now }) {
         skin: this.preferredSkin(accountId),
         history: q.history.all(accountId).map((row) => ({ ...row })),
       };
+    },
+    // Máy realtime trừ kim cương cho một việc trong phòng (mở phim…). Ghi sổ trước, phòng làm việc đó sau; gửi lại cùng
+    // khóa không trừ hai lần. Thiếu kim cương thì không ghi gì (bấm lại sau khi nạp vẫn được).
+    spend({ accountId, amount, reason, ref, key }) {
+      if (typeof accountId !== 'string' || !SPEND_REASONS.includes(reason) || typeof ref !== 'string' || !ref || ref.length > 80
+        || !Number.isSafeInteger(amount) || amount < 1 || amount > 10_000 || typeof key !== 'string' || !SPEND_KEY.test(key)) return { ok: false, error: 'INVALID' };
+      return transaction(() => {
+        if (!q.account.get(accountId)) return { ok: false, error: 'NOT_SIGNED_IN' };
+        const previous = q.spend.get(accountId, key);
+        if (previous) return { ok: !previous.refunded, replayed: true, diamonds: q.wallet.get(accountId)?.diamonds ?? 0, ...(previous.refunded ? { error: 'REFUNDED' } : {}) };
+        const diamonds = changeDiamonds(accountId, -amount, 'spend', `${reason}:${ref}`);
+        if (diamonds === null) return { ok: false, error: 'INSUFFICIENT_DIAMONDS', diamonds: q.wallet.get(accountId).diamonds };
+        q.addSpend.run(accountId, key, amount, reason, ref, now());
+        return { ok: true, diamonds };
+      });
+    },
+    // Hoàn lần tiêu có khóa này (phòng không làm được việc đã trả tiền). Chỉ hoàn lần tiêu có thật, tối đa một lần.
+    refund({ accountId, key }) {
+      if (typeof accountId !== 'string' || typeof key !== 'string' || !SPEND_KEY.test(key)) return { ok: false, error: 'INVALID' };
+      return transaction(() => {
+        const spent = q.spend.get(accountId, key);
+        if (!spent) return { ok: false, error: 'UNKNOWN_SPEND' };
+        if (spent.refunded) return { ok: true, replayed: true, diamonds: q.wallet.get(accountId)?.diamonds ?? 0 };
+        const diamonds = changeDiamonds(accountId, spent.amount, 'refund', `${spent.reason}:${spent.ref}`);
+        q.markRefunded.run(accountId, key);
+        return { ok: true, diamonds };
+      });
     },
     // Quản trị cộng/trừ kim cương, ghi sổ riêng và chống Telegram gửi trùng cùng update_id.
     adjustDiamonds({ accountId, amount, key }) {
@@ -537,9 +589,26 @@ async function readBody(req, res) {
   return null;
 }
 
+function internalAllowed(req, options) {
+  const given = Buffer.from(String(req.headers?.['x-internal-key'] || ''));
+  const expected = Buffer.from(internalKey(options.secret || DEFAULT_LOCAL_SECRET));
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
 export async function handleShopRequest(req, res, pathname, options) {
   const store = options.shopStore;
   const config = options.shop || shopConfig({});
+  // Máy realtime trừ / hoàn kim cương (khóa x-internal-key; trình duyệt không gọi trực tiếp được).
+  //   POST /internal/shop/spend  { accountId, amount, reason, ref, key } → { ok, diamonds } | { ok: false, error }
+  //   POST /internal/shop/refund { accountId, key }
+  if (pathname === '/internal/shop/spend' || pathname === '/internal/shop/refund') {
+    if (req.method !== 'POST' || !internalAllowed(req, options)) return json(req, res, 403, { error: 'forbidden' }), true;
+    if (!store) return json(req, res, 503, { ok: false, error: 'SHOP_DISABLED' }), true;
+    let input;
+    try { input = await readJson(req); } catch { return json(req, res, 400, { ok: false, error: 'INVALID' }), true; }
+    const result = pathname.endsWith('/spend') ? store.spend(input || {}) : store.refund(input || {});
+    return json(req, res, 200, result), true;
+  }
   if (pathname === '/api/v1/stripe/webhook') {
     if (req.method !== 'POST') return json(req, res, 405, { error: 'method_not_allowed' }), true;
     if (!store || !config.webhookSecret) return json(req, res, 503, { error: 'webhook_disabled' }), true;

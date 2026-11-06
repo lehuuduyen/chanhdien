@@ -37,7 +37,9 @@ export const CINEMA_RULES = defineRoomRules({
   seats: 100,
   lang: 'vi',
   moderation: 'standard',
-  content: { source: 'youtube' },
+  // Mở phim (thêm video vào hàng chờ) tốn videoPrice kim cương 💎: chỉ thành viên đã đăng nhập, trừ qua sổ API trước khi
+  // video vào hàng chờ, không thêm được thì hoàn.
+  content: { source: 'youtube', videoPrice: 20 },
   interaction: { queue: 'everyone', skipVotePercent: 35 },
   // Mặc định rạp không có bot; lệnh Telegram `addbot N` mới chia bot vào. Bot chỉ trò chuyện mô phỏng, không vote
   // đổi phim và không chiếm quyền điều khiển hàng chờ.
@@ -96,13 +98,17 @@ export const THIEN_RULES = defineRoomRules({
     maxWalkers: 500,
     zones: { hall: { x: [-9, 9], z: [-6, 16] } },
     view: { hall: 60, yard: 40 },
-    // Ba điểm đi nhanh đều nằm trên lối đi hợp lệ của scene thien-default. Người dùng tới trước khu vực, sau đó
+    // Các điểm đi nhanh đều nằm trên lối đi hợp lệ của scene thien-default. Người dùng tới trước khu vực, sau đó
     // vẫn đi bộ và chịu va chạm bình thường; tọa độ chỉ nằm ở server, client gửi tên đích.
     travel: {
       hall: { x: 0, z: 13.8, ry: 0 },
       courtyard: { x: 0, z: 33, ry: 0 },
       garden: { x: 10.8, z: 68, ry: -1.5708 },
+      pets: { x: 10.5, z: 87.5, ry: -1.5708 },
     },
+    // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
+    pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo'],
+    petArea: { x: [7.2, 34], z: [77, 97] },
     // Công việc chung trong sân chùa. Server dùng chính các điểm này để xác nhận người chơi đã lại gần; scene
     // thien-default khai báo cùng id/toạ độ để engine hiện nút và đạo cụ. Một người làm mất khoảng 36 giây,
     // nhiều người cùng làm được cộng thêm 25% hiệu quả cho mỗi người sau người đầu tiên.
@@ -372,7 +378,21 @@ export const LOTO_RULES = defineRoomRules({
   },
 });
 
-export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES });
+// Phòng Lô Tô riêng của nhóm bạn (mã loto-p-<8 ký tự>): chủ phòng bỏ PRIVATE_LOTO.price xu để mở, mời tối đa
+// PRIVATE_LOTO.maxGuests bạn đã lưu (người hoặc bot); không có bot tự vào, chỉ người / bot được mời mới vào được. Phòng
+// sống tới khi chủ phòng rời phòng. Danh sách mời do API giữ (apps/api/private-rooms.mjs).
+export const PRIVATE_LOTO = deepFreeze({ price: 50, maxGuests: 20 });
+const PRIVATE_ROOM = /^loto-p-[a-z0-9]{8}$/;
+export const isPrivateRoomId = (roomId) => typeof roomId === 'string' && PRIVATE_ROOM.test(roomId);
+const { bots: _publicLotoBots, ...LOTO_BASE } = LOTO_RULES;
+export const LOTO_PRIVATE_RULES = defineRoomRules({
+  ...LOTO_BASE,
+  id: 'loto-private',
+  maxParticipants: PRIVATE_LOTO.maxGuests + 1,
+  private: { game: 'loto', ...PRIVATE_LOTO, botSkins: LOTO_RULES.bots.skins },
+});
+
+export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES, 'loto-private': LOTO_PRIVATE_RULES });
 
 // Danh mục phòng công khai. API và máy realtime cùng đọc để biết phòng nào thuộc loại nào.
 export const ROOM_CATALOG = deepFreeze([
@@ -397,8 +417,10 @@ export const THIEN_LANGS = deepFreeze({
   es: { code: 'PTB', label: 'Español', tts: 'es-US' },
 });
 
-// Tiểu bang có nhiều múi giờ dùng múi giờ của phần đông dân số.
+// Khu vực của chánh điện: Việt Nam (đứng đầu danh sách) và các tiểu bang Mỹ. Tiểu bang có nhiều múi giờ dùng múi giờ
+// của phần đông dân số. Tên giữ US_STATES cho các chỗ đang dùng; mã phòng vẫn dạng thien-<mã>-<ngôn ngữ>-<số>.
 export const US_STATES = deepFreeze([
+  ['vn', 'Việt Nam', 'Asia/Ho_Chi_Minh'],
   ['al', 'Alabama', 'America/Chicago'], ['ak', 'Alaska', 'America/Anchorage'], ['az', 'Arizona', 'America/Phoenix'],
   ['ar', 'Arkansas', 'America/Chicago'], ['ca', 'California', 'America/Los_Angeles'], ['co', 'Colorado', 'America/Denver'],
   ['ct', 'Connecticut', 'America/New_York'], ['de', 'Delaware', 'America/New_York'], ['dc', 'District of Columbia', 'America/New_York'],
@@ -460,5 +482,15 @@ export function roomLangOf(roomId) {
 
 export function roomTypeOf(roomId) {
   if (parseThienRoomId(roomId)) return 'thien';
+  if (isPrivateRoomId(roomId)) return 'loto-private';
   return ROOM_CATALOG.find((room) => room.id === roomId)?.type || null;
+}
+
+// Mốc "trong ngày" dùng chung (chat phòng, tin nhắn bạn bè): nửa đêm hôm nay theo múi giờ dự án (GARDEN_TIMEZONE, mặc
+// định giờ California). Trả timestamp ms của 00:00 ngày chứa `timestamp`.
+export function dayStartOf(timestamp, timeZone = 'America/Los_Angeles') {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(timestamp)).map((part) => [part.type, Number(part.value)]));
+  return timestamp - (((parts.hour * 60 + parts.minute) * 60 + parts.second) * 1_000 + (timestamp % 1_000));
 }

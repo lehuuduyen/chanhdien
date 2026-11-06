@@ -101,3 +101,28 @@ test('bạn bot lưu theo tên trong tài khoản (ra vào phòng không mất);
   const names = (await call(an, 'GET', '/api/v1/me/friends')).json.botFriends.map((item) => item.name).sort();
   assert.deepEqual(names, ['Grace', 'Như Ý']);
 });
+
+test('tin nhắn riêng: cuộc trò chuyện hai chiều với một bạn (cũ trước), mở ra là đọc tin của bạn đó; không phải bạn thì không xem được', async () => {
+  const { an, binh, chi, call, tick } = setup();
+  await call(an, 'POST', '/api/v1/me/friends/note', { accountId: binh.id, text: 'Chào Bình' });
+  tick(1_000);
+  await call(binh, 'POST', '/api/v1/me/friends/note', { accountId: an.id, text: 'Chào An 🙏' });
+  tick(1_000);
+  await call(chi, 'POST', '/api/v1/me/friends/note', { accountId: an.id, text: 'Chi đây' });
+  const thread = (await call(an, 'GET', `/api/v1/me/friends/thread?with=${binh.id}`)).json;
+  assert.deepEqual(thread.items.map(({ mine, text }) => [mine, text]), [[true, 'Chào Bình'], [false, 'Chào An 🙏']]);
+  const inbox = (await call(an, 'GET', '/api/v1/me/inbox')).json;
+  assert.equal(inbox.unread, 1, 'chỉ tin của Bình được đánh dấu đã đọc, tin của Chi vẫn mới');
+  assert.equal((await call(binh, 'GET', `/api/v1/me/friends/thread?with=${chi.id}`)).status, 403, 'Bình và Chi chưa là bạn');
+  assert.equal((await call(an, 'GET', '/api/v1/me/friends/thread?with=xau')).status, 400);
+});
+
+test('tin nhắn bạn bè chỉ giữ trong ngày: qua nửa đêm (giờ California) thì hộp thư và cuộc trò chuyện trống', async () => {
+  const { an, binh, call, tick } = setup();
+  tick(23 * 60 * 60_000); // 23:00
+  await call(an, 'POST', '/api/v1/me/friends/note', { accountId: binh.id, text: 'Ngủ ngon nha' });
+  assert.equal((await call(binh, 'GET', '/api/v1/me/inbox')).json.items.length, 1);
+  tick(2 * 60 * 60_000); // 01:00 hôm sau
+  assert.deepEqual((await call(binh, 'GET', '/api/v1/me/inbox')).json, { items: [], unread: 0 });
+  assert.deepEqual((await call(binh, 'GET', `/api/v1/me/friends/thread?with=${an.id}`)).json.items, []);
+});
