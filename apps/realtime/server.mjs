@@ -1,5 +1,7 @@
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   AVATAR_FRAMES, AVATAR_URL, CHAT_HISTORY_MAX, GAME_ROOMS, parseClientMessage, parseServerMessage, PET_ACTIONS, PLAYER_TITLES, PROTOCOL_VERSION, RPS_CHOICES,
@@ -39,6 +41,7 @@ const ROOM_CHAT_PER_SECOND = 30;
 const CINEMA = getRoomRules('cinema');
 const MAX_QUEUE = 50;
 const MAX_QUEUED_PER_PERSON = 3;
+const CINEMA_PLAYLIST_REFRESH_MS = 15_000;
 // Bài mới bắt đầu sau một nhịp ngắn để mọi client kịp nạp video trước khi tính giờ chung.
 const START_DELAY_MS = 1_500;
 const END_GRACE_MS = 3_000;
@@ -215,6 +218,9 @@ export class Room {
     this.privateTimer = null;
     this.privateClosing = false;
     this.playback = { current: null, queue: [], votes: new Set(), errors: new Set(), durations: [], timer: null };
+    // Danh sách YouTube do admin đặt. Đây là nguồn dự phòng vòng lặp, không chiếm hàng chờ và không trừ kim cương.
+    this.fallbackPlaylist = [];
+    this.fallbackIndex = 0;
     this.skipVotePercent = options.skipVotePercent || this.rules.interaction?.skipVotePercent || CINEMA.interaction.skipVotePercent;
     this.revision = 0;
     this.savedRevision = -1;
@@ -1125,12 +1131,15 @@ export class Room {
           id, displayName, seatId, benchId, benchSpot, resumeToken, skin, merit,
           ...(accountId ? { accountId, level, avatarUrl, title, frame } : {}),
         })),
+      // Ván Lô Tô / Bầu Cua / Tài Xỉu đang chơi: máy mới chơi tiếp đúng ván đó.
+      ...(this.table?.toRecord?.() ? { table: this.table.toRecord() } : {}),
     };
   }
 
   // Mọi người trong bản ghi coi như vừa rớt mạng: giữ ghế trong thời hạn resume tính từ lúc dựng lại.
   // Bản ghi hỏng thì bỏ qua từng mục hỏng; người không còn trong phòng sẽ được báo INVALID_RESUME_TOKEN và vào lại.
   restore(record) {
+    if (record?.table) this.table?.restoreRecord?.(record.table);
     const items = Array.isArray(record?.participants) ? record.participants : [];
     const seats = new Set();
     const benchSpots = new Set();
@@ -1189,6 +1198,61 @@ export class Room {
   }
 
   // ---- Phát video: server giữ bài đang chiếu, giờ bắt đầu và hàng chờ; client tự đồng bộ theo giờ server. ----
+  setFallbackPlaylist(input) {
+    if (this.type !== 'cinema') return;
+    const seen = new Set();
+    const playlist = [];
+    for (const item of Array.isArray(input) ? input : []) {
+      if (!item || typeof item !== 'object' || !/^[A-Za-z0-9_-]{11}$/.test(item.videoId || '') || seen.has(item.videoId)) continue;
+      const title = typeof item.title === 'string' ? item.title.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+      seen.add(item.videoId);
+      playlist.push({ videoId: item.videoId, ...(title ? { title } : {}) });
+      if (playlist.length >= MAX_QUEUE) break;
+    }
+    this.fallbackPlaylist = playlist;
+    if (!playlist.length) {
+      this.fallbackIndex = 0;
+      return;
+    }
+    const currentIndex = playlist.findIndex((item) => item.videoId === this.playback.current?.videoId);
+    if (currentIndex >= 0) this.fallbackIndex = (currentIndex + 1) % playlist.length;
+    else this.fallbackIndex %= playlist.length;
+    this.ensureFallback();
+  }
+
+  nextFallbackItem() {
+    if (this.type !== 'cinema' || this.connectedCount === 0 || !this.fallbackPlaylist.length) return null;
+    const previousVideoId = this.playback.current?.videoId;
+    let first = null;
+    for (let offset = 0; offset < this.fallbackPlaylist.length; offset += 1) {
+      const index = (this.fallbackIndex + offset) % this.fallbackPlaylist.length;
+      const item = this.fallbackPlaylist[index];
+      first ||= { item, index };
+      if (item.videoId === previousVideoId && this.fallbackPlaylist.length > 1) continue;
+      this.fallbackIndex = (index + 1) % this.fallbackPlaylist.length;
+      return {
+        itemId: `auto-${randomUUID()}`,
+        videoId: item.videoId,
+        title: item.title || 'Chương trình của nhà chùa',
+        addedBy: 'Nhà chùa',
+      };
+    }
+    if (!first) return null;
+    this.fallbackIndex = (first.index + 1) % this.fallbackPlaylist.length;
+    return {
+      itemId: `auto-${randomUUID()}`,
+      videoId: first.item.videoId,
+      title: first.item.title || 'Chương trình của nhà chùa',
+      addedBy: 'Nhà chùa',
+    };
+  }
+
+  ensureFallback(options = {}) {
+    if (this.playback.current || this.playback.queue.length || this.connectedCount === 0 || !this.fallbackPlaylist.length) return false;
+    this.advance(options);
+    return Boolean(this.playback.current);
+  }
+
   votesNeeded() {
     return Math.max(1, Math.ceil((this.connectedCount * this.skipVotePercent) / 100));
   }
@@ -1255,18 +1319,19 @@ export class Room {
     return { ok: true };
   }
 
-  advance() {
+  advance(options = {}) {
     const playback = this.playback;
     clearTimeout(playback.timer);
     playback.timer = null;
     playback.votes.clear();
     playback.errors.clear();
     playback.durations = [];
-    const next = playback.queue.shift();
+    // Video người chơi thêm luôn được ưu tiên; chỉ lấy danh sách admin khi hàng chờ đã hết.
+    const next = playback.queue.shift() || this.nextFallbackItem();
     playback.current = next
       ? { itemId: next.itemId, videoId: next.videoId, title: next.title, addedBy: next.addedBy, startedAt: Date.now() + START_DELAY_MS }
       : null;
-    this.broadcastPlayback();
+    if (options.broadcast !== false) this.broadcastPlayback();
   }
 
   scheduleEnd() {
@@ -2278,6 +2343,10 @@ export class RoomRegistry {
     this.managedBotCounts = new Map();
     this.botPlanReplacesDefaults = false;
     this.getBotSkins = options.getBotSkins || (async () => []);
+    this.getCinemaPlaylist = options.getCinemaPlaylist || null;
+    this.cinemaPlaylist = [];
+    this.cinemaPlaylistRefreshAfter = 0;
+    this.cinemaPlaylistPending = null;
     this.onOffering = options.onOffering;
     this.onChoreReward = options.onChoreReward;
     this.onFriend = options.onFriend;
@@ -2301,6 +2370,22 @@ export class RoomRegistry {
       this.opening.set(roomId, this.#open(roomId).finally(() => this.opening.delete(roomId)));
     }
     return this.opening.get(roomId);
+  }
+
+  async refreshCinemaPlaylist(force = false) {
+    if (!this.getCinemaPlaylist) return this.cinemaPlaylist;
+    if (!force && Date.now() < this.cinemaPlaylistRefreshAfter) return this.cinemaPlaylist;
+    if (this.cinemaPlaylistPending) return this.cinemaPlaylistPending;
+    this.cinemaPlaylistPending = Promise.resolve(this.getCinemaPlaylist()).then((videos) => {
+      if (!Array.isArray(videos)) return this.cinemaPlaylist;
+      this.cinemaPlaylist = videos;
+      for (const room of this.rooms.values()) if (room.type === 'cinema' && !room.closed) room.setFallbackPlaylist(videos);
+      return this.cinemaPlaylist;
+    }).catch(() => this.cinemaPlaylist).finally(() => {
+      this.cinemaPlaylistRefreshAfter = Date.now() + CINEMA_PLAYLIST_REFRESH_MS;
+      this.cinemaPlaylistPending = null;
+    });
+    return this.cinemaPlaylistPending;
   }
 
   // `addbot N`: mở các phòng công khai nền tảng, dành tối thiểu hai bot cho từng trò rồi rải ngẫu nhiên phần còn
@@ -2390,6 +2475,18 @@ export class RoomRegistry {
     return this.botPlanReplacesDefaults ? 0 : undefined;
   }
 
+  // Kế hoạch bot (`addbot`) để máy khởi động lại (deploy) áp dụng lại, không rơi về số bot mặc định.
+  botPlan() {
+    return this.botManaged ? { allocations: Object.fromEntries(this.managedBotCounts), replacesDefaults: this.botPlanReplacesDefaults } : null;
+  }
+
+  async restoreBotPlan(plan) {
+    if (!plan || typeof plan.allocations !== 'object' || Array.isArray(plan.allocations)) return null;
+    const result = await this.setBotAllocations(plan.allocations, { replace: true });
+    if (result && plan.replacesDefaults === false) this.botPlanReplacesDefaults = false;
+    return result;
+  }
+
   roomName(roomId) {
     return ({ 'thien-1': 'Chánh điện', 'cinema-1': 'Rạp phim', 'game-1': 'Bầu Cua', 'taixiu-1': 'Tài Xỉu', 'loto-1': 'Lô Tô' })[roomId] || roomId;
   }
@@ -2402,7 +2499,10 @@ export class RoomRegistry {
       privateInfo = await Promise.resolve(this.privateRooms?.info(roomId)).catch(() => null);
       if (!privateInfo?.ok) return { ok: false, error: 'ROOM_CLOSED' };
     }
-    const botSkins = await this.getBotSkins().catch(() => []);
+    const [botSkins] = await Promise.all([
+      this.getBotSkins().catch(() => []),
+      roomTypeOf(roomId) === 'cinema' ? this.refreshCinemaPlaylist() : Promise.resolve(),
+    ]);
     const lease = await this.directory.acquireRoom(roomId, this.nodeId, this.leaseTtlMs);
     if (!lease.ok) return { ok: false, error: 'ROOM_ELSEWHERE', owner: lease.owner };
     const managedBotCount = this.managedBotCount(roomId);
@@ -2433,6 +2533,7 @@ export class RoomRegistry {
       await this.directory.releaseRoom(roomId, this.nodeId, lease.epoch).catch(() => {});
       throw error;
     }
+    if (room.type === 'cinema') room.setFallbackPlaylist(this.cinemaPlaylist);
     if (managedBotCount !== undefined) room.setBotCount(managedBotCount, { managed: !parseThienRoomId(roomId), drift: true });
     this.rooms.set(roomId, room);
     return { ok: true, room };
@@ -2457,6 +2558,8 @@ export class RoomRegistry {
     if (this.ticking) return;
     this.ticking = true;
     try {
+      // Không chặn nhịp gia hạn lease nếu API cấu hình tạm chậm; lần mở phòng đầu tiên vẫn chờ tải một lần.
+      if ([...this.rooms.values()].some((room) => room.type === 'cinema' && !room.closed)) this.refreshCinemaPlaylist().catch(() => {});
       for (const [roomId, room] of [...this.rooms]) {
         // Phòng mở ra nhưng không ai gửi hello: trả lease sau thời gian chờ.
         if (room.realCount === 0 && Date.now() - room.openedAt > EMPTY_ROOM_GRACE_MS) {
@@ -2468,8 +2571,9 @@ export class RoomRegistry {
             this.evict(roomId);
             continue;
           }
-          if (room.revision === room.savedRevision) continue;
-          const revision = room.revision;
+          // Ván game đổi trạng thái (mua vé, gọi số, cược) cũng cần lưu, không chỉ khi người ra vào.
+          const revision = `${room.revision}:${room.table?.revision ?? 0}`;
+          if (revision === room.savedRevision) continue;
           if (await this.directory.saveSnapshot(roomId, this.nodeId, room.epoch, room.toRecord(), SNAPSHOT_TTL_MS)) {
             room.savedRevision = revision;
           } else {
@@ -2506,6 +2610,8 @@ export class RoomRegistry {
   // Rút máy: lưu snapshot lần cuối, trả lease để máy khác nhận phòng ngay, rồi đóng phòng.
   async shutdown() {
     this.stop();
+    // Ván đang lắc / chốt tiền: chờ xong rồi dừng bàn, để bản ghi cuối không kẹt giữa chừng.
+    await Promise.all([...this.rooms.values()].map((room) => room.table?.quiesce?.()));
     for (const [roomId, room] of [...this.rooms]) {
       await this.directory.saveSnapshot(roomId, this.nodeId, room.epoch, room.toRecord(), SNAPSHOT_TTL_MS).catch(() => {});
       await this.directory.releaseRoom(roomId, this.nodeId, room.epoch).catch(() => {});
@@ -2603,6 +2709,8 @@ function handleRoomMessage(socket, context, raw) {
       heartbeatMs: HEARTBEAT_MS,
       resumeToken: joined.participant.resumeToken,
     });
+    // Người đầu tiên vào rạp bắt đầu bài dự phòng với mốc giờ mới, tránh phát âm thầm khi phòng không có ai.
+    room.ensureFallback({ broadcast: false });
     room.broadcastState();
     if (room.view) room.sendCounts();
     send(socket, room.playbackState());
@@ -3302,6 +3410,24 @@ export function shopBotSkinProvider(apiInternalUrl, fetcher = fetch) {
   };
 }
 
+export function cinemaPlaylistProvider(apiInternalUrl, key, fetcher = fetch) {
+  const url = new URL('/internal/cinema/playlist', apiInternalUrl);
+  return async () => {
+    try {
+      const response = await fetcher(url, {
+        headers: { 'x-internal-key': key },
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!response.ok) return null;
+      const result = await response.json();
+      return Array.isArray(result.videos) ? result.videos : null;
+    } catch {
+      // Giữ danh sách đang dùng khi API tạm mất kết nối; nhịp làm mới sau sẽ thử lại.
+      return null;
+    }
+  };
+}
+
 export function createRealtimeServer(options = {}) {
   const secret = options.secret || DEFAULT_LOCAL_SECRET;
   // Kiểm duyệt: danh sách từ + sổ khóa đồng bộ từ API (API_INTERNAL_URL); không có API thì chỉ lọc từ mặc định.
@@ -3319,6 +3445,7 @@ export function createRealtimeServer(options = {}) {
     resumeTtlMs: options.resumeTtlMs,
     botCounts: options.botCounts,
     getBotSkins: options.getBotSkins || (options.apiInternalUrl ? shopBotSkinProvider(options.apiInternalUrl) : undefined),
+    getCinemaPlaylist: options.getCinemaPlaylist || (options.apiInternalUrl ? cinemaPlaylistProvider(options.apiInternalUrl, internalKey(secret)) : undefined),
     issueResumeToken: (claims) => createResumeToken(claims, secret),
     onOffering: options.recordOffering || (options.apiInternalUrl ? offeringRecorder(options.apiInternalUrl, secret) : undefined),
     onChoreReward: options.recordChoreReward || (options.apiInternalUrl ? choreRewardRecorder(options.apiInternalUrl, secret) : undefined),
@@ -3464,19 +3591,45 @@ if (isMain) {
   const apiInternalUrl = process.env.API_INTERNAL_URL || null;
   // Bot tự bắt chuyện / trả lời bằng AI: GROQ_API_KEY (không đặt thì dùng câu mẫu), BOT_AI_MODEL, BOT_AI=0 để tắt hẳn.
   const botAiKey = process.env.BOT_AI === '0' ? undefined : (process.env.GROQ_API_KEY || '');
+  // Deploy (khởi động lại) không làm rớt ván: lúc tắt ghi kế hoạch bot `addbot` và, khi chạy một máy không Redis,
+  // snapshot phòng + ván đang chơi ra file; lúc bật đọc lại. Có Redis thì snapshot đã nằm trong Redis.
+  const stateFile = process.env.REALTIME_STATE_FILE
+    || path.join(process.env.DATA_DIR || '.data', `realtime-${nodeId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+  let saved = null;
+  try {
+    saved = JSON.parse(readFileSync(stateFile, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.warn(`Realtime: không đọc được ${stateFile}: ${error.message}`);
+  }
+  if (saved && !shared && saved.directory) directory.importState?.(saved.directory);
   const server = createRealtimeServer({ secret, nodeId, publicUrl, directory, botCounts, apiInternalUrl, botAiKey, botAiModel: process.env.BOT_AI_MODEL });
   server.listen(port, host, () => {
     console.log(`Realtime ${nodeId}: ${publicUrl} (${shared ? 'Redis' : 'bộ nhớ, một máy'})`);
+    if (saved?.botPlan) {
+      server.roomRegistry.restoreBotPlan(saved.botPlan)
+        .then((result) => result && console.log(`Realtime: áp dụng lại addbot (${result.assigned} bot)`))
+        .catch((error) => console.warn(`Realtime: chưa áp dụng lại addbot: ${error.message}`));
+    }
   });
 
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
+    const botPlan = server.roomRegistry.botPlan();
     await server.roomRegistry.shutdown();
+    try {
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      const state = { savedAt: Date.now(), botPlan, ...(!shared && directory.exportState ? { directory: directory.exportState() } : {}) };
+      writeFileSync(`${stateFile}.tmp`, JSON.stringify(state));
+      renameSync(`${stateFile}.tmp`, stateFile);
+    } catch (error) {
+      console.warn(`Realtime: không ghi được ${stateFile}: ${error.message}`);
+    }
     for (const client of server.webSocketServer.clients) client.terminate();
     server.close();
     await directory.close();
+    process.exit(0);
   };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);

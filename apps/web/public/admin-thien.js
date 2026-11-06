@@ -8,6 +8,8 @@ const message = $('#message');
 const state = $('#saveState');
 const save = $('#save');
 const prayerSlips = $('#prayerSlips');
+const cinemaPlaylist = $('#cinemaPlaylist');
+const cinemaPlaylistStatus = $('#cinemaPlaylistStatus');
 
 function videoId(value) {
   const text = value.trim();
@@ -106,6 +108,71 @@ async function adminRequest(method, body) {
   return result;
 }
 
+function cinemaMessage(text, error = false) {
+  cinemaPlaylistStatus.textContent = text;
+  cinemaPlaylistStatus.classList.toggle('error', error);
+}
+
+function readCinemaPlaylist() {
+  const videos = [];
+  const seen = new Set();
+  for (const [index, line] of cinemaPlaylist.value.split(/\r?\n/).entries()) {
+    const text = line.trim();
+    if (!text) continue;
+    const id = videoId(text);
+    if (!id) throw new Error(`Link YouTube ở dòng ${index + 1} không hợp lệ.`);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    videos.push(id);
+  }
+  if (videos.length > 50) throw new Error('Danh sách chỉ nhận tối đa 50 video.');
+  return { videos };
+}
+
+async function cinemaRequest(method, body) {
+  if (!key.value) throw new Error('Nhập khóa quản trị (mục 09) trước.');
+  sessionStorage.setItem('thien-admin-key', key.value);
+  const response = await fetch('/api/v1/admin/cinema/playlist', {
+    method,
+    headers: { 'x-admin-key': key.value, ...(body ? { 'content-type': 'application/json' } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (response.status === 403) throw new Error('Khóa quản trị không đúng.');
+  if (!response.ok) throw new Error('Danh sách YouTube không hợp lệ hoặc chưa lưu được.');
+  return result;
+}
+
+function fillCinemaPlaylist(result) {
+  cinemaPlaylist.value = (result.videos || []).map((item) => `https://www.youtube.com/watch?v=${item.videoId}`).join('\n');
+  cinemaMessage(result.videos?.length ? `Đã tải ${result.videos.length} video.` : 'Danh sách đang trống. Rạp sẽ dừng khi không còn video người dùng thêm.');
+}
+
+async function loadCinemaPlaylist() {
+  try {
+    fillCinemaPlaylist(await cinemaRequest('GET'));
+  } catch (error) {
+    cinemaMessage(error.message, true);
+    if (!key.value) key.focus();
+  }
+}
+
+$('#loadCinemaPlaylist').addEventListener('click', loadCinemaPlaylist);
+$('#saveCinemaPlaylist').addEventListener('click', async () => {
+  const button = $('#saveCinemaPlaylist');
+  button.disabled = true;
+  cinemaMessage('Đang lưu…');
+  try {
+    const result = await cinemaRequest('PUT', readCinemaPlaylist());
+    fillCinemaPlaylist(result);
+    cinemaMessage(`Đã lưu ${result.videos.length} video. Rạp đang mở sẽ nhận danh sách mới trong tối đa 15 giây.`);
+  } catch (error) {
+    cinemaMessage(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 const STATUS_LABELS = { received: 'Đã nhận', scheduled: 'Đã xếp lịch lễ', completed: 'Đã hoàn lễ' };
 const STAR_LABELS = { laHau: 'La Hầu', thoTu: 'Thổ Tú', thuyDieu: 'Thủy Diệu', thaiBach: 'Thái Bạch', thaiDuong: 'Thái Dương', vanHon: 'Vân Hớn', keDo: 'Kế Đô', thaiAm: 'Thái Âm', mocDuc: 'Mộc Đức' };
 
@@ -189,7 +256,8 @@ async function loadPrayerSlips() {
 }
 
 form.addEventListener('input', (event) => {
-  if (event.target === key || event.target.closest('#prayerSlips') || event.target.closest('#supportTickets')) return;
+  if (event.target === key || event.target.closest('#cinemaPlaylistPanel') || event.target.closest('#cinemaPlaylistEditor')
+    || event.target.closest('#prayerSlips') || event.target.closest('#supportTickets')) return;
   state.textContent = 'Chưa lưu';
   state.className = 'save-state dirty';
   updatePreviews();
@@ -371,6 +439,7 @@ $('#reset').addEventListener('click', async () => {
 key.value = sessionStorage.getItem('thien-admin-key') || '';
 time.addEventListener('change', updateClocks);
 load();
+if (key.value) loadCinemaPlaylist();
 
 
 // ---- 06 · Nhân vật trong Shop (file .glb có khung xương; server kiểm tra + nén) ----
@@ -412,7 +481,7 @@ function requireKey() {
     sessionStorage.setItem('thien-admin-key', key.value);
     return true;
   }
-  modelMessage('Nhập khóa quản trị (mục 08) trước.', true);
+  modelMessage('Nhập khóa quản trị (mục 09) trước.', true);
   key.focus();
   return false;
 }
@@ -608,7 +677,7 @@ function renderModeration({ bans = [], words = [] }) {
 }
 async function loadModeration() {
   if (!key.value) {
-    modMessage('Nhập khóa quản trị (mục 08) trước.', true);
+    modMessage('Nhập khóa quản trị (mục 09) trước.', true);
     key.focus();
     return;
   }
@@ -623,7 +692,7 @@ async function loadModeration() {
 async function changeWord(action) {
   const word = modWord.value.trim();
   if (!word) return modWord.focus();
-  if (!key.value) return modMessage('Nhập khóa quản trị (mục 08) trước.', true);
+  if (!key.value) return modMessage('Nhập khóa quản trị (mục 09) trước.', true);
   try {
     const result = await moderationRequest('/words', { word, action });
     modMessage(action === 'block' ? (result.already ? `«${result.word}» đã có trong danh sách mặc định.` : `Đã chặn «${result.word}» (hiệu lực trong ~15 giây).`) : `Đã bỏ chặn «${result.word}».`);

@@ -23,6 +23,7 @@ import { batchNotifier, banMessage, handleModerationRequest, openModerationStore
 import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
 import { openThienEventStore } from './thien-event.mjs';
 import { openPrayerSlipStore } from './prayer-slips.mjs';
+import { handleCinemaPlaylistRequest, openCinemaPlaylistStore } from './cinema-playlist.mjs';
 
 
 export const ROOMS = Object.freeze(ROOM_CATALOG.map((room) => Object.freeze({ ...room, status: 'open', participantCount: 0 })));
@@ -213,6 +214,7 @@ export async function handleApiRequest(req, res, options = {}) {
   if (handleDonateRequest(req, res, pathname, options)) return;
   if (await handleSupportRequest(req, res, pathname, options)) return;
   if (await handleShopRequest(req, res, pathname, options)) return;
+  if (await handleCinemaPlaylistRequest(req, res, pathname, options)) return;
   if (await handleThienRequest(req, res, pathname, options, roomSeatCounts)) return;
   if (await handleModerationRequest(req, res, pathname, options)) return;
   if (await handleBotChatRequest(req, res, pathname, options)) return;
@@ -236,6 +238,7 @@ if (isMain) {
   const accounts = openAccountStore(process.env.DATA_DIR || '.data');
   const thienEventStore = openThienEventStore(process.env.DATA_DIR || '.data');
   const prayerSlipStore = openPrayerSlipStore(process.env.DATA_DIR || '.data');
+  const cinemaPlaylistStore = openCinemaPlaylistStore(process.env.DATA_DIR || '.data');
   // Vườn Công Đức: chung file SQLite với tài khoản; mốc tưới 8/24 giờ do đồng hồ server quyết định.
   const garden = openGardenStore(accounts);
   // Một cây Bồ Đề chung cho toàn hệ thống, không nhân bản dữ liệu theo tiểu bang / ngôn ngữ / phòng.
@@ -275,7 +278,7 @@ if (isMain) {
   })));
   const server = createApiServer({
     secret, adminSecret, realtimeUrl, directory: shared ? directory : null, accounts, garden, communityProject,
-    googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, donate, donateStore,
+    googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, cinemaPlaylistStore, donate, donateStore,
     telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
     telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
     configureBots: realtimeBotController(realtimeInternalUrls, secret),

@@ -104,6 +104,26 @@ export function createMemoryDirectory(options = {}) {
     async loadSnapshot(roomId) {
       return parseSnapshot(read(snapshotKey('', roomId)));
     },
+    // Chạy một máy không có Redis: lúc tắt (deploy) xuất snapshot + epoch ra file, lúc bật nạp lại, để phòng và ván
+    // đang chơi sống qua lần khởi động lại. Không xuất lease / node: máy mới tự giành lại (epoch tăng tiếp).
+    exportState() {
+      const snapshots = {};
+      for (const key of [...values.keys()]) {
+        const match = /^room:(.+):snapshot$/.exec(key);
+        const value = match ? read(key) : null;
+        if (value) snapshots[match[1]] = { value, expiresAt: values.get(key).expiresAt };
+      }
+      return { snapshots, epochs: Object.fromEntries(epochs) };
+    },
+    importState(state) {
+      for (const [roomId, epoch] of Object.entries(state?.epochs || {})) {
+        if (Number.isSafeInteger(epoch) && epoch > (epochs.get(roomId) || 0)) epochs.set(roomId, epoch);
+      }
+      for (const [roomId, entry] of Object.entries(state?.snapshots || {})) {
+        if (typeof entry?.value !== 'string' || (entry.expiresAt && entry.expiresAt <= now())) continue;
+        values.set(snapshotKey('', roomId), { value: entry.value, expiresAt: Number(entry.expiresAt) || 0 });
+      }
+    },
     async close() {},
   };
 }

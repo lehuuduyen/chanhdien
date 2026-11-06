@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#17110c">
-  <title>Quản trị bài giảng · Chánh Điện Online</title>
+  <title>Quản trị nội dung · Chánh Điện Online</title>
   <link rel="stylesheet" href="/admin-thien.css">
   <!-- Ảnh xem trước nhân vật trong Shop dựng bằng three (chibi-preview.js). -->
   <script type="importmap">
@@ -17,8 +17,8 @@
       <div>
         <a href="/" class="back">← Về sảnh</a>
         <p class="eyebrow">CHÁNH ĐIỆN ONLINE</p>
-        <h1>Cấu hình bài giảng</h1>
-        <p>Đặt giờ phát theo giờ địa phương của từng tiểu bang và video riêng cho mỗi ngôn ngữ.</p>
+        <h1>Cấu hình nội dung</h1>
+        <p>Đặt bài giảng của chánh điện và danh sách YouTube luôn có sẵn trong rạp phim.</p>
       </div>
       <div class="save-state" id="saveState">Đang tải…</div>
     </header>
@@ -72,9 +72,26 @@
         </article>
       </div>
 
+      <section class="content-head cinema-head" id="cinemaPlaylistPanel">
+        <div>
+          <p class="step">03 · RẠP PHIM</p>
+          <h2>Danh sách phát dự phòng</h2>
+          <p>Mỗi dòng một link YouTube hoặc Video ID. Khi hàng chờ của người dùng trống, rạp tự phát lần lượt rồi lặp lại từ đầu.</p>
+        </div>
+        <div class="cinema-playlist-actions">
+          <button type="button" class="secondary" id="loadCinemaPlaylist">Tải danh sách</button>
+          <button type="button" class="primary" id="saveCinemaPlaylist">Lưu danh sách</button>
+        </div>
+      </section>
+      <div class="cinema-playlist-editor" id="cinemaPlaylistEditor">
+        <label for="cinemaPlaylist"><span>Link YouTube · tối đa 50 video</span></label>
+        <textarea id="cinemaPlaylist" rows="8" spellcheck="false" placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
+        <p class="model-status" id="cinemaPlaylistStatus" role="status" aria-live="polite">Nhập khóa quản trị rồi tải danh sách.</p>
+      </div>
+
       <section class="content-head prayer-head">
         <div>
-          <p class="step">03 · SỚ CẦU NGUYỆN</p>
+          <p class="step">04 · SỚ CẦU NGUYỆN</p>
           <h2>Sớ Cầu an và Cầu siêu</h2>
           <p>Danh sách sớ người dùng đã gửi đến nhà chùa.</p>
         </div>
@@ -84,7 +101,7 @@
 
       <section class="content-head prayer-head">
         <div>
-          <p class="step">04 · GÓP Ý & BÁO LỖI</p>
+          <p class="step">05 · GÓP Ý & BÁO LỖI</p>
           <h2>Phiếu hỗ trợ</h2>
           <p>Báo lỗi và góp ý nâng cấp người dùng gửi từ trang Hỗ trợ.</p>
         </div>
@@ -94,7 +111,7 @@
 
       <section class="content-head prayer-head">
         <div>
-          <p class="step">05 · SHOP NHÂN VẬT</p>
+          <p class="step">06 · SHOP NHÂN VẬT</p>
           <h2>Gói nạp kim cương</h2>
           <p>Số kim cương và giá (USD) của từng gói người dùng thấy khi bấm 💎. Tắt gói thì ẩn, không mua được; người đang trả tiền vẫn nhận đúng gói lúc bấm. Stripe nhận tối thiểu $0.50.</p>
           <p id="packPayments"></p>
@@ -113,7 +130,7 @@
 
       <section class="content-head prayer-head">
         <div>
-          <p class="step">06 · NHÂN VẬT TRONG SHOP</p>
+          <p class="step">07 · NHÂN VẬT TRONG SHOP</p>
           <h2>Tải nhân vật .glb</h2>
           <p>File phải có khung xương và động tác Walking: trên Meshy chọn <b>Rig &amp; Animate</b> (Walking, nên thêm Running / Idle và một điệu nhảy như Dance / Hip Hop / Cheering để nhân vật có điệu nhún nhảy riêng; mọi động tác khác ngoài đi / chạy / đứng như vẫy tay, cúi chào, nhảy… thành động tác <b>✨ Tương tác</b>, người chơi bấm là chạy ngẫu nhiên một cái), số tam giác ≤ 40.000, xuất GLB (≤ 64 MB). Server tự nén còn vài trăm KB. Nhân vật tự đi, ngồi ghế rạp, ngồi bồ đoàn, quỳ, lạy.</p>
         </div>
@@ -133,7 +150,7 @@
 
       <section class="content-head prayer-head">
         <div>
-          <p class="step">07 · KIỂM DUYỆT</p>
+          <p class="step">08 · KIỂM DUYỆT</p>
           <h2>Chặn chửi thề &amp; spam</h2>
           <p>Tin có từ cấm bị chặn; chửi 3 lần trong 1 giờ (rạp/game: 4 lần) thì tắt chat 10 phút, tái phạm trong 24 giờ thì khóa nick 24 giờ. Nick mới nhắn trùng hàng loạt bị khóa 7 ngày + chặn IP 24 giờ. Mỗi lần khóa đều báo Telegram; trong nhóm gõ <b>/blockchattu &lt;từ&gt;</b> để chặn thêm từ, <b>/unban &lt;mã&gt;</b> để mở khóa.</p>
         </div>
@@ -152,7 +169,7 @@
 
       <section class="panel access">
         <div>
-          <p class="step">08 · XÁC NHẬN</p>
+          <p class="step">09 · XÁC NHẬN</p>
           <h2>Khóa quản trị</h2>
           <p>Khóa được gửi khi lưu và chỉ được giữ trong tab hiện tại.</p>
         </div>

@@ -19,6 +19,7 @@ import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
 import { createZoneGuide } from '/zone-guide.js';
+import { guardWebGL } from '/webgl-guard.js';
 import { limitThienScene } from '/thien-scene.js';
 import { createBootLoader, waitFor } from '/boot-loader.js';
 import { renderChibiPortraits } from '/chibi-preview.js';
@@ -594,6 +595,8 @@ async function setViewMode(mode) {
       // Hình mua trong shop (chibigirl) dùng mô hình .glb: tải xong mới dựng người, lỗi thì tự dùng hình khối.
       await loadShopCharacters();
       renderer = await createTempleRenderer3D({ canvas: elements.scene3d, scene: sceneData, onSeatClick: moveTo, plugin: explore.plugin, personFactory: createChibiPersonFactory });
+      // Trình duyệt thu hồi WebGL (thiếu bộ nhớ, chuyển app): cảnh đen và chạm không ăn → tải lại trang.
+      guardWebGL(elements.scene3d, { onLost: (willReload) => showToast(t(willReload ? 'toast.webglLost' : 'toast.webglLostManual')) });
       explore.attach(renderer);
       if (explore.active) elements.hint3d.textContent = t('explore.hint');
       showHint();
