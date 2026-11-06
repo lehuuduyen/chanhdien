@@ -1576,7 +1576,7 @@ export class Room {
     bot.talkUntil = Math.max(bot.talkUntil || 0, started + BOT_TALK_HOLD_MS);
     return this.botAi.line('reply', { lang: this.lang, botName: bot.displayName, toName: from.displayName, history, sample: said }).then((line) => new Promise((resolve) => {
       // Trả lời ngay quá trông như máy: chờ ít nhất 1,5 giây kể từ lúc nhận tin.
-      const timer = setTimeout(() => {
+      setTimeout(() => {
         if (this.botStillWith(bot, from)) {
           this.botSpeak(bot, line);
           turns.push({ bot: true, text: line });
@@ -1585,7 +1585,9 @@ export class Room {
         }
         resolve(line);
       }, Math.max(0, 1_500 - (Date.now() - started)));
-      timer.unref?.();
+      // Promise phía trên chỉ hoàn tất khi timer này chạy. Không `unref()` timer:
+      // nếu đây là việc cuối trong event loop (thường gặp ở CI hoặc lúc server đang
+      // drain), Node có thể thoát trong khi Promise vẫn pending và hủy câu trả lời.
     }));
   }
 
