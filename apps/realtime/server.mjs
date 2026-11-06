@@ -21,7 +21,7 @@ import {
 } from '@chanh-dien/session-token';
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
-import { BOT_AI_MODEL, createBotAi } from './bot-ai.mjs';
+import { BOT_AI_MODEL, createBotAi, guessLang } from './bot-ai.mjs';
 import { LottoTable, lottoBank } from './loto.mjs';
 import { createModerationGuard, hasPromo, moderationRemote, repeatKey } from './moderation.mjs';
 
@@ -74,6 +74,13 @@ const BOT_APPROACH_GAP_MS = [3 * 60_000, 6 * 60_000];
 const BOT_APPROACH_RANGE = 8;
 const BOT_APPROACH_PERSON_MS = 30 * 60_000;
 const BOT_APPROACH_HOLD_MS = 25_000;
+// Hai bot đi dạo cách nhau trong khoảng này thì có thể đứng lại đối đáp vài câu.
+const BOT_DIALOGUE_RANGE = 7;
+// Cả phòng chỉ có một câu bot nói vu vơ mỗi khoảng này (đối đáp đang diễn ra không tính): 20 bot cùng nói liên tục
+// trông như máy.
+const BOT_CHAT_GAP_MS = 8_000;
+// Người thật chào cả sân thì một bot gần đó chào lại (câu mẫu, không tốn lượt AI).
+const GREETING = /^(?:(?:xin\s+)?ch[àa]o|hello|hi|hey|hola|buenas)(?:$|[\s,!.?~])|^(?:你好|大家好|嗨)/iu;
 // Người chơi nhắn "chơi oẳn tù tì" / tên phòng game: bot trả lời rồi khiêu chiến / gửi lời mời luôn.
 const WANTS_RPS = /oẳn|tù tì|kéo búa|búa bao|rock|paper|scissors|猜拳|剪刀|piedra|tijera/i;
 const WANTS_GAME = [
@@ -1278,8 +1285,11 @@ export class Room {
 
   // Bot không bị đẩy khỏi ghế khi có người bấm vào. Khi số người thật tăng, bot ngồi rời trước để mỗi người thật
   // vẫn có bồ đoàn; bot đi dạo ngoài sân không chiếm ghế nên vẫn ở lại cả khi chánh điện đã đủ chỗ ngồi.
+  // Đông bot thì khoảng một nửa ra sân đi dạo (tối thiểu walk.count), để sân không vắng khi bồ đoàn đã kín.
   get botWalkingTarget() {
-    return Math.min(this.botCount, this.rules.bots?.walk?.count || 0);
+    const walk = this.rules.bots?.walk;
+    if (!walk?.count || !walk.waypoints?.length) return 0;
+    return Math.min(this.botCount, Math.max(walk.count, Math.ceil(this.botCount / 2)));
   }
 
   get botSeatedTarget() {
@@ -1337,7 +1347,8 @@ export class Room {
     const allNames = this.botWords().names || config.names || ['Phật tử'];
     const names = allNames.filter((name) => !used.has(name));
     const walkingNow = [...this.participants.values()].filter((participant) => participant.bot && participant.pos).length;
-    const walkLimit = seeded ? (config.walk?.initial || 0) : (config.walk?.count || 0);
+    // Lúc tạo sẵn (mở phòng / addbot) cho một nửa số bot đi dạo ra sân ngay, phần còn lại vào dần theo arrivalMs.
+    const walkLimit = seeded ? Math.max(config.walk?.initial || 0, Math.ceil(this.botWalkingTarget / 2)) : this.botWalkingTarget;
     const walking = Boolean(config.walk?.waypoints?.length && walkingNow < Math.min(walkLimit, this.botTargetCount));
     const needsSeat = Boolean(this.rules.seats);
     const seatId = walking || !needsSeat ? null : this.freeSeat();
@@ -1443,6 +1454,9 @@ export class Room {
       let current = [...this.participants.values()].filter((participant) => participant.bot).length;
       while (current < this.botTargetCount && this.addBot(true)) current += 1;
       this.trimBotsForPeople();
+      // Bồ đoàn đã đủ thì phần còn lại là bot đi dạo: cho ra sân luôn thay vì chờ vào dần.
+      current = [...this.participants.values()].filter((participant) => participant.bot).length;
+      while (current < this.botTargetCount && this.addBot()) current += 1;
       if (this.botState) this.botState.nextArrivalAt = 0;
     }
     this.revision += 1;
@@ -1485,7 +1499,8 @@ export class Room {
     }
     for (const bot of bots) {
       if (this.participants.has(bot.id)) this.advanceBotWalk(bot, now);
-      if (!this.participants.has(bot.id) || now < bot.nextActionAt) continue;
+      // Bot đang đối đáp / chờ trả lời thì không chen câu khác vào giữa.
+      if (!this.participants.has(bot.id) || now < bot.nextActionAt || (bot.talkUntil || 0) > now) continue;
       bot.nextActionAt = now + randomBetween(config.actionMs) * bot.pace;
       this.botAct(bot);
     }
@@ -1537,6 +1552,76 @@ export class Room {
       if (kind === 'invite') this.botInvite(bot, person, game);
     });
     return { botId: bot.id, personId: person.id, kind, game, done };
+  }
+
+  // Hai bot đứng gần nhau đối đáp theo kịch bản có sẵn: cả hai dừng lại quay mặt vào nhau, mỗi câu cách nhau vài
+  // giây như đang gõ. {name} là tên người nghe câu đó. Bot nào rời phòng giữa chừng thì dừng cuộc nói chuyện.
+  botDialogue(bot, dialogues, now = Date.now()) {
+    if (!dialogues?.length || !bot.pos || bot.handWith || (bot.talkUntil || 0) > now) return null;
+    let partner = null;
+    let best = BOT_DIALOGUE_RANGE;
+    for (const other of this.participants.values()) {
+      if (!other.bot || other === bot || !other.pos || other.handWith || (other.talkUntil || 0) > now || this.activeChallengeOf(other.id)) continue;
+      const distance = Math.hypot(other.pos.x - bot.pos.x, other.pos.z - bot.pos.z);
+      if (distance <= best) {
+        best = distance;
+        partner = other;
+      }
+    }
+    if (!partner) return null;
+    const script = dialogues[Math.floor(Math.random() * dialogues.length)];
+    const pair = [bot, partner];
+    const lines = script.map((text, index) => ({
+      gap: index ? 2_500 + Math.min(3_000, text.length * 60) + Math.random() * 1_500 : 0,
+      speaker: pair[index % 2],
+      text: text.replaceAll('{name}', pair[(index + 1) % 2].displayName),
+    }));
+    const total = lines.reduce((sum, item) => sum + item.gap, 0);
+    for (const [self, other] of [[bot, partner], [partner, bot]]) {
+      self.talkUntil = now + total + 4_000;
+      if (self.walk) self.walk.waitUntil = self.talkUntil;
+      self.movedAt = 0;
+      this.move(self.id, { x: self.pos.x, z: self.pos.z, ry: headingOf(other.pos.x - self.pos.x, other.pos.z - self.pos.z), moving: false });
+    }
+    const present = () => !this.closed && pair.every((member) => this.participants.get(member.id) === member);
+    const done = lines.reduce((previous, { gap, speaker, text }) => previous.then((going) => going && new Promise((resolve) => {
+      setTimeout(() => {
+        if (!present()) return resolve(false);
+        this.botSpeak(speaker, text);
+        resolve(true);
+      }, gap);
+    })), Promise.resolve(true));
+    return { botId: bot.id, partnerId: partner.id, lines, done };
+  }
+
+  // Người thật chào cả sân ("chào mọi người", "hello"…): bot đi dạo gần nhất chào lại bằng tên, theo ngôn ngữ người
+  // chào. Mỗi người một lần / 5 phút, cả phòng một lần / 20 giây để không thành cả đám bot đồng thanh.
+  botGreetBack(person, text, now = Date.now()) {
+    if (!this.rules.bots || !person?.pos || person.bot || person.botQuiet || !GREETING.test(text.trim())) return null;
+    let bot = null;
+    let best = BOT_APPROACH_RANGE;
+    for (const other of this.participants.values()) {
+      if (!other.bot || !other.pos || other.handWith || (other.talkUntil || 0) > now || this.blockedBetween(person, other)) continue;
+      const distance = Math.hypot(other.pos.x - person.pos.x, other.pos.z - person.pos.z);
+      if (distance <= best) {
+        best = distance;
+        bot = other;
+      }
+    }
+    if (!bot || !this.allow(`${person.id}:bot-greet`, 1, 5 * 60_000) || !this.allow('*:bot-greet', 1, 20_000)) return null;
+    const lang = guessLang(text) || this.lang;
+    const lines = (this.rules.bots.byLang?.[lang] || (lang === 'vi' ? this.rules.bots : this.botWords())).talk?.greetBack;
+    if (!lines?.length) return null;
+    const line = lines[Math.floor(Math.random() * lines.length)].replaceAll('{name}', person.displayName);
+    bot.talkUntil = now + 6_000;
+    if (bot.walk) bot.walk.waitUntil = Math.max(bot.walk.waitUntil, bot.talkUntil);
+    bot.movedAt = 0;
+    this.move(bot.id, { x: bot.pos.x, z: bot.pos.z, ry: headingOf(person.pos.x - bot.pos.x, person.pos.z - bot.pos.z), moving: false });
+    const done = new Promise((resolve) => setTimeout(() => {
+      if (this.botStillWith(bot, person)) this.botSpeak(bot, line);
+      resolve(line);
+    }, 1_200 + Math.random() * 1_800));
+    return { botId: bot.id, line, done };
   }
 
   // Bot và người kia vẫn còn trong phòng (mã bot được dùng lại khi bot cũ rời: so cả đối tượng).
@@ -1618,22 +1703,21 @@ export class Room {
     }
     const { lines } = this.botWords();
     const line = () => lines[Math.floor(Math.random() * lines.length)];
-    // Bot đang đi ngoài sân chỉ trò chuyện/niệm Phật; lễ vật được dâng bởi bot đang ở chánh điện.
+    // Bot đang đi ngoài sân chỉ trò chuyện/niệm Phật; lễ vật được dâng bởi bot đang ở chánh điện. Ngoài sân nói ít
+    // hơn và chủ yếu chuyện đời thường (talk.lines), có lúc đứng lại đối đáp với bot gần đó, thỉnh thoảng mới niệm Phật.
+    const chatty = () => this.allow('*:bot-chat', 1, BOT_CHAT_GAP_MS);
     if (bot.pos) {
-      this.broadcast({
-        v: PROTOCOL_VERSION,
-        type: 'chat.message',
-        epoch: this.epoch,
-        messageId: `m-${randomUUID()}`,
-        participantId: bot.id,
-        displayName: bot.displayName,
-        text: line(),
-        sentAt: Date.now(),
-      });
+      const talk = this.botWords().talk;
+      const roll = Math.random();
+      if (!chatty()) return;
+      if (talk && roll < 0.3 && this.botDialogue(bot, talk.dialogues)) return;
+      if (talk && roll >= 0.85) return;
+      this.botSpeak(bot, talk?.lines?.length && roll < 0.7 ? talk.lines[Math.floor(Math.random() * talk.lines.length)] : line());
       return;
     }
     const roll = Math.random();
     if (!this.rules.interaction?.offerings || roll < 0.5) {
+      if (!chatty()) return;
       this.broadcast({
         v: PROTOCOL_VERSION,
         type: 'chat.message',
@@ -1646,7 +1730,7 @@ export class Room {
       });
     } else {
       const kind = roll < 0.8 ? 'incense' : roll < 0.92 ? 'petal' : 'lotus';
-      this.offer(bot.id, kind, Math.random() < 0.4 ? line() : undefined);
+      this.offer(bot.id, kind, Math.random() < 0.4 && chatty() ? line() : undefined);
     }
   }
 
@@ -2095,6 +2179,7 @@ export class RoomRegistry {
       allocations.set(roomId, count);
     }
     const replace = options.replace !== false;
+    const perState = (room) => Boolean(parseThienRoomId(room.id)) && allocations.has('thien-1');
     this.botManaged = true;
     if (replace) {
       this.managedBotCounts = allocations;
@@ -2107,12 +2192,21 @@ export class RoomRegistry {
     const result = [];
     for (const room of [...this.rooms.values()]) {
       if (!room.rules.bots || room.closed) continue;
-      if (!replace && !allocations.has(room.id)) continue;
-      const bots = room.setBotCount(this.managedBotCounts.get(room.id) || 0, { managed: true });
+      if (!replace && !allocations.has(room.id) && !perState(room)) continue;
+      const bots = room.setBotCount(this.managedBotCount(room.id) ?? 0, { managed: !parseThienRoomId(room.id) });
       if (bots > 0 || allocations.has(room.id)) result.push({ roomId: room.id, type: room.type, name: this.roomName(room.id), bots });
       if (bots === 0 && room.realCount === 0) this.removeIfEmpty(room.id);
     }
     return { requested, assigned: result.reduce((sum, room) => sum + room.bots, 0), rooms: result.sort((a, b) => a.roomId.localeCompare(b.roomId)) };
+  }
+
+  // Lệnh `addbot chanhdien N` đặt bot cho thien-1, nhưng người chơi vào chánh điện theo tiểu bang (thien-ca-vi-1…):
+  // số bot của thien-1 áp dụng cho từng chánh điện tiểu bang. Phòng tiểu bang không giữ lease chỉ vì bot (managed:
+  // false), hết người thật thì đóng như thường.
+  managedBotCount(roomId) {
+    if (this.botManaged && this.managedBotCounts.has(roomId)) return this.managedBotCounts.get(roomId);
+    if (this.botManaged && parseThienRoomId(roomId) && this.managedBotCounts.has('thien-1')) return this.managedBotCounts.get('thien-1');
+    return this.botPlanReplacesDefaults ? 0 : undefined;
   }
 
   roomName(roomId) {
@@ -2124,10 +2218,7 @@ export class RoomRegistry {
     const botSkins = await this.getBotSkins().catch(() => []);
     const lease = await this.directory.acquireRoom(roomId, this.nodeId, this.leaseTtlMs);
     if (!lease.ok) return { ok: false, error: 'ROOM_ELSEWHERE', owner: lease.owner };
-    const hasManagedBotCount = this.botManaged && this.managedBotCounts.has(roomId);
-    const managedBotCount = hasManagedBotCount
-      ? this.managedBotCounts.get(roomId)
-      : this.botPlanReplacesDefaults ? 0 : undefined;
+    const managedBotCount = this.managedBotCount(roomId);
     const room = new Room(roomId, {
       botCount: managedBotCount ?? this.botCounts[roomTypeOf(roomId)],
       botSkins,
@@ -2152,7 +2243,7 @@ export class RoomRegistry {
       await this.directory.releaseRoom(roomId, this.nodeId, lease.epoch).catch(() => {});
       throw error;
     }
-    if (managedBotCount !== undefined) room.setBotCount(managedBotCount, { managed: true });
+    if (managedBotCount !== undefined) room.setBotCount(managedBotCount, { managed: !parseThienRoomId(roomId) });
     this.rooms.set(roomId, room);
     return { ok: true, room };
   }
@@ -2406,7 +2497,7 @@ function handleRoomMessage(socket, context, raw) {
     if (mentioned) {
       room.forwardBotChat(room.participants.get(context.participantId), mentioned, message.text);
       room.botReply(room.participants.get(context.participantId), mentioned, message.text)?.catch(() => {});
-    }
+    } else room.botGreetBack(speaker, message.text);
     room.broadcast({
       v: PROTOCOL_VERSION,
       type: 'chat.message',

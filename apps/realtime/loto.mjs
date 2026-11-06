@@ -44,6 +44,8 @@ function createBotTicket() {
   return rows;
 }
 
+const KINH_LINES = ['Kinh! 🎉', 'Kinh rồi nè!', 'Kinh kinh! Dò giùm mình với', 'Kinh! Hên quá 😆', 'Ê kinh rồi nha!'];
+
 export class LottoTable {
   // buy({ accountId, roundId, count, autoMark, key }) → { ok, tickets: [{ no, rows }], autoMark, coins } | { ok: false, code } | null
   // settle({ roundId, called, claims }) → { ok, void?, winners, share, results } | { ok: false, code } | null (lỗi mạng)
@@ -100,6 +102,7 @@ export class LottoTable {
       pending: new Set(),
       claims: [],
       botClaims: [],
+      botSeen: new Map(), // bot vừa đủ hàng ở nhịp gọi này (ván có vé thật: nhịp sau mới kinh)
       locks: new Map(), // accountId → khóa nút kinh tới lúc nào
       waiting: [],
       winners: null,
@@ -172,26 +175,28 @@ export class LottoTable {
     round.called.push(number);
     round.calledSet.add(number);
     round.waiting = this.waitingList();
-    // Bot chỉ được kết thúc ván bot-only. Khi có vé trả tiền thật, kết quả hoàn toàn do người thật kinh để bot
-    // không bao giờ làm người chơi mất xu hoặc thay đổi người thắng.
-    if (!round.tickets.size) {
-      for (const [botId, tickets] of round.botTickets) {
-        if (round.botClaims.some((claim) => claim.botId === botId)) continue;
-        let won = null;
-        for (const ticket of tickets) {
-          const row = ticket.rows.findIndex((_, index) => complete(ticket.rows, index, round.calledSet));
-          if (row >= 0) { won = { botId, ticket: ticket.no, row }; break; }
-        }
-        if (won) round.botClaims.push(won);
+    // Bot tự kinh như người chơi: ván có vé thật thì bot "dò chậm" một nhịp gọi (người thật đủ hàng cùng lúc luôn kinh
+    // kịp). Lúc chốt, API chia quỹ cho cả người thật lẫn bot kinh đúng; phần của bot không vào ví nào.
+    const late = round.tickets.size > 0;
+    for (const [botId, tickets] of round.botTickets) {
+      if (round.botClaims.some((claim) => claim.botId === botId)) continue;
+      let won = round.botSeen.get(botId) || null;
+      for (const ticket of won ? [] : tickets) {
+        const row = ticket.rows.findIndex((_, index) => complete(ticket.rows, index, round.calledSet));
+        if (row >= 0) { won = { botId, ticket: ticket.no, row, at: round.called.length }; break; }
       }
-      if (round.botClaims.length) {
-        round.phase = 'claiming';
-        round.nextCallAt = null;
-        round.endsAt = this.now() + this.rules.claimWindowMs;
-        this.broadcastState();
-        this.schedule(this.rules.claimWindowMs, () => this.finish());
-        return;
-      }
+      if (!won) continue;
+      if (late && won.at === round.called.length) round.botSeen.set(botId, won);
+      else round.botClaims.push({ botId, ticket: won.ticket, row: won.row });
+    }
+    if (round.botClaims.length) {
+      for (const { botId } of round.botClaims) this.botShout(botId);
+      round.phase = 'claiming';
+      round.nextCallAt = null;
+      round.endsAt = this.now() + this.rules.claimWindowMs;
+      this.broadcastState();
+      this.schedule(this.rules.claimWindowMs, () => this.finish());
+      return;
     }
     round.nextCallAt = this.now() + this.rules.callMs;
     round.endsAt = round.nextCallAt;
@@ -273,6 +278,13 @@ export class LottoTable {
     return { ok: true };
   }
 
+  // Bot hô "Kinh!" trong chat như người thật.
+  botShout(botId) {
+    const bot = this.room.participants?.get(botId);
+    if (!bot?.bot || !this.room.botSpeak) return;
+    this.room.botSpeak(bot, KINH_LINES[this.random(KINH_LINES.length)]);
+  }
+
   async finish() {
     const round = this.round;
     if (!this.running || !['calling', 'claiming'].includes(round.phase)) return;
@@ -282,7 +294,7 @@ export class LottoTable {
       settled = { ok: true, ...(round.botClaims.length ? {} : { void: true }), winners: [], share: 0, results: [] };
     } else {
       for (let attempt = 0; attempt < SETTLE_ATTEMPTS && !settled?.ok; attempt += 1) {
-        settled = this.settleFn ? await this.settleFn({ roundId: round.id, called: round.called, claims: round.claims }) : null;
+        settled = this.settleFn ? await this.settleFn({ roundId: round.id, called: round.called, claims: round.claims, botWinners: Math.min(20, round.botClaims.length) }) : null;
         if (!settled?.ok && attempt + 1 < SETTLE_ATTEMPTS) await sleep(500);
       }
     }
@@ -295,8 +307,8 @@ export class LottoTable {
     const realWinners = settled?.ok && !settled.void
       ? (settled.winners || []).slice(0, 20).map((item) => ({ displayName: this.nameOf(item.accountId), share: settled.share }))
       : [];
-    const botWinners = !round.tickets.size && settled?.ok && !settled.void
-      ? round.botClaims.slice(0, Math.max(0, 20 - realWinners.length)).map((item) => ({ displayName: this.nameOf(item.botId), share: 0 }))
+    const botWinners = settled?.ok && !settled.void
+      ? round.botClaims.slice(0, Math.max(0, 20 - realWinners.length)).map((item) => ({ displayName: this.nameOf(item.botId), share: settled.share || 0 }))
       : [];
     round.winners = [...realWinners, ...botWinners];
     if (settled?.ok) {

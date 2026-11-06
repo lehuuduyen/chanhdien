@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
+import { createMemoryDirectory } from '@chanh-dien/room-directory';
+import { WebSocket } from 'ws';
+import { Room, RoomRegistry } from '../server.mjs';
+
+const botsOf = (room) => [...room.participants.values()].filter((person) => person.bot);
+
+test('addbot chanhdien N: chánh điện theo tiểu bang (đang mở và mở sau) cũng nhận N bot, một nửa ra sân ngay', async () => {
+  const registry = new RoomRegistry({ nodeId: 'rt-a', directory: createMemoryDirectory(), botCounts: { thien: 0 } });
+  const before = await registry.open('thien-ca-vi-1');
+  assert.equal(botsOf(before.room).length, 0);
+  await registry.setBotAllocations({ 'thien-1': 20 }, { replace: false });
+  assert.equal(botsOf(before.room).length, 20);
+  assert.ok(botsOf(before.room).filter((bot) => bot.pos).length >= 5, 'có bot đi dạo ngoài sân ngay khi addbot');
+  assert.equal(before.room.botWalkingTarget, 10, 'đông bot thì một nửa ra sân');
+  assert.equal(before.room.keepBotsAlive, false, 'phòng tiểu bang không giữ lease chỉ vì bot');
+
+  const later = await registry.open('thien-az-vi-2');
+  assert.equal(botsOf(later.room).length, 20);
+  for (const room of registry.rooms.values()) room.close();
+});
+
+function yardRoom() {
+  const room = new Room('thien-ca-vi-1', { botCount: 0 });
+  const inbox = {};
+  const join = (id, name, pos) => {
+    inbox[id] = [];
+    room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox[id].push(JSON.parse(raw)), close() {} }, { participantId: id, displayName: name, role: 'guest' });
+    room.participants.get(id).movedAt = 0;
+    if (pos) room.move(id, { ...pos, ry: 0, moving: false });
+  };
+  const addBot = (id, name, pos) => room.participants.set(id, {
+    id, displayName: name, bot: true, connected: true, socket: null, pos: { ...pos, ry: 0 }, walk: { waitUntil: 0 },
+  });
+  const said = (id) => inbox[id].filter((message) => message.type === 'chat.message').map((message) => [message.displayName, message.text]);
+  return { room, join, addBot, said };
+}
+
+test('hai bot đứng gần nhau đối đáp theo kịch bản, gọi tên nhau, đứng lại trong lúc nói; bot ở xa không tham gia', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { room, join, addBot, said } = yardRoom();
+  join('an', 'An', { x: 0, z: 40 });
+  addBot('b-1', 'Minh Tâm', { x: 0, z: 41 });
+  addBot('b-2', 'Diệu Hạnh', { x: 2, z: 43 });
+  addBot('b-3', 'Trí Hải', { x: 0, z: 80 });
+  const plan = room.botDialogue(room.participants.get('b-1'), [['{name} ơi, đi dạo không?', 'Đi chứ {name}', 'Vậy đi thôi']]);
+  assert.equal(plan.partnerId, 'b-2');
+  assert.ok(room.participants.get('b-2').talkUntil > Date.now(), 'bot kia cũng đứng lại');
+  // Mỗi câu chỉ được hẹn giờ sau khi câu trước đã nói xong.
+  for (let step = 0; step < 4; step += 1) {
+    await flush();
+    t.mock.timers.tick(10_000);
+  }
+  assert.equal(await plan.done, true);
+  assert.deepEqual(said('an'), [['Minh Tâm', 'Diệu Hạnh ơi, đi dạo không?'], ['Diệu Hạnh', 'Đi chứ Minh Tâm'], ['Minh Tâm', 'Vậy đi thôi']]);
+  assert.equal(room.botDialogue(room.participants.get('b-3'), [['a', 'b']]), null, 'không có bot nào gần');
+  room.close();
+});
+
+test('người thật chào cả sân thì bot gần nhất chào lại theo ngôn ngữ người chào, không chào lại liên tục', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { room, join, addBot, said } = yardRoom();
+  join('an', 'An', { x: 0, z: 40 });
+  join('mia', 'Mia', { x: 1, z: 40 });
+  addBot('b-1', 'Minh Tâm', { x: 2, z: 41 });
+  assert.equal(room.botGreetBack(room.participants.get('an'), 'mình hiểu rồi'), null, 'không phải câu chào');
+  const plan = room.botGreetBack(room.participants.get('an'), 'Chào mọi người');
+  assert.match(plan.line, /An/);
+  t.mock.timers.tick(5_000);
+  await plan.done;
+  assert.deepEqual(said('an').at(-1), ['Minh Tâm', plan.line]);
+  assert.equal(room.botGreetBack(room.participants.get('mia'), 'hello everyone'), null, 'cả phòng 20 giây một lần');
+  room.close();
+});
