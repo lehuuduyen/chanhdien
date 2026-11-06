@@ -51,6 +51,9 @@
     ol.steps li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; counter-increment: step; }
     ol.steps li::before { content: counter(step); width: 28px; height: 28px; display: grid; place-items: center; color: #2a1404; background: var(--gold); border-radius: 50%; font-weight: 800; font-size: 14px; }
     .step-title { margin: 3px 0 6px; font-size: 14px; color: var(--muted); }
+    .vietqr { display: grid; justify-items: center; gap: 10px; }
+    .vietqr img { width: min(280px, 100%); height: auto; border-radius: 14px; background: #fff; }
+    .vietqr p { margin: 0; text-align: center; }
     .copy-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(0, 0, 0, .25); border: 1px solid var(--line); border-radius: 12px; }
     .copy-row div { min-width: 0; flex: 1; }
     .copy-row b { display: block; font-size: 16px; overflow-wrap: anywhere; }
@@ -94,7 +97,18 @@
       <div class="goal-bar" role="progressbar" aria-label="Tiến độ chi phí server tháng này" id="goalBar"><i></i></div>
     </section>
 
-    <section class="card">
+    <!-- Khu vực Việt Nam: mã VietQR (ảnh do server cấu hình bằng DONATE_VIETQR_IMAGE, không nằm trong repo). -->
+    <section class="card" id="vietqrCard" hidden>
+      <h2>Chuyển khoản qua VietQR</h2>
+      <div class="vietqr">
+        <img id="vietqrImage" alt="Mã VietQR nhận quyên góp" width="280" height="352">
+        <p>Mở app ngân hàng hoặc ví điện tử, chọn <b>Quét mã QR</b> rồi nhập số tiền tùy tâm.</p>
+        <p id="vietqrNameLine" hidden>Người nhận: <b id="vietqrName"></b></p>
+        <div class="copy-row"><div><small>Nội dung chuyển khoản gợi ý</small><b id="vietqrMemo"></b></div><button type="button" data-copy="memo">Chép</button></div>
+      </div>
+    </section>
+
+    <section class="card" id="zelleCard">
       <h2>Góp qua Zelle</h2>
       <p class="pending" id="pending">Thông tin nhận quyên góp đang được cập nhật. Cảm ơn bạn đã quan tâm 🙏</p>
       <ol class="steps" id="steps" hidden>
@@ -120,7 +134,7 @@
 
     <section class="card note">
       <p><b>Hoàn toàn tự nguyện.</b> Khoản góp không đổi ra xu, không mở khóa vật phẩm hay lợi thế nào trong game; ai cũng chơi như nhau.</p>
-      <p><b>Kiểm tra kỹ tên người nhận</b> trước khi gửi: tiền chuyển qua Zelle không hoàn lại được. Chỉ gửi theo thông tin trên trang này.</p>
+      <p><b>Kiểm tra kỹ tên người nhận</b> trước khi gửi: tiền đã chuyển không hoàn lại được. Chỉ gửi theo thông tin trên trang này.</p>
       <p id="contactLine" hidden>Liên hệ: <b id="contact"></b></p>
     </section>
 
@@ -148,6 +162,19 @@
         const response = await fetch('/api/v1/donate', { cache: 'no-store' });
         if (response.ok) info = await response.json();
       } catch {}
+      // Người chọn khu vực Việt Nam (nút Ủng hộ ở chánh điện gửi ?region=, trang khác lấy khu vực đã nhớ): hiện mã VietQR.
+      let region = new URLSearchParams(location.search).get('region');
+      if (!region) try { region = localStorage.getItem('thien-state'); } catch {}
+      if (region === 'vn' && info?.vietqr) {
+        $('vietqrImage').src = info.vietqr.image;
+        $('vietqrMemo').textContent = info.memo;
+        if (info.vietqr.name) {
+          $('vietqrName').textContent = info.vietqr.name;
+          $('vietqrNameLine').hidden = false;
+        }
+        $('vietqrCard').hidden = false;
+        $('zelleCard').hidden = true;
+      }
       if (info?.zelle) {
         $('zelleName').textContent = info.zelle.name;
         $('zelleHandle').textContent = info.zelle.handle;
@@ -171,7 +198,7 @@
 
     document.addEventListener('click', async (event) => {
       const which = event.target.closest('[data-copy]')?.dataset.copy;
-      if (!which || !info?.zelle) return;
+      if (!which || !(which === 'memo' ? info?.memo : info?.zelle)) return;
       const value = which === 'handle' ? info.zelle.handle : info.memo;
       try {
         await navigator.clipboard.writeText(value);

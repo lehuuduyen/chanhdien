@@ -181,6 +181,27 @@ test('trang Ủng hộ: thông tin Zelle lấy từ biến môi trường, thi�
   assert.equal((await request(setup({ donate: config }), 'POST', '/api/v1/donate')).status, 405);
 });
 
+test('trang Ủng hộ: mã VietQR cho khu vực Việt Nam lấy từ file ngoài repo; trang chỉ thấy link ảnh, không thấy đường dẫn', async () => {
+  const { donateConfig, handleDonateRequest } = await import('../donate.mjs');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const file = join(mkdtempSync(join(tmpdir(), 'vietqr-')), 'qr.png');
+  writeFileSync(file, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  assert.equal(donateConfig({ DONATE_VIETQR_IMAGE: '/khong/co/file.png' }).vietqr, null, 'file không có thì không hiện');
+  assert.equal(donateConfig({ DONATE_VIETQR_IMAGE: file.replace('.png', '.exe') }).vietqr, null);
+  const config = donateConfig({ DONATE_VIETQR_IMAGE: file, DONATE_VIETQR_NAME: ' LE HUU DUYEN ' });
+  assert.deepEqual(config.vietqr, { name: 'LE HUU DUYEN', image: '/api/v1/donate/vietqr' });
+  const listed = await request(setup({ donate: config }), 'GET', '/api/v1/donate');
+  assert.ok(!JSON.stringify(listed.json).includes(file), 'không lộ đường dẫn trên máy chủ');
+  const sent = { status: 0, headers: {}, body: null };
+  const res = { writeHead(status, headers) { sent.status = status; sent.headers = headers; return this; }, end(body) { sent.body = body; }, setHeader() {} };
+  assert.equal(handleDonateRequest({ method: 'GET', headers: {} }, res, '/api/v1/donate/vietqr', { vietqrFile: file }), true);
+  assert.deepEqual([sent.status, sent.headers['Content-Type'], sent.body.length], [200, 'image/png', 4]);
+  handleDonateRequest({ method: 'GET', headers: {} }, res, '/api/v1/donate/vietqr', { vietqrFile: null });
+  assert.equal(sent.status, 404);
+});
+
 test('Telegram donate 1: chỉ chat và secret đã cấu hình được cộng USD, update gửi lại không cộng hai lần', async () => {
   const { createDonateStore, donateConfig } = await import('../donate.mjs');
   const accounts = createAccountStore();

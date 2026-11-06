@@ -324,6 +324,21 @@ const MIGRATIONS = [
     result TEXT NOT NULL,
     at INTEGER NOT NULL
   );`,
+  // Mở phòng Lô Tô riêng cho nhóm bạn (trừ xu chủ phòng): thêm loại giao dịch "private_room".
+  `CREATE TABLE coin_transactions_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('grant', 'buy_seed', 'sell_fruit', 'game_bet', 'game_win', 'game_refund', 'quest', 'chore', 'admin_adjustment', 'private_room')),
+    plant_type TEXT,
+    quantity INTEGER,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO coin_transactions_new SELECT * FROM coin_transactions;
+  DROP TABLE coin_transactions;
+  ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
+  CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -779,6 +794,25 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       });
     },
 
+    // Trừ xu mở phòng Lô Tô riêng (API gọi trước khi tạo phòng). Cùng key gửi lại trả nguyên kết quả cũ, không trừ hai lần.
+    payPrivateRoom({ accountId, amount, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (!Number.isSafeInteger(amount) || amount < 1 || amount > 100_000) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const previous = q.request.get(accountId, key);
+        if (previous) {
+          if (previous.action !== 'private_room') return { ok: false, code: 'IDEMPOTENCY_KEY_REUSED' };
+          return { ...JSON.parse(previous.response), replayed: true };
+        }
+        const before = ensureWallet(accountId);
+        if (before < amount) return { ok: false, code: 'INSUFFICIENT_COINS', coins: before };
+        const result = { ok: true, amount, coins: changeCoins(accountId, -amount, 'private_room', null, null) };
+        q.saveRequest.run(accountId, key, 'private_room', JSON.stringify(result), now());
+        return result;
+      });
+    },
+
     // Bầu Cua chơi chung — đặt cược (máy realtime gọi qua /internal): trừ xu ngay, cộng dồn vào cược của ván.
     // Ván đã chốt thì từ chối. Cùng key gửi lại trả nguyên kết quả cũ. Trả { ok, mine: { linh vật: xu }, coins }.
     stakeBauCua({ accountId, roundId, animal, amount, key }) {
@@ -903,8 +937,11 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     // Trả { ok, void?, pool, prize, share, winners: [{ accountId, ticket, row }], results: [{ accountId, staked, payout, net, coins }] }.
     // botWinners: số bot kinh đúng cùng nhịp (máy realtime giữ vé bot). Bot được tính như người thắng khi chia quỹ;
     // phần của bot không vào ví nào. Chỉ bot kinh thì ván vẫn chốt: người chơi thua tiền vé như thua người thật.
-    settleLottoRound({ roundId, called, claims = [], botWinners = 0 }) {
-      if (!Number.isSafeInteger(botWinners) || botWinners < 0 || botWinners > 20) return { ok: false, code: 'INVALID' };
+    // botTickets: số vé bot trong ván; mỗi vé bot góp LOTTO_TICKET_PRICE vào quỹ như vé thật (hệ thống bù), nên quỹ
+    // hiện trên bàn khớp số vé và người chơi trung bình nhận lại đúng phần sau phế.
+    settleLottoRound({ roundId, called, claims = [], botWinners = 0, botTickets = 0 }) {
+      if (!Number.isSafeInteger(botWinners) || botWinners < 0 || botWinners > 20
+        || !Number.isSafeInteger(botTickets) || botTickets < 0 || botTickets > 1_000) return { ok: false, code: 'INVALID' };
       if (typeof roundId !== 'string' || !LOTTO_ROUND_ID.test(roundId) || !Array.isArray(called) || called.length > 90
         || !called.every((number) => Number.isSafeInteger(number) && number >= 1 && number <= 90) || new Set(called).size !== called.length
         || !Array.isArray(claims) || claims.length > 1_000) return { ok: false, code: 'INVALID' };
@@ -926,7 +963,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         // Tiền mỗi người đã bỏ ra trong ván (vé + tự đánh dấu).
         const paid = new Map();
         for (const item of [...tickets, ...autoMarks]) paid.set(item.accountId, (paid.get(item.accountId) || 0) + item.price);
-        const pool = tickets.reduce((sum, item) => sum + item.price, 0);
+        const pool = tickets.reduce((sum, item) => sum + item.price, 0) + botTickets * LOTTO_TICKET_PRICE;
         const voided = !winners.length && !botWinners;
         const prize = voided ? 0 : Math.floor((pool * (100 - LOTTO_HOUSE_CUT_PERCENT)) / 100);
         const share = voided ? 0 : Math.floor(prize / (winners.length + botWinners));

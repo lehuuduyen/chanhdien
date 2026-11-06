@@ -429,6 +429,15 @@ test('Lô Tô: mua tối đa 2 vé (10 xu/vé) + tự đánh dấu 5 xu; kinh h�
   assert.equal(lost.void, undefined, 'chỉ bot kinh: ván vẫn chốt, không hoàn');
   assert.equal(coins(an), beforeBotOnly);
   assert.equal(garden.settleLottoRound({ roundId: 'lt-loto-1-1-6-abcd', called: [], claims: [], botWinners: 21 }).code, 'INVALID');
+  // Vé bot góp quỹ: 1 vé thật + 54 vé bot = quỹ 550, sau phế 495; An kinh một mình ăn trọn 495.
+  const fullPool = 'lt-loto-1-1-7-abcd';
+  garden.buyLotto({ accountId: an, roundId: fullPool, count: 1, autoMark: false, key: 'lt-buy-an-70' });
+  const anTicket = JSON.parse(accounts.database.prepare('SELECT numbers FROM lotto_tickets WHERE round_id = ? AND account_id = ?').get(fullPool, an).numbers);
+  const beforeFull = coins(an);
+  const big = garden.settleLottoRound({ roundId: fullPool, called: anTicket[0].filter(Boolean), claims: [{ accountId: an, ticket: 1, row: 0 }], botTickets: 54 });
+  assert.deepEqual([big.pool, big.prize, big.share], [550, 495, 495]);
+  assert.equal(coins(an) - beforeFull, 495);
+  assert.equal(garden.settleLottoRound({ roundId: 'lt-loto-1-1-8-abcd', called: [], claims: [], botTickets: 1_001 }).code, 'INVALID');
 
   // Ván treo (máy realtime chết): quá hạn thì tự hoàn.
   const stale = 'lt-loto-1-1-3-abcd';

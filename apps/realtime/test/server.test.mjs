@@ -93,7 +93,7 @@ test('addbot chia ngẫu nhiên tổng bot, giữ đủ người cho ba trò và
   }
   const lotto = registry.rooms.get('loto-1');
   for (const bot of [...lotto.participants.values()].filter((person) => person.bot).slice(0, 2)) lotto.botAct(bot);
-  assert.deepEqual([lotto.table.stateMessage().players, lotto.table.stateMessage().tickets, lotto.table.stateMessage().pool], [2, 2, 0]);
+  assert.deepEqual([lotto.table.stateMessage().players, lotto.table.stateMessage().tickets, lotto.table.stateMessage().pool], [2, 2, 20], 'vé bot góp quỹ');
   await lotto.table.startCalling();
   assert.equal(lotto.table.stateMessage().phase, 'calling');
   assert.equal(parseServerMessage(lotto.table.stateMessage()).ok, true);
@@ -541,11 +541,22 @@ test('failover giữ bài đang chiếu, giờ bắt đầu và hàng chờ', ()
   restored.close();
 });
 
-test('client thêm video qua WebSocket: video cấm nhúng bị từ chối, video hợp lệ phát cho cả phòng', async (t) => {
+test('client thêm video qua WebSocket: khách không mở phim được, video cấm nhúng bị từ chối, mở phim trừ 20 💎 rồi phát cho cả phòng', async (t) => {
   const fetchVideoInfo = async (videoId) => (videoId === 'blockedvid1'
     ? { ok: false, error: 'VIDEO_NOT_EMBEDDABLE' }
     : { ok: true, title: `Video ${videoId}` });
-  const server = createRealtimeServer({ secret: SECRET, fetchVideoInfo });
+  const spends = [];
+  let balance = 30;
+  const wallet = {
+    spend: async (input) => {
+      spends.push(input);
+      if (balance < input.amount) return { ok: false, error: 'INSUFFICIENT_DIAMONDS' };
+      balance -= input.amount;
+      return { ok: true, diamonds: balance };
+    },
+    refund: async () => ({ ok: true }),
+  };
+  const server = createRealtimeServer({ secret: SECRET, fetchVideoInfo, wallet });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const port = server.address().port;
@@ -554,17 +565,31 @@ test('client thêm video qua WebSocket: video cấm nhúng bị từ chối, vid
     for (const socket of sockets) socket.terminate();
     await new Promise((resolve) => server.close(resolve));
   });
-  const an = await connectClient(port, 'u-an', 'An');
+  const an = await connectClient(port, 'u-an', 'An', {
+    ticket: createJoinTicket({ participantId: 'u-an', roomId: 'cinema-1', displayName: 'An', accountId: 'a-an-00000001' }, SECRET),
+  });
   const binh = await connectClient(port, 'u-binh', 'Bình');
   sockets.push(an.socket, binh.socket);
+
+  const guest = waitForMessage(binh.socket, (message) => message.type === 'protocol.error');
+  binh.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q0', videoId: 'dQw4w9WgXcQ' }));
+  assert.equal((await guest).code, 'SIGN_IN_REQUIRED', 'khách không có ví kim cương');
 
   const blocked = waitForMessage(an.socket, (message) => message.type === 'protocol.error');
   an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q1', videoId: 'blockedvid1' }));
   assert.equal((await blocked).code, 'VIDEO_NOT_EMBEDDABLE');
 
   const playing = waitForMessage(binh.socket, (message) => message.type === 'playback.state' && message.current);
+  const paid = waitForMessage(an.socket, (message) => message.type === 'wallet.update');
   an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q2', videoId: 'dQw4w9WgXcQ' }));
   const state = await playing;
+  const update = await paid;
+  assert.deepEqual([update.diamonds, update.spent, parseServerMessage(update).ok], [10, 20, true]);
+  assert.deepEqual(spends.map(({ accountId, amount, reason, ref }) => [accountId, amount, reason, ref]), [['a-an-00000001', 20, 'cinema_video', 'dQw4w9WgXcQ']],
+    'video cấm nhúng không bị trừ tiền');
+  const poor = waitForMessage(an.socket, (message) => message.type === 'protocol.error');
+  an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q3', videoId: 'aaaaaaaaaaa' }));
+  assert.equal((await poor).code, 'INSUFFICIENT_DIAMONDS', 'còn 10 💎, không đủ 20');
   assert.equal(state.current.videoId, 'dQw4w9WgXcQ');
   assert.equal(state.current.title, 'Video dQw4w9WgXcQ');
   assert.equal(state.current.addedBy, 'An');
@@ -573,6 +598,20 @@ test('client thêm video qua WebSocket: video cấm nhúng bị từ chối, vid
   const late = await connectClient(port, 'u-chi', 'Chi', { waitPlayback: true });
   sockets.push(late.socket);
   assert.equal(late.playback.current.videoId, 'dQw4w9WgXcQ', 'người vào sau nhận ngay bài đang chiếu');
+});
+
+test('mở phim: đã trừ kim cương mà video không vào được hàng chờ thì hoàn; cùng requestId dùng cùng khóa', async () => {
+  const calls = [];
+  const wallet = { spend: async (input) => { calls.push(['spend', input.key]); return { ok: true, diamonds: 80 }; }, refund: async (input) => { calls.push(['refund', input.key]); return { ok: true }; } };
+  const room = new Room('cinema-1', { wallet });
+  room.join({ readyState: WebSocket.CLOSED, send() {}, close() {} }, { participantId: 'u-1', displayName: 'An', accountId: 'a-1-00000001' });
+  // Có người khác vừa thêm đúng video này trong lúc đang trừ tiền.
+  const original = room.addVideo.bind(room);
+  room.addVideo = (...args) => { original('u-1', 'dQw4w9WgXcQ', 'X'); return original(...args); };
+  assert.deepEqual(await room.addPaidVideo('u-1', 'dQw4w9WgXcQ', 'X', 'q-1'), { ok: false, error: 'ALREADY_QUEUED' });
+  assert.deepEqual(calls.map(([kind]) => kind), ['spend', 'refund']);
+  assert.equal(calls[0][1], calls[1][1], 'hoàn đúng lần trừ');
+  room.close();
 });
 
 test('bỏ qua thời lượng quá ngắn (livestream, trình phát chưa nạp) để không cắt bài', () => {
@@ -979,7 +1018,34 @@ test('nhập vai: vị trí gom 200 ms, chặn dịch chuyển tức thời, gi�
   room.close();
 });
 
-test('đi nhanh: server chỉ nhận ba điểm cố định, rời chỗ ngồi và phát vị trí mới', async () => {
+test('khu thú cưng: chỉ tương tác khi đang ở trong khu và phát hiệu ứng hợp lệ cho cả phòng', () => {
+  const room = new Room('thien-1', { botCount: 0 });
+  const an = [];
+  const binh = [];
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => an.push(JSON.parse(raw)), close() {} }, { participantId: 'u-1', displayName: 'An' });
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => binh.push(JSON.parse(raw)), close() {} }, { participantId: 'u-2', displayName: 'Bình' });
+  room.participants.get('u-1').pos = { x: 12, z: 88, ry: 0 };
+  room.participants.get('u-2').pos = { x: 0, z: 33, ry: 0 };
+  an.length = 0;
+  binh.length = 0;
+
+  assert.deepEqual(room.petInteract('u-1', 'pet-cat-miu', 'pet'), { ok: true });
+  const event = an.find((message) => message.type === 'pet.interaction');
+  assert.deepEqual(parseServerMessage(event).ok, true);
+  assert.deepEqual(
+    (({ participantId, petId, action }) => ({ participantId, petId, action }))(event),
+    { participantId: 'u-1', petId: 'pet-cat-miu', action: 'pet' },
+  );
+  assert.equal(binh.filter((message) => message.type === 'pet.interaction').length, 1, 'người khác cùng phòng cũng thấy hiệu ứng');
+  assert.equal(room.petInteract('u-2', 'pet-cat-miu', 'feed').error, 'TOO_FAR');
+  assert.equal(room.petInteract('u-1', 'pet-khong-co', 'play').error, 'INVALID_PET');
+  assert.equal(room.petInteract('u-1', 'pet-cat-miu', 'ride').error, 'INVALID_PET');
+  for (let index = 0; index < 5; index += 1) assert.equal(room.petInteract('u-1', 'pet-cat-miu', 'play').ok, true);
+  assert.equal(room.petInteract('u-1', 'pet-cat-miu', 'feed').error, 'RATE_LIMITED');
+  room.close();
+});
+
+test('đi nhanh: server chỉ nhận các điểm cố định, rời chỗ ngồi và phát vị trí mới', async () => {
   const room = new Room('thien-1', { botCount: 0 });
   const sent = [];
   const socket = { readyState: WebSocket.OPEN, send: (raw) => sent.push(JSON.parse(raw)), close() {} };
@@ -991,11 +1057,13 @@ test('đi nhanh: server chỉ nhận ba điểm cố định, rời chỗ ngồi
   assert.deepEqual(person.pos, THIEN_RULES.world.travel.garden);
   assert.equal(person.seatId, null, 'đi nhanh thì đứng dậy khỏi bồ đoàn');
   assert.equal(room.travel('u-1', 'pond').error, 'NOT_ALLOWED');
+  assert.deepEqual(room.travel('u-1', 'pets'), { ok: true });
+  assert.deepEqual(room.participants.get('u-1').pos, THIEN_RULES.world.travel.pets);
 
   await new Promise((resolve) => setTimeout(resolve, 260));
   const moved = sent.find((message) => message.type === 'room.moves' && message.moves.some((item) => item.id === 'u-1'));
   assert.deepEqual(moved.moves.find((item) => item.id === 'u-1'), {
-    id: 'u-1', ...THIEN_RULES.world.travel.garden, m: false,
+    id: 'u-1', ...THIEN_RULES.world.travel.pets, m: false,
   });
   room.close();
 });
@@ -1697,7 +1765,8 @@ test('Lô Tô: bot tự kinh và hô trong chat; ván có vé thật thì bot d�
   table.callNext();
   assert.equal(round.phase, 'claiming', 'nhịp sau bot kinh');
   await table.finish();
-  assert.deepEqual([settles.at(-1).claims, settles.at(-1).botWinners], [[], 1], 'API nhận số bot kinh để chia quỹ');
+  assert.deepEqual([settles.at(-1).claims, settles.at(-1).botWinners, settles.at(-1).botTickets], [[], 1, 1], 'API nhận số bot kinh và số vé bot để chia quỹ');
+  assert.equal(table.stateMessage().pool, 20, 'quỹ trên bàn gồm cả vé bot: 2 vé × 10 xu');
   assert.equal(round.void, false);
   assert.deepEqual(round.winners, [{ displayName: 'Sen Nhỏ', share: 9 }]);
   assert.equal(parseServerMessage(table.stateMessage()).ok, true);
@@ -1851,10 +1920,112 @@ test('nhún nhảy: chỉ ngoài sân chùa (trong chánh điện / đang ngồi
   };
   at((hall.x[0] + hall.x[1]) / 2, (hall.z[0] + hall.z[1]) / 2);
   assert.equal(room.emote('an', 'dance').error, 'YARD_ONLY');
+  assert.equal(room.emote('an', 'act').error, 'YARD_ONLY', '✨ tương tác cũng chỉ ngoài sân');
   at(0, hall.z[1] + 10);
   assert.equal(room.zoneOf(room.participants.get('an').pos), 'yard');
   assert.deepEqual(room.emote('an', 'dance'), { ok: true });
   const emote = sent.filter((message) => message.type === 'emote').at(-1);
   assert.deepEqual([emote.kind, parseServerMessage(emote).ok], ['dance', true]);
+  assert.deepEqual(room.emote('an', 'act'), { ok: true });
+  const act = sent.filter((message) => message.type === 'emote').at(-1);
+  assert.ok(act.kind === 'act' && Number.isInteger(act.at), 'mọi máy chọn cùng động tác theo `at`');
   room.close();
+});
+
+test('chat trong ngày: người vào sau nhận chat.history có tin cả phòng vừa nói', async (t) => {
+  const server = createRealtimeServer({ secret: SECRET });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const port = server.address().port;
+  const sockets = [];
+  t.after(async () => {
+    for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.close();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const an = await connectClient(port, 'u-an', 'An');
+  sockets.push(an.socket);
+  const echoed = waitForMessage(an.socket, (message) => message.type === 'chat.message');
+  an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'chat.send', requestId: 'chat-1', text: 'Chào cả phòng' }));
+  await echoed;
+  const ticket = createJoinTicket({ participantId: 'u-binh', roomId: 'cinema-1', displayName: 'Bình' }, SECRET);
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?${new URLSearchParams({ ticket })}`);
+  sockets.push(socket);
+  await once(socket, 'open');
+  const history = waitForMessage(socket, (message) => message.type === 'chat.history');
+  socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', roomId: 'cinema-1', displayName: 'Bình' }));
+  const message = await history;
+  assert.equal(parseServerMessage(message).ok, true);
+  assert.deepEqual(message.messages.map(({ participantId, displayName, text }) => [participantId, displayName, text]), [['u-an', 'An', 'Chào cả phòng']]);
+});
+
+test('phòng Lô Tô riêng: không có bot tự vào; bot được mời mua vé; chủ phòng đuổi người; chủ phòng rời thì đóng phòng và hủy ván dở', async () => {
+  const settles = [];
+  const closed = [];
+  const room = new Room('loto-p-abcd1234', {
+    privateOwner: 'a-chu-00000001',
+    onPrivateClosed: (id) => closed.push(id),
+    lotto: { buy: async () => ({ ok: true, tickets: [{ no: 1, rows: [[1, 2, 3, 4, 5, 0, 0, 0, 0], [11, 12, 13, 14, 15, 0, 0, 0, 0], [21, 22, 23, 24, 25, 0, 0, 0, 0]] }], coins: 40 }), settle: async (input) => { settles.push(input); return { ok: true, void: true, winners: [], share: 0, results: [] }; } },
+  });
+  const inbox = {};
+  const sockets = {};
+  const join = (id, accountId) => {
+    inbox[id] = [];
+    sockets[id] = { readyState: WebSocket.OPEN, send: (raw) => inbox[id].push(JSON.parse(raw)), close() { this.readyState = WebSocket.CLOSED; } };
+    room.join(sockets[id], { participantId: id, displayName: id, role: 'member', accountId });
+  };
+  join('chu', 'a-chu-00000001');
+  join('ban', 'a-ban-00000001');
+  join('khach', 'a-khach-000001');
+  assert.equal([...room.participants.values()].filter((person) => person.bot).length, 0, 'không có bot tự vào');
+  const bot = room.addInvitedBot('Lô Tô Vui');
+  assert.equal(room.addInvitedBot('Lô Tô Vui'), bot, 'mời lại không nhân đôi');
+  assert.equal(room.table.placeBotTicket(bot), true, 'bot được mời mua vé như người chơi');
+  assert.ok(parseServerMessage(room.snapshot()).ok);
+
+  assert.equal(room.kickAccount('a-khach-000001'), 1);
+  assert.equal(inbox.khach.at(-1).code, 'PRIVATE_KICKED');
+  assert.equal(room.kickAccount('a-chu-00000001'), 0, 'không ai đuổi được chủ phòng');
+
+  // Bạn mua vé (ván đang ở pha mua) rồi chủ phòng bấm rời: phòng đóng, ván hủy để API hoàn vé.
+  await room.table.buy(room.participants.get('ban'), { requestId: 'buy-1', roundId: room.table.round.id, count: 1, autoMark: false });
+  const roundId = room.table.round.id;
+  room.disconnect('chu', sockets.chu, { left: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(closed, ['loto-p-abcd1234']);
+  assert.equal(inbox.ban.at(-1).code, 'PRIVATE_ROOM_CLOSED');
+  assert.deepEqual(settles.map((item) => [item.roundId, item.claims]), [[roundId, []]], 'ván dở bị hủy (không ai kinh → API hoàn vé)');
+  assert.equal(room.participants.size, 0);
+  room.close();
+});
+
+test('addbot: số bot dao động ±10 quanh con số đặt, mỗi bước một bot, addbot 0 thì không dao động', () => {
+  const room = new Room('game-1', { botCount: 0 });
+  try {
+    assert.equal(room.setBotCount(20, { managed: true, drift: true }), 20, 'đặt xong có ngay đúng số bot');
+    let now = 1_000_000;
+    room.driftBotCount(now);
+    const seen = new Set();
+    let previous = room.botCount;
+    for (let index = 0; index < 600; index += 1) {
+      now += 60_000;
+      room.driftBotCount(now, Math.random);
+      assert.ok(Math.abs(room.botCount - previous) <= 1, 'mỗi bước chỉ thêm / bớt một bot');
+      assert.ok(room.botCount >= 10 && room.botCount <= 30, `trong khoảng 10–30: ${room.botCount}`);
+      previous = room.botCount;
+      seen.add(room.botCount);
+    }
+    assert.ok(seen.size > 5, 'số bot thật sự thay đổi');
+    // Gốc nhỏ: không xuống dưới 2 để bàn game vẫn đủ người.
+    room.setBotCount(3, { managed: true, drift: true });
+    for (let index = 0; index < 300; index += 1) {
+      now += 60_000;
+      room.driftBotCount(now);
+      assert.ok(room.botCount >= 2 && room.botCount <= 13);
+    }
+    room.setBotCount(0, { managed: true, drift: true });
+    for (let index = 0; index < 50; index += 1) room.driftBotCount(now += 60_000);
+    assert.equal(room.botCount, 0, 'addbot 0 là tắt hẳn');
+  } finally {
+    room.close();
+  }
 });

@@ -2,11 +2,12 @@ import { createSceneRenderer } from '/engine/renderer.mjs';
 import { parseYouTubeId } from '/youtube.js';
 import { createBootLoader, waitFor } from '/boot-loader.js';
 import { createGemUI } from '/gem-ui.js';
+import { getRoomRules } from '/shared/room-rules.mjs';
 import { loadShopCharacters } from '/shop-models.js';
 import { theaterSeats } from '/engine/theater.mjs';
 import { avatarNode, titleBadge } from '/badges.js';
 
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 const RESUME_WINDOW_MS = 60_000;
 const SESSION_KEY = 'cinema-session-v1';
 const SCENE_ID = 'cinema-default';
@@ -582,6 +583,9 @@ function handleMessage(event) {
   } else if (message.type === 'reaction') {
     // Của mình đã hiện ngay lúc bấm.
     if (message.participantId !== session?.participantId) renderer?.react?.(message.participantId, message.kind);
+  } else if (message.type === 'wallet.update') {
+    notify(`Đã mở phim · −${message.spent} 💎 (còn ${message.diamonds} 💎)`);
+    gems.refresh();
   } else if (message.type === 'playback.state') {
     const changed = message.current?.itemId !== playback.current?.itemId;
     playback = message;
@@ -633,6 +637,10 @@ function handleMessage(event) {
         });
         notify('Bạn chưa sở hữu hình này · tạm mặc hình thường');
       });
+    } else if (message.code === 'INSUFFICIENT_DIAMONDS') {
+      // Mở phim tốn kim cương: thiếu thì mở luôn bảng nạp.
+      notify(message.message);
+      gems.open();
     } else if (message.code === 'WALKERS_FULL') notify('Rạp đông, bạn đang xem như khán giả (vẫn chọn ghế được)');
     else if (['UNKNOWN_MESSAGE_TYPE', 'INVALID_MESSAGE'].includes(message.code) && Date.now() - reactedAt < 3_000) {
       notify('Máy chủ rạp chưa cập nhật tính năng thả cảm xúc: cần khởi động lại server');
@@ -769,6 +777,9 @@ elements.chatForm.addEventListener('submit', (event) => {
 });
 elements.chatInput.addEventListener('input', () => { elements.chatCount.textContent = `${elements.chatInput.value.length}/160`; });
 
+// Mở phim (thêm video vào hàng chờ) tốn kim cương, giá theo luật phòng rạp.
+const VIDEO_PRICE = getRoomRules('cinema').content.videoPrice || 0;
+if (VIDEO_PRICE) elements.queueInput.placeholder = `Dán link YouTube · mở phim ${VIDEO_PRICE} 💎`;
 elements.queueForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const videoId = parseYouTubeId(elements.queueInput.value);
@@ -778,7 +789,7 @@ elements.queueForm.addEventListener('submit', (event) => {
   }
   if (send({ type: 'queue.add', requestId: requestId('queue'), videoId })) {
     elements.queueInput.value = '';
-    notify('Đang kiểm tra video…');
+    notify(VIDEO_PRICE ? `Đang kiểm tra video… (mở phim ${VIDEO_PRICE} 💎)` : 'Đang kiểm tra video…');
   }
 });
 

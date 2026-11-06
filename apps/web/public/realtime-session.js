@@ -1,6 +1,6 @@
 // Kết nối realtime dùng chung cho các trang phòng: xin vé, nối lại bằng resume token, hỏi API máy đang giữ phòng,
 // backoff + jitter, đo giờ server bằng ping/pong. Trang chỉ xử lý message của phòng qua onMessage.
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 const RESUME_WINDOW_MS = 60_000;
 
 function realtimeEndpoint(url) {
@@ -103,9 +103,15 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
     const url = realtimeEndpoint(session.realtimeUrl);
     url.searchParams.set('ticket', session.ticket);
     if (session.resumeToken) url.searchParams.set('resumeToken', session.resumeToken);
-    socket = new WebSocket(url);
-    socket.addEventListener('open', () => {
-      socket.send(JSON.stringify({
+    // connect() gọi lần hai (bấm Vào hai lần, nối lại trùng lúc trang tự vào) thì đóng socket cũ và bỏ qua mọi sự kiện
+    // của nó: trước đây socket cũ mở ra lại gửi hello vào socket mới, hai kết nối cùng người đá nhau (4001) mãi không dừng.
+    const previous = socket;
+    const current = new WebSocket(url);
+    socket = current;
+    if (previous && previous.readyState <= WebSocket.OPEN) previous.close(1000, 'Kết nối mới');
+    current.addEventListener('open', () => {
+      if (socket !== current) return;
+      current.send(JSON.stringify({
         v: PROTOCOL_VERSION,
         type: 'hello',
         roomId: session.roomId,
@@ -114,14 +120,15 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
       }));
       pingTimer = setInterval(ping, 10_000);
     });
-    socket.addEventListener('message', handle);
-    socket.addEventListener('close', () => {
+    current.addEventListener('message', (event) => { if (socket === current) handle(event); });
+    current.addEventListener('close', () => {
+      if (socket !== current) return;
       clearInterval(pingTimer);
       online = false;
       if (!disconnectedAt) disconnectedAt = Date.now();
       if (session) scheduleReconnect();
     });
-    socket.addEventListener('error', () => status('connecting', 'Lỗi kết nối', 'status.error'));
+    current.addEventListener('error', () => { if (socket === current) status('connecting', 'Lỗi kết nối', 'status.error'); });
   }
 
   function scheduleReconnect() {

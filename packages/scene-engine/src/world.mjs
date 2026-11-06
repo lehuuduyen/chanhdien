@@ -64,10 +64,10 @@ export function validateWorld(scene) {
   }
   const guideBoards = world.courtyard?.guideBoards;
   if (guideBoards !== undefined) {
-    const allowed = new Set(['hall', 'courtyard', 'garden']);
+    const allowed = new Set(['hall', 'courtyard', 'garden', 'pets']);
     const guideIds = new Set();
     if (!Array.isArray(guideBoards) || guideBoards.length !== allowed.size) {
-      errors.push('world.courtyard.guideBoards cần đủ 3 bảng hall/courtyard/garden');
+      errors.push('world.courtyard.guideBoards cần đủ 4 bảng hall/courtyard/garden/pets');
     } else {
       for (const board of guideBoards) {
         if (!allowed.has(board.id) || guideIds.has(board.id)) errors.push(`bảng hướng dẫn ${board.id || '?'} không hợp lệ hoặc bị trùng`);
@@ -76,6 +76,39 @@ export function validateWorld(scene) {
         if (typeof board.sign !== 'string' || !board.sign.trim() || board.sign.length > 40) errors.push(`bảng hướng dẫn ${board.id || '?'} thiếu nội dung ngắn`);
       }
       for (const id of allowed) if (!guideIds.has(id)) errors.push(`thiếu bảng hướng dẫn ${id}`);
+    }
+  }
+  const petZone = world.courtyard?.petZone;
+  const animals = world.courtyard?.animals;
+  if (petZone !== undefined || animals !== undefined) {
+    const validRange = (range) => Array.isArray(range) && range.length === 2
+      && range.every(Number.isFinite) && range[0] < range[1];
+    if (!petZone || !validRange(petZone.area?.x) || !validRange(petZone.area?.z)
+      || !Array.isArray(petZone.fence) || petZone.fence.length < 4
+      || typeof petZone.sign !== 'string' || !petZone.sign.trim() || petZone.sign.length > 40) {
+      errors.push('world.courtyard.petZone thiếu khu vực, hàng rào hoặc bảng tên hợp lệ');
+    }
+    const ids = new Set();
+    if (!Array.isArray(animals) || animals.length < 1 || animals.length > 20) {
+      errors.push('world.courtyard.animals cần từ 1 đến 20 thú cưng');
+    } else {
+      for (const animal of animals) {
+        if (typeof animal.id !== 'string' || !/^[a-z0-9-]{1,64}$/.test(animal.id) || ids.has(animal.id)) {
+          errors.push(`thú cưng ${animal.id || '?'} có id không hợp lệ hoặc bị trùng`);
+        }
+        if (typeof animal.name !== 'string' || !animal.name.trim() || animal.name.length > 40) errors.push(`thú cưng ${animal.id || '?'} thiếu tên`);
+        if (!['dog', 'cat'].includes(animal.type)) errors.push(`thú cưng ${animal.id || '?'} có loại không hợp lệ`);
+        if (![animal.x, animal.z].every(Number.isFinite) || !validRange(animal.area?.x) || !validRange(animal.area?.z)) {
+          errors.push(`thú cưng ${animal.id || '?'} thiếu toạ độ hoặc vùng đi lại`);
+        }
+        // Thú có mô hình riêng: file .glb trong /models/pets/, chiều cao đứng 0,15–1,5 m.
+        if (animal.model !== undefined && (typeof animal.model !== 'string' || !/^\/models\/pets\/[a-z0-9-]{1,64}\.glb$/.test(animal.model)
+          || !Number.isFinite(animal.height) || animal.height < 0.15 || animal.height > 1.5
+          || (animal.modelRy !== undefined && !Number.isFinite(animal.modelRy)))) {
+          errors.push(`thú cưng ${animal.id || '?'} có mô hình không hợp lệ`);
+        }
+        ids.add(animal.id);
+      }
     }
   }
   const chores = world.courtyard?.chores;

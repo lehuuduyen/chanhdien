@@ -4,17 +4,17 @@
 // tài khoản. Có lời nhắn mới thì API báo máy realtime để trang của người nhận tải hộp thư ngay (inbox.notify).
 import { timingSafeEqual } from 'node:crypto';
 import { createRoomInvite, DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
-import { ROOM_TYPES, roomTypeOf, thienRoomName } from '@chanh-dien/room-rules';
+import { dayStartOf, ROOM_TYPES, roomTypeOf, thienRoomName } from '@chanh-dien/room-rules';
 import { allow, currentAccount, sameOrigin } from './auth.mjs';
 import { json, readJson } from './http.mjs';
 
 export const PRESENCE_TTL_MS = 45_000;
 const NOTE_MAX = 200;
-const NOTE_KEEP_MS = 30 * 24 * 60 * 60_000;
 // Lời mời còn bấm "Tới ngay" được trong 15 phút.
 export const INVITE_TTL_MS = 15 * 60_000;
-const NOTE_LIMIT = [30, 24 * 60 * 60_000];
-const NOTE_BURST = [5, 60_000];
+// Lời nhắn giờ dùng như tin nhắn riêng (màn 💬 Tin nhắn): 200 tin/ngày, 10 tin/phút.
+const NOTE_LIMIT = [200, 24 * 60 * 60_000];
+const NOTE_BURST = [10, 60_000];
 const INVITE_LIMIT = [10, 10 * 60_000];
 const ACCOUNT_ID = /^a-[a-zA-Z0-9-]{8,64}$/;
 const ROOM_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -57,12 +57,15 @@ export function createPresence({ now = Date.now, ttlMs = PRESENCE_TTL_MS } = {})
 // Thông tin phòng gửi cho bạn bè: chánh điện kèm mã mời (vào thẳng phòng đó), phòng khác kèm đường dẫn trang.
 export function roomView(roomId, secret) {
   const type = roomTypeOf(roomId);
+  // Phòng Lô Tô riêng: chỉ người được mời vào được (API kiểm tra khi cấp vé), link đưa thẳng vào phòng đó.
+  if (type === 'loto-private') return { roomId, type: 'loto', private: true, href: `/loto.html?room=${encodeURIComponent(roomId)}` };
   if (type === 'thien') return { roomId, type, name: thienRoomName(roomId) || null, inviteCode: createRoomInvite(roomId, secret) };
   if (type === 'cinema') return { roomId, type, href: `/room.html?room=${encodeURIComponent(roomId)}` };
   return ROOM_PAGES[type] ? { roomId, type, href: ROOM_PAGES[type] } : null;
 }
 
-export function createFriendLinks({ db, accounts, presence = createPresence(), secret = DEFAULT_LOCAL_SECRET, now = Date.now, notify = null }) {
+// Lời nhắn / lời mời chỉ giữ trong ngày: từ nửa đêm hôm nay theo timeZone (GARDEN_TIMEZONE), sang ngày mới là xóa.
+export function createFriendLinks({ db, accounts, presence = createPresence(), secret = DEFAULT_LOCAL_SECRET, now = Date.now, notify = null, timeZone = 'America/Los_Angeles' }) {
   db.exec(`CREATE TABLE IF NOT EXISTS friend_notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       from_account TEXT NOT NULL,
@@ -92,8 +95,12 @@ export function createFriendLinks({ db, accounts, presence = createPresence(), s
     inbox: db.prepare(`SELECT n.id, n.kind, n.text, n.room_id AS roomId, n.at, n.read_at AS readAt,
         a.id AS fromId, a.display_name AS fromName, a.avatar_url AS fromAvatar
       FROM friend_notes n JOIN accounts a ON a.id = n.from_account
-      WHERE n.to_account = ? AND n.at > ? ORDER BY n.at DESC LIMIT 30`),
-    unread: db.prepare('SELECT COUNT(*) AS n FROM friend_notes WHERE to_account = ? AND read_at IS NULL AND at > ?'),
+      WHERE n.to_account = ? AND n.at >= ? ORDER BY n.at DESC LIMIT 30`),
+    thread: db.prepare(`SELECT id, from_account AS fromId, text, at FROM friend_notes
+      WHERE kind = 'note' AND at >= ? AND ((from_account = ? AND to_account = ?) OR (from_account = ? AND to_account = ?))
+      ORDER BY at DESC, id DESC LIMIT 50`),
+    readFrom: db.prepare('UPDATE friend_notes SET read_at = ? WHERE to_account = ? AND from_account = ? AND read_at IS NULL'),
+    unread: db.prepare('SELECT COUNT(*) AS n FROM friend_notes WHERE to_account = ? AND read_at IS NULL AND at >= ?'),
     read: db.prepare('UPDATE friend_notes SET read_at = ? WHERE to_account = ? AND read_at IS NULL'),
     prune: db.prepare('DELETE FROM friend_notes WHERE at < ?'),
     hidden: db.prepare('SELECT hidden FROM friend_presence_prefs WHERE account_id = ?'),
@@ -101,6 +108,14 @@ export function createFriendLinks({ db, accounts, presence = createPresence(), s
     botFriendCount: db.prepare('SELECT COUNT(*) AS n FROM bot_friends WHERE account_id = ?'),
     addBotFriend: db.prepare('INSERT OR IGNORE INTO bot_friends (account_id, bot_name, since) VALUES (?, ?, ?)'),
     setHidden: db.prepare('INSERT INTO friend_presence_prefs (account_id, hidden) VALUES (?, ?) ON CONFLICT(account_id) DO UPDATE SET hidden = excluded.hidden'),
+  };
+  const today = () => dayStartOf(now(), timeZone);
+  // Xóa hẳn tin của hôm trước (mỗi phút tối đa một lần), không chỉ ẩn đi.
+  let prunedAt = 0;
+  const prune = () => {
+    if (now() - prunedAt < 60_000) return;
+    prunedAt = now();
+    q.prune.run(today());
   };
   const isHidden = (accountId) => Boolean(q.hidden.get(accountId)?.hidden);
   // Phòng của một người cho bạn bè xem (ẩn mình thì coi như không online).
@@ -137,9 +152,17 @@ export function createFriendLinks({ db, accounts, presence = createPresence(), s
       if (!body) return { ok: false, error: 'empty_note' };
       if (!accounts.areFriends(fromId, toId)) return { ok: false, error: 'not_friends' };
       if (q.sent.get(fromId, 'note', now() - NOTE_LIMIT[1]).n >= NOTE_LIMIT[0]) return { ok: false, error: 'rate_limited' };
-      q.prune.run(now() - NOTE_KEEP_MS);
+      prune();
       q.insert.run(fromId, toId, 'note', body, null, now());
       notify?.(toId, 'note');
+      return { ok: true };
+    },
+    // Chủ phòng Lô Tô riêng vừa thêm bạn vào danh sách mời: báo vào hộp thư (không cần đang ở cùng phòng, không giới hạn
+    // như lời mời thường vì danh sách mời đã giới hạn số người).
+    inviteToRoom(fromId, toId, roomId) {
+      q.prune.run(today());
+      q.insert.run(fromId, toId, 'invite', null, roomId, now());
+      notify?.(toId, 'invite');
       return { ok: true };
     },
     // Mời bạn vào phòng mình đang ở (theo báo cáo của máy realtime, không tin phòng do trình duyệt gửi lên).
@@ -156,7 +179,9 @@ export function createFriendLinks({ db, accounts, presence = createPresence(), s
     },
     inbox(accountId) {
       const at = now();
-      const items = q.inbox.all(accountId, at - NOTE_KEEP_MS).map((row) => {
+      prune();
+      const since = today();
+      const items = q.inbox.all(accountId, since).map((row) => {
         const live = row.kind === 'invite' && at - row.at < INVITE_TTL_MS ? roomView(row.roomId, secret) : null;
         return {
           id: row.id,
@@ -168,7 +193,15 @@ export function createFriendLinks({ db, accounts, presence = createPresence(), s
           ...(row.kind === 'invite' ? { room: live || { roomId: row.roomId, type: roomTypeOf(row.roomId), name: thienRoomName(row.roomId) || null }, expired: !live } : {}),
         };
       });
-      return { items, unread: q.unread.get(accountId, at - NOTE_KEEP_MS).n };
+      return { items, unread: q.unread.get(accountId, since).n };
+    },
+    // Cuộc trò chuyện với một người bạn (cả hai chiều, 50 tin gần nhất, cũ trước). Mở ra là đọc hết tin của bạn đó.
+    thread(accountId, friendId) {
+      if (!accounts.areFriends(accountId, friendId)) return { ok: false, error: 'not_friends' };
+      const items = q.thread.all(today(), accountId, friendId, friendId, accountId).reverse()
+        .map((row) => ({ id: row.id, mine: row.fromId === accountId, text: row.text, at: row.at }));
+      q.readFrom.run(now(), accountId, friendId);
+      return { ok: true, items };
     },
     markRead(accountId) {
       q.read.run(now(), accountId);
@@ -178,7 +211,7 @@ export function createFriendLinks({ db, accounts, presence = createPresence(), s
 }
 
 export function openFriendLinks(accounts, options = {}) {
-  return accounts ? createFriendLinks({ db: accounts.database, accounts, ...options }) : null;
+  return accounts ? createFriendLinks({ db: accounts.database, accounts, timeZone: process.env.GARDEN_TIMEZONE || 'America/Los_Angeles', ...options }) : null;
 }
 
 // Báo các máy realtime: người này có thư mới (máy nào đang giữ kết nối của họ thì gửi inbox.notify).
@@ -209,7 +242,7 @@ const ERRORS = {
 };
 
 export async function handleFriendLinksRequest(req, res, pathname, options) {
-  const routes = ['/internal/presence', '/api/v1/me/inbox', '/api/v1/me/inbox/read', '/api/v1/me/friends/note', '/api/v1/me/friends/invite', '/api/v1/me/presence', '/api/v1/me/bot-friends'];
+  const routes = ['/internal/presence', '/api/v1/me/inbox', '/api/v1/me/friends/thread', '/api/v1/me/inbox/read', '/api/v1/me/friends/note', '/api/v1/me/friends/invite', '/api/v1/me/presence', '/api/v1/me/bot-friends'];
   if (!routes.includes(pathname)) return false;
   const links = options.friendLinks;
   if (!links) return json(req, res, 503, { error: 'accounts_disabled' }), true;
@@ -227,6 +260,12 @@ export async function handleFriendLinksRequest(req, res, pathname, options) {
   const account = currentAccount(req, options);
   if (!account) return json(req, res, 401, { error: 'not_signed_in' }), true;
   if (pathname === '/api/v1/me/inbox' && req.method === 'GET') return json(req, res, 200, links.inbox(account.id)), true;
+  if (pathname === '/api/v1/me/friends/thread' && req.method === 'GET') {
+    const friendId = new URL(req.url, 'http://local').searchParams.get('with') || '';
+    if (!ACCOUNT_ID.test(friendId)) return json(req, res, 400, { error: 'invalid_friend' }), true;
+    const result = links.thread(account.id, friendId);
+    return json(req, res, result.ok ? 200 : ERRORS[result.error] || 400, result.ok ? result : { error: result.error }), true;
+  }
   if (req.method !== 'POST') return json(req, res, 405, { error: 'method_not_allowed' }), true;
   if (!sameOrigin(req)) return json(req, res, 403, { error: 'forbidden_origin' }), true;
   if (pathname === '/api/v1/me/inbox/read') return json(req, res, 200, links.markRead(account.id)), true;

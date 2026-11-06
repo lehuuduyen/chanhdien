@@ -7,6 +7,7 @@ const GUIDES = {
   hall: { icon: '🛕', steps: 4 },
   courtyard: { icon: '🌳', steps: 4 },
   garden: { icon: '🌱', steps: 6 },
+  pets: { icon: '🐾', steps: 4 },
 };
 
 function node(tag, className) {

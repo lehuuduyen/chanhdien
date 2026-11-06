@@ -15,6 +15,7 @@ import { buildRecitation } from '/prayer-recite.js';
 import { sutraById, sutraLines } from '/sutras.js';
 import { createMala } from '/mala.js';
 import { createPlayerSocial } from '/player-social.js';
+import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
 import { createZoneGuide } from '/zone-guide.js';
@@ -29,7 +30,7 @@ let currentInviteCode = PARAMS.get('invite') || null;
 let URL_ROOM = null;
 const TEST_EVENT_NOW = PARAMS.get('event') === 'now';
 // Quay về từ map khác (rạp phim gửi ?go=…): vào thẳng bằng tên đã nhập, không hỏi lại, không chào lại.
-const ARRIVED_FROM_MAP = ['hall', 'courtyard', 'garden'].includes(PARAMS.get('go'));
+const ARRIVED_FROM_MAP = ['hall', 'courtyard', 'garden', 'pets'].includes(PARAMS.get('go'));
 const OFFERINGS = THIEN_RULES.interaction.offerings;
 // Câu hiển thị/đọc lên: "Diệu Hạnh dâng hương", "… thỉnh chuông" theo ngôn ngữ phòng (act.*).
 const action = (kind) => t(`act.${kind}`);
@@ -177,6 +178,7 @@ let garden = null;
 let communityProject = null;
 // Bấm vào người khác: thẻ thông tin, kết bạn, khiêu chiến kéo búa bao. Tạo sau khi có âm thanh (bên dưới).
 let social = null;
+let chatCenter = null;
 
 let voiceName = null;
 let mala = null;
@@ -197,6 +199,7 @@ const audio = createTempleAudio({
 const stateOf = (code) => US_STATES.find((state) => state.code === code);
 function guessState() {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (zone === 'Asia/Saigon') return 'vn';
   return US_STATES.find((state) => state.timeZone === zone)?.code || 'ca';
 }
 const remembered = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -738,6 +741,7 @@ function showToast(text, badges = {}) {
 
 // ---- Message từ server ----
 function handleMessage(message) {
+  chatCenter?.onMessage(message);
   if (social?.onMessage(message)) return;
   if (garden?.onMessage(message)) return;
   if (communityProject?.onMessage(message)) return;
@@ -815,6 +819,8 @@ function handleMessage(message) {
   } else if (message.type === 'chore.reward') {
     explore.onChoreReward(message);
     garden?.refreshCoins();
+  } else if (message.type === 'pet.interaction') {
+    explore.onPetInteraction(message);
   } else if (message.type === 'emote') {
     explore.onEmote(message);
     if (message.participantId === session.participantId) myEmoteChanged(message.kind, message.sutra);
@@ -1391,6 +1397,15 @@ social = createPlayerSocial({
   currentRoomId: () => URL_ROOM,
   onGoRoom: goToFriendRoom,
 });
+// 💬 Tin nhắn: xem lại chat của phòng (khung trên cảnh chỉ giữ 3 tin) và nhắn riêng với bạn bè; nút nằm cạnh ô chat.
+chatCenter = createChatCenter({
+  stage: elements.stage,
+  showToast,
+  isBlocked: (id) => social.isBlocked(id),
+  selfId: () => session.participantId,
+  sendRoom: (text) => session.send({ type: 'chat.send', requestId: `chat-${crypto.randomUUID()}`, text }),
+});
+elements.chatForm.prepend(chatCenter.openButton);
 
 // "Tới chỗ bạn" / "Tới ngay" (lời mời của bạn): cùng phòng thì đi bộ tới cạnh bạn; chánh điện khác thì đổi phòng rồi
 // đi tới bạn khi đã vào; rạp phim / phòng game thì sang trang đó.
@@ -1427,7 +1442,8 @@ labelDonate();
 onLangChange(labelDonate);
 donateButton.addEventListener('click', () => {
   try { sessionStorage.setItem('thien-return', `${location.pathname}${location.search}`); } catch {}
-  location.href = '/ung-ho.html';
+  // Khu vực đang chọn: Việt Nam thì trang Ủng hộ hiện mã VietQR thay cho Zelle.
+  location.href = `/ung-ho.html?region=${encodeURIComponent(selectedState)}`;
 });
 
 // Shop nhân vật (mua hình bằng kim cương). Nhớ link phòng để quay về đúng phòng.

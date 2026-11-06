@@ -1,4 +1,4 @@
-# Protocol v2
+# Protocol v3
 
 `@chanh-dien/protocol` là hợp đồng duy nhất cho message giữa client và realtime server. Mọi message có envelope `{ v, type }`; message server → client luôn có `epoch` của phòng.
 
@@ -13,15 +13,16 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `seat.select` | mọi người | 3/10 giây | `requestId`, `seatId` |
 | `avatar.set` | mọi người (phòng có `skins`) | 5/phút | `requestId`, `skin` (`man`, `woman`, `granny`, `nun`, `monk`, `child`, `chibigirl`, `swordsman`). `chibigirl`, `swordsman` và mã `shop-<tên>` (nhân vật admin tải lên, mẫu `SHOP_SKIN`) là hình cao cấp: server chỉ nhận khi vé vào phòng (claim `skins`, do API ghi theo đồ đã mua/được tặng) có hình đó, không thì `protocol.error` `SKIN_LOCKED`; hình mặc định của người mới không bao giờ là hình cao cấp |
 | `bench.select` | mọi người trong chánh điện | 3/10 giây | `requestId`, `benchId`; server cấp `benchSpot` trống, tối đa theo room rules |
-| `travel.go` | mọi người trong chánh điện 3D | 3/10 giây | `requestId`, `destination` (`hall`, `courtyard`, `garden`); server tự tra tọa độ cố định |
+| `travel.go` | mọi người trong chánh điện 3D | 3/10 giây | `requestId`, `destination` (`hall`, `courtyard`, `garden`, `pets`); server tự tra tọa độ cố định |
 | `chore.start` / `chore.stop` | mọi người trong chánh điện 3D | 6/10 giây | `requestId`, `choreId`; bắt đầu chỉ được chấp nhận khi vị trí server giữ nằm trong bán kính điểm việc |
+| `pet.interact` | mọi người trong chánh điện 3D | 6/10 giây | `requestId`, `petId`, `action` (`pet`, `feed`, `play`); server chỉ nhận mã thú cố định và người đang đứng trong khu thú cưng |
 | `reaction.send` | mọi người | 6/10 giây | `requestId`, `kind` (`clap`, `laugh`, `heart`, `wow`, `cry`, `fire`); rạp phim: biểu tượng bay trên đầu nhân vật |
 | `bet.place` | thành viên đã đăng nhập (phòng game) | 10/5 giây, chỉ trong pha đặt cược, tối đa 1.000 xu mỗi ván | `requestId`, `roundId`, `animal` (`nai`, `bau`, `ga`, `ca`, `cua`, `tom`), `amount` (1–1.000 xu); API trừ xu ngay · Tài Xỉu (phòng `taixiu-1`, mã ván `tx-…`) gửi `spot` thay cho `animal`: `xiu`, `tai`, `t4`…`t17`, `f1`…`f6`; đúng một trong hai |
 | `bet.cancel` | thành viên đã đăng nhập (phòng game) | 3/5 giây, chỉ trong pha đặt cược | `requestId`, `roundId`; hủy toàn bộ cược của mình trong ván, API hoàn xu (trả lời bằng `game.mine` với `mine` rỗng) |
 | `lotto.buy` | thành viên (phòng `loto-1`) | 5/10 giây, chỉ trong pha mua vé | `requestId`, `roundId` (`lt-…`), `count` 0–2 (tổng ≤ 2 vé/ván), `autoMark` (mua tự đánh dấu 5 xu); phải mua ít nhất một thứ |
 | `lotto.claim` | thành viên | 5/10 giây; kinh sai khóa 10 giây (`FALSE_CLAIM`, `CLAIM_LOCKED`) | `requestId`, `roundId`, `ticket` 1–2, `row` 0–2. Server kiểm tra theo vé gốc + số đã gọi, không theo chỗ đánh dấu |
 | `room.command` | moderator, host | 10/10 giây | `requestId`, `command` (`pause`, `resume`, `skip`) |
-| `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự) |
+| `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự). Rạp tốn `content.videoPrice` 💎 (20), chỉ thành viên; lỗi `SIGN_IN_REQUIRED`, `INSUFFICIENT_DIAMONDS`, `WALLET_UNAVAILABLE` |
 | `vote.skip` | mọi người | 5/60 giây | `requestId`, `itemId` (bài đang chiếu) |
 | `playback.report` | mọi người | 10/10 giây | `itemId`, `event` (`duration`, `ended`, `error`), `value?` |
 | `ping` | mọi người | 1/10 giây | `sentAt` |
@@ -50,6 +51,8 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 | `room.count` | phòng đông: số người cả phòng, gửi riêng từng người khi đổi (tối đa 2 lần/giây) | `epoch`, `total` (có tính bot), `bots`, `top` (≤ 20 `{ id, displayName, merit, level?, avatarUrl? }` theo công đức), `rank?` (hạng công đức của người nhận) |
 | `playback.state` | bài đang chiếu và hàng chờ, gửi khi vào phòng và mỗi khi đổi | `epoch`, `current` (`itemId`, `videoId`, `title`, `addedBy`, `startedAt`, `duration?`) hoặc `null`, `queue`, `votes`, `votesNeeded` |
 | `hand.state` | nắm tay (chỉ gửi hai người): người mời dẫn đường, người nhận tự đi bên cạnh | `epoch`, `fromId`, `toId`, `status` (`pending`, `accepted`, `declined`, `released`), `byId?` (ai buông; tự buông khi ngồi, đi nhanh, rời phòng, cách quá 12 m) |
+| `wallet.update` | kim cương vừa bị trừ vì mở phim (chỉ gửi chủ ví) | `epoch`, `diamonds` (số dư mới), `spent` |
+| `chat.history` | chat của phòng trong ngày (từ nửa đêm theo `GARDEN_TIMEZONE`, cũ trước), gửi riêng người vừa vào / nối lại | `epoch`, `messages` (≤ 100; mỗi tin `participantId`, `displayName?`, `text`, `sentAt`) |
 | `inbox.notify` | có lời nhắn / lời mời của bạn bè (gửi mọi kết nối của tài khoản nhận); nội dung tải qua `GET /api/v1/me/inbox` | `epoch`, `kind` (`note`, `invite`) |
 | `game.invite` | bot mời sang phòng game (chỉ gửi người được mời; câu mời nằm trong `chat.message` của bot) | `epoch`, `fromId` (bot), `game` (`loto`, `tai-xiu`, `bau-cua`) |
 | `friend.state` | lời mời kết bạn (chỉ gửi hai người liên quan) | `epoch`, `fromId`, `toId`, `status` (`pending`, `accepted`, `declined`), `saved?` (đã lưu vào tài khoản khi cả hai đăng nhập) |
@@ -58,6 +61,7 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 | `community.project` | snapshot công trình Bồ Đề chung vừa đổi (phát cho mọi phòng chánh điện; đóng góp thật đi qua API `/api/v1/community-project/contribute`) | `epoch`, `project` (`id`, `kind`, `stage`, `stageIndex`, `progress`, `target`, `percent`, `completed`, `contributors`, `contributions`, `updatedAt`) |
 | `chore.state` | tiến độ công việc chung trong phòng; hai người trở lên được hệ số phối hợp và dùng cùng trạng thái hoạt ảnh | `epoch`, `chores` (tối đa 6 `{ id, kind, progress` 0–1000, `workers`, `completedAt? }`) |
 | `chore.reward` | gửi riêng cho thành viên sau khi hoàn thành việc; ví do API xác nhận, không tin client | `epoch`, `choreId`, `kind`, `reward` (0 hoặc 20), `coins`, `count`, `limit` (3) |
+| `pet.interaction` | hiệu ứng ngắn với thú cưng, phát cả phòng và không lưu snapshot | `epoch`, `participantId`, `petId`, `action` (`pet`, `feed`, `play`), `at` |
 | `reaction` | một người vừa thả cảm xúc (phát cả phòng, không lưu vào snapshot) | `epoch`, `participantId`, `kind`, `at` |
 | `game.state` | bàn Bầu Cua chung: đổi pha và khi tổng cược đổi (tối đa ~3 lần/giây); gửi cả khi vào phòng | `epoch`, `game` (`bau-cua`), `roundId`, `phase` (`betting`, `rolling`, `result`), `endsAt` (giờ server), `totals` (đủ 6 linh vật), `bettors`, `dice?` (3 linh vật), `winners?` (≤ 5 `{ displayName, net }`), `void?` (ván hủy, cược được hoàn) · `game: "tai-xiu"`: `totals` theo 22 ô Tài Xỉu, `dice` là 3 số 1–6, `history` (tối đa 10 ván gần nhất, mới nhất trước, mỗi ván 3 số) |
 | `lotto.state` | bàn Lô Tô: mỗi số gọi, đổi pha, khi bán thêm vé | `roundId`, `phase` (`buying`/`calling`/`claiming`/`result`), `endsAt`, `called` (thứ tự gọi), `pool`, `tickets`, `players`, `nextCallAt?`, `waiting?` (≤ 8 `{ displayName, number }`: còn thiếu 1 số), `claims?`, `winners?` (`{ displayName, share }`), `void?` |
@@ -69,10 +73,10 @@ Rate limit trong bảng là hợp đồng hành vi; enforcement sẽ được th
 
 ## Tương thích
 
-- Thêm type mới hoặc trường tùy chọn được phép trong v1; client cũ bỏ qua type chưa biết.
+- Thêm type mới hoặc trường tùy chọn được phép trong cùng major; client cũ bỏ qua type chưa biết.
 - `chat.message`, `offering`, `prayer.received` có thêm `displayName?` (tùy chọn) và `room.count` là type mới: client cũ vẫn chạy, nhưng ở phòng đông sẽ thấy tên mặc định cho người ngoài tầm nhìn và chỉ đếm người mình thấy.
 - Đổi ý nghĩa, xóa trường hoặc biến trường tùy chọn thành bắt buộc phải tăng major version.
-- Parser v1 từ chối envelope có `v` khác `1`.
+- Parser v3 từ chối envelope có `v` khác `3`.
 - `resumeToken` là trường tùy chọn để client mới giữ participant và ghế trong 60 giây khi mất kết nối; client cũ có thể bỏ qua.
 - `resumeToken` có chữ ký (tối đa 512 ký tự) nên máy realtime nào cũng xác minh được; client không cần hiểu nội dung.
 

@@ -8,8 +8,8 @@ import {
   TAI_XIU_SPOTS,
 } from '../src/index.mjs';
 
-test('protocol danh hiệu và khung ở version 2', () => {
-  assert.equal(PROTOCOL_VERSION, 2);
+test('protocol danh hiệu, khung và tương tác thú cưng ở version 3', () => {
+  assert.equal(PROTOCOL_VERSION, 3);
 });
 
 test('nhận hello hợp lệ và giữ nguyên dữ liệu', () => {
@@ -157,6 +157,7 @@ test('nhập vai: tin di chuyển và động tác', () => {
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'move', x: '1', z: 0, ry: 0, moving: true }).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'emote', requestId: 'e1', kind: 'bow108' }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'emote', requestId: 'e1', kind: 'dance' }).ok, true, 'nhún nhảy');
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'emote', requestId: 'e1', kind: 'act' }).ok, true, '✨ tương tác');
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'emote', requestId: 'e1', kind: 'twerk' }).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'bench.select', requestId: 'b1', benchId: 'B-2' }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'bench.select', requestId: 'b1', benchId: 2 }).error, 'INVALID_MESSAGE');
@@ -166,8 +167,13 @@ test('nhập vai: tin di chuyển và động tác', () => {
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'chore.start', requestId: 'c1', choreId: 'sweep-yard' }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'chore.stop', requestId: 'c2', choreId: 'sweep-yard' }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'chore.start', requestId: 'c1', choreId: '<script>' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'pet.interact', requestId: 'p1', petId: 'pet-cat-miu', action: 'pet' }).ok, true);
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'pet.interact', requestId: 'p1', petId: 'pet-cat-miu', action: 'ride' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'pet.interact', requestId: 'p1', petId: '<cat>', action: 'feed' }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'room.moves', epoch: 1, moves: [{ id: 'u-1', x: 0, z: 1, ry: 0, m: true }] }).ok, true);
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'emote', epoch: 1, participantId: 'u-1', kind: 'kneel', at: 5 }).ok, true);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'pet.interaction', epoch: 1, participantId: 'u-1', petId: 'pet-dog-moc', action: 'play', at: 5 }).ok, true);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'pet.interaction', epoch: 1, participantId: 'u-1', petId: 'pet-dog-moc', action: 'sleep', at: 5 }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({
     v: PROTOCOL_VERSION, type: 'room.state', epoch: 1, roomId: 'thien-1', revision: 1,
     participants: [{ id: 'u-2', displayName: 'Bình', benchId: 'B-2', benchSpot: 2 }],
@@ -385,6 +391,14 @@ test('bot.quiet (tắt bot bắt chuyện) và game.invite (bot mời sang phòn
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'game.invite', epoch: 1, fromId: 'bot-3', game: 'loto' }).ok, true);
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'game.invite', epoch: 1, fromId: 'bot-3', game: 'poker' }).ok, false);
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'game.invite', epoch: 1, fromId: 'bot-3', game: 'loto', url: 'https://x' }).ok, false);
+});
+
+test('chat.history: tối đa 100 tin, mỗi tin đúng trường', () => {
+  const item = { participantId: 'p-1', displayName: 'An', text: 'Chào', sentAt: 1 };
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'chat.history', epoch: 1, messages: [item] }).ok, true);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'chat.history', epoch: 1, messages: Array(101).fill(item) }).ok, false);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'chat.history', epoch: 1, messages: [{ ...item, extra: 1 }] }).ok, false);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'chat.history', epoch: 1, messages: [{ ...item, text: 'x'.repeat(281) }] }).ok, false);
 });
 
 test('inbox.notify: chỉ báo loại thư, không mang nội dung', () => {

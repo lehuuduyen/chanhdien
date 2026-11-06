@@ -6,7 +6,7 @@
 // Dùng: createTempleRenderer3D({ …, plugin: createExplorePlugin({ onMove, onArrive }) }) → renderer.plugin là api.
 import { findPath, resolveMove } from './walk.mjs';
 import { createGardenView } from './garden3d.mjs';
-import { buildChibiWalker, danceStyleOf } from './chibi3d.mjs';
+import { buildChibiWalker, DANCE_STYLES, danceStyleOf } from './chibi3d.mjs';
 
 const SEND_INTERVAL_MS = 200;
 const BOW_CYCLE_S = { bow3: 3.6, bow108: 3.0 };
@@ -32,7 +32,19 @@ function shortestAngle(from, to) {
   return delta;
 }
 
-export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onMeritBoardTap, onNearbyChange, onNearbyChoreChange, onPlaceChange, gardenLabel, hintText } = {}) {
+// Chọn động tác tương tác từ giờ server của lần bấm: trộn bit để bấm cách nhau đều đặn vẫn ra động tác khác nhau; mọi máy
+// tính cùng một kết quả.
+// Kiểu nhún nhảy bằng code trong ✨ Tương tác chạy chừng này giây rồi đứng lại (như động tác trong file chạy một lần).
+const ACT_CODE_S = 4;
+
+function actIndex(at = 0) {
+  let hash = Math.imul(Math.floor(Number(at) || 0) % 2_147_483_647, 2_654_435_761);
+  hash ^= hash >>> 15;
+  hash = Math.imul(hash, 2_246_822_519);
+  return (hash ^ (hash >>> 13)) >>> 0;
+}
+
+export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onMeritBoardTap, onPetTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -280,8 +292,19 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           }
         }
       }
-      const seat = ctx.pickSeatAt(event.clientX, event.clientY);
+      // Chó mèo là InstancedMesh; thân mỗi con mang petId theo instanceId. Chạm từ xa thì đi lại gần, chạm khi
+      // đã ở gần sẽ mở ngay ba hành động tương tác.
+      const petHit = courtyard?.animals?.pickables?.length
+        ? raycaster.intersectObjects(courtyard.animals.pickables, false)[0]
+        : null;
+      const pet = courtyard?.animals?.petAtHit?.(petHit);
       const self = walkers.get(selfId);
+      if (pet) {
+        if (self && Math.hypot(pet.x - self.x, pet.z - self.z) <= 2.8) onPetTap?.({ id: pet.id, name: pet.name, type: pet.type });
+        else if (self) api.walkTo({ x: pet.x, z: pet.z });
+        return;
+      }
+      const seat = ctx.pickSeatAt(event.clientX, event.clientY);
       if (seat && self && Math.hypot(seat.x - self.x, seat.z - self.z) < NEAR) {
         ctx.onSeatClick?.(seat);
         return;
@@ -428,9 +451,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     // Quỳ đúng kiểu ở chùa: hai đầu gối chạm sàn, đùi thẳng đứng, cẳng chân nằm phía sau, lưng thẳng, tay chắp.
     // Lạy: từ tư thế quỳ cúi rạp người về phía trước (trán gần sàn), hông lùi ngồi lên gót, rồi lên lại.
     // Nhún nhảy bằng code (5 kiểu, xem DANCE_STYLES): đổi vị trí / nghiêng / xoay cả thân, gật phần trên.
-    function danceMove(walker, figure, upper) {
+    function danceMove(walker, figure, upper, style = walker.danceStyle) {
       const t = walker.emoteT;
-      const style = walker.danceStyle;
       if (style === 'sway') {
         figure.rotation.z = Math.sin(t * 5) * 0.16;
         figure.position.y = Math.abs(Math.sin(t * 5)) * 0.03;
@@ -484,9 +506,23 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       let bow = 0;
       if (walker.emote) walker.emoteT += dt;
       else walker.emoteT = 0;
-      // Nhún nhảy là emote đứng (không quỳ); các emote khác quỳ / lạy / tụng.
+      // Nhún nhảy và tương tác (✨) là emote đứng (không quỳ); các emote khác quỳ / lạy / tụng.
+      // Tương tác: mỗi lần bấm chọn ngẫu nhiên một động tác trong kho = các động tác có trong file nhân vật + 5 kiểu nhún
+      // nhảy bằng code (DANCE_STYLES). Chọn theo giờ server của lần bấm nên ai xem cũng thấy cùng động tác; không lặp lại
+      // động tác vừa làm. Động tác trong file chạy một lần; kiểu bằng code chạy ACT_CODE_S giây rồi đứng.
+      const acting = walker.emote === 'act' && !walker.moving;
+      if (acting && walker.actFor !== walker.emoteKey) {
+        const count = (rig?.actCount || 0) + DANCE_STYLES.length;
+        let choice = actIndex(walker.emoteKey) % count;
+        if (choice === walker.actChoice) choice = (choice + 1) % count;
+        walker.actFor = walker.emoteKey;
+        walker.actChoice = choice;
+      }
+      const clips = rig?.actCount || 0;
+      const act = acting && walker.actChoice < clips ? { index: walker.actChoice, key: walker.emoteKey || 0 } : null;
+      const actStyle = acting && !act && walker.emoteT < ACT_CODE_S ? DANCE_STYLES[walker.actChoice - clips] : null;
       const dancing = walker.emote === 'dance' && !walker.moving;
-      if (walker.emote && walker.emote !== 'dance') {
+      if (walker.emote && walker.emote !== 'dance' && walker.emote !== 'act') {
         kneel = Math.min(1, walker.emoteT / 0.6);
         const cycle = BOW_CYCLE_S[walker.emote];
         if (cycle) {
@@ -507,9 +543,10 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       figure.rotation.z = 0;
       // Nhân vật có điệu nhảy trong file thì rig chạy động tác đó; không thì nhún cả thân theo kiểu riêng của nhân vật.
       if (dancing && !rig?.hasDance && !reduceMotion) danceMove(walker, figure, upper);
+      if (actStyle && !reduceMotion) danceMove(walker, figure, upper, actStyle);
       // Nhân vật mô hình .glb: gập đùi/cẳng chân theo cùng độ cao hông.
       // Nhân vật có khung xương (shop-…) chạy động tác đi/chạy theo moving/running, quỳ/lạy theo kneel/bow.
-      rig?.pose({ hip, stride, kneel, bow, moving: walker.moving && !kneel, running: walker.running, dance: dancing, dt });
+      rig?.pose({ hip, stride, kneel, bow, moving: walker.moving && !kneel, running: walker.running, dance: dancing, act, dt });
       // Nhãn tên và bong bóng hạ theo khi quỳ/lạy.
       walker.label.position.y = walker.parts.labelY - kneel * 0.12 - bow * 0.3;
       if (walker.status) walker.status.position.y = walker.label.position.y + 0.26;
@@ -642,6 +679,17 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         onNearbyChoreChange?.(next ? { id: next.id, kind: next.kind } : null);
       }
     }
+    let nearbyPet = null;
+    let nearbyPetKey = '';
+    function updateNearbyPet(self) {
+      const next = !self || selfSeated || self.benchId || spectator ? null : courtyard?.animals?.nearest?.(self.x, self.z, 2.8) || null;
+      nearbyPet = next;
+      const key = next?.id || '';
+      if (key !== nearbyPetKey) {
+        nearbyPetKey = key;
+        onNearbyPetChange?.(next ? { id: next.id, name: next.name, type: next.type } : null);
+      }
+    }
     const gardenData = world.courtyard?.garden;
     if (gardenData) {
       const ring = (gardenData.bed || 2.6) * 0.68;
@@ -659,6 +707,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (!self) return null;
       const hall = world.hall;
       if (hall && self.x >= -hall.halfWidth && self.x <= hall.halfWidth && self.z >= hall.back && self.z <= hall.front) return 'hall';
+      const pets = world.courtyard?.petZone?.area;
+      if (pets && self.x >= pets.x[0] && self.x <= pets.x[1] && self.z >= pets.z[0] && self.z <= pets.z[1]) return 'pets';
       if (gardenBounds && self.x >= gardenBounds.x[0] && self.x <= gardenBounds.x[1]
         && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
       return 'courtyard';
@@ -738,6 +788,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       reportPlace(self);
       updateRings(self, time);
       updateNearbyChore(self);
+      updateNearbyPet(self);
       gardenView?.update(dt);
       for (const walker of walkers.values()) {
         if (walker.id !== selfId) {
@@ -850,6 +901,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       },
       gardenEffect(plotId, kind, plantType) {
         gardenView?.effect(plotId, kind, plantType);
+      },
+      petInteraction(petId, action) {
+        return courtyard?.animals?.interact?.(petId, action) || false;
       },
       // Vị trí hiện tại của mình (đang đứng / đi; null nếu đang ngồi hoặc chưa có nhân vật).
       selfPose() {
@@ -985,10 +1039,12 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           walker.group.add(walker.status);
         }
       },
-      emote(id, kind) {
+      // at: giờ server của lần bấm (message emote), dùng chọn động tác tương tác ngẫu nhiên giống nhau trên mọi máy.
+      emote(id, kind, at = 0) {
         const walker = walkers.get(id);
         if (!walker) return false;
         walker.emote = kind === 'stand' ? null : kind;
+        walker.emoteKey = Number.isFinite(at) ? at : 0;
         walker.emoteT = 0;
         if (id === selfId) path = [];
         return true;
@@ -1069,6 +1125,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const rect = canvas.getBoundingClientRect();
         return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
       },
+      debugPets() {
+        return courtyard?.animals?.positions?.() || [];
+      },
       debugState() {
         return {
           selfId, selfSeated, spectator,
@@ -1079,6 +1138,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             emote: item.emote, visible: item.group.visible,
             // Nhún nhảy: 'clip' (điệu trong file .glb) hoặc kiểu nhún bằng code; lift/tilt để kiểm tra chuyển động.
             dance: item.emote === 'dance' ? (item.parts.rig?.hasDance ? 'clip' : item.danceStyle) : null,
+            act: item.emote === 'act' && item.actChoice !== undefined
+              ? (item.actChoice < (item.parts.rig?.actCount || 0) ? `clip ${item.actChoice + 1}/${item.parts.rig.actCount}` : DANCE_STYLES[item.actChoice - (item.parts.rig?.actCount || 0)])
+              : null,
             lift: Math.round(item.parts.figure.position.y * 1000) / 1000, tilt: Math.round(item.parts.figure.rotation.z * 1000) / 1000,
           })),
         };
@@ -1119,6 +1181,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       dispose() {
         onNearbyChange?.(null);
         onNearbyChoreChange?.(null);
+        onNearbyPetChange?.(null);
         onPlaceChange?.(null);
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('keyup', onKeyUp);

@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const LIMITS = Object.freeze({
   roomId: 64,
@@ -37,7 +37,8 @@ export const OFFERING_KINDS = Object.freeze(['petal', 'incense', 'lotus', 'bell'
 // Động tác của nhân vật (chế độ nhập vai): đứng, quỳ, lạy 3 lạy, lạy 108 lạy.
 // chant: tụng kinh (kèm mã bài kinh `sutra`), woodfish: gõ mõ.
 // dance: nhún nhảy (đứng, chỉ ngoài sân chùa); nhân vật có điệu nhảy trong file .glb chạy điệu đó.
-export const EMOTES = Object.freeze(['stand', 'kneel', 'bow3', 'bow108', 'chant', 'woodfish', 'dance']);
+// act: ✨ tương tác, chạy ngẫu nhiên một động tác trong file nhân vật (chọn theo `at` của message emote).
+export const EMOTES = Object.freeze(['stand', 'kneel', 'bow3', 'bow108', 'chant', 'woodfish', 'dance', 'act']);
 const SUTRA_ID = /^[a-z0-9-]{1,32}$/;
 // Sớ: cầu an (peace) hoặc cầu siêu (memorial). Cả phòng chỉ biết ai dâng sớ loại gì; tên người trong sớ không đi qua phòng.
 export const PRAYER_KINDS = Object.freeze(['peace', 'memorial']);
@@ -51,6 +52,8 @@ export const FRIEND_STATUSES = Object.freeze(['pending', 'accepted', 'declined']
 export const HAND_STATUSES = Object.freeze(['pending', 'accepted', 'declined', 'released']);
 // Phòng game bot có thể mời người chơi sang (trang riêng phía client).
 export const GAME_ROOMS = Object.freeze(['loto', 'tai-xiu', 'bau-cua']);
+// Số tin chat trong ngày tối đa một phòng giữ để người vào sau xem lại (chat.history).
+export const CHAT_HISTORY_MAX = 100;
 // Báo cáo người chơi: lý do cố định, kèm ghi chú ngắn tùy chọn.
 export const REPORT_REASONS = Object.freeze(['spam', 'harassment', 'inappropriate', 'other']);
 const RESULT_SIDES = ['from', 'to', 'draw'];
@@ -61,11 +64,13 @@ export const GARDEN_EFFECTS = Object.freeze(['plant', 'water', 'harvest']);
 // Công việc phối hợp trong chùa. `chore.state` chỉ chứa tiến độ và id người cùng làm; nội dung hiển thị nằm ở
 // bản dịch phía client, không nhận văn bản tùy ý từ mạng.
 export const CHORE_KINDS = Object.freeze(['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
+// Tương tác ngắn với chó mèo trong khu thú cưng. Đây là hiệu ứng phòng, không cộng xu/công đức và không lưu snapshot.
+export const PET_ACTIONS = Object.freeze(['pet', 'feed', 'play']);
 // Các công trình dùng chung toàn hệ thống. Đóng góp đi qua REST có đăng nhập; realtime chỉ phát snapshot công khai.
 export const COMMUNITY_PROJECT_STAGES = Object.freeze(['ground', 'sprout', 'young', 'mature', 'complete']);
 export const COMMUNITY_PROJECT_KINDS = Object.freeze(['bodhi', 'lotus']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
-export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden']);
+export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
 export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 'fire']);
 // Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
@@ -104,6 +109,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'travel.go': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 giây, đích cố định theo room rules' },
   'chore.start': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây, phải ở gần điểm việc' },
   'chore.stop': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây' },
+  'pet.interact': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây, chỉ trong chánh điện 3D' },
   move: { roles: ['guest', 'member', 'moderator', 'host'], rate: '8/giây, chỉ khi đang đi; server gom 200 ms rồi phát' },
   emote: { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
   'reaction.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: '6/10 giây' },
@@ -226,6 +232,12 @@ const clientSchemas = {
     return exactKeys(message, ['v', 'type', 'requestId', 'choreId'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && isString(message.choreId, LIMITS.itemId, ID_PATTERN);
+  },
+  'pet.interact'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'petId', 'action'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.petId, LIMITS.itemId, ID_PATTERN)
+      && PET_ACTIONS.includes(message.action);
   },
   // Vị trí nhân vật khi đang đi (moving = false ở lần gửi cuối khi dừng lại).
   move(message) {
@@ -492,6 +504,13 @@ const serverSchemas = {
       && isInteger(message.limit) && message.limit === 3
       && isInteger(message.count) && message.count >= 0 && message.count <= message.limit;
   },
+  'pet.interaction'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'participantId', 'petId', 'action', 'at'])
+      && isString(message.participantId, LIMITS.participantId, ID_PATTERN)
+      && isString(message.petId, LIMITS.itemId, ID_PATTERN)
+      && PET_ACTIONS.includes(message.action)
+      && isInteger(message.at) && message.at >= 0;
+  },
   emote(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'participantId', 'kind', 'at'], ['sutra'])
       && isString(message.participantId, LIMITS.participantId, ID_PATTERN)
@@ -555,6 +574,12 @@ const serverSchemas = {
       && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
       && (message.requestId === undefined || isString(message.requestId, LIMITS.requestId, ID_PATTERN));
   },
+  // Ví kim cương vừa đổi vì việc trong phòng (mở phim): chỉ gửi cho chủ ví để ô 💎 cập nhật ngay.
+  'wallet.update'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'diamonds', 'spent'])
+      && isInteger(message.diamonds) && message.diamonds >= 0
+      && isInteger(message.spent) && message.spent > 0;
+  },
   'game.payout'(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'staked', 'payout', 'net', 'coins'])
       && typeof message.roundId === 'string' && ROUND_ID.test(message.roundId)
@@ -583,6 +608,16 @@ const serverSchemas = {
       && isString(message.toId, LIMITS.participantId, ID_PATTERN)
       && HAND_STATUSES.includes(message.status)
       && (message.byId === undefined || isString(message.byId, LIMITS.participantId, ID_PATTERN));
+  },
+  // Chat của phòng trong ngày hôm nay (cũ trước), gửi riêng cho người vừa vào để xem lại; sang ngày mới thì xóa.
+  'chat.history'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'messages'])
+      && Array.isArray(message.messages) && message.messages.length <= CHAT_HISTORY_MAX
+      && message.messages.every((item) => isRecord(item) && exactKeys(item, ['participantId', 'text', 'sentAt'], ['displayName'])
+        && isString(item.participantId, LIMITS.participantId, ID_PATTERN)
+        && (item.displayName === undefined || isString(item.displayName, LIMITS.displayName))
+        && isString(item.text, LIMITS.chatText)
+        && isInteger(item.sentAt) && item.sentAt >= 0);
   },
   // Có lời nhắn / lời mời bạn bè mới (gửi tới mọi kết nối của tài khoản nhận); trang tự tải hộp thư qua API.
   'inbox.notify'(message) {

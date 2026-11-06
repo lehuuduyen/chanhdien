@@ -101,6 +101,9 @@ function blendPose(bones, from, to, amount) {
 }
 
 export const DANCE_CLIP = /danc|hip ?hop|samba|salsa|twerk|shuffl|cheer|celebrat|happy|jump/i;
+// Động tác nền (đi, chạy, đứng thở, dáng gốc). Mọi động tác còn lại trong file là động tác "tương tác": bấm ✨ thì chạy
+// ngẫu nhiên một cái (cùng BASE_CLIP trong apps/api/shop.mjs; sửa thì sửa cả hai).
+export const BASE_CLIP = /walk|run|idle|breath|t-?pose|a-?pose|bind/i;
 const clipBy = (clips, pattern, not) => clips.find((clip) => pattern.test(clip.name) && !(not && not.test(clip.name))) || null;
 
 // Đọc file, đo chiều cao theo dáng gốc, tính sẵn các dáng. SkeletonUtils dùng để nhân bản mô hình có xương.
@@ -128,6 +131,7 @@ export async function loadRiggedModel(url, loader) {
     // Điệu nhảy riêng của nhân vật (Meshy / Mixamo đặt tên theo động tác đã chọn khi xuất file).
     dance: clipBy(gltf.animations, DANCE_CLIP),
   };
+  const extras = gltf.animations.filter((clip) => !BASE_CLIP.test(clip.name));
   const poses = {};
   for (const [name, spec] of Object.entries(POSE_SPECS)) {
     const clone = SkeletonUtils.clone(raw);
@@ -137,7 +141,7 @@ export async function loadRiggedModel(url, loader) {
   }
   const restBones = bonesOf(raw);
   poses.rest = snapshot(raw, restBones);
-  return { raw, clone: SkeletonUtils.clone, scale, clips, poses, height: HEIGHT };
+  return { raw, clone: SkeletonUtils.clone, scale, clips, extras, poses, height: HEIGHT };
 }
 
 // Khung đặt mô hình: quay mặt về −z như mọi nhân vật trong cảnh, thu theo chiều cao chuẩn.
@@ -162,19 +166,31 @@ export function buildRiggedWalker(template, look = null) {
   // Ở chùa đứng chắp tay; ở rạp (đồ thường ngày) đứng thả tay.
   const restPose = template.poses[look?.outfit === 'casual' ? 'stand' : 'pray'];
   const ground = (pose) => -pose.minY * template.scale;
+  // Động tác tương tác chạy một lần rồi về dáng đứng.
+  const extras = (template.extras || []).map((clip) => {
+    const action = mixer.clipAction(clip);
+    action.setLoop(THREE.LoopOnce, 1);
+    return action;
+  });
   let playing = null;
+  let actKey = null;
+  let actDone = false;
 
   function play(name) {
     if (playing === name) return;
-    for (const action of Object.values(actions)) action.stop();
-    if (name) actions[name].reset().play();
+    for (const action of [...Object.values(actions), ...extras]) action.stop();
+    if (name?.startsWith('act:')) extras[Number(name.slice(4))].reset().play();
+    else if (name) actions[name].reset().play();
     playing = name;
   }
 
   const rig = {
     // Có điệu nhảy trong file: nhún nhảy chạy động tác đó; không có thì explore3d nhún nhảy cả thân theo kiểu admin chọn.
     hasDance: Boolean(actions.dance),
-    pose({ hip = null, kneel = 0, bow = 0, sit = 0, moving = false, running = false, dance = false, dt = 0 } = {}) {
+    // Số động tác tương tác trong file; 0 thì explore3d nhún nhảy mặc định như trước.
+    actCount: extras.length,
+    // act: { index, key } — key đổi (mỗi lần bấm) thì chạy lại từ đầu; chạy xong thì đứng như thường.
+    pose({ hip = null, kneel = 0, bow = 0, sit = 0, moving = false, running = false, dance = false, act = null, dt = 0 } = {}) {
       if (sit > 0.5) {
         play(null);
         applyPose(bones, template.poses.chair);
@@ -193,6 +209,20 @@ export function buildRiggedWalker(template, look = null) {
         }
         inner.position.y = y;
         return;
+      }
+      if (act && extras.length && !moving) {
+        if (actKey !== act.key) {
+          actKey = act.key;
+          actDone = false;
+          playing = null;
+        }
+        if (!actDone) {
+          play(`act:${act.index % extras.length}`);
+          mixer.update(dt);
+          inner.position.y = ground(template.poses.rest);
+          if (!extras[act.index % extras.length].isRunning()) actDone = true;
+          return;
+        }
       }
       if (dance && actions.dance && !moving) {
         play('dance');
