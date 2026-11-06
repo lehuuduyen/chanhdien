@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CINEMA_RULES, defineRoomRules, getRoomRules } from '../src/index.mjs';
+import {
+  CINEMA_RULES, GAME_RULES, LOTO_RULES, TAI_XIU_RULES, THIEN_RULES, defineRoomRules, getRoomRules,
+} from '../src/index.mjs';
 
 test('định nghĩa room rules bất biến ở cấp ngoài', () => {
   const rules = defineRoomRules({ id: 'cinema', maxParticipants: 500 });
@@ -73,6 +75,23 @@ test('chánh điện theo tiểu bang và ngôn ngữ: mã phòng, tên ngắn, 
   assert.equal(roomLangOf('thien-1'), 'vi');
   for (const lang of Object.keys(THIEN_LANGS)) {
     assert.match(THIEN_EVENT.lectures[lang].videoId, /^[A-Za-z0-9_-]{11}$/, `bài giảng ${lang}`);
-    if (lang !== 'vi') assert.equal(THIEN_RULES.bots.byLang[lang].names.length, 16, `tên bot ${lang}`);
+    const names = lang === 'vi' ? THIEN_RULES.bots.names : THIEN_RULES.bots.byLang[lang].names;
+    assert.ok(names.length >= 100, `có ít nhất 100 tên bot ${lang}`);
+  }
+});
+
+test('kho tên bot đủ cho addbot 100, không trùng và không chứa tên đánh số', () => {
+  const pools = [
+    ['cinema', CINEMA_RULES.bots.names],
+    ['thien-vi', THIEN_RULES.bots.names],
+    ...Object.entries(THIEN_RULES.bots.byLang).map(([lang, words]) => [`thien-${lang}`, words.names]),
+    ['game', GAME_RULES.bots.names],
+    ['taixiu', TAI_XIU_RULES.bots.names],
+    ['loto', LOTO_RULES.bots.names],
+  ];
+  for (const [room, names] of pools) {
+    assert.ok(names.length >= 100, `${room} đủ tên cho addbot 100`);
+    assert.equal(new Set(names).size, names.length, `${room} không trùng tên trong kho`);
+    assert.ok(names.every((name) => typeof name === 'string' && name.trim() === name && !/\s\d+$/.test(name)), `${room} không có tên đánh số`);
   }
 });

@@ -13,7 +13,7 @@ import {
   NODE_TTL_MS,
   SNAPSHOT_TTL_MS,
 } from '@chanh-dien/room-directory';
-import { dayStartOf, getRoomRules, isPremiumSkin, isPrivateRoomId, isShopSkin, parseThienRoomId, roomLangOf, roomTypeOf } from '@chanh-dien/room-rules';
+import { dayStartOf, getRoomRules, isPremiumSkin, isPrivateRoomId, isShopSkin, parseThienRoomId, roomLangOf, roomTypeOf, THIEN_GARDEN } from '@chanh-dien/room-rules';
 import {
   createResumeToken,
   DEFAULT_LOCAL_SECRET,
@@ -24,6 +24,7 @@ import {
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
 import { BOT_AI_MODEL, createBotAi, guessLang } from './bot-ai.mjs';
+import { botNavFor } from './bot-nav.mjs';
 import { LottoTable, lottoBank } from './loto.mjs';
 import { createModerationGuard, hasPromo, moderationRemote, repeatKey } from './moderation.mjs';
 
@@ -84,6 +85,22 @@ const BOT_APPROACH_PERSON_MS = 30 * 60_000;
 const BOT_APPROACH_HOLD_MS = 25_000;
 // Hai bot đi dạo cách nhau trong khoảng này thì có thể đứng lại đối đáp vài câu.
 const BOT_DIALOGUE_RANGE = 7;
+// Bot đi dạo dừng lệch quanh điểm đường (bán kính, m) và cách người khác ít nhất BOT_SPOT_GAP m (xem botSpot).
+const BOT_SPOT_RADIUS = 0.6;
+const BOT_LANE = 0.5;
+const BOT_SPOT_GAP = 0.9;
+const BOT_YIELD_MS = 3_000;
+// Bot đi khắp sân (có bản đồ scene): tỉ lệ chọn ghế đá / chỗ ngắm cảnh (phần còn lại đi loanh quanh), thời gian ngồi
+// ghế, đứng lại theo loại chỗ, và dừng nhìn quanh giữa đường.
+const BOT_BENCH_CHANCE = 0.15;
+const BOT_SIGHT_CHANCE = 0.65;
+const BOT_SIT_MS = [25_000, 90_000];
+const BOT_DWELL_MS = {
+  pond: [10_000, 35_000], fountain: [8_000, 25_000], bodhi: [10_000, 30_000], guanyin: [12_000, 35_000],
+  arhat: [6_000, 18_000], pets: [10_000, 30_000], burner: [6_000, 15_000], gate: [3_000, 8_000], bench: [4_000, 10_000], wander: [2_000, 9_000],
+};
+const BOT_GLANCE_CHANCE = 0.1;
+const BOT_GLANCE_MS = [1_000, 3_500];
 // Chat của phòng chỉ giữ trong ngày (nửa đêm theo GARDEN_TIMEZONE, như Vườn Công Đức), tối đa CHAT_HISTORY_MAX tin, chỉ
 // trong bộ nhớ máy đang giữ phòng: người vào sau xem lại được qua chat.history.
 const CHAT_TIME_ZONE = process.env.GARDEN_TIMEZONE || 'America/Los_Angeles';
@@ -212,6 +229,8 @@ export class Room {
     this.chatLog = [];
     // Ví kim cương ({ spend, refund } qua API): mở phim tốn kim cương.
     this.wallet = options.wallet || null;
+    // Bot làm vườn ({ task, act } qua API): bot đi dạo rẽ vào Vườn Công Đức gieo / tưới / hái luống của bot.
+    this.gardenBots = options.gardenBots || null;
     // Phòng Lô Tô riêng: tài khoản chủ phòng (chủ rời phòng thì đóng phòng) và báo API khi đóng. Bot chỉ có khi được mời.
     this.privateOwner = options.privateOwner || null;
     this.onPrivateClosed = options.onPrivateClosed || null;
@@ -228,7 +247,10 @@ export class Room {
     this.openedAt = Date.now();
     this.resumeTtlMs = options.resumeTtlMs || RESUME_TTL_MS;
     // Chánh điện bị chặn theo số bồ đoàn; phòng game không có ghế nên dùng giới hạn bot riêng trong room rules.
-    this.botLimit = this.rules.seats ?? this.rules.bots?.max ?? 0;
+    // Số bot tối đa: bots.max (chánh điện: bot không cần ghế vì phần lớn đi dạo ngoài sân), không có thì theo số ghế.
+    this.botLimit = this.rules.bots?.max ?? this.rules.seats ?? 0;
+    // Bản đồ đi lại của scene cho bot đi khắp sân (bots.walk.roam); không có thì bot đi vòng theo waypoints.
+    this.nav = this.rules.bots?.walk?.roam && this.rules.sceneId ? botNavFor(this.rules.sceneId) : null;
     this.botCount = Math.max(0, Math.min(options.botCount ?? this.rules.bots?.count ?? 0, this.botLimit));
     // Bot do `addbot N` quản lý vẫn giữ phòng và bàn game chạy khi chưa có người thật.
     this.keepBotsAlive = false;
@@ -1410,11 +1432,17 @@ export class Room {
 
   // Bot không bị đẩy khỏi ghế khi có người bấm vào. Khi số người thật tăng, bot ngồi rời trước để mỗi người thật
   // vẫn có bồ đoàn; bot đi dạo ngoài sân không chiếm ghế nên vẫn ở lại cả khi chánh điện đã đủ chỗ ngồi.
-  // Đông bot thì khoảng một nửa ra sân đi dạo (tối thiểu walk.count), để sân không vắng khi bồ đoàn đã kín.
-  get botWalkingTarget() {
+  // Ít nhất khoảng một nửa ra sân đi dạo (tối thiểu walk.count), để sân không vắng. Bot ngồi không vượt số ghế còn
+  // trống (người thật vào thì bot ngồi nhường); phần còn lại đi dạo, nên tổng số bot luôn đúng số addbot.
+  get botWalkMin() {
     const walk = this.rules.bots?.walk;
     if (!walk?.count || !walk.waypoints?.length) return 0;
     return Math.min(this.botCount, Math.max(walk.count, Math.ceil(this.botCount / 2)));
+  }
+
+  get botWalkingTarget() {
+    if (!this.botWalkMin) return 0;
+    return this.botCount - this.botSeatedTarget;
   }
 
   get botSeatedTarget() {
@@ -1422,7 +1450,7 @@ export class Room {
     // Tổng room.state vẫn phải nằm trong giới hạn protocol 500 người; người thật vào thì bot game rời trước.
     if (this.rules.bots?.play) return Math.min(this.botCount, Math.max(0, this.maxParticipants - this.realCount));
     const freeForBots = Math.max(0, (this.rules.seats || 0) - this.realCount);
-    return Math.min(this.botCount - this.botWalkingTarget, freeForBots);
+    return Math.min(this.botCount - this.botWalkMin, freeForBots);
   }
 
   get botTargetCount() {
@@ -1478,15 +1506,10 @@ export class Room {
     const needsSeat = Boolean(this.rules.seats);
     const seatId = walking || !needsSeat ? null : this.freeSeat();
     if (!walking && needsSeat && !seatId) return null;
+    const displayName = names[Math.floor(Math.random() * names.length)];
+    if (!displayName) return null;
     state.serial += 1;
     const id = `bot-${state.serial}`;
-    let displayName = names[Math.floor(Math.random() * names.length)];
-    if (!displayName) {
-      const base = allNames[Math.floor(Math.random() * allNames.length)] || 'Phật tử';
-      let suffix = 2;
-      while (used.has(`${base} ${suffix}`)) suffix += 1;
-      displayName = `${base} ${suffix}`;
-    }
     const skins = [...new Set([...(config.skins?.length ? config.skins : this.freeSkins), ...this.botSkins])];
     // Xáo một túi hình rồi rút dần: thứ tự bot mỗi phòng khác nhau nhưng chưa dùng hết danh mục thì không lặp hình.
     if (!state.skinBag?.length) {
@@ -1514,13 +1537,19 @@ export class Room {
     };
     if (walking) {
       const waypointIndex = (state.serial - 1) % config.walk.waypoints.length;
-      const start = config.walk.waypoints[waypointIndex];
-      bot.pos = { x: start.x, z: start.z, ry: 0 };
+      // Có bản đồ: bot tạo sẵn đứng rải khắp sân, bot vào sau đi từ cổng vào như khách mới tới chùa.
+      const start = this.nav ? (seeded || !this.nav.entry ? this.nav.randomPoint() : this.nav.entry) : config.walk.waypoints[waypointIndex];
+      // Xuất hiện lệch quanh điểm đó, không đè lên người / bot đang đứng đó.
+      bot.pos = { x: start.x, z: start.z, ry: Math.random() * Math.PI * 2 - Math.PI };
+      Object.assign(bot.pos, this.botSpot(bot, start));
       bot.moving = false;
       bot.walk = {
         waypointIndex: (waypointIndex + 1) % config.walk.waypoints.length,
         lastAt: Date.now(),
-        waitUntil: Date.now() + randomBetween(config.walk.pauseMs),
+        waitUntil: Date.now() + randomBetween(config.walk.pauseMs) * (seeded ? Math.random() : 1),
+        // Mỗi người một dáng đi: người đi thong thả, người đi nhanh.
+        speed: config.walk.speed * (0.8 + Math.random() * 0.35),
+        route: [],
       };
     }
     this.participants.set(id, bot);
@@ -1529,28 +1558,306 @@ export class Room {
 
   advanceBotWalk(bot, now = Date.now()) {
     const config = this.rules.bots?.walk;
-    if (!bot.pos || !bot.walk || !config?.waypoints?.length || bot.handWith) return false;
+    if (!bot.pos || !bot.walk || !config?.waypoints?.length) return false;
+    if (bot.handWith) {
+      // Được người chơi nắm tay dắt đi: bỏ việc vườn dở / đích đang tới, thả ra thì chọn chỗ đi tiếp từ chỗ đứng.
+      bot.errand = null;
+      bot.walk.route = [];
+      bot.walk.dest = null;
+      return false;
+    }
     if (now < bot.walk.waitUntil) return false;
+    if (bot.errand) return this.advanceBotErrand(bot, now);
+    if (!this.nav) return this.advanceWaypointWalk(bot, config, now);
+    const walk = bot.walk;
+    if (bot.benchId) {
+      // Ngồi ghế đá đủ lâu thì đứng dậy đi tiếp.
+      bot.benchId = null;
+      bot.benchSpot = null;
+      this.revision += 1;
+      this.broadcastState();
+      walk.lastAt = now;
+      return true;
+    }
+    if (!walk.route?.length) {
+      this.planBotRoute(bot, now);
+      return true;
+    }
+    // Vừa bước chếch tránh người: đoạn thẳng tới điểm kế có thể cắt qua vật cản thì tìm lại đường.
+    if (walk.detoured && !this.nav.clear(bot.pos, walk.route[0])) {
+      walk.route = this.nav.route(bot.pos, walk.route.at(-1));
+      walk.detoured = false;
+      if (!walk.route.length) return true;
+    }
+    if (!this.stepBot(bot, walk.route[0], walk.speed || config.speed, now)) return true;
+    walk.route.shift();
+    if (walk.route.length) {
+      // Thỉnh thoảng dừng giữa đường nhìn quanh.
+      if (Math.random() < BOT_GLANCE_CHANCE) walk.waitUntil = now + randomBetween(BOT_GLANCE_MS);
+      return true;
+    }
+    this.botArrive(bot, now);
+    return true;
+  }
+
+  // Đi vòng theo waypoints (phòng không có bản đồ scene).
+  advanceWaypointWalk(bot, config, now) {
     const target = config.waypoints[bot.walk.waypointIndex];
+    bot.walk.spot ||= this.botSpot(bot, target);
+    const arrived = this.stepBot(bot, bot.walk.spot, config.speed, now);
+    if (arrived) {
+      bot.walk.spot = null;
+      bot.walk.waypointIndex = (bot.walk.waypointIndex + 1) % config.waypoints.length;
+      bot.walk.waitUntil = now + randomBetween(config.pauseMs);
+      this.maybeStartGardenErrand(bot, now, target);
+    }
+    return true;
+  }
+
+  // Chọn chỗ muốn tới như người đi chùa: ghế đá còn trống, bờ hồ, đài phun nước, bồ đề, Quan Âm, La Hán, khu thú
+  // cưng, cổng, hoặc chỉ đi loanh quanh. Rút hai ứng viên lấy chỗ gần hơn để không băng qua cả sân liên tục.
+  pickBotDestination(bot) {
+    const spots = this.nav.spots;
+    const roll = Math.random();
+    if (roll < BOT_BENCH_CHANCE) {
+      const wanted = new Set();
+      const seated = new Map();
+      for (const other of this.participants.values()) {
+        if (other.walk?.dest?.bench) wanted.add(other.walk.dest.bench);
+        if (other.benchId) seated.set(other.benchId, (seated.get(other.benchId) || 0) + 1);
+      }
+      const benches = spots.filter((spot) => spot.bench && !wanted.has(spot.bench) && (seated.get(spot.bench) || 0) < this.seatsPerBench);
+      if (benches.length) return benches[Math.floor(Math.random() * benches.length)];
+    }
+    const pick = () => {
+      if (roll < BOT_SIGHT_CHANCE) {
+        const sights = spots.filter((spot) => !spot.bench);
+        return sights[Math.floor(Math.random() * sights.length)];
+      }
+      const point = this.nav.randomPoint();
+      return point ? { kind: 'wander', ...point } : null;
+    };
+    const first = pick();
+    const second = pick();
+    if (!first || !second) return first || second;
+    const distance = (spot) => Math.hypot(spot.x - bot.pos.x, spot.z - bot.pos.z);
+    return distance(first) <= distance(second) ? first : second;
+  }
+
+  planBotRoute(bot, now) {
+    const walk = bot.walk;
+    if (this.maybeStartGardenErrand(bot, now)) return;
+    // Ghế đá: tới đúng chỗ đứng trước ghế; chỗ khác: lệch ngẫu nhiên, tránh chỗ người khác đang đứng / sắp tới.
+    // Chỗ đã chật (không đứng lệch được) thì chọn chỗ khác, không đứng chồng lên người ta.
+    let dest = null;
+    let target = null;
+    for (let attempt = 0; attempt < 4 && !target; attempt += 1) {
+      dest = this.pickBotDestination(bot);
+      if (!dest) break;
+      const spot = dest.bench ? dest : this.botSpot(bot, dest);
+      if (dest.bench || this.spotGap(bot, spot) >= BOT_SPOT_GAP) target = spot;
+    }
+    const route = target ? this.nav.route(bot.pos, target) : [];
+    if (!route.length) {
+      walk.waitUntil = now + 2_000;
+      return;
+    }
+    walk.route = route;
+    walk.dest = dest;
+    walk.spot = route.at(-1);
+    walk.detoured = false;
+    walk.lastAt = now;
+  }
+
+  // Tới nơi: quay mặt về thứ đang ngắm, ngồi ghế đá nếu còn chỗ, đứng lại một lúc rồi mới đi chỗ khác.
+  botArrive(bot, now) {
+    const walk = bot.walk;
+    const dest = walk.dest;
+    walk.dest = null;
+    walk.spot = null;
+    if (dest?.face) this.move(bot.id, { x: bot.pos.x, z: bot.pos.z, ry: headingOf(dest.face.x - bot.pos.x, dest.face.z - bot.pos.z), moving: false });
+    if (dest?.bench && this.selectBench(bot.id, dest.bench).ok) {
+      walk.waitUntil = now + randomBetween(BOT_SIT_MS);
+      return;
+    }
+    walk.waitUntil = now + randomBetween(BOT_DWELL_MS[dest?.kind] || BOT_DWELL_MS.wander);
+  }
+
+  // Chỗ dừng của bot quanh một điểm đường: lệch ngẫu nhiên tới BOT_SPOT_RADIUS m (vẫn trong lối đá) và cách người /
+  // bot khác (kể cả chỗ bot khác đang đi tới) ít nhất BOT_SPOT_GAP m. Mọi bot cùng đi một tuyến, dừng đúng cùng một
+  // điểm thì hai nhân vật đứng chồng lên nhau thành một hình (nhãn tên này che nhãn kia).
+  botSpot(bot, point) {
+    // Đi bên phải theo chiều đang đi (BOT_LANE m): hai bot đi ngược chiều trên cùng đoạn đường đi hai làn, không xuyên qua nhau.
+    const dx = point.x - bot.pos.x;
+    const dz = point.z - bot.pos.z;
+    const length = Math.hypot(dx, dz);
+    if (length > 0.5) point = { x: point.x - (dz / length) * BOT_LANE, z: point.z + (dx / length) * BOT_LANE };
+    const taken = [];
+    for (const other of this.participants.values()) {
+      if (other === bot || !other.pos) continue;
+      taken.push(other.pos);
+      if (other.walk?.spot) taken.push(other.walk.spot);
+    }
+    let best = null;
+    let bestGap = -1;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = BOT_SPOT_RADIUS * Math.sqrt(Math.random());
+      const spot = { x: point.x + Math.cos(angle) * radius, z: point.z + Math.sin(angle) * radius };
+      if (this.nav && !this.nav.walkable(spot)) continue;
+      const gap = taken.reduce((min, pos) => Math.min(min, Math.hypot(pos.x - spot.x, pos.z - spot.z)), Infinity);
+      if (gap >= BOT_SPOT_GAP) return spot;
+      if (gap > bestGap) {
+        best = spot;
+        bestGap = gap;
+      }
+    }
+    return best || { x: point.x, z: point.z };
+  }
+
+  // Khoảng cách từ spot tới người / chỗ bot khác đang đứng hoặc sắp tới gần nhất.
+  spotGap(bot, spot) {
+    let gap = Infinity;
+    for (const other of this.participants.values()) {
+      if (other === bot || !other.pos) continue;
+      gap = Math.min(gap, Math.hypot(other.pos.x - spot.x, other.pos.z - spot.z));
+      if (other.walk?.spot) gap = Math.min(gap, Math.hypot(other.walk.spot.x - spot.x, other.walk.spot.z - spot.z));
+    }
+    return gap;
+  }
+
+  // Bot bước một nhịp về phía target. Trả true khi đã tới (đứng lại).
+  stepBot(bot, target, speed, now) {
     const dx = target.x - bot.pos.x;
     const dz = target.z - bot.pos.z;
     const distance = Math.hypot(dx, dz);
     if (distance < 0.08) {
-      bot.walk.waypointIndex = (bot.walk.waypointIndex + 1) % config.waypoints.length;
-      bot.walk.waitUntil = now + randomBetween(config.pauseMs);
       bot.walk.lastAt = now;
       if (bot.moving) this.move(bot.id, { ...bot.pos, ry: bot.pos.ry, moving: false });
       return true;
     }
     const elapsed = Math.min(1.5, Math.max(0.05, (now - bot.walk.lastAt) / 1_000));
-    const step = Math.min(distance, config.speed * elapsed);
+    const step = Math.min(distance, speed * elapsed);
+    // Có người ngay phía trước (bước tới sẽ đứng chồng lên): bước chếch sang bên để vòng qua; không chếch được thì
+    // đứng chờ, chờ quá BOT_YIELD_MS (hai bot chặn nhau) thì cứ đi thẳng.
+    let next = null;
+    let heading = 0;
+    // Trong vườn (lối hẹp giữa các luống) không bước chếch để khỏi giẫm lên luống.
+    for (const turn of bot.errand ? [0] : [0, 0.7, -0.7, 1.3, -1.3]) {
+      const angle = Math.atan2(dz, dx) + turn;
+      const candidate = { x: bot.pos.x + Math.cos(angle) * step, z: bot.pos.z + Math.sin(angle) * step };
+      if (turn && this.nav && !this.nav.walkable(candidate)) continue;
+      if (!this.botBlocked(bot, candidate)) {
+        next = candidate;
+        heading = headingOf(candidate.x - bot.pos.x, candidate.z - bot.pos.z);
+        bot.walk.detoured = Boolean(turn);
+        break;
+      }
+    }
+    if (!next && now - (bot.walk.yieldSince ??= now) < BOT_YIELD_MS) {
+      bot.walk.lastAt = now;
+      if (bot.moving) this.move(bot.id, { ...bot.pos, ry: bot.pos.ry, moving: false });
+      return false;
+    }
+    // Chờ lâu mà vẫn bị chắn (người đứng ngắm cảnh giữa lối): vòng rộng hơn, lùi chếch ra sau một bước cũng được.
+    for (const turn of !next && !bot.errand && this.nav ? [1.9, -1.9, 2.6, -2.6] : []) {
+      const angle = Math.atan2(dz, dx) + turn;
+      const candidate = { x: bot.pos.x + Math.cos(angle) * step, z: bot.pos.z + Math.sin(angle) * step };
+      if (this.nav.walkable(candidate) && !this.botBlocked(bot, candidate)) {
+        next = candidate;
+        heading = headingOf(candidate.x - bot.pos.x, candidate.z - bot.pos.z);
+        bot.walk.detoured = true;
+        break;
+      }
+    }
+    if (!next) {
+      next = { x: bot.pos.x + (dx / distance) * step, z: bot.pos.z + (dz / distance) * step };
+      heading = headingOf(dx, dz);
+    }
+    bot.walk.yieldSince = null;
     bot.walk.lastAt = now;
-    return this.move(bot.id, {
-      x: bot.pos.x + (dx / distance) * step,
-      z: bot.pos.z + (dz / distance) * step,
-      ry: headingOf(dx, dz),
-      moving: step < distance,
-    }).ok;
+    this.move(bot.id, { ...next, ry: heading, moving: step < distance });
+    return false;
+  }
+
+  // Bước tới next làm bot sát hơn BOT_SPOT_GAP với ai đó đang ở trước mặt (xa hơn bây giờ thì không tính).
+  botBlocked(bot, next) {
+    for (const other of this.participants.values()) {
+      if (other === bot || !other.pos) continue;
+      const after = Math.hypot(other.pos.x - next.x, other.pos.z - next.z);
+      if (after < BOT_SPOT_GAP && after < Math.hypot(other.pos.x - bot.pos.x, other.pos.z - bot.pos.z)) return true;
+    }
+    return false;
+  }
+
+  // ---- Bot làm vườn ----
+  // Lúc chọn chỗ đi tiếp (đi vòng theo waypoints: lúc tới (0, 62) hoặc (0, 74) trên lối giữa), bot có thể rẽ vào Vườn
+  // Công Đức: hỏi API việc (hái → tưới → gieo, API giữ trần 30% luống cho bot), đi tới cổng vườn rồi theo lối trong
+  // vườn tới luống, làm việc, rồi quay ra lối giữa đi tiếp. Mỗi phòng một bot làm vườn một lúc; luống đổi thì API phát
+  // garden.plot cho mọi phòng.
+  maybeStartGardenErrand(bot, now = Date.now(), point = null) {
+    const config = this.rules.bots?.garden;
+    if (!config || !this.gardenBots) return null;
+    if (point && (point.x !== 0 || (point.z !== 62 && point.z !== 74))) return null;
+    if (!point && !this.nav) return null;
+    const state = this.botState;
+    if (now < (state.nextGardenAt || 0) || Math.random() >= config.chance) return null;
+    for (const participant of this.participants.values()) if (participant.bot && participant.errand) return null;
+    state.nextGardenAt = now + randomBetween(config.cooldownMs);
+    const errand = { phase: 'asking', points: [], index: 0, task: null };
+    bot.errand = errand;
+    const still = () => this.participants.get(bot.id) === bot && bot.errand === errand;
+    errand.done = this.gardenBots.task(bot.displayName).then((task) => {
+      if (!still()) return false;
+      const plot = THIEN_GARDEN.plots.find((item) => item.id === task?.plotId);
+      if (!plot) {
+        bot.errand = null;
+        return false;
+      }
+      errand.task = task;
+      errand.plot = plot;
+      // Có bản đồ: tìm đường tới cổng vườn trước (bot có thể đang ở bất kỳ đâu trong sân).
+      const toGate = this.nav ? this.nav.route(bot.pos, THIEN_GARDEN.approach[0]) : [];
+      errand.points = [...toGate, ...THIEN_GARDEN.approach, { x: THIEN_GARDEN.walkwayX, z: plot.aisle }, { x: plot.x, z: plot.aisle }];
+      errand.phase = 'going';
+      return true;
+    }).catch(() => {
+      if (still()) bot.errand = null;
+      return false;
+    });
+    return errand;
+  }
+
+  advanceBotErrand(bot, now = Date.now()) {
+    const errand = bot.errand;
+    const speed = this.rules.bots.walk.speed;
+    if (errand.phase === 'asking' || errand.phase === 'working') return false;
+    const target = errand.points[errand.index];
+    if (!this.stepBot(bot, target, speed, now)) return true;
+    errand.index += 1;
+    if (errand.index < errand.points.length) return true;
+    if (errand.phase === 'returning') {
+      bot.errand = null;
+      return true;
+    }
+    // Tới luống: quay mặt vào luống, làm việc vài giây (API báo mọi phòng hiệu ứng gieo / tưới / hái).
+    errand.phase = 'working';
+    const { plot, task } = errand;
+    this.move(bot.id, { x: bot.pos.x, z: bot.pos.z, ry: headingOf(plot.x - bot.pos.x, plot.z - bot.pos.z), moving: false });
+    const workMs = this.rules.bots.garden.workMs || 4_000;
+    const still = () => this.participants.get(bot.id) === bot && bot.errand === errand;
+    errand.done = this.gardenBots.act({ name: bot.displayName, action: task.action, plotId: plot.id, ...(task.plantType ? { plantType: task.plantType } : {}) })
+      .catch(() => null)
+      .then((result) => new Promise((resolve) => setTimeout(() => {
+        if (still()) {
+          errand.phase = 'returning';
+          errand.index = 0;
+          errand.points = [{ x: THIEN_GARDEN.walkwayX, z: plot.aisle }, ...[...THIEN_GARDEN.approach].reverse()];
+          bot.walk.lastAt = Date.now();
+        }
+        resolve(result);
+      }, this.gardenWorkDelay ?? workMs))); // gardenWorkDelay: test rút ngắn thời gian làm việc
+    return true;
   }
 
   // ---- Phòng Lô Tô riêng ----
@@ -2357,6 +2664,7 @@ export class RoomRegistry {
     this.bauCua = options.bauCua;
     this.lotto = options.lotto;
     this.wallet = options.wallet;
+    this.gardenBots = options.gardenBots;
     this.privateRooms = options.privateRooms;
     this.ticker = null;
     this.ticking = false;
@@ -2523,6 +2831,7 @@ export class RoomRegistry {
       bauCua: this.bauCua,
       lotto: this.lotto,
       wallet: this.wallet,
+      gardenBots: this.gardenBots,
       ...(privateInfo ? { privateOwner: privateInfo.owner, onPrivateClosed: (id) => this.privateRooms?.closed(id) } : {}),
     });
     for (const name of privateInfo?.bots || []) room.addInvitedBot(name);
@@ -3371,6 +3680,20 @@ export function privateRoomApi(apiInternalUrl, key, fetcher = fetch) {
   return { info: call('/internal/private-rooms/info'), closed: (roomId) => call('/internal/private-rooms/closed')(roomId).catch(() => null) };
 }
 
+// Bot làm vườn: task(name) → { task } | null, act({ name, action, plotId, plantType }) → { ok, code? }. Lỗi mạng ném lỗi.
+export function gardenBotApi(apiInternalUrl, key, fetcher = fetch) {
+  const call = (body) => fetcher(new URL('/internal/garden/bot', apiInternalUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5_000),
+  }).then((response) => response.json());
+  return {
+    task: (name) => call({ op: 'task', name }).then((reply) => reply?.task || null),
+    act: (input) => call({ op: 'act', ...input }),
+  };
+}
+
 // Gọi API trừ / hoàn kim cương. Lỗi mạng ném lỗi (phòng coi như chưa trừ được).
 export function diamondWallet(apiInternalUrl, key, fetcher = fetch) {
   const call = (path) => (body) => fetcher(new URL(path, apiInternalUrl), {
@@ -3459,6 +3782,8 @@ export function createRealtimeServer(options = {}) {
     wallet: options.wallet || (options.apiInternalUrl ? diamondWallet(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Phòng Lô Tô riêng: hỏi API chủ phòng + bot được mời, báo API khi phòng đóng.
     privateRooms: options.privateRooms || (options.apiInternalUrl ? privateRoomApi(options.apiInternalUrl, internalKey(secret)) : undefined),
+    // Bot làm vườn: hỏi API việc cần làm, báo API khi bot đã tới luống.
+    gardenBots: options.gardenBots || (options.apiInternalUrl ? gardenBotApi(options.apiInternalUrl, internalKey(secret)) : undefined),
   });
   registry.moderation ||= moderation;
   // Bot nói bằng AI: options.botAi (test), hoặc tạo từ khóa Groq (botAiKey rỗng = chỉ câu mẫu). Câu AI viết phải qua

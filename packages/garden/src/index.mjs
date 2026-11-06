@@ -1,4 +1,4 @@
-// Vườn Công Đức: 10 luống trồng chung cho mọi phòng chánh điện, xu ảo (không đổi ra tiền thật), hạt giống, quả.
+// Vườn Công Đức: 50 luống trồng chung cho mọi phòng chánh điện, xu ảo (không đổi ra tiền thật), hạt giống, quả.
 // Mọi thay đổi số dư / kho / luống chạy trong một giao dịch SQLite (BEGIN IMMEDIATE) trên cùng file với tài khoản;
 // ràng buộc duy nhất trong cơ sở dữ liệu chặn hai người cùng chiếm một luống. Mốc tưới lấy từ đồng hồ
 // server (không tin giờ client): lần đầu có thể tưới ngay, các lần sau cách nhau 8 giờ; quá 24 giờ thì cây héo.
@@ -7,8 +7,11 @@
 // (fruiting) → hái hết: harvested, luống trống. Cây héo không bị xóa và tưới lại sẽ hồi phục. Quả chín để quá
 // FRUIT_KEEP_DAYS ngày mới expired. Lịch sử vụ, tưới, hái, giao dịch xu đều được giữ lại để đối soát.
 
-import { randomInt } from 'node:crypto';
-export const PLOT_COUNT = 10;
+import { createHash, randomInt } from 'node:crypto';
+export const PLOT_COUNT = 50;
+// Bot làm vườn (Phật tử ảo ở các phòng chánh điện) giữ tối đa 30% số luống, phần còn lại luôn để người chơi.
+export const BOT_PLOT_SHARE = 0.3;
+export const BOT_PLOT_LIMIT = Math.round(PLOT_COUNT * BOT_PLOT_SHARE);
 export const WATER_DAYS_TO_FRUIT = 3;
 export const FRUITS_PER_CROP = 10;
 export const VISITOR_HARVEST_LIMIT = 2;
@@ -67,6 +70,12 @@ export const DAILY_QUESTS = Object.freeze([
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{8,64}$/;
 const DAY_MS = 86_400_000;
 
+// Tên bot giống tên hiện trên đầu nhân vật (1–40 ký tự, không ký tự điều khiển); mã tài khoản suy ra từ tên nên cùng
+// một bot ở các phòng khác nhau chung một chủ luống.
+const validBotName = (name) => typeof name === 'string' && name.trim() === name && name.length >= 1 && name.length <= 40
+  && !/[\u0000-\u001f\u007f]/.test(name);
+export const botAccountId = (name) => `gbot-${createHash('sha256').update(String(name)).digest('hex').slice(0, 20)}`;
+
 export class GardenError extends Error {
   constructor(code) {
     super(code);
@@ -83,7 +92,7 @@ const daysBetween = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Da
 
 const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS garden_plots (
-    id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND ${PLOT_COUNT}),
+    id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 10),
     created_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS crop_cycles (
@@ -339,6 +348,15 @@ const MIGRATIONS = [
   DROP TABLE coin_transactions;
   ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
   CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);`,
+  // Mở rộng vườn lên 50 luống: dựng lại bảng luống với giới hạn id mới (chạy khi tắt khóa ngoại, xem bên dưới),
+  // vụ trồng cũ giữ nguyên số luống.
+  `CREATE TABLE garden_plots_new (
+    id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND ${PLOT_COUNT}),
+    created_at INTEGER NOT NULL
+  );
+  INSERT INTO garden_plots_new SELECT id, created_at FROM garden_plots;
+  DROP TABLE garden_plots;
+  ALTER TABLE garden_plots_new RENAME TO garden_plots;`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -413,19 +431,26 @@ export function settleBauCua(bets, dice) {
 
 // db: kết nối DatabaseSync đã có bảng accounts (dùng chung với @chanh-dien/accounts).
 export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_Angeles' }) {
-  db.exec('PRAGMA foreign_keys = ON;');
   db.exec('CREATE TABLE IF NOT EXISTS garden_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
   const version = Number(db.prepare("SELECT value FROM garden_meta WHERE key = 'schema_version'").get()?.value || 0);
-  for (let index = version; index < MIGRATIONS.length; index += 1) {
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      db.exec(MIGRATIONS[index]);
-      db.prepare("INSERT INTO garden_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(index + 1));
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
+  // Dựng lại bảng đang được bảng khác tham chiếu (garden_plots) phải tắt khóa ngoại trong lúc đổi (quy trình 12 bước
+  // của SQLite); PRAGMA này không đổi được trong giao dịch nên đặt trước, kiểm tra lại khóa ngoại trước khi commit.
+  if (version < MIGRATIONS.length) db.exec('PRAGMA foreign_keys = OFF;');
+  try {
+    for (let index = version; index < MIGRATIONS.length; index += 1) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.exec(MIGRATIONS[index]);
+        if (db.prepare('PRAGMA foreign_key_check(crop_cycles)').all().length) throw new Error('garden migration broke foreign keys');
+        db.prepare("INSERT INTO garden_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(index + 1));
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     }
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON;');
   }
   const insertPlot = db.prepare('INSERT OR IGNORE INTO garden_plots (id, created_at) VALUES (?, ?)');
   for (let id = 1; id <= PLOT_COUNT; id += 1) insertPlot.run(id, now());
@@ -494,6 +519,10 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       WHERE r.round_id IS NULL GROUP BY s.round_id HAVING MAX(s.at) < ?`),
     gameRound: db.prepare('INSERT INTO game_rounds (account_id, game, bets, dice, staked, payout, balance_after, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
     choreRewardCount: db.prepare('SELECT COUNT(*) AS n FROM chore_reward_events WHERE account_id = ? AND day = ? AND chore = ?'),
+    botAccount: db.prepare('INSERT OR IGNORE INTO accounts (id, display_name, created_at) VALUES (?, ?, ?)'),
+    botCrops: db.prepare(`SELECT plot_id AS plotId, owner_account AS owner, status, last_water_at AS lastWaterAt, planted_at AS plantedAt
+      FROM crop_cycles WHERE status IN ('growing', 'fruiting') AND owner_account LIKE 'gbot-%'`),
+    takenPlots: db.prepare("SELECT plot_id AS plotId FROM crop_cycles WHERE status IN ('growing', 'fruiting')"),
     choreReward: db.prepare(`INSERT INTO chore_reward_events
       (account_id, event_key, day, chore, reward, balance_after, at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
   };
@@ -724,13 +753,78 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     timeZone,
     plants: PLANTS,
 
-    // Toàn bộ 10 luống (khách xem được). changed: luống vừa hết hạn để phát realtime.
+    // Toàn bộ luống (khách xem được). changed: luống vừa hết hạn để phát realtime.
     snapshot() {
       const changed = transaction(expireStale);
       return { day: today(), timeZone, plots: Array.from({ length: PLOT_COUNT }, (_, index) => plotView(index + 1)), expired: changed };
     },
 
     plot: plotView,
+
+    // ---- Bot làm vườn (máy realtime gọi qua API nội bộ) ----
+    // Mỗi tên bot là một tài khoản riêng (mã gbot-…, không có mật khẩu / Google nên không đăng nhập được). Bot không
+    // dùng ví hay hạt giống; chỉ chăm luống của bot, không hái quả trên luống người chơi. Số luống bot giữ không vượt
+    // BOT_PLOT_LIMIT. botTask chọn việc (hái → tưới → gieo); botAct làm việc đó khi bot đã đi tới luống.
+    botTask(name, random = Math.random) {
+      if (!validBotName(name)) return null;
+      return transaction(() => {
+        expireStale();
+        const crops = q.botCrops.all();
+        const pick = (list) => list[Math.floor(random() * list.length)];
+        const ripe = crops.filter((crop) => crop.status === 'fruiting');
+        if (ripe.length) return { action: 'harvest', plotId: pick(ripe).plotId };
+        const timestamp = now();
+        const thirsty = crops.filter((crop) => crop.status === 'growing' && timestamp >= (crop.lastWaterAt === null ? crop.plantedAt : crop.lastWaterAt + WATER_INTERVAL_MS));
+        if (thirsty.length) return { action: 'water', plotId: pick(thirsty).plotId };
+        if (crops.length >= BOT_PLOT_LIMIT) return null;
+        const taken = new Set(q.takenPlots.all().map((row) => row.plotId));
+        const empty = Array.from({ length: PLOT_COUNT }, (_, index) => index + 1).filter((id) => !taken.has(id));
+        if (!empty.length) return null;
+        const types = Object.keys(PLANTS);
+        return { action: 'plant', plotId: pick(empty), plantType: pick(types) };
+      });
+    },
+
+    // Trả { ok, code?, plots: [luống đã đổi] }.
+    botAct(name, { action, plotId, plantType } = {}) {
+      if (!validBotName(name) || !['plant', 'water', 'harvest'].includes(action) || !validPlot(plotId)
+        || (action === 'plant' && !validPlant(plantType))) return { ok: false, code: 'INVALID', plots: [] };
+      return transaction(() => {
+        const expired = expireStale();
+        const done = (plotIds, extra = {}) => ({ ok: true, ...extra, plots: [...new Set([...expired, ...plotIds])].map(plotView) });
+        const fail = (code) => ({ ok: false, code, plots: expired.map(plotView) });
+        const crop = q.active.get(plotId);
+        db.exec('SAVEPOINT garden_bot');
+        try {
+          let result;
+          if (action === 'plant') {
+            if (crop) throw new GardenError('PLOT_TAKEN');
+            if (q.botCrops.all().length >= BOT_PLOT_LIMIT) throw new GardenError('BOT_LIMIT');
+            const accountId = botAccountId(name);
+            q.botAccount.run(accountId, name, now());
+            q.insertCrop.run(plotId, accountId, plantType, today(), now());
+            result = done([plotId]);
+          } else {
+            // Tưới / hái thay cho chủ luống là bot (bot chăm chung vườn của bot); luống người chơi thì bỏ qua.
+            if (!crop || !crop.owner_account.startsWith('gbot-')) throw new GardenError('NOT_BOT_PLOT');
+            const { plotIds, ...detail } = actions[action](crop.owner_account, { plotId });
+            result = done(plotIds, detail);
+          }
+          db.exec('RELEASE garden_bot');
+          return result;
+        } catch (error) {
+          db.exec('ROLLBACK TO garden_bot');
+          db.exec('RELEASE garden_bot');
+          if (!(error instanceof GardenError)) throw error;
+          return fail(error.code);
+        }
+      });
+    },
+
+    // Số luống bot đang giữ (cho test / trang quản trị).
+    botPlots() {
+      return q.botCrops.all().map((crop) => crop.plotId).sort((a, b) => a - b);
+    },
 
     me(accountId) {
       return transaction(() => me(accountId));

@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
 import { createCommunityProjectStore } from '@chanh-dien/community-project';
 import {
-  CHORE_REWARD_COINS, CHORE_REWARD_DAILY_LIMIT, createGardenStore, FRUITS_PER_CROP,
-  gardenDay, PLANTS, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS,
+  BOT_PLOT_LIMIT, botAccountId, CHORE_REWARD_COINS, CHORE_REWARD_DAILY_LIMIT, createGardenStore, FRUITS_PER_CROP,
+  gardenDay, PLANTS, PLOT_COUNT, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS,
 } from '../src/index.mjs';
 
 function setup() {
@@ -103,7 +103,7 @@ test('gieo: người đầu tiên chiếm luống, người sau bị từ chối
   assert.equal(act(binh, 'plant', { plotId: 3, plantType: 'apple' }).code, 'PLOT_TAKEN');
   assert.deepEqual(garden.me(binh).seeds, { apple: 1 });
   assert.equal(act(binh, 'plant', { plotId: 4, plantType: 'orange' }).code, 'NO_SEED');
-  assert.equal(act(binh, 'plant', { plotId: 11, plantType: 'apple' }).code, 'INVALID');
+  assert.equal(act(binh, 'plant', { plotId: 51, plantType: 'apple' }).code, 'INVALID');
 });
 
 test('tưới: lần đầu ngay sau khi gieo, sau đó cách 8 giờ; đủ 3 lần ra đúng 10 quả', () => {
@@ -446,4 +446,77 @@ test('Lô Tô: mua tối đa 2 vé (10 xu/vé) + tự đánh dấu 5 xu; kinh h�
   tick(LOTTO_STALE_MS + 1);
   assert.equal(garden.refundStaleLotto(), 1);
   assert.equal(coins(binh), startBinh + 10);
+});
+
+test('vườn 50 luống; bot giữ tối đa 30% luống, tự tưới rồi hái luống của bot, không đụng luống người chơi', () => {
+  const { garden, user, act, tick } = setup();
+  assert.equal(PLOT_COUNT, 50);
+  assert.equal(BOT_PLOT_LIMIT, 15);
+  assert.equal(garden.snapshot().plots.length, 50);
+  const an = user('an_lac');
+  act(an, 'buy', { plantType: 'apple', quantity: 1 });
+  assert.equal(act(an, 'plant', { plotId: 50, plantType: 'apple' }).ok, true);
+  // Gieo tới trần: task trả plant cho tới khi bot giữ đủ BOT_PLOT_LIMIT luống, sau đó không còn việc gieo.
+  const names = ['Minh Tâm', 'Huệ An', 'Diệu Hạnh'];
+  // Hạt vừa gieo tưới được ngay nên task xen kẽ gieo / tưới; tưới trước khi gieo luống mới.
+  for (let index = 0; garden.botPlots().length < BOT_PLOT_LIMIT; index += 1) {
+    assert.ok(index < BOT_PLOT_LIMIT * 2, 'phải đủ trần sau ít lượt');
+    const name = names[index % names.length];
+    const task = garden.botTask(name);
+    assert.equal(task.action, index % 2 ? 'water' : 'plant');
+    assert.notEqual(task.plotId, 50, 'không gieo / tưới luống đã có người');
+    assert.equal(garden.botAct(name, task).ok, true);
+  }
+  assert.equal(garden.botPlots().length, BOT_PLOT_LIMIT);
+  assert.equal(garden.botTask('Minh Tâm')?.action, 'water', 'luống cuối vừa gieo cần tưới');
+  assert.equal(garden.botAct('Minh Tâm', garden.botTask('Minh Tâm')).ok, true);
+  assert.equal(garden.botTask('Minh Tâm'), null, 'đủ trần, tưới xong: chưa có việc tới mốc tưới sau');
+  const empty = garden.snapshot().plots.find((plot) => !plot.crop).id;
+  assert.equal(garden.botAct('Minh Tâm', { action: 'plant', plotId: empty, plantType: 'apple' }).code, 'BOT_LIMIT');
+  // Bot không tưới / hái luống của người chơi.
+  assert.equal(garden.botAct('Minh Tâm', { action: 'water', plotId: 50 }).code, 'NOT_BOT_PLOT');
+  // Tưới thêm 2 lần (cách 8 giờ) cho mọi luống bot là đủ 3 lần, rồi hái.
+  tick(WATER_INTERVAL_MS);
+  for (let round = 0; round < 2; round += 1) {
+    for (;;) {
+      const task = garden.botTask('Huệ An');
+      if (task?.action !== 'water') break;
+      assert.equal(garden.botAct('Huệ An', task).ok, true);
+    }
+    tick(WATER_INTERVAL_MS);
+  }
+  const ripe = garden.botTask('Huệ An');
+  assert.equal(ripe.action, 'harvest');
+  const harvested = garden.botAct('Huệ An', ripe);
+  assert.equal(harvested.harvested, FRUITS_PER_CROP, 'bot hái thay chủ luống là bot: hái hết');
+  assert.equal(harvested.plots[0].crop, null);
+  assert.equal(garden.botPlots().length, BOT_PLOT_LIMIT - 1);
+  // Luống người chơi vẫn còn nguyên của người chơi.
+  assert.equal(garden.plot(50).crop.ownerName, 'an_lac');
+  assert.match(botAccountId('Minh Tâm'), /^gbot-[0-9a-f]{20}$/);
+  assert.equal(garden.botTask(''), null);
+  assert.equal(garden.botAct('Minh Tâm', { action: 'plant', plotId: 51, plantType: 'apple' }).code, 'INVALID');
+});
+
+test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11–50, khóa ngoại vẫn bật', () => {
+  const { accounts, garden, user, act, now } = setup();
+  const an = user('an_lac');
+  act(an, 'buy', { plantType: 'peach', quantity: 2 });
+  act(an, 'plant', { plotId: 3, plantType: 'peach' });
+  const db = accounts.database;
+  // Dựng lại đúng lược đồ cũ: bảng luống giới hạn 1–10, phiên bản lược đồ trước bản mở rộng.
+  db.exec(`PRAGMA foreign_keys = OFF;
+    CREATE TABLE garden_plots_old (id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 10), created_at INTEGER NOT NULL);
+    INSERT INTO garden_plots_old SELECT id, created_at FROM garden_plots WHERE id <= 10;
+    DROP TABLE garden_plots;
+    ALTER TABLE garden_plots_old RENAME TO garden_plots;
+    PRAGMA foreign_keys = ON;`);
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 1 AS TEXT) WHERE key = 'schema_version'").run();
+  assert.throws(() => db.prepare('INSERT INTO garden_plots (id, created_at) VALUES (11, 1)').run());
+  const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
+  assert.equal(upgraded.plot(3).crop.ownerName, 'an_lac');
+  assert.equal(upgraded.snapshot().plots.length, 50);
+  assert.equal(upgraded.perform(an, 'plant', { plotId: 42, plantType: 'peach' }, 'key-upgrade-1').ok, true);
+  assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+  assert.equal(garden.plot(42).crop.ownerName, 'an_lac');
 });

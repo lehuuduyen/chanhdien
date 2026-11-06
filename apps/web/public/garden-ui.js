@@ -1,4 +1,4 @@
-// Vườn Công Đức ở trang chánh điện: tải 10 luống từ API, nhận cập nhật realtime (garden.plot), bảng thông tin luống
+// Vườn Công Đức ở trang chánh điện: tải 50 luống từ API, nhận cập nhật realtime (garden.plot), bảng thông tin luống
 // (gieo / tưới / hái) và quầy hạt giống (ví xu ảo, mua hạt, bán / dâng quả, lịch sử). Mọi số liệu do server quyết định;
 // mỗi thao tác gửi một Idempotency-Key riêng (gửi lại khi mạng lỗi dùng đúng khóa đó). Chữ người dùng (tên chủ luống)
 // chỉ đưa ra bằng textContent.
@@ -50,10 +50,11 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
     return hours ? t('garden.timeHoursMinutes', { h: hours, m: rest }) : t('garden.timeMinutes', { m: rest });
   };
 
-  // Nhãn trên luống (chữ ngắn, một dòng).
+  // Nhãn trên luống (chữ ngắn, một dòng). Luống trống không có nhãn (50 luống, nhãn trống che hết vườn); biển số
+  // cạnh luống và vòng sáng khi đứng gần đã đủ để chạm vào.
   function labelFor(plot) {
     const crop = plot.crop;
-    if (!crop) return t('garden.label.empty', { n: plot.id });
+    if (!crop) return '';
     const progress = wilted(crop) ? '🥀' : crop.stage === 'fruiting' ? `${ICONS[crop.plantType]}×${crop.fruitsLeft}` : `💧${crop.waterDays}/${crop.waterNeeded}`;
     return `${plot.id} · ${plantName(crop.plantType)} · ${crop.ownerName} · ${progress}`;
   }

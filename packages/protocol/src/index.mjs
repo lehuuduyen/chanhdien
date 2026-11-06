@@ -57,7 +57,8 @@ export const CHAT_HISTORY_MAX = 100;
 // Báo cáo người chơi: lý do cố định, kèm ghi chú ngắn tùy chọn.
 export const REPORT_REASONS = Object.freeze(['spam', 'harassment', 'inappropriate', 'other']);
 const RESULT_SIDES = ['from', 'to', 'draw'];
-// Vườn Công Đức: 10 luống chung; server API quyết định mọi thay đổi, realtime chỉ phát lại.
+// Vườn Công Đức: 50 luống chung; server API quyết định mọi thay đổi, realtime chỉ phát lại.
+export const GARDEN_PLOT_MAX = 50;
 export const GARDEN_PLANTS = Object.freeze(['apple', 'orange', 'peach']);
 export const GARDEN_STAGES = Object.freeze(['seed', 'sprout', 'young', 'fruiting']);
 export const GARDEN_EFFECTS = Object.freeze(['plant', 'water', 'harvest']);
@@ -672,11 +673,11 @@ const serverSchemas = {
       && (value.canWater === undefined || typeof value.canWater === 'boolean')
       && (value.wilted === undefined || typeof value.wilted === 'boolean')
       && ['lastWateredAt', 'nextWaterAt', 'wiltsAt'].every((key) => value[key] === undefined || (isInteger(value[key]) && value[key] >= 0)));
-    const plot = (value) => isRecord(value) && exactKeys(value, ['id', 'crop']) && isInteger(value.id) && value.id >= 1 && value.id <= 10 && crop(value.crop);
+    const plot = (value) => isRecord(value) && exactKeys(value, ['id', 'crop']) && isInteger(value.id) && value.id >= 1 && value.id <= GARDEN_PLOT_MAX && crop(value.crop);
     return exactKeys(message, ['v', 'type', 'epoch', 'plots'], ['effect'])
-      && Array.isArray(message.plots) && message.plots.length >= 1 && message.plots.length <= 10 && message.plots.every(plot)
+      && Array.isArray(message.plots) && message.plots.length >= 1 && message.plots.length <= GARDEN_PLOT_MAX && message.plots.every(plot)
       && (message.effect === undefined || (isRecord(message.effect) && exactKeys(message.effect, ['plotId', 'kind', 'by'])
-        && isInteger(message.effect.plotId) && message.effect.plotId >= 1 && message.effect.plotId <= 10
+        && isInteger(message.effect.plotId) && message.effect.plotId >= 1 && message.effect.plotId <= GARDEN_PLOT_MAX
         && GARDEN_EFFECTS.includes(message.effect.kind) && isString(message.effect.by, LIMITS.displayName)));
   },
   'community.project'(message) {

@@ -7,6 +7,7 @@
     "@chanh-dien/protocol": "0.1.0",
     "@chanh-dien/room-directory": "0.1.0",
     "@chanh-dien/room-rules": "0.1.0",
+    "@chanh-dien/scene-engine": "0.1.0",
     "@chanh-dien/session-token": "0.1.0",
     "ws": "8.22.1"
   }

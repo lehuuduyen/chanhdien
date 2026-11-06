@@ -481,15 +481,23 @@ function gravelTexture() {
 }
 
 // Số luống 1–10 trên nền gỗ, xếp ngang trong một texture (mỗi ô một số).
+// Số luống 1–50 trên một texture: lưới PLOT_NUMBER_COLUMNS × PLOT_NUMBER_ROWS ô, ô (id − 1) đọc từ trái sang phải,
+// trên xuống dưới.
+const PLOT_NUMBER_COLUMNS = 10;
+const PLOT_NUMBER_ROWS = 5;
 function plotNumberTexture() {
-  return canvasTexture(640, 64, (ctx, w, h) => {
+  return canvasTexture(640, 64 * PLOT_NUMBER_ROWS, (ctx, w, h) => {
     ctx.fillStyle = '#8a5a34';
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#fff3d6';
-    ctx.font = 'bold 44px system-ui, sans-serif';
+    ctx.font = 'bold 40px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (let index = 0; index < 10; index += 1) ctx.fillText(String(index + 1), (index + 0.5) * (w / 10), h / 2 + 2);
+    const cellW = w / PLOT_NUMBER_COLUMNS;
+    const cellH = h / PLOT_NUMBER_ROWS;
+    for (let index = 0; index < PLOT_NUMBER_COLUMNS * PLOT_NUMBER_ROWS; index += 1) {
+      ctx.fillText(String(index + 1), ((index % PLOT_NUMBER_COLUMNS) + 0.5) * cellW, (Math.floor(index / PLOT_NUMBER_COLUMNS) + 0.5) * cellH + 2);
+    }
   });
 }
 
@@ -563,12 +571,17 @@ function addGarden(batch, m, garden, pickables, root, signs) {
     batch.add(new THREE.CylinderGeometry(0.015, 0.015, 0.55, 5), m.wood, { position: [x + 0.12, 0.72, z], rotation: [0, 0, -0.6] });
     batch.add(new THREE.SphereGeometry(0.07, 8, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), m.wood, { position: [x + 0.28, 0.95, z] });
   }
-  // Biển số luống: một texture ghép (số 1–10) cho mọi biển, gộp chung một lượt vẽ.
+  // Biển số luống: một texture ghép (số 1–50) cho mọi biển, gộp chung một lượt vẽ. Texture lật dọc khi nạp nên
+  // hàng ô đầu tiên (trên cùng canvas) ứng với v gần 1.
   const signPlane = (id) => {
     const plane = new THREE.PlaneGeometry(0.42, 0.26);
     const uv = plane.attributes.uv;
-    const cell = (id - 1) % 10;
-    for (let index = 0; index < uv.count; index += 1) uv.setX(index, (cell + uv.getX(index)) / 10);
+    const cell = (id - 1) % (PLOT_NUMBER_COLUMNS * PLOT_NUMBER_ROWS);
+    const column = cell % PLOT_NUMBER_COLUMNS;
+    const row = Math.floor(cell / PLOT_NUMBER_COLUMNS);
+    for (let index = 0; index < uv.count; index += 1) {
+      uv.setXY(index, (column + uv.getX(index)) / PLOT_NUMBER_COLUMNS, (PLOT_NUMBER_ROWS - 1 - row + uv.getY(index)) / PLOT_NUMBER_ROWS);
+    }
     return plane;
   };
   for (const plot of garden.plots || []) {

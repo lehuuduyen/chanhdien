@@ -1,6 +1,6 @@
 # @chanh-dien/garden — Vườn Công Đức
 
-10 luống trồng chung cho mọi phòng chánh điện, xu ảo trong chùa (không đổi ra tiền thật).
+50 luống trồng chung cho mọi phòng chánh điện, xu ảo trong chùa (không đổi ra tiền thật).
 
 ## Luật
 
@@ -16,6 +16,7 @@
 | Dâng quả | thành viên | ghi `fruit_offerings` |
 | Héo | tự động | quá 24 giờ kể từ khi gieo/lần tưới gần nhất → cây héo nhưng không mất; tưới lại thì hồi phục |
 | Hết hạn | tự động | quả chín để quá 7 ngày → `expired`, luống trống |
+| Bot làm vườn | máy realtime (`POST /internal/garden/bot`, khóa nội bộ) | bot giữ tối đa 30% số luống (`BOT_PLOT_LIMIT` = 15); không dùng ví / hạt; chỉ tưới và hái luống của bot (hái hết quả); mỗi tên bot là một tài khoản `gbot-…` không đăng nhập được |
 
 ## Bảo đảm
 
@@ -32,4 +33,4 @@
 
 `garden_meta` (phiên bản schema), `garden_plots`, `crop_cycles`, `crop_watering_events`, `crop_harvest_events`, `seed_inventory`, `fruit_inventory`, `coin_wallets`, `coin_transactions`, `fruit_offerings`, `garden_requests` (khóa idempotency).
 
-Migration chạy tự động khi mở store, theo `garden_meta.schema_version`; bản 2 thêm `crop_cycles.last_water_at` và bỏ khóa tưới theo ngày. Các bảng nằm chung file SQLite với tài khoản (`.data/app.db`) và có khóa ngoại tới `accounts(id)`.
+Migration chạy tự động khi mở store, theo `garden_meta.schema_version`; bản 2 thêm `crop_cycles.last_water_at` và bỏ khóa tưới theo ngày; bản cuối dựng lại `garden_plots` cho 50 luống (tắt khóa ngoại trong lúc đổi, vụ cũ giữ nguyên số luống). Các bảng nằm chung file SQLite với tài khoản (`.data/app.db`) và có khóa ngoại tới `accounts(id)`.

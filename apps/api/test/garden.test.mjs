@@ -37,11 +37,11 @@ async function signUp(options, username) {
 let serial = 0;
 const key = () => `test-key-${(serial += 1).toString().padStart(6, '0')}`;
 
-test('vườn: khách xem được 10 luống nhưng không gieo / mua được', async () => {
+test('vườn: khách xem được 50 luống nhưng không gieo / mua được', async () => {
   const options = setup();
   const view = await request(options, 'GET', '/api/v1/garden');
   assert.equal(view.status, 200);
-  assert.equal(view.json.plots.length, 10);
+  assert.equal(view.json.plots.length, 50);
   assert.equal(view.json.plants.apple.seedPrice, 10);
   assert.equal((await request(options, 'POST', '/api/v1/garden/buy', { body: { plantType: 'apple', quantity: 1 }, headers: { 'idempotency-key': key() } })).status, 401);
   assert.equal((await request(options, 'GET', '/api/v1/garden/me')).status, 401);
@@ -112,4 +112,30 @@ test('vườn: gieo / tưới báo realtime để mọi phòng cùng thấy; ng�
   assert.deepEqual(received.map((item) => [item.url, item.body.effect?.kind]), [['/internal/garden', 'plant'], ['/internal/garden', 'water']]);
   assert.equal(received[0].body.plots[0].crop.ownerName, 'an.lac');
   assert.ok(received[0].key, 'gọi realtime có khóa nội bộ');
+});
+
+test('API nội bộ bot làm vườn: cần khóa máy, gieo luống trống và báo realtime', async () => {
+  const notified = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    notified.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response('{}');
+  };
+  try {
+    const options = setup({ realtimeInternalUrl: 'http://realtime.test' });
+    const url = '/internal/garden/bot';
+    assert.equal((await request(options, 'POST', url, { body: { op: 'task', name: 'Minh Tâm' } })).status, 403);
+    const headers = { 'x-internal-key': internalKey(SECRET) };
+    const task = await request(options, 'POST', url, { body: { op: 'task', name: 'Minh Tâm' }, headers });
+    assert.equal(task.status, 200);
+    assert.equal(task.json.task.action, 'plant');
+    const done = await request(options, 'POST', url, { body: { op: 'act', name: 'Minh Tâm', ...task.json.task }, headers });
+    assert.equal(done.status, 200);
+    assert.equal(done.json.plots[0].crop.ownerName, 'Minh Tâm');
+    assert.deepEqual(notified.at(-1).body.effect, { plotId: task.json.task.plotId, kind: 'plant', by: 'Minh Tâm' });
+    assert.equal((await request(options, 'POST', url, { body: { op: 'act', name: 'Minh Tâm', ...task.json.task }, headers })).json.code, 'PLOT_TAKEN');
+    assert.equal((await request(options, 'POST', url, { body: { op: 'act', name: '', action: 'plant', plotId: 1, plantType: 'apple' }, headers })).status, 400);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
