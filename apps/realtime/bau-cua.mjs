@@ -8,6 +8,7 @@
 // Tài Xỉu dùng chung bàn này (rules.game = 'tai-xiu'): khác ô cược, cách lắc (3 số 1–6) và có giữ 10 ván gần nhất.
 import { createHash, randomInt } from 'node:crypto';
 import { BAU_CUA_ANIMALS, PROTOCOL_VERSION, TAI_XIU_SPOTS } from '@chanh-dien/protocol';
+import { RESUME_GRACE_MS } from './loto.mjs';
 
 const STATE_THROTTLE_MS = 300;
 const SETTLE_ATTEMPTS = 3;
@@ -46,12 +47,92 @@ export class BauCuaTable {
     this.timer = null;
     this.stateTimer = null;
     this.running = false;
+    // Tăng mỗi lần trạng thái bàn đổi: máy realtime lưu snapshot khi số này đổi.
+    this.revision = 0;
+    this.restored = null;
   }
 
   start() {
     if (this.running) return;
     this.running = true;
+    if (this.resume()) return;
     this.nextRound();
+  }
+
+  // ---- Lưu / dựng lại ván (deploy, máy chết) ----
+  // Cược người thật nằm ở API; bản ghi giữ tổng cược, cược từng người và xúc xắc đã lắc (lắc trước khi chốt) để máy
+  // mới chốt đúng ván với cùng roundId và cùng kết quả. Cược bot chỉ là trang trí nên giữ tổng, bỏ chi tiết.
+  toRecord() {
+    const round = this.round;
+    if (!round) return null;
+    return {
+      serial: this.serial,
+      history: this.history,
+      round: {
+        id: round.id, phase: round.phase, endsAt: round.endsAt, totals: round.totals, botTotals: round.botTotals,
+        bettors: [...round.bettors], mine: [...round.mine], dice: round.dice, rolled: round.rolled || null,
+        winners: round.winners, void: round.void,
+      },
+    };
+  }
+
+  restoreRecord(record) {
+    const round = record?.round;
+    if (!round || typeof round.id !== 'string' || !['betting', 'rolling', 'result'].includes(round.phase)) return false;
+    const spots = this.definition.spots;
+    const amounts = (value) => Object.fromEntries(spots.map((spot) => [spot, Number.isSafeInteger(value?.[spot]) && value[spot] >= 0 ? value[spot] : 0]));
+    const dice = (value) => (Array.isArray(value) && value.length === 3 ? value : null);
+    this.serial = Number.isSafeInteger(record.serial) ? record.serial : this.serial;
+    if (Array.isArray(record.history) && this.historyRounds) this.history = record.history.filter((item) => dice(item)).slice(0, this.historyRounds);
+    this.round = {
+      id: round.id.slice(0, 79),
+      phase: round.phase,
+      endsAt: Number(round.endsAt) || this.now(),
+      totals: amounts(round.totals),
+      botTotals: amounts(round.botTotals),
+      bettors: new Set((Array.isArray(round.bettors) ? round.bettors : []).filter((id) => typeof id === 'string')),
+      botBettors: new Set(),
+      botMine: new Map(),
+      botActions: new Map(),
+      mine: new Map((Array.isArray(round.mine) ? round.mine : []).filter((entry) => Array.isArray(entry) && typeof entry[0] === 'string')),
+      pending: new Set(),
+      dice: dice(round.dice),
+      rolled: dice(round.rolled),
+      winners: Array.isArray(round.winners) ? round.winners : null,
+      void: Boolean(round.void),
+    };
+    this.restored = true;
+    return true;
+  }
+
+  // Chạy tiếp ván vừa dựng lại; đồng hồ lùi lại ít nhất RESUME_GRACE_MS để người chơi kịp nối lại.
+  resume() {
+    if (!this.restored || !this.round) return false;
+    this.restored = null;
+    const round = this.round;
+    const now = this.now();
+    if (round.phase === 'result') {
+      const wait = Math.max(1_000, round.endsAt - now);
+      round.endsAt = now + wait;
+      this.timer = setTimeout(() => this.nextRound(), wait);
+    } else {
+      // Đang cược hoặc đang lắc dở: lắc (lại) khi hết giờ; roll() dùng xúc xắc đã lắc nếu có.
+      round.phase = 'betting';
+      const wait = Math.max(RESUME_GRACE_MS, round.endsAt - now);
+      round.endsAt = now + wait;
+      this.timer = setTimeout(() => this.roll(), wait);
+    }
+    this.timer.unref?.();
+    this.broadcastState();
+    return true;
+  }
+
+  // Rút máy: chờ lần lắc đang chốt tiền xong (tối đa 10 giây) rồi dừng bàn.
+  async quiesce(limitMs = 10_000) {
+    const until = Date.now() + limitMs;
+    while (this.round?.phase === 'rolling' && Date.now() < until) await sleep(100);
+    await Promise.allSettled([...(this.round?.pending || [])]);
+    this.stop();
   }
 
   stop() {
@@ -119,7 +200,10 @@ export class BauCuaTable {
     this.broadcastState();
     // Lệnh đặt cược gửi trước giờ đóng nhưng API chưa trả lời: chờ xong để ván chốt đủ cược.
     await Promise.allSettled([...round.pending]);
-    const dice = this.definition.roll(this.random);
+    // Lắc một lần cho mỗi ván: máy dựng lại ván đang lắc dở dùng lại đúng xúc xắc đã gửi API chốt.
+    const dice = round.rolled || this.definition.roll(this.random);
+    round.rolled = dice;
+    this.revision += 1;
     let settled = { ok: true, results: [] };
     if (round.bettors.size) {
       settled = null;
@@ -253,6 +337,7 @@ export class BauCuaTable {
   }
 
   broadcastState() {
+    this.revision += 1;
     clearTimeout(this.stateTimer);
     this.stateTimer = null;
     const message = this.stateMessage();

@@ -131,8 +131,10 @@ Chỉ khi CI của `main` xanh, workflow `Deploy production` mới:
 5. Restart từng realtime node; trước mỗi node phải còn một node khác khỏe để nhận lại phòng.
 6. Kiểm tra domain gốc, API và cả hai realtime endpoint từ bên ngoài.
 
-Script hiện dùng graceful SIGTERM: realtime ghi snapshot, trả lease và client nối lại với jitter. Đây là rolling
-failover, chưa phải drain chờ đúng 0 phòng; có thể có một lần reconnect ngắn khi node được cập nhật.
+Script hiện dùng graceful SIGTERM: realtime chờ ván đang lắc / chốt tiền xong, ghi snapshot (gồm cả ván Lô Tô /
+Bầu Cua / Tài Xỉu đang chơi), trả lease và client nối lại với jitter; máy nhận phòng chơi tiếp đúng ván đó. Kế hoạch
+`addbot` được ghi vào `DATA_DIR/realtime-<NODE_ID>.json` và áp dụng lại khi node bật. Đây là rolling failover,
+chưa phải drain chờ đúng 0 phòng; có thể có một lần reconnect ngắn khi node được cập nhật.
 
 ## 5. Phát hành lần đầu và rollback
 

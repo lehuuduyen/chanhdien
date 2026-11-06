@@ -11,6 +11,9 @@ import { createHash, randomInt } from 'node:crypto';
 import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
 
 const STATE_THROTTLE_MS = 300;
+// Dựng lại ván sau khi máy realtime khởi động lại (deploy): cho người chơi vài giây nối lại trước khi ván chạy tiếp.
+export const RESUME_GRACE_MS = 4_000;
+const QUIESCE_LIMIT_MS = 10_000;
 // Ít nhất 2 người chơi mới mở ván (một người thì không có ai để thắng thua).
 export const LOTTO_MIN_PLAYERS = 2;
 const SETTLE_ATTEMPTS = 3;
@@ -63,12 +66,107 @@ export class LottoTable {
     this.timer = null;
     this.stateTimer = null;
     this.running = false;
+    // Tăng mỗi lần trạng thái bàn đổi: máy realtime lưu snapshot khi số này đổi.
+    this.revision = 0;
+    // Ván đọc từ snapshot, chờ start() để chạy tiếp.
+    this.restored = null;
   }
 
   start() {
     if (this.running) return;
     this.running = true;
+    if (this.resume()) return;
     this.nextRound();
+  }
+
+  // ---- Lưu / dựng lại ván (deploy, máy chết) ----
+  // Vé người thật vẫn nằm ở API (đã trừ xu); bản ghi này chỉ giúp máy mới gọi số tiếp đúng ván, rồi chốt bằng cùng
+  // roundId (API chốt idempotent). Vé bot đi kèm tên bot để còn hiện người thắng khi bot cũ không quay lại.
+  toRecord() {
+    const round = this.round;
+    if (!round) return null;
+    const names = {};
+    for (const botId of round.botTickets.keys()) names[botId] = this.nameOf(botId);
+    return {
+      serial: this.serial,
+      round: {
+        id: round.id, phase: round.phase, endsAt: round.endsAt, nextCallAt: round.nextCallAt, called: [...round.called],
+        tickets: [...round.tickets], botTickets: [...round.botTickets], names: { ...round.names, ...names },
+        autoMark: [...round.autoMark], claims: round.claims, botClaims: round.botClaims, winners: round.winners, void: round.void,
+      },
+    };
+  }
+
+  restoreRecord(record) {
+    const round = record?.round;
+    const ticketList = (value) => (Array.isArray(value) ? value : []).filter((entry) => Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1]));
+    if (!round || typeof round.id !== 'string' || !['buying', 'calling', 'claiming', 'settling', 'result'].includes(round.phase)) return false;
+    const called = (Array.isArray(round.called) ? round.called : []).filter((number) => Number.isSafeInteger(number) && number >= 1 && number <= 90);
+    this.serial = Number.isSafeInteger(record.serial) ? record.serial : this.serial;
+    this.round = {
+      id: round.id.slice(0, 79),
+      phase: round.phase === 'settling' ? 'claiming' : round.phase,
+      endsAt: Number(round.endsAt) || this.now(),
+      nextCallAt: Number(round.nextCallAt) || null,
+      called,
+      calledSet: new Set(called),
+      tickets: new Map(ticketList(round.tickets)),
+      botTickets: new Map(ticketList(round.botTickets)),
+      names: round.names && typeof round.names === 'object' ? round.names : {},
+      autoMark: new Set((Array.isArray(round.autoMark) ? round.autoMark : []).filter((id) => typeof id === 'string')),
+      pending: new Set(),
+      claims: Array.isArray(round.claims) ? round.claims : [],
+      botClaims: Array.isArray(round.botClaims) ? round.botClaims : [],
+      botSeen: new Map(),
+      locks: new Map(),
+      waiting: [],
+      winners: Array.isArray(round.winners) ? round.winners : null,
+      void: Boolean(round.void),
+    };
+    this.round.waiting = this.waitingList();
+    this.restored = true;
+    return true;
+  }
+
+  // Chạy tiếp ván vừa dựng lại, đồng hồ lùi lại ít nhất RESUME_GRACE_MS để người chơi kịp nối lại.
+  resume() {
+    if (!this.restored || !this.round) return false;
+    this.restored = null;
+    const round = this.round;
+    const now = this.now();
+    const later = (at) => Math.max(RESUME_GRACE_MS, (at || 0) - now);
+    if (round.phase === 'buying') {
+      const wait = later(round.endsAt);
+      round.endsAt = now + wait;
+      this.schedule(wait, () => this.startCalling());
+    } else if (round.phase === 'calling' && round.called.length >= 90) {
+      round.endsAt = now + later(round.endsAt);
+      round.nextCallAt = null;
+      this.schedule(round.endsAt - now, () => this.finish());
+    } else if (round.phase === 'calling') {
+      const wait = later(round.nextCallAt);
+      round.nextCallAt = now + wait;
+      round.endsAt = round.nextCallAt;
+      this.schedule(wait, () => this.callNext());
+    } else if (round.phase === 'claiming') {
+      const wait = later(round.endsAt);
+      round.endsAt = now + wait;
+      this.schedule(wait, () => this.finish());
+    } else {
+      const wait = Math.max(1_000, round.endsAt - now);
+      round.endsAt = now + wait;
+      this.schedule(wait, () => this.nextRound());
+    }
+    this.broadcastState();
+    return true;
+  }
+
+  // Rút máy: chờ ván đang chốt tiền xong (tối đa 10 giây) rồi dừng bàn, để bản ghi không kẹt giữa lúc chốt.
+  async quiesce(limitMs = QUIESCE_LIMIT_MS) {
+    const until = Date.now() + limitMs;
+    while (this.round?.phase === 'settling' && Date.now() < until) await sleep(100);
+    await Promise.allSettled([...(this.round?.pending || [])]);
+    this.stop();
   }
 
   stop() {
@@ -112,6 +210,7 @@ export class LottoTable {
       pending: new Set(),
       claims: [],
       botClaims: [],
+      names: {},
       botSeen: new Map(), // bot vừa đủ hàng ở nhịp gọi này (ván có vé thật: nhịp sau mới kinh)
       locks: new Map(), // accountId → khóa nút kinh tới lúc nào
       waiting: [],
@@ -382,6 +481,7 @@ export class LottoTable {
   broadcastState() {
     clearTimeout(this.stateTimer);
     this.stateTimer = null;
+    this.revision += 1;
     const message = this.stateMessage();
     if (message) this.room.broadcast(message);
   }
@@ -402,7 +502,7 @@ export class LottoTable {
     for (const participant of this.room.participants.values()) {
       if (participant.accountId === accountId || participant.id === accountId) return participant.displayName;
     }
-    return 'Người chơi';
+    return this.round?.names?.[accountId] || 'Người chơi';
   }
 }
 

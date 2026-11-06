@@ -97,17 +97,6 @@
       <div class="goal-bar" role="progressbar" aria-label="Tiến độ chi phí server tháng này" id="goalBar"><i></i></div>
     </section>
 
-    <!-- Khu vực Việt Nam: mã VietQR (ảnh do server cấu hình bằng DONATE_VIETQR_IMAGE, không nằm trong repo). -->
-    <section class="card" id="vietqrCard" hidden>
-      <h2>Chuyển khoản qua VietQR</h2>
-      <div class="vietqr">
-        <img id="vietqrImage" alt="Mã VietQR nhận quyên góp" width="280" height="352">
-        <p>Mở app ngân hàng hoặc ví điện tử, chọn <b>Quét mã QR</b> rồi nhập số tiền tùy tâm.</p>
-        <p id="vietqrNameLine" hidden>Người nhận: <b id="vietqrName"></b></p>
-        <div class="copy-row"><div><small>Nội dung chuyển khoản gợi ý</small><b id="vietqrMemo"></b></div><button type="button" data-copy="memo">Chép</button></div>
-      </div>
-    </section>
-
     <section class="card" id="zelleCard">
       <h2>Góp qua Zelle</h2>
       <p class="pending" id="pending">Thông tin nhận quyên góp đang được cập nhật. Cảm ơn bạn đã quan tâm 🙏</p>
@@ -130,6 +119,18 @@
           </div>
         </li>
       </ol>
+    </section>
+
+    <!-- Góp qua MoMo: mã VietQR (MoMo và app ngân hàng Việt Nam đều quét được). Ảnh do server cấu hình bằng
+         DONATE_VIETQR_IMAGE, không nằm trong repo. Hiện dưới Zelle cho mọi người; khu vực Việt Nam chỉ hiện mã này. -->
+    <section class="card" id="vietqrCard" hidden>
+      <h2>Góp qua MoMo</h2>
+      <div class="vietqr">
+        <img id="vietqrImage" alt="Mã QR nhận quyên góp qua MoMo / VietQR" width="280" height="352">
+        <p>Mở app <b>MoMo</b> (hoặc app ngân hàng), chọn <b>Quét mã QR</b> rồi nhập số tiền tùy tâm.</p>
+        <p id="vietqrNameLine" hidden>Người nhận: <b id="vietqrName"></b></p>
+        <div class="copy-row"><div><small>Nội dung chuyển khoản gợi ý</small><b id="vietqrMemo"></b></div><button type="button" data-copy="memo">Chép</button></div>
+      </div>
     </section>
 
     <section class="card note">
@@ -162,10 +163,11 @@
         const response = await fetch('/api/v1/donate', { cache: 'no-store' });
         if (response.ok) info = await response.json();
       } catch {}
-      // Người chọn khu vực Việt Nam (nút Ủng hộ ở chánh điện gửi ?region=, trang khác lấy khu vực đã nhớ): hiện mã VietQR.
+      // Mã QR (MoMo / VietQR) hiện dưới Zelle cho mọi người. Người chọn khu vực Việt Nam (nút Ủng hộ ở chánh điện gửi
+      // ?region=, trang khác lấy khu vực đã nhớ) không dùng Zelle nên chỉ thấy mã QR.
       let region = new URLSearchParams(location.search).get('region');
       if (!region) try { region = localStorage.getItem('thien-state'); } catch {}
-      if (region === 'vn' && info?.vietqr) {
+      if (info?.vietqr) {
         $('vietqrImage').src = info.vietqr.image;
         $('vietqrMemo').textContent = info.memo;
         if (info.vietqr.name) {
@@ -173,7 +175,7 @@
           $('vietqrNameLine').hidden = false;
         }
         $('vietqrCard').hidden = false;
-        $('zelleCard').hidden = true;
+        if (region === 'vn') $('zelleCard').hidden = true;
       }
       if (info?.zelle) {
         $('zelleName').textContent = info.zelle.name;

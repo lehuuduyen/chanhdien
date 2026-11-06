@@ -16,8 +16,9 @@ p { color: var(--muted); }
 .panel { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(220px, 320px); gap: 36px; align-items: center; margin: 34px 0; padding: 28px; border: 1px solid var(--line); border-radius: 20px; background: linear-gradient(140deg, var(--panel), var(--panel-2)); box-shadow: 0 20px 50px #0005; }
 .panel .step, .content-head .step { margin-top: 0; }
 .time-field span, label > span, label { color: var(--muted); font-size: 13px; font-weight: 700; }
-input { width: 100%; margin-top: 8px; padding: 12px 14px; border: 1px solid #5a4127; border-radius: 10px; outline: none; color: var(--cream); background: #0e0b09; font: inherit; }
-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px #e7b75e22; }
+input, textarea { width: 100%; margin-top: 8px; padding: 12px 14px; border: 1px solid #5a4127; border-radius: 10px; outline: none; color: var(--cream); background: #0e0b09; font: inherit; }
+input:focus, textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px #e7b75e22; }
+textarea { resize: vertical; min-height: 170px; line-height: 1.6; }
 .time-field input { color: var(--gold); font-size: 32px; font-weight: 700; }
 .clocks { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .clock { padding: 12px; border: 1px solid #3a2a1d; border-radius: 10px; background: #100c09aa; }
@@ -31,6 +32,10 @@ input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px #e7b75e22; }
 .lang span { color: var(--cream); font-weight: 700; }
 .preview { width: fit-content; color: var(--muted); text-decoration: none; font-size: 13px; }
 .preview[hidden] { display: none; }
+.cinema-head { align-items: center; }
+.cinema-playlist-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.cinema-playlist-editor { display: grid; gap: 8px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: #18110d; }
+.cinema-playlist-editor .model-status { margin: 0; }
 .access { margin-top: 48px; }
 .prayer-head { align-items: center; }
 .prayer-admin-list { display: grid; gap: 12px; }

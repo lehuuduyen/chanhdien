@@ -6,7 +6,7 @@ import { THIEN_RULES } from '@chanh-dien/room-rules';
 import { parseServerMessage, PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { createJoinTicket, internalKey } from '@chanh-dien/session-token';
 import { WebSocket } from 'ws';
-import { createRealtimeServer, handleRealtimeRequest, Room, RoomRegistry, shopBotSkinProvider } from '../server.mjs';
+import { cinemaPlaylistProvider, createRealtimeServer, handleRealtimeRequest, Room, RoomRegistry, shopBotSkinProvider } from '../server.mjs';
 
 // Rạp phim có hình nhân vật Nam/Nữ (gán theo mã người khi chưa chọn): bỏ ra khi so sánh phần còn lại.
 const withoutSkin = ({ skin, ...rest }) => (assert.ok(skin === undefined || ['man', 'woman'].includes(skin)), rest);
@@ -493,6 +493,50 @@ test('hàng chờ: video đầu phát ngay, video sau xếp hàng, chặn trùng
   assert.equal(state.queue.length, 3);
   assert.ok(!('addedById' in state.queue[0]), 'không lộ id người thêm');
   room.close();
+});
+
+test('danh sách YouTube admin chỉ phát khi có người, lặp vòng và nhường ưu tiên cho hàng chờ', () => {
+  const room = new Room('cinema-1');
+  room.setFallbackPlaylist([
+    { videoId: 'aaaaaaaaaaa', title: 'Phim nhà chùa A' },
+    { videoId: 'bbbbbbbbbbb', title: 'Phim nhà chùa B' },
+  ]);
+  assert.equal(room.playback.current, null, 'phòng trống không phát âm thầm');
+  room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-1', displayName: 'An' });
+  assert.equal(room.ensureFallback({ broadcast: false }), true);
+  assert.deepEqual([room.playback.current.videoId, room.playback.current.addedBy], ['aaaaaaaaaaa', 'Nhà chùa']);
+  assert.equal(parseServerMessage(room.playbackState()).ok, true);
+
+  room.addVideo('u-1', 'ccccccccccc', 'Video của An');
+  room.advance();
+  assert.deepEqual([room.playback.current.videoId, room.playback.current.addedBy], ['ccccccccccc', 'An'], 'hàng chờ người dùng được phát trước');
+  room.advance();
+  assert.equal(room.playback.current.videoId, 'bbbbbbbbbbb');
+  room.advance();
+  assert.equal(room.playback.current.videoId, 'aaaaaaaaaaa', 'hết danh sách thì lặp lại từ đầu');
+  room.close();
+});
+
+test('máy realtime tải danh sách rạp bằng khóa nội bộ; lỗi API không xóa danh sách đang dùng', async () => {
+  const calls = [];
+  const provider = cinemaPlaylistProvider('http://api.test:4000', 'internal-key', async (url, options) => {
+    calls.push([url.pathname, options.headers['x-internal-key']]);
+    return { ok: true, json: async () => ({ videos: [{ videoId: 'dQw4w9WgXcQ' }] }) };
+  });
+  assert.deepEqual(await provider(), [{ videoId: 'dQw4w9WgXcQ' }]);
+  assert.deepEqual(calls, [['/internal/cinema/playlist', 'internal-key']]);
+
+  let fail = false;
+  const registry = new RoomRegistry({
+    getCinemaPlaylist: async () => (fail ? null : [{ videoId: 'dQw4w9WgXcQ' }]),
+    botCounts: { cinema: 0 },
+  });
+  const opened = await registry.open('cinema-1');
+  assert.deepEqual(opened.room.fallbackPlaylist, [{ videoId: 'dQw4w9WgXcQ' }]);
+  fail = true;
+  await registry.refreshCinemaPlaylist(true);
+  assert.deepEqual(opened.room.fallbackPlaylist, [{ videoId: 'dQw4w9WgXcQ' }]);
+  opened.room.close();
 });
 
 test('vote bỏ qua theo 35% người đang kết nối; lỗi phát cũng tính như vậy', () => {
@@ -2027,5 +2071,124 @@ test('addbot: số bot dao động ±10 quanh con số đặt, mỗi bước m�
     assert.equal(room.botCount, 0, 'addbot 0 là tắt hẳn');
   } finally {
     room.close();
+  }
+});
+
+test('deploy: ván Lô Tô lưu vào snapshot, máy mới dựng lại và gọi số tiếp đúng ván, vé người chơi còn nguyên', async () => {
+  const { LottoTable, RESUME_GRACE_MS } = await import('../loto.mjs');
+  let clock = 1_000_000;
+  const room = { id: 'loto-1', epoch: 3, broadcast() {}, sendTo() {}, participants: new Map([['an', { id: 'an', accountId: 'a-an-00000001', displayName: 'An' }], ['bot-1', { id: 'bot-1', bot: true, displayName: 'Sen Nhỏ' }]]) };
+  const rules = { buyMs: 60_000, callMs: 4_000, claimWindowMs: 3_000, resultMs: 5_000, ticketPrice: 10 };
+  const ticket = { no: 1, rows: [[1, 2, 3, 4, 5, 0, 0, 0, 0], [11, 12, 13, 14, 15, 0, 0, 0, 0], [21, 22, 23, 24, 25, 0, 0, 0, 0]] };
+  const old = new LottoTable({ room, rules, now: () => clock });
+  old.running = true;
+  old.nextRound();
+  old.round.tickets.set('a-an-00000001', [ticket]);
+  old.round.autoMark.add('a-an-00000001');
+  old.placeBotTicket(room.participants.get('bot-1'));
+  old.round.phase = 'calling';
+  for (const number of [1, 2, 3, 4, 40]) { old.round.called.push(number); old.round.calledSet.add(number); }
+  old.round.nextCallAt = clock + 1_000;
+  const revision = old.revision;
+  old.broadcastState();
+  assert.ok(old.revision > revision, 'đổi trạng thái thì tăng revision để máy lưu snapshot');
+  await old.quiesce();
+  const record = JSON.parse(JSON.stringify(old.toRecord()));
+
+  // Máy mới: bot cũ không còn, người chơi chưa nối lại.
+  clock += 2_000;
+  const fresh = { ...room, participants: new Map() };
+  const settles = [];
+  const table = new LottoTable({ room: fresh, rules, now: () => clock, settle: async (input) => { settles.push(input); return { ok: true, winners: [], share: 0, results: [] }; } });
+  assert.equal(table.restoreRecord(record), true);
+  table.start();
+  try {
+    const state = table.stateMessage();
+    assert.equal(state.roundId, old.round.id, 'cùng ván');
+    assert.equal(state.phase, 'calling');
+    assert.deepEqual(state.called, [1, 2, 3, 4, 40]);
+    assert.equal(state.tickets, 2, 'vé người + vé bot vẫn trong quỹ');
+    assert.ok(state.nextCallAt >= clock + RESUME_GRACE_MS, 'chờ người chơi nối lại rồi mới gọi số tiếp');
+    assert.ok(state.waiting.some((item) => item.number === 5), 'vẫn tính người đợi (hàng 1, 2, 3, 4 đã gọi, thiếu 5)');
+    assert.deepEqual(table.mineMessage('a-an-00000001').tickets, [ticket], 'người chơi vào lại thấy đúng vé của mình');
+    assert.equal(table.mineMessage('a-an-00000001').autoMark, true);
+    assert.equal(table.nameOf('bot-1'), 'Sen Nhỏ', 'bot cũ vẫn có tên để hiện người thắng');
+    // Kinh vẫn được tính theo vé gốc.
+    for (const number of [5]) { table.round.called.push(number); table.round.calledSet.add(number); }
+    assert.equal(table.claim({ accountId: 'a-an-00000001' }, { roundId: old.round.id, ticket: 1, row: 0 }).ok, true);
+    await table.finish();
+    assert.equal(settles[0].roundId, old.round.id, 'chốt đúng mã ván cũ (API chốt idempotent)');
+    assert.deepEqual(settles[0].claims, [{ accountId: 'a-an-00000001', ticket: 1, row: 0 }]);
+  } finally {
+    table.stop();
+  }
+});
+
+test('deploy: bàn Bầu Cua dựng lại đang cược thì cược tiếp; đang lắc dở thì mở đúng xúc xắc đã lắc', async () => {
+  const { BauCuaTable } = await import('../bau-cua.mjs');
+  const { RESUME_GRACE_MS } = await import('../loto.mjs');
+  let clock = 5_000_000;
+  const room = { id: 'game-1', epoch: 2, broadcast() {}, sendTo() {}, participants: new Map() };
+  const rules = { game: 'bau-cua', bettingMs: 20_000, rollingMs: 10, resultMs: 6_000, maxStakePerRound: 1_000 };
+  const old = new BauCuaTable({ room, rules, now: () => clock });
+  old.running = true;
+  old.nextRound();
+  old.round.totals.cua = 15;
+  old.round.bettors.add('a-an-00000001');
+  old.round.mine.set('a-an-00000001', { cua: 15 });
+  await old.quiesce();
+  const betting = JSON.parse(JSON.stringify(old.toRecord()));
+  const table = new BauCuaTable({ room, rules, now: () => clock });
+  assert.equal(table.restoreRecord(betting), true);
+  table.start();
+  try {
+    const state = table.stateMessage();
+    assert.equal(state.roundId, old.round.id);
+    assert.equal(state.phase, 'betting');
+    assert.equal(state.totals.cua, 15, 'tổng cược còn nguyên');
+    assert.ok(state.endsAt >= clock + RESUME_GRACE_MS);
+    assert.deepEqual(table.mineMessage('a-an-00000001').mine, { cua: 15 });
+  } finally {
+    table.stop();
+  }
+
+  // Máy chết giữa lúc lắc (đã gửi API chốt với xúc xắc này): máy mới dùng lại đúng xúc xắc.
+  const rolling = JSON.parse(JSON.stringify({ ...betting, round: { ...betting.round, phase: 'rolling', rolled: ['ga', 'ga', 'ca'] } }));
+  const settles = [];
+  const again = new BauCuaTable({ room, rules, now: () => clock, settle: async (input) => { settles.push(input); return { ok: true, results: [] }; } });
+  again.restoreRecord(rolling);
+  again.start();
+  try {
+    await again.roll();
+    assert.deepEqual(settles.map((item) => item.dice), [['ga', 'ga', 'ca']]);
+    assert.deepEqual(again.stateMessage().dice, ['ga', 'ga', 'ca']);
+  } finally {
+    again.stop();
+  }
+});
+
+test('deploy: phòng game lưu ván vào snapshot; danh bạ một máy xuất/nạp lại được qua file; kế hoạch addbot giữ lại', async () => {
+  const directory = createMemoryDirectory();
+  const registry = new RoomRegistry({ nodeId: 'rt-a', directory, botCounts: { thien: 0, cinema: 0, game: 0, taixiu: 0, loto: 0 } });
+  await registry.setBotAllocations({ 'loto-1': 4 });
+  const room = registry.rooms.get('loto-1');
+  const roundId = room.table.round.id;
+  const plan = registry.botPlan();
+  assert.deepEqual(plan, { allocations: { 'loto-1': 4 }, replacesDefaults: true });
+  await registry.shutdown();
+  const state = JSON.parse(JSON.stringify(directory.exportState()));
+  assert.equal(JSON.parse(state.snapshots['loto-1'].value).table.round.id, roundId, 'ván nằm trong snapshot');
+
+  const nextDirectory = createMemoryDirectory();
+  nextDirectory.importState(state);
+  const next = new RoomRegistry({ nodeId: 'rt-a', directory: nextDirectory, botCounts: { thien: 0, cinema: 0, game: 0, taixiu: 0, loto: 0 } });
+  const result = await next.restoreBotPlan(plan);
+  try {
+    assert.equal(result.assigned, 4, 'addbot áp dụng lại sau khi khởi động');
+    const reopened = next.rooms.get('loto-1');
+    assert.equal(reopened.table.round.id, roundId, 'chơi tiếp đúng ván cũ');
+    assert.ok(reopened.epoch > room.epoch, 'epoch tăng tiếp');
+  } finally {
+    await next.shutdown();
   }
 });

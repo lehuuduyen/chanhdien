@@ -6,6 +6,7 @@ import { getRoomRules } from '/shared/room-rules.mjs';
 import { loadShopCharacters } from '/shop-models.js';
 import { theaterSeats } from '/engine/theater.mjs';
 import { avatarNode, titleBadge } from '/badges.js';
+import { guardWebGL } from '/webgl-guard.js';
 
 const PROTOCOL_VERSION = 3;
 const RESUME_WINDOW_MS = 60_000;
@@ -232,6 +233,10 @@ async function setupScene() {
           elements.nearSit.hidden = !seatId;
           if (seatId) elements.nearSit.textContent = `💺 Ngồi ghế ${seatId}`;
         },
+      });
+      // Trình duyệt thu hồi WebGL (thiếu bộ nhớ, chuyển app): khán phòng đen, chạm không ăn → tải lại trang.
+      guardWebGL(elements.scene3d, {
+        onLost: (willReload) => notify(willReload ? 'Cảnh 3D bị trình duyệt tắt (thiếu bộ nhớ) · đang tải lại…' : 'Cảnh 3D bị trình duyệt tắt nhiều lần · đóng bớt tab rồi tải lại trang'),
       });
     } catch (error) {
       console.warn('Không dựng được rạp 3D, dùng cảnh 2.5D', error);
