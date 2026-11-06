@@ -233,7 +233,6 @@
     const MIN_PLAYERS = 2;
     let mine = { roundId: null, tickets: [], autoMark: false };
     let marks = new Set(); // "vé:hàng:cột"
-    let people = 0;
     let clockOffset = 0;
     let socket = null;
     let lockedUntil = 0;
@@ -362,7 +361,8 @@
       elements.recent.replaceChildren(...called.slice(-7, -1).reverse().map((number) => Object.assign(document.createElement('span'), { textContent: number })));
       const set = new Set(called);
       [...elements.board90.children].forEach((cell, index) => cell.classList.toggle('on', set.has(index + 1)));
-      elements.pool.replaceChildren('Quỹ ', Object.assign(document.createElement('b'), { textContent: money(state?.pool || 0) }), ` · ${state?.tickets || 0} vé · ${people} người`);
+      // Đếm người có vé ván này (kể cả bot), khớp với quỹ và số vé; người vào xem chưa mua vé không tính.
+      elements.pool.replaceChildren('Quỹ ', Object.assign(document.createElement('b'), { textContent: money(state?.pool || 0) }), ` · ${state?.tickets || 0} vé · ${state?.players || 0} người chơi`);
       // Một người đợi nhiều hàng: gộp các số về một tên ("An đợi 5, 12").
       const waitingBy = new Map();
       for (const item of state?.waiting || []) waitingBy.set(item.displayName, [...(waitingBy.get(item.displayName) || []), item.number]);
@@ -436,7 +436,6 @@
         failedOpens = 0;
         elements.roomChip.classList.add('online');
       } else if (message.type === 'room.state') {
-        people = message.participants.filter((person) => person.connected !== false).length;
         if (PRIVATE_ID) loadPrivate();
         renderCaller();
       } else if (message.type === 'lotto.state') onState(message);

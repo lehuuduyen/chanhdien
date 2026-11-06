@@ -257,14 +257,15 @@ test('chặn và báo cáo người chơi: lý do cố định, ghi chú có gi�
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'player.report', requestId: 'r1', targetId: 'p-2', reason: 'other', note: 'x'.repeat(201) }).error, 'INVALID_MESSAGE');
 });
 
-test('garden.plot: luống trống hoặc có vụ hợp lệ; từ chối luống ngoài 1–10 và trường lạ', () => {
+test('garden.plot: luống trống hoặc có vụ hợp lệ; từ chối luống ngoài 1–50 và trường lạ', () => {
   const crop = {
     id: 1, plantType: 'peach', ownerName: 'An', stage: 'fruiting', waterDays: 3, waterNeeded: 3,
     wateredToday: false, canWater: true, wilted: false, lastWateredAt: 5, nextWaterAt: 10, wiltsAt: 20,
     fruitsLeft: 8, fruitsTotal: 10, plantedAt: 5,
   };
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop }, { id: 2, crop: null }] }).ok, true);
-  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 11, crop: null }] }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 51, crop: null }] }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 50, crop: null }] }).ok, true);
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop: { ...crop, coins: 9 } }] }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop }], effect: { plotId: 1, kind: 'harvest', by: 'An' } }).ok, true);
 });

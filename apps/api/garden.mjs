@@ -1,6 +1,11 @@
 // API Vườn Công Đức. Xem vườn: mọi người (kể cả khách). Mua hạt, gieo, tưới, hái, bán, dâng quả, nhận xu nhiệm vụ: phải đăng nhập,
 // cùng origin, kèm header Idempotency-Key. Server quyết định số dư, kho, chủ luống và mốc tưới 8 giờ,
 // không tin số liệu client gửi lên. Luống thay đổi thì báo realtime để phát `garden.plot` cho các phòng chánh điện.
+//
+// Bot làm vườn (chỉ máy realtime, khóa x-internal-key):
+//   POST /internal/garden/bot { op: 'task', name }                              → { ok, task: { action, plotId, plantType? } | null }
+//   POST /internal/garden/bot { op: 'act', name, action, plotId, plantType? }   → { ok, code?, plots }
+import { timingSafeEqual } from 'node:crypto';
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
 import { createGardenStore } from '@chanh-dien/garden';
 import { allow, body, currentAccount, sameOrigin } from './auth.mjs';
@@ -81,5 +86,48 @@ export async function handleGardenRequest(req, res, pathname, options) {
     notifyGarden(options, { plots: result.plots, effect: result.plots.length ? { plotId: result.plots.at(-1).id, kind: action, by: account.displayName } : undefined });
   } else if (result.plots?.length && !result.replayed) notifyGarden(options, { plots: result.plots });
   json(req, res, result.ok ? 200 : STATUS[result.code] || 400, result);
+  return true;
+}
+
+function internalAllowed(req, options) {
+  const given = Buffer.from(String(req.headers?.['x-internal-key'] || ''));
+  const expected = Buffer.from(internalKey(options.secret || DEFAULT_LOCAL_SECRET));
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+export async function handleGardenBotRequest(req, res, pathname, options) {
+  if (pathname !== '/internal/garden/bot') return false;
+  if (req.method !== 'POST') {
+    json(req, res, 404, { error: 'not_found' });
+    return true;
+  }
+  if (!internalAllowed(req, options)) {
+    json(req, res, 403, { error: 'forbidden' });
+    return true;
+  }
+  const garden = options.garden;
+  if (!garden) {
+    json(req, res, 503, { error: 'garden_disabled' });
+    return true;
+  }
+  const input = await body(req, res);
+  if (!input) return true;
+  const name = typeof input.name === 'string' ? input.name : '';
+  if (input.op === 'task') {
+    json(req, res, 200, { ok: true, task: garden.botTask(name) });
+    return true;
+  }
+  if (input.op !== 'act') {
+    json(req, res, 400, { ok: false, code: 'INVALID' });
+    return true;
+  }
+  const result = garden.botAct(name, { action: input.action, plotId: input.plotId, plantType: input.plantType });
+  if (result.plots?.length) {
+    notifyGarden(options, {
+      plots: result.plots,
+      ...(result.ok ? { effect: { plotId: input.plotId, kind: input.action, by: name } } : {}),
+    });
+  }
+  json(req, res, result.ok ? 200 : result.code === 'INVALID' ? 400 : 409, result);
   return true;
 }

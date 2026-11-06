@@ -1,6 +1,7 @@
 // Sinh bố cục vườn chùa (world.courtyard + world.walk) cho scenes/thien-default: chạy `node scripts/thien-garden-layout.mjs`
 // ở gốc repo. Vật cản đi lại tính từ vị trí vật thể nên sửa bố cục ở đây rồi chạy lại (chạy nhiều lần cho cùng kết quả).
 import { readFileSync, writeFileSync } from 'node:fs';
+import { THIEN_GARDEN } from '@chanh-dien/room-rules';
 const file = 'scenes/thien-default/scene.json';
 const scene = JSON.parse(readFileSync(file, 'utf8'));
 const w = scene.world;
@@ -78,19 +79,19 @@ c.benches = [
 c.planters = [];
 for (const z of [36.25, 45.25, 58.75, 67.75]) c.planters.push({ x: -3.3, z, flower: 'pink' }, { x: 3.3, z, flower: 'yellow' });
 c.planters.push({ x: -10, z: 30, flower: 'yellow' }, { x: 10, z: 30, flower: 'pink' }, { x: -14, z: 53.6, flower: 'pink' }, { x: 14, z: 53.6, flower: 'yellow' });
-// Vườn Công Đức: 10 luống (2 hàng × 5) ở bãi cỏ phía sau bên phải, cổng quay ra lối giữa, quầy hạt giống cạnh cổng.
-// Khu trồng gọn, có hàng rào gỗ bao quanh; cổng ở cạnh tây (giữa hai hàng luống), quầy hạt giống ngoài rào cạnh cổng.
-const GARDEN_FENCE = { x: [13.2, 31.4], z: [63, 73] };
-const GARDEN_GATE = { z: 68, width: 2.4 };
+// Vườn Công Đức: 50 luống (5 hàng × 10, bố cục ở THIEN_GARDEN trong room rules, dùng chung với bot làm vườn) ở bãi
+// cỏ phía sau bên phải. Hàng rào gỗ bao quanh; cổng ở cạnh tây, quầy hạt giống và thùng nước ngoài rào cạnh cổng.
+const GARDEN_FENCE = THIEN_GARDEN.fence;
+const GARDEN_GATE = THIEN_GARDEN.gate;
 c.garden = {
   sign: 'VƯỜN CÔNG ĐỨC',
   shopSign: 'QUẦY HẠT GIỐNG',
-  bed: 2.2,
+  bed: THIEN_GARDEN.bed,
   entrance: { x: GARDEN_FENCE.x[0], z: GARDEN_GATE.z, ry: -1.5708, width: GARDEN_GATE.width },
   shop: { x: 10.6, z: 64.2, ry: -1.5708 },
   // Thùng nước gỗ cạnh cổng (trang trí, gợi ý chỗ tưới).
-  barrel: { x: 13.85, z: 63.7 },
-  plots: [65.5, 70.5].flatMap((z, row) => [15.5, 18.9, 22.3, 25.7, 29.1].map((x, column) => ({ id: row * 5 + column + 1, x, z }))),
+  barrel: { x: 12.5, z: 66.2 },
+  plots: THIEN_GARDEN.plots.map(({ id, x, z }) => ({ id, x, z })),
   // Hàng rào: các đoạn thẳng [x0, z0, x1, z1], chừa lối vào ở cổng.
   fence: [
     [GARDEN_FENCE.x[0], GARDEN_FENCE.z[0], GARDEN_FENCE.x[1], GARDEN_FENCE.z[0]],
@@ -123,7 +124,7 @@ c.petZone = {
     { type: 'balls', x: 17.5, z: 80.2, ry: 0 },
   ],
 };
-c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 30, z: 57.5, size: 1.0 }, { x: -30, z: 40, size: 1.2 }, { x: 13, z: 93, size: 1.0 }];
+c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 33.5, z: 54.5, size: 1.0 }, { x: -30, z: 40, size: 1.2 }, { x: 13, z: 93, size: 1.0 }];
 c.pines = [[-8.6, 20], [-9, 27], [9, 28.5], [-31, 20], [31, 22], [-31, 62], [31, 40], [-15, 95], [21, 95], [-32, 94]];
 c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [-24, 30], [24, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60]];
 c.animals = [
@@ -204,7 +205,8 @@ const obstacles = [
   ...c.planters.map((p) => circle(p.x, p.z, 0.55)),
   ...c.arhats.map((a) => circle(a.x, a.z, 1.0)),
   // Luống vườn (đi quanh, không giẫm lên), quầy hạt giống, hàng rào (chuỗi vật cản nhỏ dọc từng đoạn).
-  ...c.garden.plots.map((plot) => circle(plot.x, plot.z, 1.2)),
+  // Luống trong một hàng sát nhau nên dùng hình chữ nhật đúng cỡ luống (đi giữa các hàng, không đi xuyên luống).
+  ...c.garden.plots.map((plot) => ({ x: plot.x, z: plot.z, rx: c.garden.bed / 2 + 0.05, rz: c.garden.bed / 2 + 0.05 })),
   circle(c.garden.barrel.x, c.garden.barrel.z, 0.35),
   circle(c.garden.shop.x, c.garden.shop.z, 1.3),
   ...c.garden.fence.flatMap(([x0, z0, x1, z1]) => {

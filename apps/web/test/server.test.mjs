@@ -153,6 +153,14 @@ test('web có trang chánh điện nhiều người và các module dùng chung'
   assert.match(readFileSync(resolvePublicFile('/'), 'utf8'), /href="\/chanh-dien\.html"/);
 });
 
+test('chat nổi của người và bot hiện ở mọi khu; thông báo nghi lễ chỉ hiện trong chánh điện', () => {
+  const markup = readFileSync(resolveWebFile('/chanh-dien.html'), 'utf8');
+  const styles = readFileSync(resolveWebFile('/chanh-dien.css'), 'utf8');
+  assert.match(markup, /class="feed" id="feed"/);
+  assert.doesNotMatch(markup, /class="feed hall-only" id="feed"/);
+  assert.match(styles, /#stage:not\(\.in-hall\) \.feed \.msg\.gift\s*\{[^}]*display:\s*none/s);
+});
+
 test('giao diện chặn double-tap phóng chữ nhưng không chặn thao tác con trỏ riêng của cảnh', () => {
   for (const pathname of ['/chanh-dien.css', '/room.css', '/styles.css', '/admin-thien.css', '/scene-demo.css']) {
     const source = readFileSync(resolveWebFile(pathname), 'utf8');

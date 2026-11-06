@@ -31,7 +31,7 @@ export function createGardenView({ THREE, root, garden, makeBubble, disposeSprit
   for (const geometry of [g.mound]) geometry.scale(1, 0.45, 1);
   g.leaf.scale(1.4, 0.3, 0.7);
 
-  // Quả: một InstancedMesh cho cả vườn (10 luống × 10 quả).
+  // Quả: một InstancedMesh cho cả vườn (mỗi luống tối đa MAX_FRUITS quả).
   const fruitMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.14, 10, 8), material('#ffffff', 0.5), plots.size * MAX_FRUITS);
   fruitMesh.frustumCulled = false;
   root.add(fruitMesh);

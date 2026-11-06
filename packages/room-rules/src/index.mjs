@@ -29,6 +29,55 @@ export function defineRoomRules(rules) {
   return deepFreeze({ ...rules });
 }
 
+const uniqueNames = (...groups) => [...new Set(groups.flat())];
+const familyFirstNames = (families, givenNames, separator = ' ') => families.flatMap((family) => givenNames.map((given) => `${family}${separator}${given}`));
+const givenFirstNames = (givenNames, families) => givenNames.flatMap((given) => families.map((family) => `${given} ${family}`));
+
+// Kho tên phải lớn hơn mức addbot tối đa để bot trong cùng phòng luôn có tên riêng, không cần gắn số phía sau.
+// Các tên ghép được ghi thành mảng ngay khi nạp room rules để API bạn bè vẫn nhận diện bot theo đúng tên hiển thị.
+const VI_BOT_NAMES = uniqueNames(
+  ['An Nhiên', 'Mây Trắng', 'Sen Nhỏ', 'Tâm Vui', 'Bình Minh', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Lá Bồ Đề',
+    'Hoa Đăng', 'Thiện Tâm', 'Pháp Lạc', 'Suối Trong', 'Nắng Mai', 'Tịnh Lạc', 'Diệu Âm', 'Bình An', 'Từ Tâm',
+    'Hương Sen', 'Mộc Miên', 'Ngọc Sáng', 'Mầm Xanh', 'Ban Mai', 'Ánh Nguyệt', 'Thanh Phong', 'Lam Khê'],
+  familyFirstNames(
+    ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương', 'Phan'],
+    ['Minh An', 'Gia Hân', 'Ngọc Anh', 'Đức Minh', 'Hoài An', 'Thanh Tâm', 'Khánh Linh', 'Tuệ Lâm', 'Hải Đăng', 'Nhật Minh', 'Bảo Châu', 'Quỳnh Anh'],
+  ),
+);
+const THIEN_VI_BOT_NAMES = uniqueNames(
+  ['Diệu Hạnh', 'Minh Tâm', 'Thiện Đức', 'Huệ An', 'Tịnh Nhã', 'Quảng Trí', 'Chơn Như', 'Pháp Hỷ',
+    'Nguyên Thanh', 'Tâm Đăng', 'Diệu Liên', 'Trí Hải', 'Phước Lộc', 'Hạnh Nguyện', 'Như Ý', 'Bảo Châu',
+    'Thu Hà', 'Ngọc Lan', 'Hoàng Nam', 'Bích Ngọc', 'Minh Khoa', 'Thanh Tùng', 'Kim Oanh', 'Quốc Bảo',
+    'Mai Anh', 'Hữu Phước', 'Thảo Vy', 'Gia Huy', 'Tường Vi', 'Đức Anh', 'Lan Chi', 'Văn Hùng',
+    'Thùy Dung', 'Bảo Ngọc', 'Tuấn Kiệt', 'Hồng Nhung', 'Cô Tư', 'Chú Ba', 'Bác Sáu', 'Dì Năm'],
+  VI_BOT_NAMES,
+);
+const EN_BOT_NAMES = uniqueNames(
+  ['Grace', 'Daniel', 'Hannah', 'Michael', 'Sophia', 'James', 'Emily', 'David', 'Olivia', 'Ethan', 'Linda',
+    'Robert', 'Mia', 'Joseph', 'Chloe', 'Andrew'],
+  givenFirstNames(
+    ['Amelia', 'Benjamin', 'Charlotte', 'Elijah', 'Evelyn', 'Henry', 'Isla', 'Jack', 'Lily', 'Noah', 'Violet'],
+    ['Bennett', 'Brooks', 'Carter', 'Collins', 'Foster', 'Hayes', 'Morgan', 'Parker', 'Reed', 'Turner'],
+  ),
+);
+const ZH_BOT_NAMES = uniqueNames(
+  ['慧心', '明德', '淨蓮', '妙音', '善喜', '如意', '寶珠', '法明', '慈安', '德成', '靜怡', '志遠',
+    '心月', '智海', '福祥', '蓮華'],
+  familyFirstNames(
+    ['陳', '林', '黃', '張', '李', '王', '吳', '劉', '蔡', '楊'],
+    ['慧心', '明德', '淨蓮', '妙音', '善喜', '如意', '寶珠', '法明', '慈安', '靜怡'],
+    '',
+  ),
+);
+const ES_BOT_NAMES = uniqueNames(
+  ['María', 'José', 'Carmen', 'Luis', 'Ana', 'Carlos', 'Lucía', 'Miguel', 'Sofía', 'Javier', 'Elena',
+    'Diego', 'Isabel', 'Pablo', 'Rosa', 'Andrés'],
+  givenFirstNames(
+    ['Alba', 'Bruno', 'Camila', 'Daniel', 'Emma', 'Gabriel', 'Inés', 'Mateo', 'Nora', 'Samuel', 'Valentina'],
+    ['Castro', 'Flores', 'García', 'Herrera', 'López', 'Morales', 'Navarro', 'Ortega', 'Ramírez', 'Santos'],
+  ),
+);
+
 export const CINEMA_RULES = defineRoomRules({
   id: 'cinema',
   activity: 'watch-together',
@@ -51,7 +100,7 @@ export const CINEMA_RULES = defineRoomRules({
     actionMs: [12_000, 35_000],
     churnMs: [180_000, 360_000],
     skins: ['man', 'woman'],
-    names: ['An Nhiên', 'Mây Trắng', 'Sen Nhỏ', 'Tâm Vui', 'Bình Minh', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Hoa Đăng', 'Thiện Tâm', 'Pháp Lạc', 'Suối Trong', 'Nắng Mai', 'Tịnh Lạc', 'Diệu Âm', 'Bình An', 'Từ Tâm', 'Hương Sen', 'Mộc Miên', 'Ngọc Sáng'],
+    names: VI_BOT_NAMES,
     lines: ['Phim hay quá', 'Mọi người xem vui nhé', 'Đoạn này ý nghĩa thật', 'Chúc cả phòng một buổi tối bình an'],
   },
   // Nhân vật nam/nữ chọn ở cổng chùa (avatar.set); ở rạp mặc đồ thường ngày, đầu/mặt giữ nguyên. Hình mua trong
@@ -66,6 +115,24 @@ export const CINEMA_RULES = defineRoomRules({
     maxWalkers: 500,
   },
 });
+
+// Vườn Công Đức ở sân sau bên phải: 5 hàng × 10 luống trong hàng rào, cổng ở cạnh tây (z = 68) nhìn ra lối giữa.
+// Luống trong một hàng sát nhau; giữa các hàng là lối đi (aisle: lối đứng chăm luống đó), dọc rào phía tây có lối
+// nối các hàng với cổng (walkwayX). Một nguồn cho cả scene (scripts/thien-garden-layout.mjs ghi vào thien-default) và
+// bot làm vườn ở máy realtime (đi theo approach → walkwayX → aisle, không giẫm lên luống).
+export const THIEN_GARDEN = deepFreeze((() => {
+  const rows = [{ z: 58.2, aisle: 59.95 }, { z: 61.7, aisle: 63.45 }, { z: 65.2, aisle: 63.45 }, { z: 70.8, aisle: 72.55 }, { z: 74.3, aisle: 72.55 }];
+  const columns = Array.from({ length: 10 }, (_, index) => 16 + index * 2);
+  return {
+    bed: 1.7,
+    fence: { x: [13.2, 35.3], z: [57, 76.4] },
+    gate: { z: 68, width: 2.4 },
+    walkwayX: 14.3,
+    // Từ lối giữa sân tới cổng vườn (lệch khỏi bồn hoa ở x = 3,3; z = 67,75).
+    approach: [{ x: 0, z: 68.4 }, { x: 14.3, z: 68.4 }],
+    plots: rows.flatMap((row, rowIndex) => columns.map((x, column) => ({ id: rowIndex * columns.length + column + 1, x, z: row.z, aisle: row.aisle }))),
+  };
+})());
 
 // Chánh điện: ngồi bồ đoàn, tụng kinh, dâng lễ vật (miễn phí, mang tính biểu tượng; tiền thật thuộc giai đoạn 6).
 // Công đức theo điểm của bản legacy. Lễ vật không có thời gian chờ (theo yêu cầu); chống spam bằng giới hạn chung
@@ -135,7 +202,13 @@ export const THIEN_RULES = defineRoomRules({
     skins: ['man', 'woman', 'pilgrim', 'lotusgirl', 'granny', 'nun', 'monk', 'child'],
     // Một phần bot đi dạo ngoài khuôn viên. Tọa độ bám các lối đá trong scene thien-default; bot còn lại vẫn ngồi
     // bồ đoàn để chánh điện có người tụng. Máy realtime phát vị trí qua room.moves như người thật.
+    // Số bot = đúng số addbot (tối đa max; mỗi bot cần một tên riêng nên phòng ngôn ngữ khác còn bị giới hạn bởi số tên).
+    // Bot ngồi không vượt số bồ đoàn còn trống, phần còn lại ra sân.
+    max: 200,
     walk: {
+      // roam: đi khắp sân theo bản đồ đi lại của scene (máy realtime tìm đường, xem apps/realtime/bot-nav.mjs);
+      // waypoints chỉ dùng khi không đọc được scene.
+      roam: true,
       count: 6,
       initial: 2,
       speed: 1.25,
@@ -151,8 +224,10 @@ export const THIEN_RULES = defineRoomRules({
         { x: 0, z: 74 }, { x: 0, z: 62 }, { x: 0, z: 50 }, { x: 0, z: 45 },
       ],
     },
-    names: ['Diệu Hạnh', 'Minh Tâm', 'Thiện Đức', 'Huệ An', 'Tịnh Nhã', 'Quảng Trí', 'Chơn Như', 'Pháp Hỷ', 'Nguyên Thanh', 'Tâm Đăng', 'Diệu Liên', 'Trí Hải', 'Phước Lộc', 'Hạnh Nguyện', 'Như Ý', 'Bảo Châu',
-      'Thu Hà', 'Ngọc Lan', 'Hoàng Nam', 'Bích Ngọc', 'Minh Khoa', 'Thanh Tùng', 'Kim Oanh', 'Quốc Bảo', 'Mai Anh', 'Hữu Phước', 'Thảo Vy', 'Gia Huy', 'Tường Vi', 'Đức Anh', 'Lan Chi', 'Văn Hùng', 'Thùy Dung', 'Bảo Ngọc', 'Tuấn Kiệt', 'Hồng Nhung', 'Cô Tư', 'Chú Ba', 'Bác Sáu', 'Dì Năm'],
+    // Bot làm vườn: bot đi dạo tới điểm (0, 62) hoặc (0, 74) thì có chance khả năng rẽ vào Vườn Công Đức (mỗi phòng
+    // tối đa một bot mỗi cooldownMs). API chọn việc (hái → tưới → gieo) và giữ trần bot chiếm 30% số luống.
+    garden: { chance: 0.6, cooldownMs: [40_000, 90_000], workMs: 4_000 },
+    names: THIEN_VI_BOT_NAMES,
     lines: ['Nam mô A Di Đà Phật', 'Nam mô Bổn Sư Thích Ca Mâu Ni Phật', 'Nam mô Đại Bi Quán Thế Âm Bồ Tát', 'Nguyện cầu bình an cho gia đình', 'Cầu cho cha mẹ được khỏe mạnh', 'Nguyện đem công đức này hướng về khắp tất cả'],
     // Bot đi dạo ngoài sân nói chuyện đời thường thay vì chỉ niệm Phật: câu lẻ (`lines`), đối đáp giữa hai bot đứng
     // gần nhau (`dialogues`, {name} là tên người nghe) và câu chào lại người thật vừa chào cả sân (`greetBack`).
@@ -175,7 +250,7 @@ export const THIEN_RULES = defineRoomRules({
     // Phòng theo ngôn ngữ khác: tên và câu tụng của bot đổi theo ngôn ngữ phòng (names/lines ở trên là tiếng Việt).
     byLang: {
       en: {
-        names: ['Grace', 'Daniel', 'Hannah', 'Michael', 'Sophia', 'James', 'Emily', 'David', 'Olivia', 'Ethan', 'Linda', 'Robert', 'Mia', 'Joseph', 'Chloe', 'Andrew'],
+        names: EN_BOT_NAMES,
         lines: ['Namo Amitabha Buddha', 'Namo Shakyamuni Buddha', 'Namo Avalokiteshvara Bodhisattva', 'May my family be safe and well', 'May my parents be healthy', 'May the merit of this practice reach all beings'],
         talk: {
           lines: ['The courtyard feels so peaceful today', 'The lotus pond looks beautiful', 'Has anyone fed the koi yet?', 'Just taking a slow walk around', 'First time here in a while', 'Is there a dharma talk tonight?', 'That bell sound is so calming', 'Stopping by after work to unwind', 'Anyone want to light the lanterns with me?', 'Namo Amitabha 🙏'],
@@ -190,7 +265,7 @@ export const THIEN_RULES = defineRoomRules({
         },
       },
       zh: {
-        names: ['慧心', '明德', '淨蓮', '妙音', '善喜', '如意', '寶珠', '法明', '慈安', '德成', '靜怡', '志遠', '心月', '智海', '福祥', '蓮華'],
+        names: ZH_BOT_NAMES,
         lines: ['南無阿彌陀佛', '南無本師釋迦牟尼佛', '南無大悲觀世音菩薩', '願家人平安吉祥', '願父母身體健康', '願以此功德，普及於一切'],
         talk: {
           lines: ['今天寺院裡好涼快', '荷花池的花開得真美', '有人餵錦鯉了嗎？', '散散步，心情輕鬆多了', '好久沒來寺院了', '今晚有講經嗎？', '聽到鐘聲心裡很平靜', '下班順路來坐一下', '阿彌陀佛 🙏'],
@@ -204,7 +279,7 @@ export const THIEN_RULES = defineRoomRules({
         },
       },
       es: {
-        names: ['María', 'José', 'Carmen', 'Luis', 'Ana', 'Carlos', 'Lucía', 'Miguel', 'Sofía', 'Javier', 'Elena', 'Diego', 'Isabel', 'Pablo', 'Rosa', 'Andrés'],
+        names: ES_BOT_NAMES,
         lines: ['Namo Buda Amitabha', 'Namo Buda Shakyamuni', 'Namo Bodhisattva Avalokiteshvara', 'Que mi familia esté en paz', 'Que mis padres tengan salud', 'Que el mérito de esta práctica llegue a todos los seres'],
         talk: {
           lines: ['Qué tranquilo está el patio hoy', 'El estanque de lotos está precioso', '¿Alguien ya alimentó a los koi?', 'Dando un paseo para despejarme', 'Hacía tiempo que no venía', '¿Hay charla de dharma esta noche?', 'El sonido de la campana calma mucho', 'Paso un rato después del trabajo', 'Namo Amitabha 🙏'],
@@ -259,7 +334,7 @@ export const GAME_RULES = defineRoomRules({
     play: 'dice',
     stakes: [1, 5, 10, 20, 50],
     skins: ['pilgrim', 'lotusgirl', 'man', 'woman', 'child', 'granny', 'nun', 'monk'],
-    names: ['An Nhiên', 'Mây Trắng', 'Sen Nhỏ', 'Tâm Vui', 'Bình Minh', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Lá Bồ Đề', 'Hoa Đăng', 'Thiện Tâm', 'Pháp Lạc', 'Suối Trong', 'Nắng Mai', 'Tịnh Lạc', 'Diệu Âm', 'Bình An', 'Từ Tâm', 'Hương Sen', 'Mộc Miên'],
+    names: VI_BOT_NAMES,
   },
   interaction: {
     game: 'bau-cua',
@@ -288,7 +363,8 @@ export const TAI_XIU_RULES = defineRoomRules({
     play: 'dice',
     stakes: [1, 5, 10, 20, 50],
     skins: ['lotusgirl', 'pilgrim', 'woman', 'man', 'granny', 'child', 'nun', 'monk'],
-    names: ['Tí Xúc Xắc', 'Mèo May Mắn', 'Sáu Mặt', 'Chấm Đỏ', 'Mây Trắng', 'Sen Nhỏ', 'Tâm Vui', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Hoa Đăng', 'Bình Minh', 'Song Hỷ', 'Tam Hoa', 'Cầu Vồng', 'Mầm Non', 'May Mắn', 'Tài Lộc', 'Ngọc Sáng', 'Đom Đóm'],
+    names: uniqueNames(['Tí Xúc Xắc', 'Mèo May Mắn', 'Sáu Mặt', 'Chấm Đỏ', 'Song Hỷ', 'Tam Hoa', 'Cầu Vồng',
+      'Mầm Non', 'May Mắn', 'Tài Lộc', 'Đom Đóm'], VI_BOT_NAMES),
   },
   interaction: {
     game: 'tai-xiu',
@@ -358,7 +434,7 @@ export const LOTO_RULES = defineRoomRules({
     churnMs: [150_000, 300_000],
     play: 'loto',
     skins: ['pilgrim', 'lotusgirl', 'man', 'woman', 'child', 'granny', 'nun', 'monk'],
-    names: ['Lô Tô Vui', 'Bông Sen', 'Mây Trắng', 'Tâm Vui', 'Bình Minh', 'Gió Mát', 'Hạt Mưa', 'Trăng Non', 'Hoa Đăng', 'Thiện Tâm', 'Pháp Lạc', 'Suối Trong', 'Nắng Mai', 'Tịnh Lạc', 'Diệu Âm', 'Bình An', 'Từ Tâm', 'Hương Sen', 'Mộc Miên', 'Ngọc Sáng'],
+    names: uniqueNames(['Lô Tô Vui', 'Bông Sen'], VI_BOT_NAMES),
     lines: ['Chúc mọi người may mắn'],
   },
   interaction: {

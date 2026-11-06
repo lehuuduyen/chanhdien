@@ -49,6 +49,9 @@ button, input { font: inherit; }
 /* Nghi lễ chỉ thuộc khu Chánh điện. Ngoài sân / trong vườn vẫn giữ chat và điều khiển đi lại, nhưng không phủ
    bảng công đức, bài giảng, tin dâng lễ hay bốn nút lễ vật lên cảnh tham quan. */
 #stage:not(.in-hall) .hall-only { display: none !important; }
+/* Chat của người và bot phải theo người chơi ra sân, vườn và khu thú cưng. Chỉ các dòng nghi lễ (dâng lễ, lên
+   cấp công đức) mới ẩn ngoài chánh điện; trước đây cả #feed mang hall-only nên chat bot vẫn tới nhưng không thấy. */
+#stage:not(.in-hall) .feed .msg.gift { display: none; }
 .chip { display: inline-flex; gap: 1.4cqw; align-items: center; min-width: 0; min-height: clamp(26px, 8cqw, 36px); padding: 0 2.6cqw; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: clamp(10px, 3.1cqw, 13px); white-space: nowrap; text-decoration: none; }
 button.chip { cursor: pointer; }
 .spacer { flex: 1; }

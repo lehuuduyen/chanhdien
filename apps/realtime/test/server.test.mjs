@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
 import { test } from 'node:test';
 import { createMemoryDirectory } from '@chanh-dien/room-directory';
-import { THIEN_RULES } from '@chanh-dien/room-rules';
+import { THIEN_GARDEN, THIEN_RULES } from '@chanh-dien/room-rules';
 import { parseServerMessage, PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { createJoinTicket, internalKey } from '@chanh-dien/session-token';
 import { WebSocket } from 'ws';
@@ -869,7 +869,7 @@ test('phòng theo ngôn ngữ: bot mang tên và câu tụng của ngôn ngữ p
   room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-1', displayName: 'An' });
   const bots = [...room.participants.values()].filter((person) => person.bot);
   assert.ok(bots.length > 0);
-  for (const bot of bots) assert.ok(['Grace', 'Daniel', 'Hannah', 'Michael', 'Sophia', 'James', 'Emily', 'David', 'Olivia', 'Ethan', 'Linda', 'Robert', 'Mia', 'Joseph', 'Chloe', 'Andrew'].includes(bot.displayName));
+  for (const bot of bots) assert.ok(THIEN_RULES.bots.byLang.en.names.includes(bot.displayName));
   assert.equal(room.type, 'thien');
   room.close();
 
@@ -973,13 +973,23 @@ test('bot ngồi tự rời khi người thật tăng, bot ngoài sân vẫn đi
   assert.ok(bots.some((person) => person.pos), 'bot ngoài sân không chiếm bồ đoàn nên vẫn ở lại');
 });
 
-test('số bot cấu hình được (0 là tắt) và không vượt số bồ đoàn', () => {
+test('số bot cấu hình được (0 là tắt), bằng đúng số addbot tới bots.max; bot ngồi không vượt số bồ đoàn', () => {
   const none = new Room('thien-1', { botCount: 0 });
   none.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-1', displayName: 'An' });
   assert.equal(none.participants.size, 1);
   none.close();
-  assert.equal(new Room('thien-1', { botCount: 99 }).botCount, THIEN_RULES.seats);
-  assert.equal(new Room('thien-1').botCount, Math.min(THIEN_RULES.bots.count, THIEN_RULES.seats), 'mặc định không vượt số bồ đoàn');
+  assert.equal(new Room('thien-1', { botCount: 99 }).botCount, 99);
+  assert.equal(new Room('thien-1', { botCount: 9_999 }).botCount, THIEN_RULES.bots.max);
+  assert.equal(new Room('thien-1').botCount, THIEN_RULES.bots.count);
+  const many = new Room('thien-1', { botCount: 60 });
+  many.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-2', displayName: 'Bình' });
+  assert.equal(many.botTargetCount, 60, 'tổng bot đúng số addbot');
+  assert.equal(many.botSeatedTarget, THIEN_RULES.seats - 1, 'bồ đoàn còn trống đều có bot ngồi (tối đa 20)');
+  assert.equal(many.botWalkingTarget, 60 - (THIEN_RULES.seats - 1), 'còn lại ra sân');
+  for (let index = 0; index < 15; index += 1) many.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: `p-${index}`, displayName: `Người ${index}` });
+  assert.equal(many.botSeatedTarget, THIEN_RULES.seats - 16, 'người thật vào: bot ngồi nhường bồ đoàn');
+  assert.equal(many.botTargetCount, 60, 'bot nhường ghế ra sân đi dạo, tổng không đổi');
+  many.close();
   assert.equal(new Room('cinema-1').botCount, 0, 'Cinema chưa bật bot');
 });
 
@@ -1013,13 +1023,17 @@ test('bot có nhịp riêng, dâng hương nhiều nhất và không bao giờ t
   room.close();
 });
 
-test('bot ngoài sân đi qua các điểm đường và phát room.moves như người thật', () => {
+test('bot ngoài sân tự chọn chỗ tới, tìm đường rồi đi, phát room.moves như người thật', () => {
   const sent = [];
   const room = new Room('thien-1', { botCount: 4 });
   room.join({ readyState: WebSocket.OPEN, send: (raw) => sent.push(JSON.parse(raw)), close() {} }, { participantId: 'u-1', displayName: 'An' });
   const walker = [...room.participants.values()].find((person) => person.bot && person.pos);
   assert.ok(walker, 'phải có bot đứng ngoài khuôn viên');
   const before = { ...walker.pos };
+  walker.walk.waitUntil = 0;
+  // Nhịp đầu chọn chỗ muốn tới và tìm đường, nhịp sau mới bước.
+  assert.equal(room.advanceBotWalk(walker, Date.now()), true);
+  assert.ok(walker.walk.route.length > 0 || walker.errand, 'đã có tuyến đi');
   walker.walk.waitUntil = 0;
   walker.walk.lastAt = Date.now() - 1_000;
   assert.equal(room.advanceBotWalk(walker, Date.now()), true);
@@ -2074,6 +2088,18 @@ test('addbot: số bot dao động ±10 quanh con số đặt, mỗi bước m�
   }
 });
 
+test('addbot 100 tạo tên riêng cho từng bot và không tự thêm số vào tên', () => {
+  const room = new Room('game-1', { botCount: 0 });
+  try {
+    assert.equal(room.setBotCount(100, { managed: true }), 100);
+    const names = [...room.participants.values()].filter((person) => person.bot).map((person) => person.displayName);
+    assert.equal(new Set(names).size, 100, '100 bot có 100 tên khác nhau');
+    assert.ok(names.every((name) => !/\s\d+$/.test(name)), 'không còn hậu tố số');
+  } finally {
+    room.close();
+  }
+});
+
 test('deploy: ván Lô Tô lưu vào snapshot, máy mới dựng lại và gọi số tiếp đúng ván, vé người chơi còn nguyên', async () => {
   const { LottoTable, RESUME_GRACE_MS } = await import('../loto.mjs');
   let clock = 1_000_000;
@@ -2191,4 +2217,138 @@ test('deploy: phòng game lưu ván vào snapshot; danh bạ một máy xuất/n
   } finally {
     await next.shutdown();
   }
+});
+
+test('bot làm vườn: tìm đường tới cổng vườn, đi lối trong vườn, không giẫm luống, làm việc API giao rồi quay ra lối giữa', async () => {
+  const calls = [];
+  const gardenBots = {
+    task: async (name) => {
+      calls.push({ op: 'task', name });
+      return { action: 'plant', plotId: 27, plantType: 'peach' };
+    },
+    act: async (input) => {
+      calls.push({ op: 'act', ...input });
+      return { ok: true };
+    },
+  };
+  const room = new Room('thien-1', { botCount: 4, gardenBots });
+  room.join({ readyState: WebSocket.OPEN, send() {}, close() {} }, { participantId: 'u-1', displayName: 'An' });
+  room.gardenWorkDelay = 0;
+  const bot = [...room.participants.values()].find((person) => person.bot && person.pos);
+  // Bot đang ở bờ hồ (xa vườn): tìm đường tới cổng vườn trước.
+  bot.pos = { x: -10, z: 62, ry: 0 };
+  bot.walk.waitUntil = 0;
+  const original = Math.random;
+  Math.random = () => 0;
+  let now = Date.now();
+  const started = now;
+  try {
+    room.maybeStartGardenErrand(bot, now);
+  } finally {
+    Math.random = original;
+  }
+  assert.equal(bot.errand?.phase, 'asking');
+  assert.equal(await bot.errand.done, true);
+  const plot = THIEN_GARDEN.plots.find((item) => item.id === 27);
+  const half = THIEN_GARDEN.bed / 2;
+  const onBed = () => THIEN_GARDEN.plots.some((item) => Math.abs(bot.pos.x - item.x) < half && Math.abs(bot.pos.z - item.z) < half);
+  for (let step = 0; step < 200 && bot.errand?.phase === 'going'; step += 1) {
+    now += 1_000;
+    bot.walk.waitUntil = 0;
+    // Thời gian giả: bỏ kiểm tra tốc độ / tần suất theo đồng hồ thật của server.
+    bot.movedAt = 0;
+    room.rates.clear();
+    room.advanceBotWalk(bot, now);
+    assert.equal(onBed(), false, `bot giẫm lên luống ở ${bot.pos.x}, ${bot.pos.z}`);
+  }
+  assert.equal(bot.errand.phase, 'working');
+  assert.ok(Math.hypot(bot.pos.x - plot.x, bot.pos.z - plot.aisle) < 0.1, 'đứng ở lối đi cạnh luống');
+  await bot.errand.done;
+  assert.deepEqual(calls, [
+    { op: 'task', name: bot.displayName },
+    { op: 'act', name: bot.displayName, action: 'plant', plotId: 27, plantType: 'peach' },
+  ]);
+  assert.equal(bot.errand.phase, 'returning');
+  for (let step = 0; step < 200 && bot.errand; step += 1) {
+    now += 1_000;
+    bot.walk.waitUntil = 0;
+    bot.movedAt = 0;
+    room.rates.clear();
+    room.advanceBotWalk(bot, now);
+    assert.equal(onBed(), false);
+  }
+  assert.equal(bot.errand, null);
+  assert.deepEqual({ x: bot.pos.x, z: bot.pos.z }, THIEN_GARDEN.approach[0], 'về lại lối giữa rồi đi dạo tiếp');
+  // Mỗi phòng nghỉ một lúc (cooldownMs) mới cho bot khác vào vườn.
+  Math.random = () => 0;
+  try {
+    assert.equal(room.maybeStartGardenErrand(bot, started + 30_000), null);
+  } finally {
+    Math.random = original;
+  }
+  room.close();
+});
+
+test('bot đi dạo không đứng chồng lên nhau (dừng lệch, tránh chỗ đã có người, vòng qua người phía trước)', () => {
+  const room = new Room('thien-1', { botCount: 30 });
+  room.join({ readyState: WebSocket.OPEN, send() {}, close() {} }, { participantId: 'u-1', displayName: 'An' });
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  let overlapping = 0;
+  const ticks = 900;
+  try {
+    for (let tick = 0; tick < ticks; tick += 1) {
+      now += 1_000;
+      // Thời gian giả: bỏ kiểm tra tốc độ / tần suất theo đồng hồ thật của server.
+      for (const participant of room.participants.values()) if (participant.bot) participant.movedAt = 0;
+      room.rates.clear();
+      room.botTick();
+      // Bot ngồi ghế đá được vẽ ở chỗ ngồi của ghế, không tính.
+      const walkers = [...room.participants.values()].filter((participant) => participant.bot && participant.pos && !participant.benchId);
+      const close = walkers.some((one, index) => walkers.slice(index + 1)
+        .some((other) => Math.hypot(one.pos.x - other.pos.x, one.pos.z - other.pos.z) < 0.4));
+      if (close) overlapping += 1;
+    }
+  } finally {
+    Date.now = realNow;
+    room.close();
+  }
+  // Trước khi sửa: ~80% số nhịp có hai bot đứng chồng lên nhau.
+  assert.ok(overlapping / ticks < 0.02, `${overlapping}/${ticks} nhịp có bot chồng lên nhau`);
+});
+
+test('bot đi khắp sân theo bản đồ scene: không đi xuyên vật cản, ra xa lối giữa, có ngồi ghế đá', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { isWalkable } = await import('@chanh-dien/scene-engine/walk');
+  const scene = JSON.parse(readFileSync(new URL('../../../scenes/thien-default/scene.json', import.meta.url), 'utf8'));
+  const room = new Room('thien-1', { botCount: 40 });
+  assert.ok(room.nav, 'đọc được bản đồ scene');
+  room.join({ readyState: WebSocket.OPEN, send() {}, close() {} }, { participantId: 'u-1', displayName: 'An' });
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  const bad = [];
+  let farFromPath = 0;
+  let benchSits = 0;
+  try {
+    for (let tick = 0; tick < 900; tick += 1) {
+      now += 1_000;
+      for (const participant of room.participants.values()) if (participant.bot) participant.movedAt = 0;
+      room.rates.clear();
+      room.botTick();
+      for (const bot of room.participants.values()) {
+        if (!bot.bot || !bot.pos || bot.benchId) continue;
+        if (!isWalkable(scene.world.walk, bot.pos.x, bot.pos.z)) bad.push(`${bot.displayName} ${bot.pos.x.toFixed(2)},${bot.pos.z.toFixed(2)}`);
+        if (Math.abs(bot.pos.x) > 8) farFromPath += 1;
+      }
+      benchSits = Math.max(benchSits, [...room.participants.values()].filter((bot) => bot.bot && bot.benchId).length);
+    }
+  } finally {
+    Date.now = realNow;
+    room.close();
+  }
+  assert.deepEqual(bad.slice(0, 5), [], 'vị trí bot luôn đứng được (không trong tượng, hồ, hàng rào)');
+  assert.ok(farFromPath > 1_000, 'bot ra khắp sân, không chỉ đi trên lối giữa');
+  assert.ok(benchSits > 0, 'có lúc bot ngồi ghế đá');
 });
