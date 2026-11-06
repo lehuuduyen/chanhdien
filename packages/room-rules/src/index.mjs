@@ -145,21 +145,71 @@ export const THIEN_RULES = defineRoomRules({
         { x: 0, z: 74 }, { x: 0, z: 62 }, { x: 0, z: 50 }, { x: 0, z: 45 },
       ],
     },
-    names: ['Diệu Hạnh', 'Minh Tâm', 'Thiện Đức', 'Huệ An', 'Tịnh Nhã', 'Quảng Trí', 'Chơn Như', 'Pháp Hỷ', 'Nguyên Thanh', 'Tâm Đăng', 'Diệu Liên', 'Trí Hải', 'Phước Lộc', 'Hạnh Nguyện', 'Như Ý', 'Bảo Châu'],
+    names: ['Diệu Hạnh', 'Minh Tâm', 'Thiện Đức', 'Huệ An', 'Tịnh Nhã', 'Quảng Trí', 'Chơn Như', 'Pháp Hỷ', 'Nguyên Thanh', 'Tâm Đăng', 'Diệu Liên', 'Trí Hải', 'Phước Lộc', 'Hạnh Nguyện', 'Như Ý', 'Bảo Châu',
+      'Thu Hà', 'Ngọc Lan', 'Hoàng Nam', 'Bích Ngọc', 'Minh Khoa', 'Thanh Tùng', 'Kim Oanh', 'Quốc Bảo', 'Mai Anh', 'Hữu Phước', 'Thảo Vy', 'Gia Huy', 'Tường Vi', 'Đức Anh', 'Lan Chi', 'Văn Hùng', 'Thùy Dung', 'Bảo Ngọc', 'Tuấn Kiệt', 'Hồng Nhung', 'Cô Tư', 'Chú Ba', 'Bác Sáu', 'Dì Năm'],
     lines: ['Nam mô A Di Đà Phật', 'Nam mô Bổn Sư Thích Ca Mâu Ni Phật', 'Nam mô Đại Bi Quán Thế Âm Bồ Tát', 'Nguyện cầu bình an cho gia đình', 'Cầu cho cha mẹ được khỏe mạnh', 'Nguyện đem công đức này hướng về khắp tất cả'],
+    // Bot đi dạo ngoài sân nói chuyện đời thường thay vì chỉ niệm Phật: câu lẻ (`lines`), đối đáp giữa hai bot đứng
+    // gần nhau (`dialogues`, {name} là tên người nghe) và câu chào lại người thật vừa chào cả sân (`greetBack`).
+    talk: {
+      lines: ['Sân chùa hôm nay mát ghê', 'Hoa sen ngoài hồ nở đẹp quá', 'Ai cho cá koi ăn chưa nhỉ?', 'Đi dạo một vòng cho nhẹ người', 'Lâu lắm rồi mới lên chùa', 'Tối nay có giảng pháp không mọi người?', 'Nghe tiếng chuông thấy yên lòng thật', 'Để mình đi quét sân phụ một tay', 'Mới đi làm về, ghé chùa ngồi chút', 'Cây bồ đề này chắc lâu năm lắm rồi', 'Mọi người ăn cơm chưa?', 'Ở đây yên tĩnh, thích ghê', 'Đi một vòng mỏi chân luôn 😅', 'Trà sen ở chùa thơm thật', 'Ai rảnh thắp đèn lồng với mình không?', 'Nam mô A Di Đà Phật 🙏'],
+      dialogues: [
+        ['{name} ơi, hôm nay rảnh ghé chùa hả?', 'Dạ, cuối tuần nên lên ngồi chút cho thong thả', 'Vậy lát đi dạo chung nha'],
+        ['Bạn cho cá ăn chưa?', 'Chưa nè, lát đi chung không?', 'Ok, đợi mình chút'],
+        ['Trà ở đây uống thơm ghê', 'Trà sen đó {name}, sư cô ướp kỹ lắm'],
+        ['Nhà mình dạo này khỏe không {name}?', 'Dạ cũng ổn, cảm ơn nha', 'Vậy là mừng rồi'],
+        ['Lát có ai chơi bầu cua không ta?', 'Chơi vui thôi nha, hết xu là nghỉ 😆'],
+        ['Nghe nói tối nay có giảng pháp', 'Vậy để mình ở lại nghe luôn'],
+        ['Ủa {name} cũng ở đây hả', 'Hihi trùng hợp ghê', 'Đi một vòng hồ sen không?'],
+        ['Đèn lồng thắp lên đẹp quá', 'Tối nhìn càng lung linh nữa {name}'],
+        ['Mình mới tập thiền, ngồi yên khó ghê', 'Từ từ thôi {name}, mỗi ngày vài phút là được'],
+        ['Hôm nay đi làm mệt quá', 'Lên chùa ngồi chút là nhẹ người liền', 'Đúng vậy đó'],
+      ],
+      greetBack: ['Chào {name} nha 🙏', 'Chào {name}, mới tới hả?', 'A Di Đà Phật, chào {name}', 'Chào bạn {name}, chúc một ngày an lành'],
+    },
     // Phòng theo ngôn ngữ khác: tên và câu tụng của bot đổi theo ngôn ngữ phòng (names/lines ở trên là tiếng Việt).
     byLang: {
       en: {
         names: ['Grace', 'Daniel', 'Hannah', 'Michael', 'Sophia', 'James', 'Emily', 'David', 'Olivia', 'Ethan', 'Linda', 'Robert', 'Mia', 'Joseph', 'Chloe', 'Andrew'],
         lines: ['Namo Amitabha Buddha', 'Namo Shakyamuni Buddha', 'Namo Avalokiteshvara Bodhisattva', 'May my family be safe and well', 'May my parents be healthy', 'May the merit of this practice reach all beings'],
+        talk: {
+          lines: ['The courtyard feels so peaceful today', 'The lotus pond looks beautiful', 'Has anyone fed the koi yet?', 'Just taking a slow walk around', 'First time here in a while', 'Is there a dharma talk tonight?', 'That bell sound is so calming', 'Stopping by after work to unwind', 'Anyone want to light the lanterns with me?', 'Namo Amitabha 🙏'],
+          dialogues: [
+            ['Hey {name}, nice to see you here', 'You too! Weekend visit?', 'Yep, just needed some quiet'],
+            ['Did you feed the koi already?', 'Not yet, want to go together?'],
+            ['The tea here smells amazing', 'Lotus tea, {name}. So good'],
+            ['I just started meditating, sitting still is hard', 'Go easy, {name}. A few minutes a day is enough'],
+            ['Long day at work', 'Same. This place helps a lot'],
+          ],
+          greetBack: ['Hi {name} 🙏', 'Hey {name}, welcome!', 'Hello {name}, have a peaceful day'],
+        },
       },
       zh: {
         names: ['慧心', '明德', '淨蓮', '妙音', '善喜', '如意', '寶珠', '法明', '慈安', '德成', '靜怡', '志遠', '心月', '智海', '福祥', '蓮華'],
         lines: ['南無阿彌陀佛', '南無本師釋迦牟尼佛', '南無大悲觀世音菩薩', '願家人平安吉祥', '願父母身體健康', '願以此功德，普及於一切'],
+        talk: {
+          lines: ['今天寺院裡好涼快', '荷花池的花開得真美', '有人餵錦鯉了嗎？', '散散步，心情輕鬆多了', '好久沒來寺院了', '今晚有講經嗎？', '聽到鐘聲心裡很平靜', '下班順路來坐一下', '阿彌陀佛 🙏'],
+          dialogues: [
+            ['{name}，今天也來啦？', '是啊，週末來靜一靜', '等下一起走走吧'],
+            ['你餵魚了嗎？', '還沒，一起去吧？'],
+            ['這裡的茶好香', '是蓮花茶喔，{name}'],
+            ['我剛開始學打坐，好難靜下來', '慢慢來，{name}，每天幾分鐘就好'],
+          ],
+          greetBack: ['{name} 你好 🙏', '歡迎 {name}！', '阿彌陀佛，{name} 你好'],
+        },
       },
       es: {
         names: ['María', 'José', 'Carmen', 'Luis', 'Ana', 'Carlos', 'Lucía', 'Miguel', 'Sofía', 'Javier', 'Elena', 'Diego', 'Isabel', 'Pablo', 'Rosa', 'Andrés'],
         lines: ['Namo Buda Amitabha', 'Namo Buda Shakyamuni', 'Namo Bodhisattva Avalokiteshvara', 'Que mi familia esté en paz', 'Que mis padres tengan salud', 'Que el mérito de esta práctica llegue a todos los seres'],
+        talk: {
+          lines: ['Qué tranquilo está el patio hoy', 'El estanque de lotos está precioso', '¿Alguien ya alimentó a los koi?', 'Dando un paseo para despejarme', 'Hacía tiempo que no venía', '¿Hay charla de dharma esta noche?', 'El sonido de la campana calma mucho', 'Paso un rato después del trabajo', 'Namo Amitabha 🙏'],
+          dialogues: [
+            ['Hola {name}, ¿también por aquí?', 'Sí, vine a buscar un poco de paz', 'Luego damos una vuelta juntos'],
+            ['¿Ya alimentaste a los peces?', 'Todavía no, ¿vamos juntos?'],
+            ['El té de aquí huele muy bien', 'Es té de loto, {name}'],
+            ['Empecé a meditar y me cuesta quedarme quieto', 'Con calma, {name}, unos minutos al día bastan'],
+          ],
+          greetBack: ['Hola {name} 🙏', '¡Bienvenido, {name}!', 'Hola {name}, que tengas un día tranquilo'],
+        },
       },
     },
   },

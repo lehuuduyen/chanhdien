@@ -412,6 +412,24 @@ test('Lô Tô: mua tối đa 2 vé (10 xu/vé) + tự đánh dấu 5 xu; kinh h�
   assert.equal(refunded.void, true);
   assert.equal(coins(an), startAn);
 
+  // Bot kinh cùng nhịp được chia quỹ như người thắng (phần bot không vào ví ai); chỉ bot kinh thì người chơi thua vé.
+  const withBot = 'lt-loto-1-1-4-abcd';
+  garden.buyLotto({ accountId: an, roundId: withBot, count: 1, autoMark: false, key: 'lt-buy-an-40' });
+  garden.buyLotto({ accountId: binh, roundId: withBot, count: 1, autoMark: false, key: 'lt-buy-binh-40' });
+  const anRow = accounts.database.prepare('SELECT numbers FROM lotto_tickets WHERE round_id = ? AND account_id = ?').get(withBot, an).numbers;
+  const startBoth = { an: coins(an), binh: coins(binh) };
+  const shared = garden.settleLottoRound({ roundId: withBot, called: JSON.parse(anRow)[0].filter(Boolean), claims: [{ accountId: an, ticket: 1, row: 0 }], botWinners: 1 });
+  // Quỹ 20, sau phế 18, hai người kinh (An + 1 bot) → mỗi phần 9.
+  assert.deepEqual([shared.void, shared.share, shared.botWinners], [undefined, 9, 1]);
+  assert.deepEqual([coins(an) - startBoth.an, coins(binh) - startBoth.binh], [9, 0]);
+  const botOnly = 'lt-loto-1-1-5-abcd';
+  garden.buyLotto({ accountId: an, roundId: botOnly, count: 1, autoMark: false, key: 'lt-buy-an-50' });
+  const beforeBotOnly = coins(an);
+  const lost = garden.settleLottoRound({ roundId: botOnly, called: [1, 2, 3], claims: [], botWinners: 2 });
+  assert.equal(lost.void, undefined, 'chỉ bot kinh: ván vẫn chốt, không hoàn');
+  assert.equal(coins(an), beforeBotOnly);
+  assert.equal(garden.settleLottoRound({ roundId: 'lt-loto-1-1-6-abcd', called: [], claims: [], botWinners: 21 }).code, 'INVALID');
+
   // Ván treo (máy realtime chết): quá hạn thì tự hoàn.
   const stale = 'lt-loto-1-1-3-abcd';
   garden.buyLotto({ accountId: binh, roundId: stale, count: 1, autoMark: false, key: 'lt-buy-binh-30' });

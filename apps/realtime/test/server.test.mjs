@@ -1658,6 +1658,52 @@ test('Lô Tô: một người đợi hai hàng (hai vé) thì danh sách đợi 
   assert.equal(parseServerMessage(message).ok, true, 'vẫn đúng protocol (tối đa 8 mục)');
 });
 
+test('Lô Tô: bot tự kinh và hô trong chat; ván có vé thật thì bot dò chậm một nhịp và được chia quỹ như người thắng', async () => {
+  const { LottoTable } = await import('../loto.mjs');
+  const said = [];
+  const bot = { id: 'bot-1', bot: true, displayName: 'Sen Nhỏ' };
+  const room = {
+    id: 'loto-1', epoch: 1, broadcast() {}, botSpeak: (who, text) => said.push([who.displayName, text]),
+    participants: new Map([['bot-1', bot], ['an', { id: 'an', accountId: 'a-an-00000001', displayName: 'An' }]]),
+  };
+  const settles = [];
+  const table = new LottoTable({
+    room, rules: { buyMs: 60_000, callMs: 4_000, claimWindowMs: 3_000, resultMs: 5_000, ticketPrice: 10 },
+    settle: async (input) => { settles.push(input); return { ok: true, winners: [], share: 9, botWinners: 1, results: [] }; },
+  });
+  const play = (withRealTicket) => {
+    table.running = true;
+    table.nextRound();
+    const round = table.round;
+    round.botTickets.set('bot-1', [{ no: 1, rows: [[1, 2, 3, 4, 5, 0, 0, 0, 0], [11, 12, 13, 14, 15, 0, 0, 0, 0], [21, 22, 23, 24, 25, 0, 0, 0, 0]] }]);
+    if (withRealTicket) round.tickets.set('a-an-00000001', [{ no: 1, rows: [[31, 32, 33, 34, 35, 0, 0, 0, 0], [41, 42, 43, 44, 45, 0, 0, 0, 0], [51, 52, 53, 54, 55, 0, 0, 0, 0]] }]);
+    round.phase = 'calling';
+    // Luôn gọi số nhỏ nhất còn lại: 1, 2, 3… nên hàng đầu vé bot đủ ở nhịp thứ 5.
+    table.random = () => 0;
+    return round;
+  };
+
+  let round = play(false);
+  for (let call = 0; call < 5; call += 1) table.callNext();
+  assert.equal(round.phase, 'claiming', 'ván chỉ có bot: đủ hàng là kinh ngay');
+  assert.deepEqual(said.map(([name]) => name), ['Sen Nhỏ']);
+  assert.match(said[0][1], /Kinh/);
+  table.stop();
+
+  said.length = 0;
+  round = play(true);
+  for (let call = 0; call < 5; call += 1) table.callNext();
+  assert.equal(round.phase, 'calling', 'có vé thật: nhịp vừa đủ hàng bot chưa kinh');
+  table.callNext();
+  assert.equal(round.phase, 'claiming', 'nhịp sau bot kinh');
+  await table.finish();
+  assert.deepEqual([settles.at(-1).claims, settles.at(-1).botWinners], [[], 1], 'API nhận số bot kinh để chia quỹ');
+  assert.equal(round.void, false);
+  assert.deepEqual(round.winners, [{ displayName: 'Sen Nhỏ', share: 9 }]);
+  assert.equal(parseServerMessage(table.stateMessage()).ok, true);
+  table.stop();
+});
+
 test('nắm tay: mời khi đứng gần, đồng ý thì room.state ghi người dẫn / người theo; ngồi, đi quá xa, rời phòng thì buông', () => {
   const room = new Room('thien-1', { botCount: 0 });
   const inbox = new Map();

@@ -382,7 +382,7 @@
         if (next.phase === 'claiming') say('Có người KINH! · ai cũng đủ số thì bấm KINH ngay', 'win');
         if (next.phase === 'result') {
           if (next.void) say('Ván hủy · không ai kinh, tiền vé đã được hoàn', 'lose');
-          elements.winners.textContent = next.winners?.length ? `🎉 KINH: ${next.winners.map((item) => `${item.displayName} +${item.share}`).join(' · ')}` : '';
+          elements.winners.textContent = next.winners?.length ? `🎉 KINH: ${next.winners.map((item) => (item.share ? `${item.displayName} +${item.share}` : item.displayName)).join(' · ')}` : '';
         }
       }
       autoMarkAll();

@@ -901,7 +901,10 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     // Kiểm tra lại từng lời kinh theo vé gốc; vé kinh hợp lệ chia đều quỹ sau phế. Không có lời kinh hợp lệ thì hủy ván
     // và hoàn toàn bộ tiền (vé + tự đánh dấu). Gọi lại cùng ván trả nguyên kết quả cũ.
     // Trả { ok, void?, pool, prize, share, winners: [{ accountId, ticket, row }], results: [{ accountId, staked, payout, net, coins }] }.
-    settleLottoRound({ roundId, called, claims = [] }) {
+    // botWinners: số bot kinh đúng cùng nhịp (máy realtime giữ vé bot). Bot được tính như người thắng khi chia quỹ;
+    // phần của bot không vào ví nào. Chỉ bot kinh thì ván vẫn chốt: người chơi thua tiền vé như thua người thật.
+    settleLottoRound({ roundId, called, claims = [], botWinners = 0 }) {
+      if (!Number.isSafeInteger(botWinners) || botWinners < 0 || botWinners > 20) return { ok: false, code: 'INVALID' };
       if (typeof roundId !== 'string' || !LOTTO_ROUND_ID.test(roundId) || !Array.isArray(called) || called.length > 90
         || !called.every((number) => Number.isSafeInteger(number) && number >= 1 && number <= 90) || new Set(called).size !== called.length
         || !Array.isArray(claims) || claims.length > 1_000) return { ok: false, code: 'INVALID' };
@@ -924,9 +927,9 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         const paid = new Map();
         for (const item of [...tickets, ...autoMarks]) paid.set(item.accountId, (paid.get(item.accountId) || 0) + item.price);
         const pool = tickets.reduce((sum, item) => sum + item.price, 0);
-        const voided = !winners.length;
+        const voided = !winners.length && !botWinners;
         const prize = voided ? 0 : Math.floor((pool * (100 - LOTTO_HOUSE_CUT_PERCENT)) / 100);
-        const share = voided ? 0 : Math.floor(prize / winners.length);
+        const share = voided ? 0 : Math.floor(prize / (winners.length + botWinners));
         const won = new Map();
         for (const winner of winners) won.set(winner.accountId, (won.get(winner.accountId) || 0) + share);
         const results = [];
@@ -936,7 +939,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
           if (!voided && staked > 0) q.gameRound.run(accountId, 'loto', JSON.stringify({ tickets: tickets.filter((item) => item.accountId === accountId).length }), JSON.stringify(called), staked, payout, coins, now());
           results.push({ accountId, staked, payout, net: payout - staked, coins });
         }
-        const result = { ok: true, ...(voided ? { void: true } : {}), pool, prize, share, winners, results };
+        const result = { ok: true, ...(voided ? { void: true } : {}), pool, prize, share, winners, ...(botWinners ? { botWinners } : {}), results };
         q.lottoClose.run(roundId, voided ? 'void' : 'settled', JSON.stringify(result), now());
         return result;
       });
