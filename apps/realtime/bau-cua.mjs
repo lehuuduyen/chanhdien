@@ -18,7 +18,9 @@ export const DICE_TABLE_GAMES = Object.freeze({
   'bau-cua': { prefix: 'bc', spots: BAU_CUA_ANIMALS, field: 'animal', roll: (random) => [0, 1, 2].map(() => BAU_CUA_ANIMALS[random(BAU_CUA_ANIMALS.length)]) },
   'tai-xiu': { prefix: 'tx', spots: TAI_XIU_SPOTS, field: 'spot', roll: (random) => [0, 1, 2].map(() => random(6) + 1) },
 });
-const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
+// Đây là timer đang được roll()/quiesce() await trực tiếp. Giữ timer có tham chiếu để tiến trình không thoát
+// giữa lúc dựng lại ván đang lắc; các timer chạy nền của bàn vẫn unref riêng ở nơi tạo chúng.
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 export class BauCuaTable {
   // stake({ accountId, roundId, animal, amount, key }) → { ok, mine, coins } | { ok: false, code } | null (lỗi mạng)
