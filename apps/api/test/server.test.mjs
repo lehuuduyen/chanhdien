@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { verifyJoinTicket } from '@chanh-dien/session-token';
+import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { createMemoryDirectory } from '@chanh-dien/room-directory';
 import { THIEN_RULES } from '@chanh-dien/room-rules';
 import { createJoinResponse, handleApiRequest, listPublicRooms, locateRoom } from '../server.mjs';
@@ -22,7 +23,7 @@ async function request(url, options = {}) {
 test('API công bố trạng thái và protocol version', async () => {
   const response = await request('/health');
   assert.equal(response.status, 200);
-  assert.deepEqual(JSON.parse(response.body), { status: 'ok', service: 'api', protocolVersion: 1 });
+  assert.deepEqual(JSON.parse(response.body), { status: 'ok', service: 'api', protocolVersion: PROTOCOL_VERSION });
 });
 
 test('sảnh công bố chánh điện, Cinema và phòng game với sức chứa theo room rules', () => {

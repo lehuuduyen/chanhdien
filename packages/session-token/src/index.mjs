@@ -7,6 +7,7 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
 export const ROOM_INVITE_TTL_MS = 30 * 24 * 60 * 60_000;
 const ACCOUNT_ID = /^a-[a-zA-Z0-9-]{8,64}$/;
 const SKIN_ID = /^[a-z][a-z0-9-]{1,40}$/;
+const COSMETIC_ID = /^[a-z][a-z0-9-]{1,31}$/;
 // Ảnh đại diện chỉ nhận ảnh Google (đăng nhập Gmail); tài khoản tên/mật khẩu dùng chữ cái đầu.
 export const AVATAR_URL = /^https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[A-Za-z0-9._~\/=+-]{1,180}$/;
 
@@ -21,7 +22,7 @@ function validClaims(value) {
   return value !== null
     && typeof value === 'object'
     && !Array.isArray(value)
-    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'skins', 'skin', 'fresh', 'iat', 'exp'].includes(key))
+    && Object.keys(value).every((key) => ['participantId', 'roomId', 'displayName', 'role', 'accountId', 'level', 'avatarUrl', 'title', 'frame', 'skins', 'skin', 'fresh', 'iat', 'exp'].includes(key))
     && typeof value.participantId === 'string'
     && PARTICIPANT_ID.test(value.participantId)
     && typeof value.roomId === 'string'
@@ -33,6 +34,8 @@ function validClaims(value) {
     && (value.role === 'guest' ? value.accountId === undefined : value.role === 'member' && typeof value.accountId === 'string' && ACCOUNT_ID.test(value.accountId))
     && (value.level === undefined || (value.role === 'member' && Number.isSafeInteger(value.level) && value.level >= 1 && value.level <= 99))
     && (value.avatarUrl === undefined || (value.role === 'member' && typeof value.avatarUrl === 'string' && AVATAR_URL.test(value.avatarUrl)))
+    && (value.title === undefined || (value.role === 'member' && typeof value.title === 'string' && COSMETIC_ID.test(value.title)))
+    && (value.frame === undefined || (value.role === 'member' && typeof value.frame === 'string' && COSMETIC_ID.test(value.frame)))
     // Hình nhân vật đã mua trong shop (máy realtime chỉ cho mặc hình có trong danh sách này).
     && (value.skins === undefined || (value.role === 'member' && Array.isArray(value.skins) && value.skins.length <= 16
       && value.skins.every((skin) => typeof skin === 'string' && SKIN_ID.test(skin))))
@@ -97,6 +100,8 @@ export function createJoinTicket(claims, secret, options = {}) {
     ...(claims.accountId ? { accountId: claims.accountId } : {}),
     ...(claims.accountId && claims.level ? { level: claims.level } : {}),
     ...(claims.accountId && AVATAR_URL.test(claims.avatarUrl || '') ? { avatarUrl: claims.avatarUrl } : {}),
+    ...(claims.accountId && claims.title ? { title: claims.title } : {}),
+    ...(claims.accountId && claims.frame ? { frame: claims.frame } : {}),
     ...(claims.accountId && claims.skins?.length ? { skins: [...claims.skins] } : {}),
     ...(claims.accountId && claims.skin ? { skin: claims.skin } : {}),
     ...(claims.accountId && claims.fresh === true ? { fresh: true } : {}),

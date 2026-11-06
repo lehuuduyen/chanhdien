@@ -1,5 +1,5 @@
-// Tài khoản và công đức lưu bền: đăng ký bằng tên/mật khẩu hoặc Google, ghi lễ vật, tổng điểm, chuỗi ngày, cấp độ,
-// lịch sử, bảng xếp hạng. SQLite có sẵn trong Node (node:sqlite) cho giai đoạn một máy; chỉ API ghi vào đây.
+// Tài khoản và công đức lưu bền: đăng ký bằng tên/mật khẩu hoặc Google, điểm danh đăng nhập, ghi lễ vật, tổng điểm,
+// chuỗi ngày, cấp độ, lịch sử, bảng xếp hạng. SQLite có sẵn trong Node (node:sqlite) cho giai đoạn một máy; chỉ API ghi.
 import { MERIT_LEVELS } from '@chanh-dien/room-rules';
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -108,6 +108,14 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
     );
     CREATE INDEX IF NOT EXISTS offerings_account_at ON offerings(account_id, at DESC);
     CREATE INDEX IF NOT EXISTS offerings_day ON offerings(day);
+    -- Mỗi tài khoản chỉ được tính một lần trong một ngày. Dùng tổng số ngày khác nhau cho quà đăng nhập 3/7 ngày.
+    CREATE TABLE IF NOT EXISTS login_days (
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      day TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, day)
+    );
+    CREATE INDEX IF NOT EXISTS login_days_day ON login_days(day);
     -- Bạn bè: mỗi cặp một dòng, account_a < account_b.
     CREATE TABLE IF NOT EXISTS friends (
       account_a TEXT NOT NULL REFERENCES accounts(id),
@@ -139,6 +147,9 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
     byGoogle: db.prepare('SELECT * FROM accounts WHERE google_sub = ?'),
     updateGoogleProfile: db.prepare('UPDATE accounts SET email = ?, avatar_url = ? WHERE id = ?'),
     bumpSession: db.prepare('UPDATE accounts SET session_version = session_version + 1 WHERE id = ?'),
+    insertLoginDay: db.prepare('INSERT OR IGNORE INTO login_days (account_id, day, at) VALUES (?, ?, ?)'),
+    hasLoginDay: db.prepare('SELECT 1 FROM login_days WHERE account_id = ? AND day = ?'),
+    countLoginDays: db.prepare('SELECT COUNT(*) AS n FROM login_days WHERE account_id = ?'),
     countToday: db.prepare('SELECT COUNT(*) AS n FROM offerings WHERE account_id = ? AND kind = ? AND day = ? AND counted = 1'),
     insertOffering: db.prepare('INSERT INTO offerings (account_id, kind, merit, counted, text, room_id, day, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
     totals: db.prepare(`SELECT COALESCE(SUM(merit), 0) AS merit, COUNT(*) AS offerings,
@@ -194,6 +205,15 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
     };
   }
 
+  function loginStatus(accountId) {
+    const day = dayOf(now());
+    return {
+      day,
+      totalDays: statements.countLoginDays.get(accountId)?.n || 0,
+      todayCheckedIn: Boolean(statements.hasLoginDay.get(accountId, day)),
+    };
+  }
+
   return {
     register({ username, password, displayName }) {
       const name = String(username || '').trim().toLowerCase();
@@ -222,6 +242,19 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
 
     get(accountId) {
       return publicAccount(statements.byId.get(accountId));
+    },
+
+    // Điểm danh chỉ được gọi sau khi xác thực đăng nhập thành công. Đăng nhập lại trong ngày không tăng số ngày.
+    recordLogin(accountId) {
+      if (!statements.byId.get(accountId)) return { ok: false, error: 'ACCOUNT_NOT_FOUND' };
+      const at = now();
+      const day = dayOf(at);
+      const result = statements.insertLoginDay.run(accountId, day, at);
+      return { ok: true, ...loginStatus(accountId), newDay: result.changes > 0 };
+    },
+
+    loginStatus(accountId) {
+      return statements.byId.get(accountId) ? { ok: true, ...loginStatus(accountId) } : null;
     },
 
     // Dùng cho công cụ quản trị nội bộ (ví dụ bot Telegram); không đưa đường tra cứu này ra API công khai.

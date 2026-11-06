@@ -4,7 +4,7 @@
 import WebSocket from 'ws';
 import { DEFAULT_LOCAL_SECRET, createJoinTicket } from '@chanh-dien/session-token';
 
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const url = process.env.LOADTEST_URL;
 const roomId = process.env.LOADTEST_ROOM;
 const workerId = process.env.LOADTEST_WORKER;

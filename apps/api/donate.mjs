@@ -9,8 +9,10 @@
 //   DONATE_CONTACT        email liên hệ (tùy chọn)
 //   TELEGRAM_WEBHOOK_SECRET khóa Telegram gửi trong header; TELEGRAM_CHAT_ID là chat duy nhất được phép cập nhật
 import { timingSafeEqual } from 'node:crypto';
+import { getRoomRules, ROOM_CATALOG, roomTypeOf } from '@chanh-dien/room-rules';
 import { internalKey } from '@chanh-dien/session-token';
 import { json, readJson } from './http.mjs';
+import { botChatTelegramCommand } from './bot-chat.mjs';
 import { MODERATION_HELP, moderationTelegramCommand } from './moderation.mjs';
 
 const text = (value, max) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null);
@@ -123,17 +125,82 @@ export function handleDonateRequest(req, res, pathname, options) {
 
 // API chỉ chuyển lệnh quản trị sang máy realtime qua mạng nội bộ. Khóa được suy ra từ SESSION_SECRET như các
 // endpoint nội bộ khác; Telegram không bao giờ nhận được khóa này.
-export function realtimeBotController(realtimeInternalUrl, secret, fetcher = fetch) {
-  if (!realtimeInternalUrl || !secret) return null;
-  return (total) => fetcher(new URL('/internal/bots', realtimeInternalUrl), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-internal-key': internalKey(secret) },
-    body: JSON.stringify({ total }),
-    signal: AbortSignal.timeout(5_000),
-  }).then(async (response) => {
-    const result = await response.json().catch(() => null);
-    return response.ok ? result : null;
-  }).catch(() => null);
+export function botAllocation(total, random = Math.random) {
+  if (!Number.isSafeInteger(total) || total < 0 || total > 1_000) return null;
+  const rooms = ROOM_CATALOG.map((room) => ({ ...room, rules: getRoomRules(room.type) }))
+    .filter((room) => room.rules?.bots);
+  const allocations = new Map(rooms.map((room) => [room.id, 0]));
+  const capacity = (room) => Math.max(0, room.rules.bots.max ?? room.rules.seats ?? 0);
+  let remaining = total;
+  // Mỗi bàn game cần ít nhất hai bot để nhìn có người chơi; Lô Tô cũng cần hai vé mới mở ván.
+  const games = rooms.filter((room) => ['game', 'taixiu', 'loto'].includes(room.type));
+  for (let pass = 0; pass < 2 && remaining > 0; pass += 1) {
+    for (const room of games) {
+      if (remaining <= 0 || allocations.get(room.id) >= capacity(room)) continue;
+      allocations.set(room.id, allocations.get(room.id) + 1);
+      remaining -= 1;
+    }
+  }
+  while (remaining > 0) {
+    const available = rooms.filter((room) => allocations.get(room.id) < capacity(room));
+    if (!available.length) break;
+    const room = available[Math.floor(random() * available.length) % available.length];
+    allocations.set(room.id, allocations.get(room.id) + 1);
+    remaining -= 1;
+  }
+  return { requested: total, planned: total - remaining, allocations: Object.fromEntries(allocations) };
+}
+
+const BOT_ROOM_ALIASES = Object.freeze({
+  thien: 'thien-1', chanhdien: 'thien-1', 'chanh-dien': 'thien-1',
+  cinema: 'cinema-1', rap: 'cinema-1', phim: 'cinema-1', rapphim: 'cinema-1', 'rap-phim': 'cinema-1',
+  game: 'game-1', baucua: 'game-1', 'bau-cua': 'game-1',
+  taixiu: 'taixiu-1', 'tai-xiu': 'taixiu-1',
+  loto: 'loto-1', 'lo-to': 'loto-1',
+});
+
+export function botRoomId(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  return BOT_ROOM_ALIASES[normalized] || (roomTypeOf(normalized) ? normalized : null);
+}
+
+const botRoomName = (roomId) => ROOM_CATALOG.find((room) => room.id === roomId)?.name?.replace(/ #1$/, '') || roomId;
+
+export function realtimeBotController(realtimeInternalUrls, secret, fetcher = fetch) {
+  const urls = (Array.isArray(realtimeInternalUrls) ? realtimeInternalUrls : String(realtimeInternalUrls || '').split(','))
+    .map((value) => String(value).trim()).filter(Boolean);
+  if (!urls.length || !secret) return null;
+  return async (total, targetRoomId = null) => {
+    const roomId = targetRoomId ? botRoomId(targetRoomId) : null;
+    if (targetRoomId && !roomId) return null;
+    const globalPlan = roomId ? null : botAllocation(total);
+    const plan = roomId
+      ? { requested: total, planned: total, allocations: { [roomId]: total }, replace: false }
+      : globalPlan && { ...globalPlan, replace: true };
+    if (!plan) return null;
+    // Cùng một kế hoạch được gửi tới mọi node. Lease của phòng bảo đảm chỉ đúng node đang giữ phòng áp dụng số bot;
+    // nhờ vậy game đang nằm ở rt2 không bị bỏ sót khi API mặc định nối nội bộ tới rt1.
+    const results = await Promise.all(urls.map((baseUrl) => fetcher(new URL('/internal/bots', baseUrl), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-key': internalKey(secret) },
+      body: JSON.stringify({ allocations: plan.allocations, replace: plan.replace }),
+      signal: AbortSignal.timeout(5_000),
+    }).then(async (response) => (response.ok ? response.json().catch(() => null) : null)).catch(() => null)));
+    const byRoom = new Map();
+    for (const result of results.filter(Boolean)) {
+      for (const room of Array.isArray(result.rooms) ? result.rooms : []) {
+        const current = byRoom.get(room.roomId);
+        if (!current || room.bots > current.bots) byRoom.set(room.roomId, room);
+      }
+    }
+    if (!results.some(Boolean)) return null;
+    if (roomId && !byRoom.has(roomId) && total === 0) {
+      byRoom.set(roomId, { roomId, name: botRoomName(roomId), bots: 0 });
+    }
+    const rooms = [...byRoom.values()].sort((a, b) => a.roomId.localeCompare(b.roomId));
+    return { requested: total, assigned: rooms.reduce((sum, room) => sum + room.bots, 0), rooms };
+  };
 }
 
 // Webhook chỉ nhận từ Telegram có secret header và chỉ cho đúng TELEGRAM_CHAT_ID. Cú pháp:
@@ -142,6 +209,7 @@ export function realtimeBotController(realtimeInternalUrl, secret, fetcher = fet
 //   xu tam.an +100 / xu tam.an -20
 //   kimcuong tam.an +50 / kimcuong a-<uuid> -10
 //   addbot 100     (chia tổng 100 bot vào các phòng; addbot 0 để tắt)
+//   addbot baucua 20 / addbot loto 0 (đặt bot riêng một phòng, không đổi các phòng khác)
 //   /blockchattu dm · /boblockchattu dm · /unban k-ab12cd34 · /ban tam.an 24 · /dsban (xem moderation.mjs)
 // Trả method sendMessage ngay trong response để Telegram tự gửi xác nhận, không cần thêm một HTTP call.
 export async function handleTelegramDonateRequest(req, res, pathname, options) {
@@ -167,11 +235,44 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
     json(req, res, 200, { ok: true });
     return true;
   }
+  // Trả lời thay bot: /tl <mã> <nội dung>, hoặc Reply vào tin "Nhắn bot" rồi gõ.
+  const botReply = await botChatTelegramCommand(message, options);
+  if (botReply) {
+    json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: botReply });
+    return true;
+  }
   // Lệnh kiểm duyệt: /blockchattu dm, /unban k-…, /ban, /dsban…
   const by = message.from?.username ? `@${message.from.username}` : String(message.from?.first_name || 'Telegram').slice(0, 40);
   const moderationReply = moderationTelegramCommand(message.text, options.moderation, `Telegram ${by}`);
   if (moderationReply) {
     json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: moderationReply });
+    return true;
+  }
+  const addBotRoomMatch = typeof message.text === 'string'
+    && /^\/?addbot(?:@[A-Za-z0-9_]+)?\s+(?:([A-Za-z0-9_-]+)\s+(\d{1,4})|(\d{1,4})\s+([A-Za-z0-9_-]+))$/i.exec(message.text.trim());
+  if (addBotRoomMatch) {
+    const roomId = botRoomId(addBotRoomMatch[1] || addBotRoomMatch[4]);
+    const total = Number(addBotRoomMatch[2] || addBotRoomMatch[3]);
+    if (!roomId) {
+      json(req, res, 200, {
+        method: 'sendMessage', chat_id: message.chat.id,
+        text: 'Không nhận ra phòng. Dùng: chanhdien, cinema, baucua, taixiu, loto hoặc mã phòng.',
+      });
+      return true;
+    }
+    const result = options.configureBots ? await options.configureBots(total, roomId) : null;
+    if (!result || !Number.isSafeInteger(result.assigned)) {
+      json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: 'Máy realtime đang tạm mất kết nối, chưa đổi được số bot.' });
+      return true;
+    }
+    const actual = result.rooms?.find((room) => room.roomId === roomId)?.bots ?? result.assigned;
+    const capped = actual < total ? ` (sức chứa hiện tại nhận ${actual}/${total})` : '';
+    json(req, res, 200, {
+      method: 'sendMessage', chat_id: message.chat.id,
+      text: total === 0
+        ? `✅ Đã tắt bot riêng phòng ${botRoomName(roomId)}.`
+        : `✅ ${botRoomName(roomId)}: ${actual} bot${capped}. Các phòng khác giữ nguyên.`,
+    });
     return true;
   }
   const addBotMatch = typeof message.text === 'string'
@@ -239,7 +340,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
   if (!match) {
     json(req, res, 200, {
       method: 'sendMessage', chat_id: message.chat.id,
-      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
+      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\naddbot baucua 20\naddbot taixiu 20\naddbot loto 20\naddbot cinema 20\naddbot chanhdien 20\n/tl <mã> <nội dung> (trả lời thay bot)\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
     });
     return true;
   }

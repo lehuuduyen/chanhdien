@@ -4,8 +4,9 @@ import { createBootLoader, waitFor } from '/boot-loader.js';
 import { createGemUI } from '/gem-ui.js';
 import { loadShopCharacters } from '/shop-models.js';
 import { theaterSeats } from '/engine/theater.mjs';
+import { avatarNode, titleBadge } from '/badges.js';
 
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const RESUME_WINDOW_MS = 60_000;
 const SESSION_KEY = 'cinema-session-v1';
 const SCENE_ID = 'cinema-default';
@@ -97,7 +98,7 @@ let votedItemId = null;
 function chosenSkin() {
   let saved = null;
   try { saved = localStorage.getItem('thien-skin'); } catch {}
-  if (saved === 'chibigirl' || /^shop-[a-z0-9-]{2,30}$/.test(saved || '')) return saved;
+  if (['chibigirl', 'swordsman'].includes(saved) || /^shop-[a-z0-9-]{2,30}$/.test(saved || '')) return saved;
   return ['woman', 'nun', 'granny'].includes(saved) ? 'woman' : 'man';
 }
 
@@ -357,14 +358,17 @@ function renderPeople() {
   for (const participant of participants.values()) {
     const row = document.createElement('div');
     row.className = `person${participant.id === session?.participantId ? ' me' : ''}${participant.connected === false ? ' disconnected' : ''}`;
-    const avatar = document.createElement('span');
-    avatar.className = 'avatar';
-    avatar.textContent = participant.displayName.slice(0, 1).toLocaleUpperCase('vi');
+    const avatar = avatarNode(participant);
+    const identity = document.createElement('div');
+    identity.className = 'person-identity';
     const name = document.createElement('b');
     name.textContent = participant.displayName;
+    identity.append(name);
+    const earnedTitle = titleBadge(participant.title);
+    if (earnedTitle) identity.append(earnedTitle);
     const seat = document.createElement('small');
     seat.textContent = `${participant.connected === false ? 'Đang nối lại · ' : ''}${participant.seatId || 'Khán đài'}`;
-    row.append(avatar, name, seat);
+    row.append(avatar, identity, seat);
     elements.people.append(row);
   }
 }

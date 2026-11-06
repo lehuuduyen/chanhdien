@@ -18,8 +18,8 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmS
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { isPremiumSkin, isShopSkin, SHOP_ITEMS } from '@chanh-dien/room-rules';
-import { allow, currentAccount, sameOrigin } from './auth.mjs';
+import { isPremiumSkin, isShopSkin, LOGIN_REWARD_ITEMS, LOGIN_REWARDS, SHOP_ITEMS } from '@chanh-dien/room-rules';
+import { allow, currentAccount, loginRewardView, sameOrigin } from './auth.mjs';
 import { json, readJson } from './http.mjs';
 import { isAdmin } from './support.mjs';
 
@@ -45,6 +45,10 @@ const MODEL_MAX_TRIANGLES = 40_000;
 const MODEL_BONES = ['hips', 'spine', 'leftupleg', 'leftleg', 'rightupleg', 'rightleg', 'leftarm', 'rightarm'];
 const ITEM_PRICE = [0, 1_000_000];
 const BASES = ['man', 'woman'];
+// Kiểu nhún nhảy bằng code (cùng danh sách DANCE_STYLES trong scene-engine/chibi3d.mjs) và tên điệu nhảy trong file
+// (cùng DANCE_CLIP trong rigged3d.mjs; hai gói không phụ thuộc nhau, sửa thì sửa cả hai).
+export const DANCE_STYLES = Object.freeze(['bounce', 'sway', 'spin', 'hop', 'nod']);
+export const DANCE_CLIP = /danc|hip ?hop|samba|salsa|twerk|shuffl|cheer|celebrat|happy|jump/i;
 // Hình ai cũng chọn được (cổng chùa); hình khác phải mua.
 const FREE_SKINS = ['man', 'woman'];
 // "mixamorig:LeftUpLeg" / "LeftUpLeg" → "leftupleg" (cùng cách chibi3d.mjs tìm xương).
@@ -221,6 +225,8 @@ export function createShopStore({ db, now = Date.now }) {
   if (!catalogColumns.includes('original_price')) db.exec('ALTER TABLE shop_catalog ADD COLUMN original_price INTEGER');
   // Ảnh chân dung (PNG admin dựng từ mô hình): 0 = chưa có.
   if (!catalogColumns.includes('thumb_version')) db.exec('ALTER TABLE shop_catalog ADD COLUMN thumb_version INTEGER NOT NULL DEFAULT 0');
+  // Kiểu nhún nhảy khi file không có điệu nhảy riêng (DANCE_STYLES).
+  if (!catalogColumns.includes('dance')) db.exec("ALTER TABLE shop_catalog ADD COLUMN dance TEXT NOT NULL DEFAULT 'bounce'");
   const q = {
     preferredSkin: db.prepare('SELECT skin FROM account_skins WHERE account_id = ?'),
     setPreferredSkin: db.prepare(`INSERT INTO account_skins (account_id, skin, updated_at) VALUES (?, ?, ?)
@@ -241,8 +247,8 @@ export function createShopStore({ db, now = Date.now }) {
     packCount: db.prepare('SELECT COUNT(*) AS count FROM shop_packs'),
     clearPacks: db.prepare('DELETE FROM shop_packs'),
     addPack: db.prepare('INSERT INTO shop_packs (id, diamonds, cents, active, sort, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
-    catalog: db.prepare('SELECT id, name, price, original_price, base, active, version, thumb_version, bytes, clips FROM shop_catalog ORDER BY created_at'),
-    catalogItem: db.prepare('SELECT id, name, price, original_price, base, active, version, thumb_version FROM shop_catalog WHERE id = ?'),
+    catalog: db.prepare('SELECT id, name, price, original_price, base, active, version, thumb_version, bytes, clips, dance FROM shop_catalog ORDER BY created_at'),
+    catalogItem: db.prepare('SELECT id, name, price, original_price, base, active, version, thumb_version, dance FROM shop_catalog WHERE id = ?'),
     setThumb: db.prepare('UPDATE shop_catalog SET thumb_version = thumb_version + 1, updated_at = ? WHERE id = ?'),
     overrides: db.prepare('SELECT item_id AS itemId, price, original_price, active FROM shop_item_overrides'),
     setOverride: db.prepare(`INSERT INTO shop_item_overrides (item_id, price, original_price, active, updated_at) VALUES (?, ?, ?, ?, ?)
@@ -250,7 +256,7 @@ export function createShopStore({ db, now = Date.now }) {
     addModel: db.prepare(`INSERT INTO shop_catalog (id, name, price, base, active, version, bytes, clips, created_at, updated_at)
       VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`),
     replaceModel: db.prepare('UPDATE shop_catalog SET version = version + 1, bytes = ?, clips = ?, updated_at = ? WHERE id = ?'),
-    updateItem: db.prepare('UPDATE shop_catalog SET name = ?, price = ?, original_price = ?, base = ?, active = ?, updated_at = ? WHERE id = ?'),
+    updateItem: db.prepare('UPDATE shop_catalog SET name = ?, price = ?, original_price = ?, base = ?, active = ?, dance = ?, updated_at = ? WHERE id = ?'),
     adminRequest: db.prepare('SELECT response FROM shop_admin_requests WHERE account_id = ? AND idem_key = ?'),
     saveAdminRequest: db.prepare('INSERT INTO shop_admin_requests (account_id, idem_key, response, at) VALUES (?, ?, ?, ?)'),
   };
@@ -279,6 +285,7 @@ export function createShopStore({ db, now = Date.now }) {
   }
 
   const ownedItems = (accountId) => q.items.all(accountId).map((row) => row.itemId);
+  const loginRewardByItem = new Map(LOGIN_REWARDS.map((reward) => [reward.itemId, reward]));
   // Món bán: hình có sẵn trong code (SHOP_ITEMS) + nhân vật admin tải lên (shop_catalog, kèm link file .glb).
   // originalPrice: giá gốc khi đang giảm (luôn lớn hơn giá bán), không giảm thì null.
   const original = (price, originalPrice) => (Number.isSafeInteger(originalPrice) && originalPrice > price ? originalPrice : null);
@@ -288,6 +295,9 @@ export function createShopStore({ db, now = Date.now }) {
     model: `/api/v1/shop/models/${row.id}.glb?v=${row.version}`,
     thumb: row.thumb_version ? `/api/v1/shop/models/${row.id}.png?v=${row.thumb_version}` : null,
     ...(row.clips ? { clips: JSON.parse(row.clips) } : {}),
+    // Có điệu nhảy trong file thì dùng điệu đó; dance là kiểu thay thế khi không có.
+    danceClip: row.clips ? JSON.parse(row.clips).some((name) => DANCE_CLIP.test(name)) : false,
+    dance: DANCE_STYLES.includes(row.dance) ? row.dance : 'bounce',
   });
   // Hình có sẵn trong code: giá / bật-tắt admin chỉnh lưu ở shop_item_overrides.
   const builtinItems = () => {
@@ -295,10 +305,15 @@ export function createShopStore({ db, now = Date.now }) {
     return SHOP_ITEMS.map((item) => {
       const override = overrides.get(item.id);
       const price = override?.price ?? item.price;
-      return { ...item, price, originalPrice: original(price, override?.original_price), active: override ? override.active === 1 : true };
+      const reward = loginRewardByItem.get(item.id);
+      return {
+        ...item, price, originalPrice: original(price, override?.original_price), active: override ? override.active === 1 : true,
+        ...(reward ? { rewardDays: reward.days } : {}),
+      };
     });
   };
-  const allItems = () => [...builtinItems(), ...q.catalog.all().map(catalogItem)];
+  const rewardItems = () => LOGIN_REWARD_ITEMS.map((item) => ({ ...item, active: true, originalPrice: null }));
+  const allItems = () => [...builtinItems(), ...rewardItems(), ...q.catalog.all().map(catalogItem)];
   const writePacks = (packs) => {
     q.clearPacks.run();
     packs.forEach((pack, index) => q.addPack.run(pack.id, pack.diamonds, pack.cents, pack.active ? 1 : 0, index, now()));
@@ -341,8 +356,8 @@ export function createShopStore({ db, now = Date.now }) {
       }
       const row = q.catalogItem.get(id);
       if (!row) return null;
-      const next = { name: row.name, price: row.price, originalPrice: row.original_price, base: row.base, active: row.active === 1, ...changes };
-      q.updateItem.run(next.name, next.price, original(next.price, next.originalPrice), next.base, next.active ? 1 : 0, now(), id);
+      const next = { name: row.name, price: row.price, originalPrice: row.original_price, base: row.base, active: row.active === 1, dance: row.dance || 'bounce', ...changes };
+      q.updateItem.run(next.name, next.price, original(next.price, next.originalPrice), next.base, next.active ? 1 : 0, next.dance, now(), id);
       return allItems().find((item) => item.id === id);
     },
     // Hình nhân vật chọn lần cuối (lưu theo tài khoản): Nam/Nữ hoặc hình đã mua; hình không còn hợp lệ thì null.
@@ -385,9 +400,21 @@ export function createShopStore({ db, now = Date.now }) {
       const owned = new Set(ownedItems(accountId));
       return allItems().filter((item) => item.kind === 'skin' && owned.has(item.id) && isPremiumSkin(item.skin)).map((item) => item.skin);
     },
+    // Quà đăng nhập ghi chung với món đã mua. Khóa chính (account_id, item_id) giúp gọi lại bao nhiêu lần cũng chỉ
+    // cấp một bản; không tự mặc để người dùng chủ động chọn ở cổng hoặc trong shop.
+    grantLoginReward(accountId, itemId) {
+      const reward = LOGIN_REWARDS.find((candidate) => candidate.itemId === itemId);
+      const item = allItems().find((candidate) => candidate.id === itemId);
+      if (!reward || !item) return { ok: false, error: 'UNKNOWN_REWARD' };
+      return transaction(() => {
+        if (q.owns.get(accountId, itemId)) return { ok: true, granted: false, itemId, skin: reward.skin };
+        q.own.run(accountId, itemId, 0, now());
+        return { ok: true, granted: true, itemId, skin: reward.skin };
+      });
+    },
     // Mua một món: đã có thì thôi (không trừ lần hai), thiếu kim cương thì báo.
     buy(accountId, itemId) {
-      const item = allItems().find((candidate) => candidate.id === itemId && candidate.active);
+      const item = allItems().find((candidate) => candidate.id === itemId && candidate.active && !candidate.rewardOnly);
       if (!item) return { ok: false, error: 'UNKNOWN_ITEM' };
       return transaction(() => {
         if (q.owns.get(accountId, itemId)) return { ok: true, already: true, diamonds: q.wallet.get(accountId)?.diamonds ?? 0, owned: ownedItems(accountId) };
@@ -558,7 +585,7 @@ export async function handleShopRequest(req, res, pathname, options) {
     if (!isAdmin(req, options)) return json(req, res, 403, { error: 'forbidden' }), true;
     if (pathname === '/api/v1/admin/shop/items') {
       if (req.method !== 'GET') return json(req, res, 405, { error: 'method_not_allowed' }), true;
-      return json(req, res, 200, { items: store.items({ all: true }) }), true;
+      return json(req, res, 200, { items: store.items({ all: true }).filter((item) => !item.rewardOnly) }), true;
     }
     // Ảnh chân dung admin dựng từ mô hình (PNG ≤ 600 KB) → DATA_DIR/models/<mã>.png.
     const thumbFor = pathname.match(/^\/api\/v1\/admin\/shop\/items\/(shop-[a-z0-9-]{2,30})\/thumb$/);
@@ -589,12 +616,14 @@ export async function handleShopRequest(req, res, pathname, options) {
     if (input.originalPrice !== undefined) changes.originalPrice = input.originalPrice;
     if (input.base !== undefined) changes.base = input.base;
     if (input.active !== undefined) changes.active = input.active;
+    if (input.dance !== undefined) changes.dance = input.dance;
     const valid = (changes.name === undefined || changes.name.length >= 1)
       && (changes.price === undefined || (Number.isSafeInteger(changes.price) && changes.price >= ITEM_PRICE[0] && changes.price <= ITEM_PRICE[1]))
       && (changes.originalPrice === undefined || changes.originalPrice === null
         || (Number.isSafeInteger(changes.originalPrice) && changes.originalPrice >= ITEM_PRICE[0] && changes.originalPrice <= ITEM_PRICE[1]))
       && (changes.base === undefined || BASES.includes(changes.base))
-      && (changes.active === undefined || typeof changes.active === 'boolean');
+      && (changes.active === undefined || typeof changes.active === 'boolean')
+      && (changes.dance === undefined || DANCE_STYLES.includes(changes.dance));
     if (!valid) return json(req, res, 400, { error: 'invalid_item' }), true;
     const item = store.updateItem(id, changes);
     return json(req, res, item ? 200 : 404, item ? { item } : { error: 'not_found' }), true;
@@ -667,13 +696,15 @@ export async function handleShopRequest(req, res, pathname, options) {
 
   if (pathname === '/api/v1/shop') {
     if (req.method !== 'GET') return json(req, res, 405, { error: 'method_not_allowed' }), true;
+    const loginReward = account ? loginRewardView(options, account.id, { record: true }) : null;
     json(req, res, 200, {
       items: store.items(),
       // File mô hình của mọi nhân vật đã tải lên (cả món đang ẩn: người đã mua vẫn mặc, người khác phải thấy đúng hình).
-      models: store.items({ all: true }).filter((item) => item.model).map(({ skin, model, base, name, thumb }) => ({ skin, url: model, base, name, thumb })),
+      models: store.items({ all: true }).filter((item) => item.model).map(({ skin, model, base, name, thumb, dance }) => ({ skin, url: model, base, name, thumb, dance })),
       packs: store.packs().map(({ id, diamonds, cents }) => ({ id, diamonds, cents })),
       payments: Boolean(config.secretKey),
       me: account ? store.me(account.id) : null,
+      loginReward,
     });
     return true;
   }

@@ -28,6 +28,19 @@ test('Google: tạo tài khoản lần đầu theo sub, lần sau cập nhật �
   assert.equal(again.provider, 'google');
 });
 
+test('điểm danh đăng nhập: mỗi ngày chỉ tính một lần và ngày bỏ lỡ không làm mất tiến độ', () => {
+  let clock = Date.parse('2026-11-01T03:00:00Z');
+  const store = createAccountStore({ now: () => clock });
+  const account = store.register({ username: 'diem.danh', password: 'matkhau123' }).account;
+  assert.deepEqual(store.loginStatus(account.id), { ok: true, day: '2026-11-01', totalDays: 0, todayCheckedIn: false });
+  assert.equal(store.recordLogin(account.id).newDay, true);
+  assert.equal(store.recordLogin(account.id).newDay, false, 'tải lại trong ngày không tăng tiến độ');
+  clock += 2 * 86_400_000;
+  assert.deepEqual(store.recordLogin(account.id), {
+    ok: true, day: '2026-11-03', totalDays: 2, todayCheckedIn: true, newDay: true,
+  }, 'bỏ lỡ một ngày vẫn tiếp tục cộng tổng ngày đăng nhập');
+});
+
 test('công đức, số lần dâng hương, giới hạn trong ngày, cấp độ, lịch sử', () => {
   let clock = Date.parse('2026-11-01T03:00:00Z');
   const store = createAccountStore({ now: () => clock });

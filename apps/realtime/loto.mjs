@@ -199,20 +199,24 @@ export class LottoTable {
     this.schedule(this.rules.callMs, () => this.callNext());
   }
 
-  // Người đang "đợi": hàng còn thiếu đúng 1 số (mỗi người tối đa một dòng, tối đa 8 người).
+  // Người đang "đợi": hàng còn thiếu đúng 1 số. Một người đợi nhiều hàng (cùng vé hoặc hai vé) thì có một mục cho mỗi
+  // số đang đợi (không trùng số), client gộp theo tên: "An đợi 5, 12". Tối đa 8 mục (giới hạn protocol).
   waitingList() {
     const round = this.round;
     const list = [];
     for (const [accountId, tickets] of [...round.tickets, ...round.botTickets]) {
-      let missing = null;
+      const missing = new Set();
       for (const { rows } of tickets) {
         for (const row of rows) {
           const left = row.filter((number) => number && !round.calledSet.has(number));
-          if (left.length === 1) missing = left[0];
+          if (left.length === 1) missing.add(left[0]);
         }
       }
-      if (missing) list.push({ displayName: this.nameOf(accountId), number: missing });
-      if (list.length >= 8) break;
+      const displayName = missing.size ? this.nameOf(accountId) : null;
+      for (const number of [...missing].sort((a, b) => a - b)) {
+        if (list.length >= 8) return list;
+        list.push({ displayName, number });
+      }
     }
     return list;
   }

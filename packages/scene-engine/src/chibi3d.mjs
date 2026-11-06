@@ -15,12 +15,12 @@ import * as THREE from 'three';
 import { buildRiggedPerson, buildRiggedWalker, loadRiggedModel } from './rigged3d.mjs';
 
 // Áo tràng theo hình nhân vật: lam (nam/nữ/tiểu), nâu (bà cụ), xám (sư cô), vàng nghệ (sư thầy).
-const ROBES = { man: '#4f78bd', woman: '#5a82c4', child: '#4f78bd', granny: '#8a5a3b', nun: '#8d96a3', monk: '#c8741f', pilgrim: '#3d7d68', lotusgirl: '#b5486f' };
-const COLLARS = { man: '#eef1f6', woman: '#eef1f6', child: '#eef1f6', granny: '#e9dcc8', nun: '#e6e9ee', monk: '#f1d9a8', pilgrim: '#e8e0c5', lotusgirl: '#ffe3ec' };
+const ROBES = { man: '#4f78bd', woman: '#5a82c4', child: '#4f78bd', granny: '#8a5a3b', nun: '#8d96a3', monk: '#c8741f', pilgrim: '#3d7d68', lotusgirl: '#b5486f', swordsman: '#274f78' };
+const COLLARS = { man: '#eef1f6', woman: '#eef1f6', child: '#eef1f6', granny: '#e9dcc8', nun: '#e6e9ee', monk: '#f1d9a8', pilgrim: '#e8e0c5', lotusgirl: '#ffe3ec', swordsman: '#e8edf2' };
 // Sư thầy, sư cô, chú tiểu cạo đầu; nam tóc ngắn có mái, nữ tóc dài ngang vai có mái, bà cụ tóc bạc búi.
 const HAIR = { man: '#1d1714', woman: '#2a1a12', granny: '#d8d4cc' };
 const FEMALE = new Set(['woman', 'nun', 'granny', 'lotusgirl', 'chibigirl']);
-const HEAD_STYLE = { pilgrim: 'man', lotusgirl: 'woman' };
+const HEAD_STYLE = { pilgrim: 'man', lotusgirl: 'woman', swordsman: 'man' };
 
 const SKIN = '#f3cfa8';
 const HEAD_R = 0.2;
@@ -97,6 +97,11 @@ function createParts() {
     return [key, item];
   }));
   const bow = material('#ff6fa3', 0.5, 0.3);
+  const sword = {
+    sheath: material('#3f261d', 0.8, 0.08),
+    metal: material('#d8b253', 0.35, 0.28),
+    sash: material('#9f3432', 0.72, 0.18),
+  };
   const popcorn = { box: material('#e63946', 0.6, 0.3), stripe: material('#ffffff', 0.6, 0.3), corn: material('#ffe8a3', 0.9, 0.35) };
   const geometry = {
     head: new THREE.SphereGeometry(HEAD_R, 32, 24),
@@ -126,8 +131,11 @@ function createParts() {
     bucket: new THREE.CylinderGeometry(0.075, 0.055, 0.12, 14),
     bucketStripe: new THREE.CylinderGeometry(0.076, 0.07, 0.03, 14),
     corn: new THREE.SphereGeometry(0.072, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+    swordSheath: new THREE.BoxGeometry(0.035, 0.52, 0.028),
+    swordGrip: new THREE.CylinderGeometry(0.018, 0.018, 0.1, 10),
+    swordGuard: new THREE.BoxGeometry(0.13, 0.025, 0.035),
   };
-  return { skin, shoe, sneaker, white, robes, collars, hairs, face, tinted, popcorn, bow, geometry };
+  return { skin, shoe, sneaker, white, robes, collars, hairs, face, tinted, popcorn, bow, sword, geometry };
 }
 
 let shared = null;
@@ -142,6 +150,8 @@ function colorMaterial(color, key) {
 }
 
 function casualOf(skin, look) {
+  // Skin sự kiện giữ nguyên bộ kiếm sĩ ở mọi phòng, giống mô hình Bé Mũ Đỏ giữ nguyên trang phục riêng.
+  if (skin === 'swordsman') return null;
   const casual = look?.outfit === 'casual';
   if (!casual) return null;
   const tint = Boolean(look.tint);
@@ -254,6 +264,24 @@ function buildUpper(skinKey, look) {
     lapel.rotation.set(0.25, 0, -0.55);
     upper.add(ring, lapel);
   }
+  if (skinKey === 'swordsman') {
+    // Bao kiếm nằm sau vai, đai đỏ ở eo. Tất cả gắn vào thân trên nên đi/ngồi/quỳ đều theo đúng nhân vật.
+    const sword = new THREE.Group();
+    sword.position.set(0.14, 0.28, 0.105);
+    sword.rotation.z = -0.48;
+    const sheath = new THREE.Mesh(p.geometry.swordSheath, p.sword.sheath);
+    sheath.position.y = -0.07;
+    const grip = new THREE.Mesh(p.geometry.swordGrip, p.sword.metal);
+    grip.position.y = 0.25;
+    const guard = new THREE.Mesh(p.geometry.swordGuard, p.sword.metal);
+    guard.position.y = 0.19;
+    sword.add(sheath, grip, guard);
+    const sash = new THREE.Mesh(p.geometry.band, p.sword.sash);
+    sash.rotation.x = Math.PI / 2;
+    sash.position.y = 0.045;
+    sash.scale.set(1.04, 0.9, 1.04);
+    upper.add(sword, sash);
+  }
   // Tay chắp mặc định; khi làm việc engine ẩn nhóm này và bật hai tay rời để thật sự cầm/chuyển động cùng đạo cụ.
   const prayerArms = new THREE.Group();
   for (const side of [-1, 1]) {
@@ -317,6 +345,12 @@ const riggedBase = new Map();
 const riggedLoading = new Map();
 // Link đã tải của từng hình (link có ?v=version: admin thay file thì link đổi, tải lại bản mới).
 const riggedUrl = new Map();
+// Kiểu nhún nhảy khi file không có điệu nhảy riêng (admin chọn cho từng nhân vật tải lên).
+const riggedDance = new Map();
+export const DANCE_STYLES = Object.freeze(['bounce', 'sway', 'spin', 'hop', 'nod']);
+// Hình có sẵn trong code: mỗi hình một kiểu. Sư / ni chỉ gật gù nhẹ cho trang nghiêm.
+const BUILTIN_DANCE = { man: 'bounce', woman: 'sway', granny: 'nod', nun: 'nod', monk: 'nod', child: 'hop', chibigirl: 'hop', swordsman: 'spin' };
+export const danceStyleOf = (skin) => riggedDance.get(skin) || BUILTIN_DANCE[skin] || BUILTIN_DANCE[chibiBaseOf(skin)] || 'bounce';
 let loaderPromise = null;
 function gltfLoader() {
   loaderPromise ||= Promise.all([
@@ -392,7 +426,8 @@ export function loadChibiModels(shopModels = []) {
       console.warn(`Không tải được mô hình nhân vật ${skin}`, error);
     }
   }));
-  for (const { skin, url, base } of shopModels) {
+  for (const { skin, url, base, dance } of shopModels) {
+    if (skin && DANCE_STYLES.includes(dance)) riggedDance.set(skin, dance);
     if (!skin || !url || riggedUrl.get(skin) === url) continue;
     riggedUrl.set(skin, url);
     riggedBase.set(skin, base === 'woman' ? 'woman' : 'man');

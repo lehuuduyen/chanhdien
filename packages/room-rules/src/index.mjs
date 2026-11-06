@@ -54,7 +54,7 @@ export const CINEMA_RULES = defineRoomRules({
   },
   // Nhân vật nam/nữ chọn ở cổng chùa (avatar.set); ở rạp mặc đồ thường ngày, đầu/mặt giữ nguyên. Hình mua trong
   // shop (PREMIUM_SKINS) chỉ người sở hữu mới mặc được.
-  skins: ['man', 'woman', 'chibigirl'],
+  skins: ['man', 'woman', 'chibigirl', 'swordsman'],
   // Đi lại trong rạp (góc nhìn nhân vật): vào từ cửa sau, đi xuống lối đi rồi ngồi ghế. Vùng thô theo
   // scenes/cinema-default (theater3d.hall); va chạm với ghế tính ở client. Rạp ≤ 500 người nên phát vị trí cho cả
   // phòng (không chia vùng như chánh điện).
@@ -83,7 +83,7 @@ export const THIEN_RULES = defineRoomRules({
   lang: 'vi',
   moderation: 'strict',
   content: { source: 'none' },
-  skins: ['man', 'woman', 'granny', 'nun', 'monk', 'child', 'chibigirl'],
+  skins: ['man', 'woman', 'granny', 'nun', 'monk', 'child', 'chibigirl', 'swordsman'],
   // Chế độ nhập vai: nhân vật đi lại tự do. Server chỉ kiểm tra thô (vùng chữ nhật, tốc độ tối đa) để chống dịch
   // chuyển tức thời; va chạm chi tiết theo world.walk trong scene JSON ở client. Vùng thô gồm cả sân ngoài chùa;
   // maxSpeed tính cả lúc chạy (giữ Shift). maxWalkers: số nhân vật đi lại tối đa mỗi phòng (bằng sức chứa).
@@ -252,7 +252,31 @@ export const SHOP_ITEMS = deepFreeze([
   // thumb: ảnh chân dung dựng sẵn (shop/cổng hiện ngay, không phải tải three.js và mô hình mới thấy hình).
   { id: 'chibigirl', kind: 'skin', skin: 'chibigirl', base: 'woman', price: 300, thumb: '/models/characters/chibi-girl.png' },
 ]);
-export const PREMIUM_SKINS = Object.freeze(SHOP_ITEMS.filter((item) => item.kind === 'skin').map((item) => item.skin));
+// Quà đăng nhập: tính tổng số ngày khác nhau đã điểm danh, không bắt buộc liên tiếp. Bé Mũ Đỏ vẫn có thể mua sớm;
+// Kiếm Sĩ chỉ nhận từ sự kiện. Quyền sở hữu được ghi chung vào shop_items nên tồn tại vĩnh viễn và không cấp trùng.
+export const LOGIN_REWARDS = deepFreeze([
+  { days: 3, itemId: 'chibigirl', skin: 'chibigirl', name: 'Bé Mũ Đỏ' },
+  { days: 7, itemId: 'swordsman', skin: 'swordsman', name: 'Kiếm Sĩ' },
+]);
+// Hoàn thành toàn bộ sự kiện còn mở danh hiệu + khung đại diện. Hai id ngắn được mang trong vé
+// và room.state; chữ hiển thị dịch ở client để phòng vi/en/zh/es cùng dùng một protocol.
+export const LOGIN_ACHIEVEMENT = deepFreeze({
+  days: 7,
+  id: 'steadfast-practitioner',
+  title: 'Hành Giả Bền Tâm',
+  frame: 'seven-day-lotus',
+  frameName: 'Khung Sen Thất Nhật',
+});
+export const LOGIN_REWARD_ITEMS = deepFreeze([
+  {
+    id: 'swordsman', kind: 'skin', skin: 'swordsman', base: 'man', price: 0, rewardOnly: true, rewardDays: 7,
+    name: 'Kiếm Sĩ', thumb: '/models/characters/swordsman.svg',
+  },
+]);
+export const PREMIUM_SKINS = Object.freeze([...new Set([
+  ...SHOP_ITEMS.filter((item) => item.kind === 'skin').map((item) => item.skin),
+  ...LOGIN_REWARD_ITEMS.map((item) => item.skin),
+])]);
 // Nhân vật admin tải lên ở trang quản trị (mô hình .glb có khung xương, danh mục trong database): mã "shop-<tên>".
 // Cùng mẫu với SHOP_SKIN trong @chanh-dien/protocol (hai gói không phụ thuộc nhau; sửa thì sửa cả hai).
 export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;

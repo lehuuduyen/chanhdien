@@ -80,6 +80,10 @@ test('shop: khách xem được danh mục; mua/nạp cần đăng nhập', asyn
   const view = await request(options, 'GET', '/api/v1/shop');
   assert.equal(view.status, 200);
   assert.equal(view.json.items[0].id, 'chibigirl');
+  assert.deepEqual(view.json.items.find((item) => item.id === 'swordsman'), {
+    id: 'swordsman', kind: 'skin', skin: 'swordsman', base: 'man', price: 0, rewardOnly: true, rewardDays: 7,
+    name: 'Kiếm Sĩ', thumb: '/models/characters/swordsman.svg', active: true, originalPrice: null,
+  });
   assert.equal(view.json.payments, true);
   assert.equal(view.json.me, null);
   assert.equal((await request(options, 'POST', '/api/v1/shop/buy', { body: { itemId: 'chibigirl' } })).status, 401);
@@ -291,7 +295,7 @@ test('shop: admin tải nhân vật .glb → nén, hiện trong shop, mua đư�
     assert.equal(saved.json.item.id, 'shop-kiem-si');
     assert.equal(saved.json.item.model, '/api/v1/shop/models/shop-kiem-si.glb?v=1');
     const listed = await request(options, 'GET', '/api/v1/shop');
-    assert.deepEqual(listed.json.items.map((item) => item.id), ['chibigirl', 'shop-kiem-si']);
+    assert.deepEqual(listed.json.items.map((item) => item.id), ['chibigirl', 'swordsman', 'shop-kiem-si']);
     const file = await request(options, 'GET', '/api/v1/shop/models/shop-kiem-si.glb');
     assert.equal(file.status, 200);
     assert.equal(file.headers['Content-Type'], 'model/gltf-binary');
@@ -323,7 +327,7 @@ test('shop: admin tải nhân vật .glb → nén, hiện trong shop, mua đư�
     assert.equal(replaced.json.item.price, 200);
     const hidden = await request(options, 'PATCH', '/api/v1/admin/shop/items/shop-kiem-si', { body: { active: false, price: 250, name: ' Kiếm Sĩ Lam ' }, headers: admin });
     assert.deepEqual([hidden.json.item.active, hidden.json.item.price, hidden.json.item.name], [false, 250, 'Kiếm Sĩ Lam']);
-    assert.deepEqual((await request(options, 'GET', '/api/v1/shop')).json.items.map((item) => item.id), ['chibigirl']);
+    assert.deepEqual((await request(options, 'GET', '/api/v1/shop')).json.items.map((item) => item.id), ['chibigirl', 'swordsman']);
     const other = await signUp(options, 'an.vui');
     options.accounts.database.prepare('INSERT INTO shop_wallets (account_id, diamonds, updated_at) VALUES (?, 500, 0)').run(other.accountId);
     assert.equal((await request(options, 'POST', '/api/v1/shop/buy', { body: { itemId: 'shop-kiem-si' }, headers: { cookie: other.cookie } })).status, 404);
@@ -331,6 +335,12 @@ test('shop: admin tải nhân vật .glb → nén, hiện trong shop, mua đư�
     assert.deepEqual(verifyJoinTicket(again.json.ticket, SECRET).value.skins, ['shop-kiem-si']);
     assert.equal((await request(options, 'PATCH', '/api/v1/admin/shop/items/shop-kiem-si', { body: { price: -1 }, headers: admin })).status, 400);
     assert.equal((await request(options, 'GET', '/api/v1/admin/shop/items', { headers: admin })).json.items.length, 2);
+    // Nhún nhảy: file chưa có điệu nhảy → dùng kiểu admin chọn (mặc định nhún lên xuống); danh mục mô hình kèm kiểu.
+    const shopModel = () => request(options, 'GET', '/api/v1/shop').then((result) => result.json.models[0]);
+    assert.deepEqual([(await shopModel()).dance, hidden.json.item.danceClip], ['bounce', false]);
+    assert.equal((await request(options, 'PATCH', '/api/v1/admin/shop/items/shop-kiem-si', { body: { dance: 'spin' }, headers: admin })).json.item.dance, 'spin');
+    assert.equal((await shopModel()).dance, 'spin');
+    assert.equal((await request(options, 'PATCH', '/api/v1/admin/shop/items/shop-kiem-si', { body: { dance: 'twerk' }, headers: admin })).status, 400);
   } finally {
     rmSync(modelDir, { recursive: true, force: true });
   }

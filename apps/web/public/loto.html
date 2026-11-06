@@ -184,7 +184,7 @@
   </main>
 
   <script type="module">
-    const PROTOCOL_VERSION = 1;
+    const PROTOCOL_VERSION = 2;
     const ROOM_ID = 'loto-1';
     const PHASE_LABELS = { buying: 'Mua vé', calling: 'Đang gọi số', claiming: 'Có người KINH!', result: 'Kết quả' };
     const PHASE_LENGTH = { buying: 30_000, calling: 4_000, claiming: 3_000, result: 8_000 };
@@ -327,7 +327,10 @@
       const set = new Set(called);
       [...elements.board90.children].forEach((cell, index) => cell.classList.toggle('on', set.has(index + 1)));
       elements.pool.replaceChildren('Quỹ ', Object.assign(document.createElement('b'), { textContent: money(state?.pool || 0) }), ` · ${state?.tickets || 0} vé · ${people} người`);
-      elements.waiting.textContent = state?.waiting?.length ? `⏳ ${state.waiting.map((item) => `${item.displayName} đợi ${item.number}`).join(' · ')}` : '';
+      // Một người đợi nhiều hàng: gộp các số về một tên ("An đợi 5, 12").
+      const waitingBy = new Map();
+      for (const item of state?.waiting || []) waitingBy.set(item.displayName, [...(waitingBy.get(item.displayName) || []), item.number]);
+      elements.waiting.textContent = waitingBy.size ? `⏳ ${[...waitingBy].map(([name, numbers]) => `${name} đợi ${numbers.join(', ')}`).join(' · ')}` : '';
     }
 
     function tick() {

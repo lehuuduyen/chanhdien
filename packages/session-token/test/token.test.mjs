@@ -61,3 +61,17 @@ test('vé thành viên mang danh sách hình đã mua; khách thì không', () =
   assert.equal(verifyJoinTicket(guest, SECRET, { now: 2_000 }).value.skins, undefined);
   assert.throws(() => createJoinTicket({ ...CLAIMS, accountId: 'a-12345678-aaaa', skins: ['<b>'] }, SECRET), TypeError);
 });
+
+test('vé thành viên mang danh hiệu và khung; khách không thể tự khai', () => {
+  const member = createJoinTicket({
+    ...CLAIMS,
+    accountId: 'a-12345678-aaaa',
+    title: 'steadfast-practitioner',
+    frame: 'seven-day-lotus',
+  }, SECRET, { now: 1_000 });
+  const claims = verifyJoinTicket(member, SECRET, { now: 2_000 }).value;
+  assert.deepEqual([claims.title, claims.frame], ['steadfast-practitioner', 'seven-day-lotus']);
+  const guest = verifyJoinTicket(createJoinTicket({ ...CLAIMS, title: 'steadfast-practitioner', frame: 'seven-day-lotus' }, SECRET), SECRET).value;
+  assert.deepEqual([guest.title, guest.frame], [undefined, undefined]);
+  assert.throws(() => createJoinTicket({ ...CLAIMS, accountId: 'a-12345678-aaaa', title: '<b>' }, SECRET), TypeError);
+});

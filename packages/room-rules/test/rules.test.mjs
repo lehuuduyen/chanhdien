@@ -20,6 +20,18 @@ test('Cinema dùng YouTube, có 100 ghế và ngưỡng bỏ qua 35%', () => {
   assert.equal(Object.isFrozen(CINEMA_RULES.interaction), true);
 });
 
+test('skin thưởng đăng nhập là hình cao cấp và có mốc ngày cố định', async () => {
+  const { isPremiumSkin, LOGIN_ACHIEVEMENT, LOGIN_REWARD_ITEMS, LOGIN_REWARDS, THIEN_RULES } = await import('../src/index.mjs');
+  assert.deepEqual(LOGIN_REWARDS.map(({ days, skin }) => [days, skin]), [[3, 'chibigirl'], [7, 'swordsman']]);
+  assert.deepEqual(
+    [LOGIN_ACHIEVEMENT.days, LOGIN_ACHIEVEMENT.id, LOGIN_ACHIEVEMENT.frame],
+    [7, 'steadfast-practitioner', 'seven-day-lotus'],
+  );
+  assert.equal(LOGIN_REWARD_ITEMS[0].rewardOnly, true);
+  assert.equal(isPremiumSkin('swordsman'), true);
+  assert.ok(THIEN_RULES.skins.includes('swordsman'));
+});
+
 test('Chánh điện: số bồ đoàn cấu hình được, lễ vật có công đức và không có thời gian chờ; danh mục phòng biết loại phòng', async () => {
   const { THIEN_RULES, ROOM_CATALOG, roomTypeOf } = await import('../src/index.mjs');
   assert.equal(getRoomRules('thien'), THIEN_RULES);

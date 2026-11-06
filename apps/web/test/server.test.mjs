@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { resolvePublicFile, resolveWebFile } from '../server.mjs';
@@ -91,7 +92,7 @@ test('web làm cổng vào chung: /api tới API, /ws tới realtime, giữ mã 
     const message = JSON.parse(raw);
     if (message.type === 'welcome') resolve(message);
   }));
-  socket.send(JSON.stringify({ v: 1, type: 'hello', roomId: 'cinema-1', displayName: 'An' }));
+  socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', roomId: 'cinema-1', displayName: 'An' }));
   assert.equal((await welcome).epoch, 1);
 
   const rejected = new WebSocket(`ws://127.0.0.1:${web.address().port}/ws?ticket=${join.ticket}`, {

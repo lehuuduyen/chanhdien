@@ -1,9 +1,13 @@
-// Bấm vào người khác trong chánh điện: thẻ thông tin (ảnh, tên, cấp, công đức), Kết bạn và Khiêu chiến. Khiêu chiến mở
+// Bấm vào người khác trong chánh điện: thẻ thông tin (ảnh, tên, cấp, công đức), Kết bạn, Nắm tay và Khiêu chiến.
+// Nắm tay (hand.*): người mời dẫn đường, người nhận tự đi bên cạnh; đang nắm thì có nút Buông tay nổi trên cảnh. Khiêu chiến mở
 // trò kéo búa bao do server làm trọng tài (challenge.*); lời mời kết bạn / khiêu chiến của người khác hiện thành hộp
 // trả lời. Có Chặn (người bị chặn không mời được mình, chat của họ bị ẩn) và Báo cáo (lưu cho người quản lý), cùng
-// màn Bạn bè (bạn đã lưu trong tài khoản + bạn trong phòng ở phiên này). Văn bản từ người dùng chỉ đưa ra màn hình bằng
-// textContent.
-import { avatarNode, levelBadge } from '/badges.js';
+// màn Bạn bè (bạn đã lưu trong tài khoản + bạn trong phòng ở phiên này). Bot có thể tự rủ oẳn tù tì hoặc mời sang phòng
+// game (game.invite); hộp mời của bot có nút "Đừng mời nữa" (bot.quiet, nhớ trên máy, bật lại trong menu ⚙). Văn bản từ
+// người dùng chỉ đưa ra màn hình bằng textContent. Màn Bạn bè còn cho thấy bạn đã lưu đang online ở phòng nào (Tới chỗ
+// bạn), mời bạn vào phòng mình, nhắn lời nhắn (đọc được cả khi bạn không online), hộp thư và nút ẩn trạng thái của mình;
+// có thư mới thì server gửi inbox.notify để tải lại hộp thư.
+import { avatarNode, levelBadge, titleBadge } from '/badges.js';
 import { onLangChange, t } from '/thien-i18n.js';
 
 const HANDS = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -24,7 +28,7 @@ function button(className, text, onClick) {
   return node;
 }
 
-export function createPlayerSocial({ stage, session, showToast, participant, nameOf, audio, onGameActive }) {
+export function createPlayerSocial({ stage, session, showToast, participant, everyone, nameOf, audio, onGameActive, onMessageBot, onGoGame, onGoRoom, currentRoomId }) {
   const requestId = () => `social-${crypto.randomUUID()}`;
   const send = (message) => session.send({ requestId: requestId(), ...message });
   // Bạn trong phiên này (id người trong phòng) và lời mời đang chờ mình trả lời.
@@ -32,6 +36,36 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
   const pendingFriends = new Set();
   const blocked = new Set();
   let reporting = false;
+  // Bạn bot lưu theo tên (bot không có tài khoản): thành viên lưu ở API, khách lưu trên máy. Gặp lại bot cùng tên là bạn.
+  const botFriends = new Map();
+  try { for (const item of JSON.parse(localStorage.getItem('bot-friends') || '[]')) if (typeof item?.name === 'string') botFriends.set(item.name, item.since || Date.now()); } catch {}
+  const saveBotFriendsLocal = () => {
+    try { localStorage.setItem('bot-friends', JSON.stringify([...botFriends].slice(-100).map(([name, since]) => ({ name, since })))); } catch {}
+  };
+  const isFriend = (person) => friends.has(person.id) || Boolean(person.bot && botFriends.has(person.displayName));
+  function keepBotFriend(name) {
+    if (!botFriends.has(name)) botFriends.set(name, Date.now());
+    saveBotFriendsLocal();
+    fetch('/api/v1/me/bot-friends', {
+      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }),
+    }).catch(() => {});
+  }
+  // Thành viên: lấy bạn bot đã lưu trong tài khoản (đăng nhập máy khác vẫn còn); bạn bot lưu trên máy lúc là khách thì gửi lên.
+  async function loadBotFriends() {
+    try {
+      const response = await fetch('/api/v1/me/friends', { credentials: 'same-origin' });
+      if (!response.ok) return;
+      const data = await response.json();
+      const remote = new Set();
+      for (const item of data.botFriends || []) {
+        remote.add(item.name);
+        if (!botFriends.has(item.name)) botFriends.set(item.name, item.since);
+      }
+      for (const name of botFriends.keys()) if (!remote.has(name)) keepBotFriend(name);
+      saveBotFriendsLocal();
+      if (cardId) renderCard();
+    } catch {}
+  }
 
   // ---- Thẻ thông tin ----
   const card = el('section', 'social-card');
@@ -54,28 +88,44 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
     name.append(title);
     const badge = levelBadge(person.level);
     if (badge) name.append(badge);
+    const earnedTitle = titleBadge(person.title);
+    if (earnedTitle) name.append(earnedTitle);
     const facts = el('div', 'social-facts');
-    facts.textContent = person.bot ? t('social.bot') : person.level ? t('social.member') : t('social.guest');
+    facts.textContent = person.level ? t('social.member') : t('social.guest');
     const merit = el('div', 'social-merit', t('social.merit', { n: person.merit || 0 }));
     const text = el('div', 'social-text');
     text.append(name, facts, merit);
     head.append(avatarNode(person, 'avatar social-avatar'), text);
 
     const actions = el('div', 'social-actions');
-    const friendLabel = friends.has(person.id) ? t('social.friends') : pendingFriends.has(person.id) ? t('social.friendSent') : t('social.addFriend');
+    const friendLabel = isFriend(person) ? t('social.friends') : pendingFriends.has(person.id) ? t('social.friendSent') : t('social.addFriend');
     const friend = button('chip social-btn', `🤝 ${friendLabel}`, () => {
       send({ type: 'friend.request', targetId: person.id });
       pendingFriends.add(person.id);
       renderCard();
     });
-    friend.disabled = Boolean(person.bot) || friends.has(person.id) || pendingFriends.has(person.id);
+    friend.disabled = isFriend(person) || pendingFriends.has(person.id);
     const duel = button('chip social-btn primary', `⚔️ ${t('social.challenge')}`, () => {
       send({ type: 'challenge.send', targetId: person.id, game: 'rps' });
       closeCard();
     });
     duel.disabled = Boolean(game);
-    actions.append(friend, duel);
-    const note = el('p', 'social-note', person.bot ? t('social.botNote') : t('social.gameNote'));
+    // Nắm tay: đang nắm người này thì nút thành Buông tay; người kia đang nắm tay ai khác thì khóa.
+    const holding = handWith() === person.id;
+    const hand = button('chip social-btn', holding ? `✋ ${t('hand.release')}` : `💞 ${t('hand.hold')}`, () => {
+      send(holding ? { type: 'hand.release' } : { type: 'hand.request', targetId: person.id });
+      closeCard();
+    });
+    hand.disabled = !holding && (blocked.has(person.id) || Boolean(person.handWith) || Boolean(handWith()));
+    actions.append(friend, hand, duel);
+    // Nhắn bot: điền "@Tên bot " vào ô chat; quản trị đọc qua Telegram và trả lời thay bot.
+    if (person.bot && onMessageBot) {
+      actions.append(button('chip social-btn', `💬 ${t('social.messageBot')}`, () => {
+        closeCard();
+        onMessageBot(person);
+      }));
+    }
+    const note = el('p', 'social-note', t('social.gameNote'));
     const safety = el('div', 'social-safety');
     if (!person.bot) {
       const isBlocked = blocked.has(person.id);
@@ -130,15 +180,16 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
   // ---- Hộp mời (kết bạn / khiêu chiến của người khác) ----
   const invites = el('div', 'social-invites');
   stage.append(invites);
-  function invite(key, text, { accept, decline, expiresAt }) {
+  function invite(key, text, { accept, decline, expiresAt, acceptText, fromBot = false }) {
     invites.querySelector(`[data-key="${key}"]`)?.remove();
     const box = el('div', 'social-invite');
     box.dataset.key = key;
     const line = el('p', '', text);
-    const yes = button('chip primary', t('social.accept'), () => { box.remove(); accept(); });
+    const yes = button('chip primary', acceptText || t('social.accept'), () => { box.remove(); accept(); });
     const no = button('chip', t('social.decline'), () => { box.remove(); decline(); });
     const row = el('div', 'social-actions');
     row.append(yes, no);
+    if (fromBot) row.append(button('chip', t('bot.quiet'), () => { box.remove(); decline(); setBotQuiet(true); }));
     box.append(line, row);
     invites.append(box);
     audio?.bead?.();
@@ -146,6 +197,72 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
     setTimeout(remove, Math.max(1_000, (expiresAt || Date.now() + 30_000) - session.serverNow()));
   }
   const dropInvite = (key) => invites.querySelector(`[data-key="${key}"]`)?.remove();
+
+  // ---- Bot tự bắt chuyện: mời sang phòng game; tắt / bật trong menu ⚙ ----
+  let botQuiet = false;
+  try { botQuiet = localStorage.getItem('bot-quiet') === '1'; } catch {}
+  let quietSent = false;
+  const quietButton = button('chip', '', () => setBotQuiet(!botQuiet));
+  const labelQuiet = () => { quietButton.textContent = t(botQuiet ? 'bot.menuOff' : 'bot.menuOn'); };
+  labelQuiet();
+  function setBotQuiet(quiet) {
+    botQuiet = quiet;
+    try { localStorage.setItem('bot-quiet', quiet ? '1' : '0'); } catch {}
+    labelQuiet();
+    send({ type: 'bot.quiet', quiet });
+    if (quiet) showToast(t('bot.quietOn'));
+  }
+  function onGameInvite(message) {
+    if (botQuiet || blocked.has(message.fromId)) return;
+    const name = nameOf(message.fromId);
+    invite(`play-${message.fromId}`, t('bot.gameInvite', { name, game: t(`game.${message.game}`) }), {
+      expiresAt: session.serverNow() + 30_000,
+      acceptText: t('bot.go'),
+      fromBot: true,
+      accept: () => onGoGame?.(message.game),
+      decline: () => {},
+    });
+  }
+
+  // ---- Nắm tay ----
+  const handWith = () => participant(session.participantId)?.handWith || null;
+  const handChip = button('chip hand-chip', '', () => send({ type: 'hand.release' }));
+  handChip.hidden = true;
+  stage.append(handChip);
+  let holdingId = null;
+  function showHandChip(id) {
+    holdingId = id;
+    handChip.hidden = !id;
+    if (id) handChip.textContent = `✋ ${t('hand.chip', { name: nameOf(id) })}`;
+  }
+  function onHand(state) {
+    const meFrom = state.fromId === session.participantId;
+    const otherId = meFrom ? state.toId : state.fromId;
+    const name = nameOf(otherId);
+    const key = `hand-${state.fromId}`;
+    if (state.status === 'pending') {
+      if (meFrom) showToast(t('hand.sent', { name }));
+      else {
+        invite(key, t('hand.invite', { name }), {
+          expiresAt: session.serverNow() + 30_000,
+          accept: () => send({ type: 'hand.respond', fromId: state.fromId, accept: true }),
+          decline: () => send({ type: 'hand.respond', fromId: state.fromId, accept: false }),
+        });
+      }
+      return;
+    }
+    dropInvite(key);
+    if (state.status === 'accepted') {
+      showHandChip(otherId);
+      showToast(t(meFrom ? 'hand.lead' : 'hand.follow', { name }));
+    } else if (state.status === 'declined') {
+      if (meFrom) showToast(t('hand.declined', { name }));
+    } else if (state.status === 'released') {
+      if (holdingId === otherId) showHandChip(null);
+      showToast(t(state.byId === session.participantId ? 'hand.releasedSelf' : 'hand.releasedBy', { name }));
+    }
+    if (cardId === otherId) renderCard();
+  }
 
   // ---- Trận kéo búa bao ----
   const panel = el('section', 'rps');
@@ -313,6 +430,7 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
     if (state.status === 'pending' && state.toId === session.participantId && !game) {
       invite(key, t('rps.inviteText', { name: rival }), {
         expiresAt: state.deadline,
+        fromBot: Boolean(participant(state.fromId)?.bot),
         accept: () => {
           game = state;
           openGame();
@@ -368,19 +486,81 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
       pendingFriends.delete(otherId);
       if (state.status === 'accepted') {
         friends.add(otherId);
-        showToast(t(state.saved ? 'social.friendSaved' : 'social.friendSession', { name }));
+        // Bot không có tài khoản: lưu theo tên (tài khoản hoặc máy này) để ra vào phòng vẫn còn.
+        const bot = participant(otherId)?.bot;
+        if (bot) keepBotFriend(name);
+        showToast(t(bot ? 'social.friendBot' : state.saved ? 'social.friendSaved' : 'social.friendSession', { name }));
       } else if (meFrom) showToast(t('social.friendDeclined', { name }));
     }
     if (cardId === otherId) renderCard();
   }
 
   // ---- Màn Bạn bè (mở từ menu ⚙) ----
-  const friendsButton = button('chip', `👥 ${t('friends.title')}`, () => openFriends());
+  const friendsButton = button('chip', '', () => openFriends());
   const sheet = el('section', 'social-friends');
   sheet.hidden = true;
   sheet.setAttribute('role', 'dialog');
   stage.append(sheet);
   let saved = null;
+  let presenceHidden = false;
+  // Hộp thư (lời nhắn + lời mời của bạn đã lưu). null: chưa tải hoặc là khách.
+  let inbox = null;
+  let inboxLoaded = false;
+  let noteFor = null;
+  // Lời mời đã hiện hộp (không hiện lại khi đổi phòng / tải lại hộp thư).
+  const shownInvites = new Set();
+  const labelFriends = () => {
+    friendsButton.textContent = `👥 ${t('friends.title')}${inbox?.unread ? ` · ${inbox.unread} ✉️` : ''}`;
+  };
+  labelFriends();
+
+  const GAME_KEYS = { game: 'game.bau-cua', taixiu: 'game.tai-xiu', loto: 'game.loto' };
+  const placeName = (room) => (room.type === 'thien' ? room.name || t('place.thien') : room.type === 'cinema' ? t('place.cinema') : t(GAME_KEYS[room.type] || 'place.thien'));
+  const goRoom = (room) => {
+    sheet.hidden = true;
+    onGoRoom?.(room);
+  };
+
+  async function api(path, body) {
+    const response = await fetch(path, body === undefined ? { credentials: 'same-origin' } : {
+      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, data };
+  }
+  const apiError = (data) => {
+    const own = t(`friends.err.${data?.error}`);
+    return own !== `friends.err.${data?.error}` ? own : t('friends.err.other');
+  };
+
+  // Tải hộp thư; popup: hiện hộp mời / báo lời nhắn mới chưa đọc.
+  async function loadInbox({ popup = false } = {}) {
+    let result;
+    try { result = await api('/api/v1/me/inbox'); } catch { return; }
+    if (!result.ok) {
+      if (result.status === 401 || result.status === 503) inbox = null;
+      return;
+    }
+    const before = new Set((inbox?.items || []).map((item) => item.id));
+    inbox = result.data;
+    labelFriends();
+    if (!sheet.hidden) renderFriends();
+    if (!popup) return;
+    const fresh = inbox.items.filter((item) => !item.read && !before.has(item.id));
+    for (const item of fresh) {
+      if (item.kind !== 'invite' || item.expired || shownInvites.has(item.id) || item.room?.roomId === currentRoomId?.()) continue;
+      shownInvites.add(item.id);
+      invite(`room-${item.id}`, t('friends.inviteText', { name: item.from.displayName, place: placeName(item.room) }), {
+        expiresAt: session.serverNow() + 60_000,
+        acceptText: t('friends.goNow'),
+        accept: () => goRoom(item.room),
+        decline: () => {},
+      });
+    }
+    const notes = fresh.filter((item) => item.kind === 'note');
+    if (notes.length === 1) showToast(`✉️ ${notes[0].from.displayName}: ${notes[0].text}`);
+    else if (notes.length > 1) showToast(t('friends.newNotes', { n: notes.length }));
+  }
 
   function friendRow(person, extra) {
     const row = el('div', 'friend-row');
@@ -390,10 +570,85 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
     return row;
   }
 
+  async function sendNote(friend, input) {
+    const text = input.value.trim();
+    if (!text) return;
+    const result = await api('/api/v1/me/friends/note', { accountId: friend.accountId, text }).catch(() => ({ ok: false, data: {} }));
+    if (result.ok) {
+      noteFor = null;
+      showToast(t('friends.noteSent', { name: friend.displayName }));
+      renderFriends();
+    } else showToast(apiError(result.data));
+  }
+
+  async function inviteFriend(friend) {
+    const result = await api('/api/v1/me/friends/invite', { accountId: friend.accountId }).catch(() => ({ ok: false, data: {} }));
+    showToast(result.ok ? t('friends.invited', { name: friend.displayName }) : apiError(result.data));
+  }
+
+  function savedFriendRow(friend) {
+    const since = new Date(friend.since).toLocaleDateString(document.documentElement.lang || undefined);
+    const row = friendRow(friend, friend.online ? `🟢 ${placeName(friend.room)}` : t('friends.since', { date: since }));
+    const actions = el('div', 'friend-actions');
+    const sameRoom = friend.online && friend.room.roomId === currentRoomId?.();
+    if (friend.online) actions.append(button('chip', sameRoom ? `📍 ${t('friends.walkTo')}` : `📍 ${t('friends.goTo')}`, () => goRoom(friend.room)));
+    if (friend.online && !sameRoom) actions.append(button('chip', `📨 ${t('friends.invite')}`, () => inviteFriend(friend)));
+    actions.append(button('chip', `✉️ ${t('friends.note')}`, () => {
+      noteFor = noteFor === friend.accountId ? null : friend.accountId;
+      renderFriends();
+      sheet.querySelector('.friend-note input')?.focus();
+    }));
+    row.append(actions);
+    if (noteFor === friend.accountId) {
+      const form = el('form', 'friend-note');
+      const input = el('input');
+      input.maxLength = 200;
+      input.placeholder = t('friends.notePlaceholder', { name: friend.displayName });
+      form.append(input, button('chip primary', t('friends.send'), () => form.requestSubmit()));
+      form.querySelector('button').type = 'submit';
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        sendNote(friend, input);
+      });
+      row.append(form);
+    }
+    return row;
+  }
+
+  // Bạn bot: đang ở phòng này thì đi tới / nhắn được; không thì chỉ hiện ngày kết bạn.
+  function botFriendRow(name, since) {
+    const here = [...(everyone?.() || [])].find((person) => person.bot && person.displayName === name);
+    const date = new Date(since).toLocaleDateString(document.documentElement.lang || undefined);
+    const row = friendRow(here || { displayName: name }, here ? `🟢 ${t('friends.inRoom')}` : t('friends.since', { date }));
+    if (here) {
+      const actions = el('div', 'friend-actions');
+      actions.append(button('chip', `📍 ${t('friends.walkTo')}`, () => goRoom({ roomId: currentRoomId?.(), participantId: here.id })));
+      if (onMessageBot) actions.append(button('chip', `💬 ${t('social.messageBot')}`, () => { sheet.hidden = true; onMessageBot(here); }));
+      row.append(actions);
+    }
+    return { row, here: Boolean(here) };
+  }
+
+  function inboxRow(item) {
+    const when = new Date(item.at).toLocaleString(document.documentElement.lang || undefined, { dateStyle: 'short', timeStyle: 'short' });
+    const line = item.kind === 'note' ? item.text : t(item.expired ? 'friends.inviteOld' : 'friends.inviteText', { name: item.from.displayName, place: placeName(item.room) });
+    const row = friendRow(item.from, when);
+    row.classList.toggle('unread', !item.read);
+    const body = el('p', 'friend-message', line);
+    row.append(body);
+    if (item.kind === 'invite' && !item.expired && item.room.roomId !== currentRoomId?.()) {
+      const actions = el('div', 'friend-actions');
+      actions.append(button('chip primary', t('friends.goNow'), () => goRoom(item.room)));
+      row.append(actions);
+    }
+    return row;
+  }
+
   function renderFriends() {
     const back = button('mala-back', `‹ ${t('mala.back')}`, () => { sheet.hidden = true; });
     const list = el('div', 'friend-list');
-    const here = [...friends].map((id) => participant(id)).filter(Boolean);
+    // Bạn bot đã nằm trong danh sách đã lưu bên dưới.
+    const here = [...friends].map((id) => participant(id)).filter((person) => person && !person.bot);
     if (here.length) {
       list.append(el('h3', '', t('friends.here')));
       for (const person of here) {
@@ -405,48 +660,93 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
         list.append(row);
       }
     }
-    list.append(el('h3', '', t('friends.saved')));
-    if (saved === null) list.append(el('p', 'social-note', t('friends.loading')));
-    else if (saved === 'guest') list.append(el('p', 'social-note', t('friends.signIn')));
-    else if (!saved.length) list.append(el('p', 'social-note', t('friends.none')));
-    else {
-      for (const friend of saved) {
-        const since = new Date(friend.since).toLocaleDateString(document.documentElement.lang || undefined);
-        list.append(friendRow(friend, t('friends.since', { date: since })));
-      }
+    if (inbox?.items?.length) {
+      list.append(el('h3', '', `📬 ${t('friends.inbox')}`));
+      for (const item of inbox.items.slice(0, 10)) list.append(inboxRow(item));
     }
-    sheet.replaceChildren(back, el('h2', '', t('friends.title')), list);
+    list.append(el('h3', '', t('friends.saved')));
+    const bots = [...botFriends].map(([name, since]) => botFriendRow(name, since)).sort((a, b) => Number(b.here) - Number(a.here));
+    if (saved === null) list.append(el('p', 'social-note', t('friends.loading')));
+    else if (saved === 'guest' && !bots.length) list.append(el('p', 'social-note', t('friends.signIn')));
+    else if (Array.isArray(saved) && !saved.length && !bots.length) list.append(el('p', 'social-note', t('friends.none')));
+    if (saved !== null) {
+      // Bạn đang online lên trước, rồi tới bạn bot đang ở phòng này.
+      const people = Array.isArray(saved) ? [...saved].sort((a, b) => Number(b.online) - Number(a.online)) : [];
+      for (const friend of people.filter((item) => item.online)) list.append(savedFriendRow(friend));
+      for (const bot of bots.filter((item) => item.here)) list.append(bot.row);
+      for (const friend of people.filter((item) => !item.online)) list.append(savedFriendRow(friend));
+      for (const bot of bots.filter((item) => !item.here)) list.append(bot.row);
+    }
+    const nodes = [back, el('h2', '', t('friends.title')), list];
+    if (Array.isArray(saved)) {
+      nodes.push(button('chip friend-hide', t(presenceHidden ? 'friends.hiddenOn' : 'friends.hiddenOff'), async () => {
+        const result = await api('/api/v1/me/presence', { hidden: !presenceHidden }).catch(() => ({ ok: false }));
+        if (result.ok) presenceHidden = result.data.hidden;
+        renderFriends();
+      }));
+    }
+    sheet.replaceChildren(...nodes);
   }
 
   async function openFriends() {
     sheet.hidden = false;
     saved = null;
+    noteFor = null;
     renderFriends();
     try {
       const response = await fetch('/api/v1/me/friends', { credentials: 'same-origin' });
-      saved = response.status === 401 || response.status === 503 ? 'guest' : response.ok ? (await response.json()).friends : [];
+      if (response.status === 401 || response.status === 503) saved = 'guest';
+      else if (response.ok) {
+        const data = await response.json();
+        saved = data.friends;
+        presenceHidden = Boolean(data.hidden);
+      } else saved = [];
     } catch {
       saved = [];
     }
+    if (saved !== 'guest') await loadInbox();
     if (!sheet.hidden) renderFriends();
+    // Đã mở hộp thư: đánh dấu đã đọc (lần mở sau thôi tô đậm).
+    if (inbox?.unread) {
+      api('/api/v1/me/inbox/read', {}).catch(() => {});
+      inbox.unread = 0;
+      labelFriends();
+    }
   }
 
   onLangChange(() => {
-    friendsButton.textContent = `👥 ${t('friends.title')}`;
+    labelFriends();
+    labelQuiet();
     if (!card.hidden) renderCard();
     if (!panel.hidden) renderGame();
     if (!sheet.hidden) renderFriends();
+    if (holdingId) showHandChip(holdingId);
   });
 
   return {
     open: openCard,
     friendsButton,
+    quietButton,
     // Người mình đã chặn: trang ẩn chat và lời nguyện của họ.
     isBlocked: (id) => blocked.has(id),
     // Trả true nếu đã xử lý message.
     onMessage(message) {
-      if (message.type === 'friend.state') onFriend(message);
+      // Vào phòng (hoặc nối lại): báo server lựa chọn "đừng mời nữa" đã nhớ trên máy.
+      if (message.type === 'room.state' && botQuiet && !quietSent) {
+        quietSent = true;
+        send({ type: 'bot.quiet', quiet: true });
+      }
+      // Thành viên vào phòng: tải hộp thư một lần (lời mời / lời nhắn đến khi chưa online).
+      if (message.type === 'room.state' && !inboxLoaded) {
+        inboxLoaded = true;
+        loadInbox({ popup: true });
+        loadBotFriends();
+      }
+      if (message.type === 'inbox.notify') loadInbox({ popup: true });
+      else if (message.type === 'game.invite') onGameInvite(message);
+      else if (message.type === 'friend.state') onFriend(message);
       else if (message.type === 'challenge.state') onChallenge(message);
+      else if (message.type === 'hand.state') onHand(message);
       else return false;
       return true;
     },
@@ -466,10 +766,12 @@ export function createPlayerSocial({ stage, session, showToast, participant, nam
       closeCard();
       closeGame();
       invites.replaceChildren();
+      quietSent = false;
       friends.clear();
       pendingFriends.clear();
       blocked.clear();
       sheet.hidden = true;
+      showHandChip(null);
     },
   };
 }

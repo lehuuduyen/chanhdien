@@ -49,6 +49,22 @@
     .signin { display: grid; gap: 10px; }
     .primary { height: 42px; padding: 0 16px; color: #2a1404; background: var(--gold); border: 0; border-radius: 999px; font-weight: 800; }
 
+    .event-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .event-head h2 { margin: 0; }
+    .event-head b { color: var(--gold); font-size: 14px; }
+    .event-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 12px 0; }
+    .event-day { aspect-ratio: 1; display: grid; place-items: center; color: var(--muted); background: rgba(0, 0, 0, .24); border: 1px solid var(--line); border-radius: 50%; font-size: 12px; font-weight: 800; }
+    .event-day.done { color: #2a1404; background: var(--gold); border-color: var(--gold); }
+    .event-rewards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+    .event-reward { flex: 1; padding: 8px 10px; color: var(--muted); background: rgba(0, 0, 0, .2); border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
+    .event-reward.owned { color: var(--fg); border-color: var(--gold); }
+    .event-reward b { display: block; color: var(--gold); margin-bottom: 2px; }
+    .event-achievement { grid-column: 1 / -1; display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 10px; padding: 10px; background: linear-gradient(135deg, rgba(142, 35, 48, .32), rgba(0, 0, 0, .24)); }
+    .event-achievement .preview { width: 42px; height: 42px; display: grid; place-items: center; color: #fff4d1; background: #6d252d; border: 2px solid #ffe5a0; border-radius: 50%; box-shadow: 0 0 0 3px #9d2d39, 0 0 0 5px #e6b94e, 0 0 12px rgba(255, 201, 87, .75); font-family: Georgia, serif; font-size: 20px; }
+    .event-achievement span { display: block; line-height: 1.4; }
+    .event-achievement small { color: var(--muted); }
+    .event-achievement.owned { background: linear-gradient(135deg, rgba(142, 35, 48, .6), rgba(112, 70, 12, .3)); box-shadow: inset 0 0 18px rgba(243, 201, 105, .12); }
+
     .items { display: grid; gap: 12px; }
     .item { display: grid; grid-template-columns: 104px 1fr; gap: 12px; align-items: center; padding: 10px; background: rgba(0, 0, 0, .22); border: 1px solid var(--line); border-radius: 14px; }
     .item.worn { border-color: var(--gold); }
@@ -110,6 +126,13 @@
       <button type="button" class="primary" id="goSignin">Đăng nhập ở cổng chùa</button>
     </section>
 
+    <section class="card" id="loginEvent">
+      <div class="event-head"><h2>Quà đăng nhập 7 ngày</h2><b id="loginCount">0/7 ngày</b></div>
+      <p class="muted" id="loginStatus">Đăng nhập mỗi ngày để nhận skin, danh hiệu và khung vĩnh viễn. Không cần liên tiếp.</p>
+      <div class="event-days" id="loginDays" aria-label="Tiến độ đăng nhập"></div>
+      <div class="event-rewards" id="loginRewards"></div>
+    </section>
+
     <section class="card">
       <h2>Nhân vật</h2>
       <div class="items" id="items"><p class="muted">Đang tải…</p></div>
@@ -136,6 +159,7 @@
     // Tên/mô tả hiển thị của từng món (danh mục và giá do server trả).
     const ITEM_TEXT = {
       chibigirl: { name: 'Bé Mũ Đỏ', desc: 'Mũ lưỡi trai đỏ, áo trắng, quần túi hộp. Giữ nguyên bộ đồ ở chùa và rạp phim.' },
+      swordsman: { name: 'Kiếm Sĩ', desc: 'Trang phục lam, đai đỏ và kiếm sau lưng. Quà riêng khi đăng nhập đủ 7 ngày.' },
     };
     const usd = (cents) => `$${(cents / 100).toFixed(2)}`;
     let shop = null;
@@ -215,6 +239,49 @@
       $('gems').hidden = !me;
       if (me) $('gems').textContent = `💎 ${me.diamonds.toLocaleString('vi-VN')}`;
 
+      const checkedDays = Math.min(7, shop?.loginReward?.totalDays || 0);
+      $('loginCount').textContent = `${checkedDays}/7 ngày`;
+      $('loginStatus').textContent = me
+        ? (checkedDays >= 7 ? 'Bạn đã nhận đủ skin, danh hiệu và khung riêng.' : `Hôm nay đã điểm danh · còn ${7 - checkedDays} ngày để hoàn thành.`)
+        : 'Đăng nhập mỗi ngày để nhận skin, danh hiệu và khung vĩnh viễn. Không cần liên tiếp.';
+      $('loginDays').replaceChildren(...Array.from({ length: 7 }, (_, index) => {
+        const day = document.createElement('span');
+        day.className = `event-day${index < checkedDays ? ' done' : ''}`;
+        day.textContent = index < checkedDays ? '✓' : String(index + 1);
+        day.title = `Ngày ${index + 1}`;
+        return day;
+      }));
+      const rewardItems = (shop?.items || []).filter((item) => item.rewardDays).sort((a, b) => a.rewardDays - b.rewardDays);
+      const rewards = rewardItems.map((item) => {
+        const owned = Boolean(me?.owned.includes(item.id));
+        const reward = document.createElement('div');
+        reward.className = `event-reward${owned ? ' owned' : ''}`;
+        const title = document.createElement('b');
+        title.textContent = `Ngày ${item.rewardDays}${owned ? ' · Đã nhận' : ''}`;
+        const name = document.createElement('span');
+        name.textContent = ITEM_TEXT[item.id]?.name || item.name || item.id;
+        reward.append(title, name);
+        return reward;
+      });
+      const achievement = shop?.loginReward?.achievement || {
+        days: 7, title: 'Hành Giả Bền Tâm', frameName: 'Khung Sen Thất Nhật', unlocked: false,
+      };
+      const completion = document.createElement('div');
+      completion.className = `event-reward event-achievement${achievement.unlocked ? ' owned' : ''}`;
+      const preview = document.createElement('span');
+      preview.className = 'preview';
+      preview.textContent = '✶';
+      const detail = document.createElement('div');
+      const heading = document.createElement('b');
+      heading.textContent = `Hoàn thành ${achievement.days} ngày${achievement.unlocked ? ' · Đã mở' : ''}`;
+      const title = document.createElement('span');
+      title.textContent = `Danh hiệu “${achievement.title}”`;
+      const frame = document.createElement('small');
+      frame.textContent = achievement.frameName;
+      detail.append(heading, title, frame);
+      completion.append(preview, detail);
+      $('loginRewards').replaceChildren(...rewards, completion);
+
       const items = $('items');
       items.replaceChildren();
       for (const item of shop?.items || []) {
@@ -249,18 +316,27 @@
         // Chưa mua: hiện giá (đang giảm thì giá gốc gạch ngang, giá bán, % giảm).
         const price = document.createElement('p');
         price.className = 'price';
-        if (!owned) {
+        if (!owned && !item.rewardOnly) {
           if (off) price.append(Object.assign(document.createElement('s'), { textContent: `${item.originalPrice} 💎` }));
           price.append(Object.assign(document.createElement('b'), { textContent: `${item.price} 💎` }));
           if (off) price.append(Object.assign(document.createElement('span'), { className: 'off', textContent: `-${off}%` }));
         }
-        if (!owned) {
+        if (!owned && item.rewardOnly) {
+          price.append(Object.assign(document.createElement('b'), { textContent: `🔒 Quà đăng nhập ngày ${item.rewardDays}` }));
+        }
+        if (!owned && !item.rewardOnly) {
           actions.append(button('buy', `Mua · ${item.price} 💎`, (event) => buy(item, event.currentTarget), !me));
         } else if (!worn) {
-          actions.append(button('wear', 'Mặc', (event) => wearAndReturn(item.skin, event.currentTarget)));
+          if (owned) actions.append(button('wear', 'Mặc', (event) => wearAndReturn(item.skin, event.currentTarget)));
         } else {
           const base = item.base === 'woman' ? 'woman' : 'man';
           actions.append(button('unwear', base === 'woman' ? 'Về hình Nữ thường' : 'Về hình Nam thường', (event) => wearAndReturn(base, event.currentTarget)));
+        }
+        if (item.rewardDays && !owned) {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.textContent = `Quà ngày ${item.rewardDays}`;
+          info.prepend(tag);
         }
         info.append(title, desc, ...(owned ? [] : [price]), actions);
         row.append(art, info);
