@@ -51,12 +51,13 @@ test('bot AI: gọi Groq kèm vai bot + lịch sử; câu bị bộ lọc chặn
 
 function aiRoom(lines = {}) {
   const asked = [];
+  const forwarded = [];
   const botAi = { line: async (kind, ctx) => { asked.push({ kind, ...ctx }); return lines[kind] || `câu ${kind}`; } };
-  const room = new Room('thien-1', { botCount: 0, botAi });
+  const room = new Room('thien-1', { botCount: 0, botAi, onBotChat: (event) => forwarded.push(event) });
   const inbox = {};
-  const join = (id, name, pos) => {
+  const join = (id, name, pos, accountId) => {
     inbox[id] = [];
-    room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox[id].push(JSON.parse(raw)), close() {} }, { participantId: id, displayName: name, role: 'guest' });
+    room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox[id].push(JSON.parse(raw)), close() {} }, { participantId: id, displayName: name, role: accountId ? 'member' : 'guest', ...(accountId ? { accountId } : {}) });
     room.participants.get(id).movedAt = 0;
     if (pos) room.move(id, { ...pos, ry: 0, moving: false });
     // Phòng không đặt số bot: người vào thì bot thừa bị bỏ ra; đặt lại bot thử sau mỗi lần có người vào.
@@ -64,7 +65,7 @@ function aiRoom(lines = {}) {
   };
   const bot = { id: 'b-1', displayName: 'Sen Nhỏ', bot: true, connected: true, socket: null, pos: { x: 3, z: 40, ry: 0 }, walk: { waitUntil: 0 } };
   const of = (id, type) => inbox[id].filter((message) => message.type === type);
-  return { room, bot, join, of, asked };
+  return { room, bot, join, of, asked, forwarded };
 }
 
 function withRandom(value, run) {
@@ -137,5 +138,19 @@ test('bot nói theo ngôn ngữ người chơi vừa gõ: AI được dặn theo
   room.participants.get('tom').lastChat = 'hello everyone';
   await withRandom(0.9, () => room.botApproach()).done;
   assert.equal(asked.at(-1).sample, 'hello everyone');
+  room.close();
+});
+
+test('câu bot nói với thành viên (bắt chuyện, trả lời) được gửi API để lưu cuộc trò chuyện riêng; khách thì không', async () => {
+  const { room, join, forwarded } = aiRoom({ greet: 'Chào An 🙏', reply: 'Mình khỏe, cảm ơn An' });
+  join('an', 'An', { x: 0, z: 40 }, 'a-an-00000001');
+  join('khach', 'Khách', { x: 0, z: 70 });
+  await withRandom(0.9, () => room.botApproach()).done;
+  await room.botReply(room.participants.get('an'), room.participants.get('b-1'), '@Sen Nhỏ bạn khỏe không');
+  await room.botReply(room.participants.get('khach'), room.participants.get('b-1'), '@Sen Nhỏ chào');
+  assert.deepEqual(forwarded.filter((event) => event.fromBot).map(({ accountId, botName, fromName, text }) => [accountId, botName, fromName, text]), [
+    ['a-an-00000001', 'Sen Nhỏ', 'An', 'Chào An 🙏'],
+    ['a-an-00000001', 'Sen Nhỏ', 'An', 'Mình khỏe, cảm ơn An'],
+  ]);
   room.close();
 });

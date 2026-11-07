@@ -16,6 +16,7 @@ import { internalKey } from '@chanh-dien/session-token';
 import { json, readJson } from './http.mjs';
 import { botChatTelegramCommand } from './bot-chat.mjs';
 import { MODERATION_HELP, moderationTelegramCommand } from './moderation.mjs';
+import { memorialTelegramCommand } from './memorial.mjs';
 
 const text = (value, max) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null);
 const amount = (value) => (/^\d{1,7}$/.test(String(value ?? '')) ? Number(value) : null);
@@ -260,6 +261,12 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
   const botReply = await botChatTelegramCommand(message, options);
   if (botReply) {
     json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: botReply });
+    return true;
+  }
+  // Gỡ mộ ở Khu tưởng niệm: /xoamo <số ô>.
+  const memorialReply = memorialTelegramCommand(message.text, options);
+  if (memorialReply) {
+    json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: memorialReply });
     return true;
   }
   // Lệnh kiểm duyệt: /blockchattu dm, /unban k-…, /ban, /dsban…

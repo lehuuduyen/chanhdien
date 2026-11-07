@@ -62,6 +62,9 @@ export const GARDEN_PLOT_MAX = 50;
 export const GARDEN_PLANTS = Object.freeze(['apple', 'orange', 'peach']);
 export const GARDEN_STAGES = Object.freeze(['seed', 'sprout', 'young', 'fruiting']);
 export const GARDEN_EFFECTS = Object.freeze(['plant', 'water', 'harvest']);
+// Khu tưởng niệm: số ô mộ (khớp GRAVE_COUNT của @chanh-dien/garden) và độ dài tên trên bia.
+export const MEMORIAL_GRAVE_MAX = 36;
+export const MEMORIAL_NAME_MAX = 24;
 // Công việc phối hợp trong chùa. `chore.state` chỉ chứa tiến độ và id người cùng làm; nội dung hiển thị nằm ở
 // bản dịch phía client, không nhận văn bản tùy ý từ mạng.
 export const CHORE_KINDS = Object.freeze(['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
@@ -71,7 +74,7 @@ export const PET_ACTIONS = Object.freeze(['pet', 'feed', 'play']);
 export const COMMUNITY_PROJECT_STAGES = Object.freeze(['ground', 'sprout', 'young', 'mature', 'complete']);
 export const COMMUNITY_PROJECT_KINDS = Object.freeze(['bodhi', 'lotus']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
-export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets']);
+export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
 export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 'fire']);
 // Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
@@ -679,6 +682,16 @@ const serverSchemas = {
       && (message.effect === undefined || (isRecord(message.effect) && exactKeys(message.effect, ['plotId', 'kind', 'by'])
         && isInteger(message.effect.plotId) && message.effect.plotId >= 1 && message.effect.plotId <= GARDEN_PLOT_MAX
         && GARDEN_EFFECTS.includes(message.effect.kind) && isString(message.effect.by, LIMITS.displayName)));
+  },
+  // Ô mộ vừa đổi (đắp mới, quản trị gỡ). grave null = ô trống; mộ hết hạn thì client tự ẩn theo expiresAt.
+  'memorial.grave'(message) {
+    const grave = (value) => value === null || (isRecord(value) && exactKeys(value, ['name', 'builderName', 'builtAt', 'expiresAt'])
+      && isString(value.name, MEMORIAL_NAME_MAX * 2) && value.name.length > 0 && isString(value.builderName, LIMITS.displayName)
+      && isInteger(value.builtAt) && value.builtAt >= 0 && isInteger(value.expiresAt) && value.expiresAt > value.builtAt);
+    const slot = (value) => isRecord(value) && exactKeys(value, ['slot', 'grave'])
+      && isInteger(value.slot) && value.slot >= 1 && value.slot <= MEMORIAL_GRAVE_MAX && grave(value.grave);
+    return exactKeys(message, ['v', 'type', 'epoch', 'graves'])
+      && Array.isArray(message.graves) && message.graves.length >= 1 && message.graves.length <= MEMORIAL_GRAVE_MAX && message.graves.every(slot);
   },
   'community.project'(message) {
     const project = message.project;

@@ -134,6 +134,21 @@ export const THIEN_GARDEN = deepFreeze((() => {
   };
 })());
 
+// Khu tưởng niệm trên dải sân mở rộng phía tây: 36 ô mộ (12 hàng × 3 cột) trong hàng rào đá, cổng ở cạnh đông
+// (z = 63,5) nối lối đá về lối giữa. Mỗi mộ: nấm đất dài 2 m theo trục x, bia ở đầu phía tây quay mặt về phía đông
+// (người đứng ở lối đi phía đông đọc được). Ô 1–3 là hàng gần chánh điện nhất, cột 1 gần cổng nhất. Giá, thời hạn và
+// số ô do @chanh-dien/garden quyết định (GRAVE_COUNT phải bằng graves.length).
+export const THIEN_MEMORIAL = deepFreeze((() => {
+  const columns = [-40.4, -44.8, -49.2];
+  const rows = Array.from({ length: 12 }, (_, index) => 59 + index * 3);
+  return {
+    fence: { x: [-51.2, -37.2], z: [56.6, 94.6] },
+    gate: { z: 63.5, width: 2.4 },
+    mound: { length: 2, width: 1.1 },
+    graves: rows.flatMap((z, row) => columns.map((x, column) => ({ id: row * columns.length + column + 1, x, z }))),
+  };
+})());
+
 // Chánh điện: ngồi bồ đoàn, tụng kinh, dâng lễ vật (miễn phí, mang tính biểu tượng; tiền thật thuộc giai đoạn 6).
 // Công đức theo điểm của bản legacy. Lễ vật không có thời gian chờ (theo yêu cầu); chống spam bằng giới hạn chung
 // 6 lễ/10 giây mỗi người ở máy realtime. cooldownMs > 0 sẽ bật lại thời gian chờ riêng cho lễ vật đó.
@@ -160,7 +175,7 @@ export const THIEN_RULES = defineRoomRules({
   // view[vùng] người gần mình nhất trong cùng vùng (cộng người ngồi bồ đoàn/ghế đá và người đang mời/đấu với mình);
   // số người cả phòng gửi riêng qua room.count. Load test 2026-11: gửi cả danh sách cho mọi người thì sập ở ~600.
   world: {
-    bounds: { x: [-36, 36], z: [-2, 100] },
+    bounds: { x: [-52, 52], z: [-2, 100] },
     maxSpeed: 7,
     maxWalkers: 500,
     zones: { hall: { x: [-9, 9], z: [-6, 16] } },
@@ -172,6 +187,7 @@ export const THIEN_RULES = defineRoomRules({
       courtyard: { x: 0, z: 33, ry: 0 },
       garden: { x: 10.8, z: 68, ry: -1.5708 },
       pets: { x: 10.5, z: 87.5, ry: -1.5708 },
+      memorial: { x: -35.8, z: 63.5, ry: 1.5708 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
     pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo'],
@@ -226,7 +242,7 @@ export const THIEN_RULES = defineRoomRules({
     },
     // Bot làm vườn: bot đi dạo tới điểm (0, 62) hoặc (0, 74) thì có chance khả năng rẽ vào Vườn Công Đức (mỗi phòng
     // tối đa một bot mỗi cooldownMs). API chọn việc (hái → tưới → gieo) và giữ trần bot chiếm 30% số luống.
-    garden: { chance: 0.6, cooldownMs: [40_000, 90_000], workMs: 4_000 },
+    garden: { chance: 0.6, cooldownMs: [40_000, 90_000], workMs: 4_000, perVisit: 3 },
     names: THIEN_VI_BOT_NAMES,
     lines: ['Nam mô A Di Đà Phật', 'Nam mô Bổn Sư Thích Ca Mâu Ni Phật', 'Nam mô Đại Bi Quán Thế Âm Bồ Tát', 'Nguyện cầu bình an cho gia đình', 'Cầu cho cha mẹ được khỏe mạnh', 'Nguyện đem công đức này hướng về khắp tất cả'],
     // Bot đi dạo ngoài sân nói chuyện đời thường thay vì chỉ niệm Phật: câu lẻ (`lines`), đối đáp giữa hai bot đứng

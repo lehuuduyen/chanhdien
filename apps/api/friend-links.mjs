@@ -1,4 +1,4 @@
-// Bạn bè sâu hơn: bạn đang online ở phòng nào ("Tới chỗ bạn"), mời bạn vào phòng mình, và lời nhắn để lại khi bạn không
+// Bạn bè sâu hơn: chỉ cho biết online (không trả phòng / vị trí), mời bạn vào phòng mình, và lời nhắn để lại khi bạn không
 // online. Máy realtime báo định kỳ danh sách thành viên đang kết nối (POST /internal/presence); trạng thái online chỉ
 // giữ trong bộ nhớ API (khởi động lại thì máy realtime báo lại sau ≤ 15 giây). Lời nhắn / lời mời lưu SQLite chung file
 // tài khoản. Có lời nhắn mới thì API báo máy realtime để trang của người nhận tải hộp thư ngay (inbox.notify).
@@ -140,11 +140,11 @@ export function createFriendLinks({ db, accounts, presence = createPresence(), s
       q.addBotFriend.run(accountId, name, now());
       return { ok: true };
     },
-    // Danh sách bạn (accounts.friends) kèm online + phòng.
+    // Danh sách bạn chỉ kèm online. Phòng và participantId chỉ dùng nội bộ để gửi lời mời, không trả cho trình duyệt.
     decorate(accountId, friends) {
       return friends.map((friend) => {
         const room = placeOf(friend.accountId);
-        return { ...friend, online: Boolean(room), ...(room ? { room } : {}) };
+        return { ...friend, online: Boolean(room) };
       });
     },
     note(fromId, toId, text) {

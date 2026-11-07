@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
 import { createCommunityProjectStore } from '@chanh-dien/community-project';
 import {
-  BOT_PLOT_LIMIT, botAccountId, CHORE_REWARD_COINS, CHORE_REWARD_DAILY_LIMIT, createGardenStore, FRUITS_PER_CROP,
+  BOT_PLOT_LIMIT, botAccountId, CHORE_REWARD_COINS, cleanGraveName, GRAVE_COUNT, GRAVE_PRICE, GRAVE_TTL_MS, CHORE_REWARD_DAILY_LIMIT, createGardenStore, FRUITS_PER_CROP,
   gardenDay, PLANTS, PLOT_COUNT, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS,
 } from '../src/index.mjs';
 
@@ -511,7 +511,8 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
     DROP TABLE garden_plots;
     ALTER TABLE garden_plots_old RENAME TO garden_plots;
     PRAGMA foreign_keys = ON;`);
-  db.prepare("UPDATE garden_meta SET value = CAST(value - 1 AS TEXT) WHERE key = 'schema_version'").run();
+  // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm).
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 2 AS TEXT) WHERE key = 'schema_version'").run();
   assert.throws(() => db.prepare('INSERT INTO garden_plots (id, created_at) VALUES (11, 1)').run());
   const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
   assert.equal(upgraded.plot(3).crop.ownerName, 'an_lac');
@@ -519,4 +520,42 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
   assert.equal(upgraded.perform(an, 'plant', { plotId: 42, plantType: 'peach' }, 'key-upgrade-1').ok, true);
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.equal(garden.plot(42).crop.ownerName, 'an_lac');
+});
+
+test('khu tưởng niệm: đắp mộ trừ 100 xu, giữ 24 giờ rồi ô trống lại; ô đang có mộ, thiếu xu, gửi lại cùng khóa', () => {
+  const { garden, user, tick } = setup();
+  const an = user('an_lac');
+  const binh = user('binh_an');
+  garden.adjustCoins({ accountId: an, amount: 200, key: 'grant-memorial-1' });
+  const coins = garden.me(an).coins;
+  assert.equal(garden.buildGrave(an, { slot: 5, name: 'Ông Ba' }, 'short').code, 'IDEMPOTENCY_KEY_REQUIRED');
+  assert.equal(garden.buildGrave(an, { slot: GRAVE_COUNT + 1, name: 'Ông Ba' }, 'grave-key-0001').code, 'INVALID');
+  assert.equal(garden.buildGrave(an, { slot: 5, name: '   ' }, 'grave-key-0001').code, 'INVALID');
+  const built = garden.buildGrave(an, { slot: 5, name: '  Ông   Ba\u200b ' }, 'grave-key-0001');
+  assert.equal(built.ok, true);
+  assert.equal(built.coins, coins - GRAVE_PRICE);
+  assert.deepEqual(built.graves.map(({ slot, grave }) => [slot, grave.name, grave.builderName, grave.expiresAt - grave.builtAt]), [[5, 'Ông Ba', 'an_lac', GRAVE_TTL_MS]]);
+  assert.deepEqual(garden.buildGrave(an, { slot: 5, name: 'Ông Ba' }, 'grave-key-0001'), { ...built, replayed: true }, 'gửi lại không trừ hai lần');
+  assert.equal(garden.me(an).coins, coins - GRAVE_PRICE);
+  assert.equal(garden.history(an)[0].kind, 'memorial');
+  // Ô đã có mộ: không trừ xu. Thiếu xu: từ chối.
+  garden.adjustCoins({ accountId: binh, amount: 100, key: 'grant-memorial-2' });
+  const taken = garden.buildGrave(binh, { slot: 5, name: 'Bà Tư' }, 'grave-key-0002');
+  assert.equal(taken.code, 'GRAVE_TAKEN');
+  assert.equal(taken.graves[0].grave.name, 'Ông Ba');
+  const poor = user('chi_kha');
+  assert.equal(garden.buildGrave(poor, { slot: 6, name: 'Bà Tư' }, 'grave-key-0003').code, 'INSUFFICIENT_COINS');
+  assert.deepEqual(garden.graves().map((item) => item.slot), [5]);
+  // Hết 24 giờ: mộ biến mất, ô đắp lại được.
+  tick(GRAVE_TTL_MS);
+  assert.deepEqual(garden.graves(), []);
+  assert.equal(garden.buildGrave(binh, { slot: 5, name: 'Bà Tư' }, 'grave-key-0004').ok, true);
+  // Quản trị gỡ: ô trống, không hoàn xu.
+  const before = garden.me(binh).coins;
+  assert.deepEqual(garden.removeGrave(5, 'telegram'), { ok: true, slot: 5, name: 'Bà Tư', builderName: 'binh_an' });
+  assert.deepEqual(garden.graves(), []);
+  assert.equal(garden.me(binh).coins, before);
+  assert.equal(garden.removeGrave(5).code, 'NOT_FOUND');
+  assert.equal(cleanGraveName('x'.repeat(25)), '');
+  assert.equal(cleanGraveName('🌸'.repeat(24)), '🌸'.repeat(24), 'đếm theo ký tự, không theo đơn vị UTF-16');
 });

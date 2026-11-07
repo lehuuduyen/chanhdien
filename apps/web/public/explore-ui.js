@@ -5,9 +5,10 @@ import { lang, onLangChange, t } from '/thien-i18n.js';
 import { SUTRAS, sutraById, sutraTitle } from '/sutras.js';
 
 
-export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onGardenTap, onGuideTap, onMeritBoardTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
+export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
   // Luống vườn mới nhất (đưa lại cho bộ vẽ khi bộ vẽ được tạo sau).
   const gardenPlots = new Map();
+  const memorialGraves = new Map();
   // Vào lại phòng (vd: vừa đăng nhập): xuất hiện lại đúng chỗ đang đứng thay vì ở cửa chánh điện.
   let resumePose = null;
   let arrival = null;
@@ -274,8 +275,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelPanel.setAttribute('role', 'menu');
   travelPanel.hidden = true;
   // exits: map khác (vd: rạp phim) — { id, icon, go() }; bấm vào thì trang tự chuyển, không gửi travel.go.
-  const travelIcons = { hall: '🛕', courtyard: '🌳', garden: '🌱', pets: '🐾', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
-  const travelButtons = ['hall', 'courtyard', 'garden', 'pets', ...exits.map((exit) => exit.id)].map((destination) => {
+  const travelIcons = { hall: '🛕', courtyard: '🌳', garden: '🌱', pets: '🐾', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
+  const travelButtons = ['hall', 'courtyard', 'garden', 'pets', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.destination = destination;
@@ -436,6 +437,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       onWalkerTap: (id) => onWalkerTap?.(id),
       hintText: (kind) => t(kind === 'plot' ? 'garden.hintPlot' : kind === 'shop' ? 'garden.hintShop' : 'explore.tapToSit'),
       onGardenTap: (target) => onGardenTap?.(target),
+      onMemorialTap: (target) => onMemorialTap?.(target),
       onGuideTap: (place) => onGuideTap?.(place),
       onMeritBoardTap: () => onMeritBoardTap?.(),
       onPetTap: (target) => {
@@ -470,6 +472,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       showControls(Boolean(api) && Boolean(session.participantId));
       push();
       if (gardenPlots.size) api?.setGarden?.([...gardenPlots.values()]);
+      api?.setMemorial?.([...memorialGraves.values()], { full: true });
       if (choreStates.size) api?.setChores?.([...choreStates.values()]);
     },
     detach() {
@@ -488,7 +491,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     },
     // Vào phòng xong thì đi thẳng tới khu này, dùng khi quay về từ map khác.
     arriveAt(destination) {
-      if (['hall', 'courtyard', 'garden', 'pets'].includes(destination)) arrival = destination;
+      if (['hall', 'courtyard', 'garden', 'pets', 'memorial'].includes(destination)) arrival = destination;
     },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {
@@ -501,6 +504,15 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     setGarden(list) {
       for (const plot of list) gardenPlots.set(plot.id, plot);
       api?.setGarden?.(list);
+    },
+    // Khu tưởng niệm: nhớ mộ để vẽ lại khi bộ vẽ 3D gắn lại.
+    setMemorial(list, { full = false } = {}) {
+      if (full) memorialGraves.clear();
+      for (const item of list) {
+        if (item.grave) memorialGraves.set(item.slot, item);
+        else memorialGraves.delete(item.slot);
+      }
+      api?.setMemorial?.(list, { full });
     },
     gardenEffect(plotId, kind, plantType) {
       api?.gardenEffect?.(plotId, kind, plantType);

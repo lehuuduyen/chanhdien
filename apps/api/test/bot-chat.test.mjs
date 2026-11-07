@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
-import { internalKey } from '@chanh-dien/session-token';
+import { createSessionToken, internalKey } from '@chanh-dien/session-token';
 import { createBotChatStore } from '../bot-chat.mjs';
 import { handleApiRequest } from '../server.mjs';
 
@@ -79,4 +79,39 @@ test('Reply vào tin báo rồi gõ nội dung (không cần mã); mã sai / thi
   const gone = setup({ speaks: false });
   const goneCode = (await forward(gone.options, chat)).json.code;
   assert.match((await telegram(gone.options, { text: `/tl ${goneCode} còn đó không` })).json.text, /đã rời Arizona · PV1/);
+});
+
+test('cuộc trò chuyện với bot: tin thành viên nhắn, câu bot nói và câu quản trị trả lời thay đều lưu theo tài khoản + tên bot', async () => {
+  const { options } = setup();
+  const anh = options.accounts.register({ username: 'anh.anh', password: 'matkhau123', displayName: 'Anh' }).account;
+  const binh = options.accounts.register({ username: 'binh.binh', password: 'matkhau123', displayName: 'Bình' }).account;
+  const as = (account) => ({ cookie: `cd_session=${createSessionToken({ accountId: account.id, version: account.sessionVersion ?? 0 }, SECRET)}` });
+  const thread = async (account, name = 'Sen Nhỏ') => (await request(options, 'GET', `/api/v1/me/bot-thread?name=${encodeURIComponent(name)}`, { headers: as(account) })).json;
+
+  assert.equal((await request(options, 'GET', '/api/v1/me/bot-thread?name=Sen')).status, 401, 'khách không có cuộc trò chuyện lưu');
+  const code = (await forward(options, { ...chat, accountId: anh.id })).json.code;
+  assert.equal((await forward(options, { ...chat, accountId: anh.id, text: 'Chào Anh, hôm nay bạn khỏe không?', fromBot: true })).json.saved, true);
+  assert.equal((await forward(options, { ...chat, text: 'thiếu tài khoản', fromBot: true })).status, 400);
+  await telegram(options, { text: `/tl ${code} Mình là Sen 🙏` });
+  // Khách (không có accountId) nhắn bot: vẫn báo Telegram nhưng không lưu cuộc trò chuyện.
+  await forward(options, { ...chat, fromName: 'Khách', text: '@Sen Nhỏ xin chào' });
+
+  const items = (await thread(anh)).items;
+  assert.deepEqual(items.map(({ mine, text }) => [mine, text]), [
+    [true, 'chào bạn'],
+    [false, 'Chào Anh, hôm nay bạn khỏe không?'],
+    [false, '@Anh Mình là Sen 🙏'],
+  ]);
+  assert.deepEqual((await thread(binh)).items, [], 'người khác không thấy');
+  assert.deepEqual((await thread(anh, 'Mây Trắng')).items, [], 'bot khác là cuộc trò chuyện khác');
+});
+
+test('bảng bot_chats cũ (chưa có cột account_id) được thêm cột, mã cũ vẫn trả lời được', () => {
+  const accounts = createAccountStore();
+  accounts.database.exec(`CREATE TABLE bot_chats (code TEXT PRIMARY KEY, room_id TEXT NOT NULL, bot_id TEXT NOT NULL, bot_name TEXT NOT NULL,
+    from_name TEXT NOT NULL, text TEXT NOT NULL, at INTEGER NOT NULL);
+    INSERT INTO bot_chats VALUES ('abcde', 'thien-1', 'b-1', 'Sen Nhỏ', 'Anh', 'chào', ${Date.now()});`);
+  const store = createBotChatStore({ db: accounts.database });
+  assert.equal(store.get('abcde').accountId, null);
+  assert.equal(store.get('abcde').botName, 'Sen Nhỏ');
 });

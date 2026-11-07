@@ -17,6 +17,7 @@ import { createMala } from '/mala.js';
 import { createPlayerSocial } from '/player-social.js';
 import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
+import { createMemorialUI } from '/memorial-ui.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
 import { createZoneGuide } from '/zone-guide.js';
 import { guardWebGL } from '/webgl-guard.js';
@@ -148,7 +149,7 @@ onLangChange(labelMala);
 const zoneGuide = createZoneGuide({ stage: elements.stage });
 const explore = createExploreUI({
   stage: elements.stage, session, showToast, extraButtons: [malaButton, $('prayerOpen')], onWalkerTap: (id) => social?.open(id),
-  onGardenTap: (target) => garden?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
+  onGardenTap: (target) => garden?.onTap(target), onMemorialTap: (target) => memorial?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
   onGuideTap: (place) => zoneGuide.open(place),
   onMeritBoardTap: openMeritLedger,
   onPlaceChange: (place) => setCurrentPlace(place), travelHost: elements.roomBar,
@@ -176,6 +177,7 @@ function goToCinema() {
 }
 // Vườn Công Đức (luống trồng chung, xu ảo). Tạo sau khi có tài khoản (bên dưới).
 let garden = null;
+let memorial = null;
 let communityProject = null;
 // Bấm vào người khác: thẻ thông tin, kết bạn, khiêu chiến kéo búa bao. Tạo sau khi có âm thanh (bên dưới).
 let social = null;
@@ -496,6 +498,7 @@ function accountChanged(account) {
   // Đăng nhập ngay ở cổng: hỏi lại hình đã mua để hiện ô "Bé Mũ Đỏ" mà không phải tải lại trang.
   refreshOwnedSkins();
   garden?.accountChanged();
+  memorial?.accountChanged();
   communityProject?.accountChanged();
   if (!session.participantId) return;
   const name = account?.displayName || elements.dharma.value.trim() || session.displayName;
@@ -747,6 +750,7 @@ function handleMessage(message) {
   chatCenter?.onMessage(message);
   if (social?.onMessage(message)) return;
   if (garden?.onMessage(message)) return;
+  if (memorial?.onMessage(message)) return;
   if (communityProject?.onMessage(message)) return;
   if (message.type === 'welcome') {
     // Kết nối mới thật sự: lệnh đổi hình gửi trước đó có thể đã rơi vào socket cũ — cho gửi lại ngay ở room.state.
@@ -1370,6 +1374,13 @@ document.addEventListener('visibilitychange', () => {
   if (accountUI.account) refreshOwnedSkins();
 });
 garden.start();
+// Khu tưởng niệm: đắp mộ trả xu ở cùng ví vườn nên đắp xong đọc lại số xu.
+memorial = createMemorialUI({
+  stage: elements.stage, showToast, explore, account: () => accountUI.account, openSignIn: () => $('meChip').click(),
+  onCoins: () => garden?.refreshCoins(),
+});
+memorial.start();
+try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienMemorial = memorial; } catch {}
 communityProject = createCommunityProjectUI({
   stage: elements.stage,
   chip: $('communityProjectChip'),
@@ -1407,6 +1418,7 @@ chatCenter = createChatCenter({
   isBlocked: (id) => social.isBlocked(id),
   selfId: () => session.participantId,
   sendRoom: (text) => session.send({ type: 'chat.send', requestId: `chat-${crypto.randomUUID()}`, text }),
+  botHere: (name) => [...participants.values()].find((person) => person.bot && person.displayName === name) || null,
 });
 elements.chatForm.prepend(chatCenter.openButton);
 

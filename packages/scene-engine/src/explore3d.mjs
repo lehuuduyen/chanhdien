@@ -6,6 +6,7 @@
 // Dùng: createTempleRenderer3D({ …, plugin: createExplorePlugin({ onMove, onArrive }) }) → renderer.plugin là api.
 import { findPath, resolveMove } from './walk.mjs';
 import { createGardenView } from './garden3d.mjs';
+import { createMemorialView } from './memorial3d.mjs';
 import { buildChibiWalker, DANCE_STYLES, danceStyleOf } from './chibi3d.mjs';
 
 const SEND_INTERVAL_MS = 200;
@@ -44,7 +45,7 @@ function actIndex(at = 0) {
   return (hash ^ (hash >>> 13)) >>> 0;
 }
 
-export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onGuideTap, onMeritBoardTap, onPetTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPetTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -323,6 +324,14 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const hit = raycaster.intersectObjects(courtyard.meritBoardPickables, false)[0];
         if (hit?.object.userData.meritBoard) {
           onMeritBoardTap();
+          return;
+        }
+      }
+      // Ô mộ ở Khu tưởng niệm.
+      if (onMemorialTap && courtyard?.memorialPickables?.length) {
+        const hit = raycaster.intersectObjects(courtyard.memorialPickables, false)[0];
+        if (hit) {
+          onMemorialTap({ slot: hit.object.userData.memorialGrave });
           return;
         }
       }
@@ -702,6 +711,13 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       x: [Math.min(...gardenPoints.map(([x]) => x)) - 2.8, Math.max(...gardenPoints.map(([x]) => x)) + 0.5],
       z: [Math.min(...gardenPoints.map(([, z]) => z)) - 0.5, Math.max(...gardenPoints.map(([, z]) => z)) + 0.5],
     } : null;
+    const memorialData = world.courtyard?.memorial;
+    const memorialView = memorialData ? createMemorialView({ THREE, root, memorial: memorialData }) : null;
+    const memorialPoints = (memorialData?.fence || []).flatMap(([x0, z0, x1, z1]) => [[x0, z0], [x1, z1]]);
+    const memorialBounds = memorialPoints.length ? {
+      x: [Math.min(...memorialPoints.map(([x]) => x)) - 0.5, Math.max(...memorialPoints.map(([x]) => x)) + 2.8],
+      z: [Math.min(...memorialPoints.map(([, z]) => z)) - 0.5, Math.max(...memorialPoints.map(([, z]) => z)) + 0.5],
+    } : null;
     let currentPlace = null;
     function placeOf(self) {
       if (!self) return null;
@@ -711,6 +727,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (pets && self.x >= pets.x[0] && self.x <= pets.x[1] && self.z >= pets.z[0] && self.z <= pets.z[1]) return 'pets';
       if (gardenBounds && self.x >= gardenBounds.x[0] && self.x <= gardenBounds.x[1]
         && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
+      if (memorialBounds && self.x >= memorialBounds.x[0] && self.x <= memorialBounds.x[1]
+        && self.z >= memorialBounds.z[0] && self.z <= memorialBounds.z[1]) return 'memorial';
       return 'courtyard';
     }
     function reportPlace(self) {
@@ -790,6 +808,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       updateNearbyChore(self);
       updateNearbyPet(self);
       gardenView?.update(dt);
+      memorialView?.update();
       for (const walker of walkers.values()) {
         if (walker.id !== selfId) {
           const beforeX = walker.x;
@@ -860,6 +879,13 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       // Vườn Công Đức: luống từ server ([{ id, crop }]), hiệu ứng gieo / tưới / hái, vẽ lại nhãn khi đổi ngôn ngữ.
       setGarden(list) {
         gardenView?.setPlots(list);
+      },
+      // Khu tưởng niệm: [{ slot, grave | null }]; full = snapshot đầy đủ (ô không có trong danh sách là trống).
+      setMemorial(list, options) {
+        memorialView?.setGraves(list, options);
+      },
+      debugMemorial() {
+        return memorialView?.debug() || null;
       },
       // Server phát một snapshot chung; worker id quyết định ai đang có hoạt ảnh và mọi người dùng cùng nhịp.
       setChores(list = []) {

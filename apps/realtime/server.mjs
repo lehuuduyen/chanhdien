@@ -101,6 +101,9 @@ const BOT_DWELL_MS = {
 };
 const BOT_GLANCE_CHANCE = 0.1;
 const BOT_GLANCE_MS = [1_000, 3_500];
+// Khi một người thật bắt đầu công việc, tối đa một bot đang đứng ngay trong vùng thao tác sẽ dừng đi dạo và phụ.
+// Không kéo bot từ xa tới để tránh cả sân cùng chạy về một chỗ và làm công việc xong tức thì.
+const BOT_CHORE_HELPERS = 1;
 // Chat của phòng chỉ giữ trong ngày (nửa đêm theo GARDEN_TIMEZONE, như Vườn Công Đức), tối đa CHAT_HISTORY_MAX tin, chỉ
 // trong bộ nhớ máy đang giữ phòng: người vào sau xem lại được qua chat.history.
 const CHAT_TIME_ZONE = process.env.GARDEN_TIMEZONE || 'America/Los_Angeles';
@@ -344,6 +347,54 @@ export class Room {
 
   activeChoreOf(participantId) {
     return [...this.chores.values()].find((chore) => chore.workers.has(participantId)) || null;
+  }
+
+  // Bot đi dạo đang ở ngay cạnh người làm sẽ tự phụ một tay. chore.state vốn dùng worker id để renderer cho từng
+  // nhân vật cầm chổi / bình tưới / thức ăn / khăn / ấm trà, nên bot dùng chung luồng như người thật.
+  helpNearbyChore(bot, now = Date.now()) {
+    const current = this.activeChoreOf(bot.id);
+    if (current) {
+      const hasRealWorker = [...current.workers].some((id) => !this.participants.get(id)?.bot);
+      if (!hasRealWorker || current.completedAt) {
+        this.stopChore(bot.id, current.id);
+        if (bot.walk) bot.walk.waitUntil = now + 1_000;
+        return false;
+      }
+      bot.walk.route = [];
+      bot.walk.dest = null;
+      bot.walk.spot = null;
+      bot.walk.waitUntil = now + 1_000;
+      bot.walk.lastAt = now;
+      if (bot.moving) this.move(bot.id, { ...bot.pos, ry: bot.pos.ry, moving: false });
+      return true;
+    }
+    if (!bot.pos || !bot.walk || bot.errand || bot.benchId || bot.handWith || (bot.talkUntil || 0) > now
+      || this.activeChallengeOf(bot.id)) return false;
+    let nearest = null;
+    let nearestDistance = Infinity;
+    for (const chore of this.chores.values()) {
+      if (chore.completedAt) continue;
+      const workers = [...chore.workers].map((id) => this.participants.get(id)).filter(Boolean);
+      if (!workers.some((participant) => !participant.bot)) continue;
+      if (workers.filter((participant) => participant.bot).length >= BOT_CHORE_HELPERS) continue;
+      const distance = Math.hypot(bot.pos.x - chore.x, bot.pos.z - chore.z);
+      if (distance <= chore.radius && distance < nearestDistance) {
+        nearest = chore;
+        nearestDistance = distance;
+      }
+    }
+    if (!nearest) return false;
+    bot.walk.route = [];
+    bot.walk.dest = null;
+    bot.walk.spot = null;
+    bot.walk.waitUntil = now + 1_000;
+    bot.walk.lastAt = now;
+    this.move(bot.id, {
+      ...bot.pos,
+      ry: headingOf(nearest.x - bot.pos.x, nearest.z - bot.pos.z),
+      moving: false,
+    });
+    return this.startChore(bot.id, nearest.id).ok;
   }
 
   startChore(participantId, choreId) {
@@ -1122,8 +1173,9 @@ export class Room {
     return { ok: true };
   }
 
-  // Người rời phòng hẳn: huỷ trận và lời mời kết bạn của người đó.
+  // Người rời phòng hẳn: dừng công việc, huỷ trận và lời mời kết bạn của người đó.
   dropSocial(participantId) {
+    this.stopChore(participantId);
     for (const key of this.friendRequests.keys()) if (key.split('>').includes(participantId)) this.friendRequests.delete(key);
     for (const key of this.handRequests.keys()) if (key.split('>').includes(participantId)) this.handRequests.delete(key);
     // Người rời phòng (đã xóa khỏi danh sách): người còn lại thôi nắm tay.
@@ -1566,6 +1618,7 @@ export class Room {
       bot.walk.dest = null;
       return false;
     }
+    if (this.helpNearbyChore(bot, now)) return true;
     if (now < bot.walk.waitUntil) return false;
     if (bot.errand) return this.advanceBotErrand(bot, now);
     if (!this.nav) return this.advanceWaypointWalk(bot, config, now);
@@ -1793,7 +1846,7 @@ export class Room {
   // ---- Bot làm vườn ----
   // Lúc chọn chỗ đi tiếp (đi vòng theo waypoints: lúc tới (0, 62) hoặc (0, 74) trên lối giữa), bot có thể rẽ vào Vườn
   // Công Đức: hỏi API việc (hái → tưới → gieo, API giữ trần 30% luống cho bot), đi tới cổng vườn rồi theo lối trong
-  // vườn tới luống, làm việc, rồi quay ra lối giữa đi tiếp. Mỗi phòng một bot làm vườn một lúc; luống đổi thì API phát
+  // vườn tới luống, làm việc (một chuyến làm liền tối đa bots.garden.perVisit việc), rồi quay ra lối giữa đi tiếp. Mỗi phòng một bot làm vườn một lúc; luống đổi thì API phát
   // garden.plot cho mọi phòng.
   maybeStartGardenErrand(bot, now = Date.now(), point = null) {
     const config = this.rules.bots?.garden;
@@ -1848,15 +1901,28 @@ export class Room {
     const still = () => this.participants.get(bot.id) === bot && bot.errand === errand;
     errand.done = this.gardenBots.act({ name: bot.displayName, action: task.action, plotId: plot.id, ...(task.plantType ? { plantType: task.plantType } : {}) })
       .catch(() => null)
-      .then((result) => new Promise((resolve) => setTimeout(() => {
-        if (still()) {
+      .then((result) => new Promise((resolve) => setTimeout(() => resolve(result), this.gardenWorkDelay ?? workMs))) // gardenWorkDelay: test rút ngắn thời gian làm việc
+      .then(async (result) => {
+        // Đã vào tới vườn thì làm liền vài việc (như người ra vườn một chuyến), hết việc hoặc đủ số mới ra.
+        errand.count = (errand.count || 1) + 1;
+        const next = still() && errand.count <= (this.rules.bots.garden.perVisit || 1)
+          ? await this.gardenBots.task(bot.displayName).catch(() => null) : null;
+        const nextPlot = next && THIEN_GARDEN.plots.find((item) => item.id === next.plotId);
+        if (!still()) return result;
+        errand.index = 0;
+        bot.walk.lastAt = Date.now();
+        if (nextPlot) {
+          errand.phase = 'going';
+          errand.task = next;
+          errand.plot = nextPlot;
+          errand.points = nextPlot.aisle === plot.aisle ? [{ x: nextPlot.x, z: nextPlot.aisle }]
+            : [{ x: THIEN_GARDEN.walkwayX, z: plot.aisle }, { x: THIEN_GARDEN.walkwayX, z: nextPlot.aisle }, { x: nextPlot.x, z: nextPlot.aisle }];
+        } else {
           errand.phase = 'returning';
-          errand.index = 0;
           errand.points = [{ x: THIEN_GARDEN.walkwayX, z: plot.aisle }, ...[...THIEN_GARDEN.approach].reverse()];
-          bot.walk.lastAt = Date.now();
         }
-        resolve(result);
-      }, this.gardenWorkDelay ?? workMs))); // gardenWorkDelay: test rút ngắn thời gian làm việc
+        return result;
+      });
     return true;
   }
 
@@ -1986,7 +2052,8 @@ export class Room {
     this.driftBotCount(now);
     const target = this.botTargetCount;
     let changed = false;
-    const busyBot = (bot) => this.activeChallengeOf(bot.id) || this.table?.hasBotBet?.(bot.id) || this.table?.hasBotTicket?.(bot.id)
+    const busyBot = (bot) => this.activeChallengeOf(bot.id) || this.activeChoreOf(bot.id)
+      || this.table?.hasBotBet?.(bot.id) || this.table?.hasBotTicket?.(bot.id)
       || bot.handWith || (bot.talkUntil || 0) > now;
     if (bots.length > target) {
       // Bớt bot (addbot giảm / số bot dao động): ưu tiên bot rảnh, bot đang chơi dở rời sau cùng.
@@ -2064,6 +2131,7 @@ export class Room {
     const done = this.botAi.line(kind, { lang: this.lang, botName: bot.displayName, toName: person.displayName, game, sample: person.lastChat }).then((line) => {
       if (!this.botStillWith(bot, person)) return;
       this.botSpeak(bot, line);
+      this.botTalkTo(bot, person, line);
       this.botMemory(bot, person.id).push({ bot: true, text: line });
       if (kind === 'challenge') this.challengeSend(bot.id, person.id, 'rps');
       if (kind === 'invite') this.botInvite(bot, person, game);
@@ -2181,6 +2249,7 @@ export class Room {
       setTimeout(() => {
         if (this.botStillWith(bot, from)) {
           this.botSpeak(bot, line);
+          this.botTalkTo(bot, from, line);
           turns.push({ bot: true, text: line });
           if (rps && !this.activeChallengeOf(bot.id) && !this.activeChallengeOf(from.id)) this.challengeSend(bot.id, from.id, 'rps');
           if (game) this.botInvite(bot, from, game);
@@ -2406,6 +2475,16 @@ export class Room {
     })).catch(() => {});
   }
 
+  // Bot nói với một thành viên (trả lời, bắt chuyện, mời chơi): API lưu vào cuộc trò chuyện riêng của họ với bot để màn
+  // 💬 Tin nhắn → Bạn bè hiện lại. Khách không có tài khoản thì không lưu.
+  botTalkTo(bot, person, text) {
+    if (!this.onBotChat || !person?.accountId || person.bot) return;
+    Promise.resolve(this.onBotChat({
+      roomId: this.id, botId: bot.id, botName: bot.displayName,
+      fromId: person.id, fromName: person.displayName, accountId: person.accountId, text, fromBot: true,
+    })).catch(() => {});
+  }
+
   // Quản trị trả lời thay bot (lệnh Telegram /tl): bot nói câu đó trong phòng như chat thường.
   // botName: tên bot lúc người chơi nhắn; mã bot được dùng lại cho bot mới nên khác tên là bot cũ đã rời phòng.
   botSay(botId, text, botName = null) {
@@ -2598,6 +2677,19 @@ export class RoomRegistry {
   // Phát luống vườn cho mọi phòng chánh điện (kiểm tra bằng schema protocol trước khi phát). Trả số phòng, null nếu sai.
   broadcastGarden(input) {
     const message = { v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 0, plots: input?.plots, ...(input?.effect ? { effect: input.effect } : {}) };
+    if (!parseServerMessage(message).ok) return null;
+    let count = 0;
+    for (const room of this.rooms.values()) {
+      if (room.type !== 'thien' || room.closed) continue;
+      room.broadcast({ ...message, epoch: room.epoch });
+      count += 1;
+    }
+    return count;
+  }
+
+  // Ô mộ Khu tưởng niệm vừa đổi: phát cho mọi phòng chánh điện (kiểm tra schema trước). Trả số phòng, null nếu sai.
+  broadcastMemorial(input) {
+    const message = { v: PROTOCOL_VERSION, type: 'memorial.grave', epoch: 0, graves: input?.graves };
     if (!parseServerMessage(message).ok) return null;
     let count = 0;
     for (const room of this.rooms.values()) {
@@ -3530,6 +3622,26 @@ export function handleRealtimeRequest(req, res, registry = new RoomRegistry(), o
       try { input = JSON.parse(raw); } catch {}
       const sent = registry.broadcastGarden(input);
       res.writeHead(sent === null ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(sent === null ? { error: 'invalid_garden' } : { rooms: sent }));
+    });
+    return;
+  }
+  // API báo ô mộ vừa đổi (đắp mới / quản trị gỡ): phát cho mọi phòng chánh điện đang mở trên máy này.
+  if (req.method === 'POST' && req.url === '/internal/memorial') {
+    const allowed = options.secret && req.headers?.['x-internal-key'] === internalKey(options.secret);
+    if (!allowed) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"forbidden"}');
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 64 * 1_024) req.destroy();
+    });
+    req.on('end', () => {
+      let input = null;
+      try { input = JSON.parse(raw); } catch {}
+      const sent = registry.broadcastMemorial(input);
+      res.writeHead(sent === null ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(sent === null ? { error: 'invalid_memorial' } : { rooms: sent }));
     });
     return;
   }

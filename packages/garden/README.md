@@ -17,6 +17,7 @@
 | Héo | tự động | quá 24 giờ kể từ khi gieo/lần tưới gần nhất → cây héo nhưng không mất; tưới lại thì hồi phục |
 | Hết hạn | tự động | quả chín để quá 7 ngày → `expired`, luống trống |
 | Bot làm vườn | máy realtime (`POST /internal/garden/bot`, khóa nội bộ) | bot giữ tối đa 30% số luống (`BOT_PLOT_LIMIT` = 15); không dùng ví / hạt; chỉ tưới và hái luống của bot (hái hết quả); mỗi tên bot là một tài khoản `gbot-…` không đăng nhập được |
+| Đắp mộ (Khu tưởng niệm) | thành viên (`POST /api/v1/memorial/build`, Idempotency-Key) | `buildGrave`: trừ `GRAVE_PRICE` = 100 xu (giao dịch `memorial`), mộ giữ `GRAVE_TTL_MS` = 24 giờ, tối đa `GRAVE_COUNT` = 36 ô, tên 1–24 ký tự (`cleanGraveName`); `removeGrave` cho quản trị gỡ (không hoàn xu) |
 
 ## Bảo đảm
 

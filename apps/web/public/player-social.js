@@ -4,8 +4,8 @@
 // trả lời. Có Chặn (người bị chặn không mời được mình, chat của họ bị ẩn) và Báo cáo (lưu cho người quản lý), cùng
 // màn Bạn bè (bạn đã lưu trong tài khoản + bạn trong phòng ở phiên này). Bot có thể tự rủ oẳn tù tì hoặc mời sang phòng
 // game (game.invite); hộp mời của bot có nút "Đừng mời nữa" (bot.quiet, nhớ trên máy, bật lại trong menu ⚙). Văn bản từ
-// người dùng chỉ đưa ra màn hình bằng textContent. Màn Bạn bè còn cho thấy bạn đã lưu đang online ở phòng nào (Tới chỗ
-// bạn), mời bạn vào phòng mình, nhắn lời nhắn (đọc được cả khi bạn không online), hộp thư và nút ẩn trạng thái của mình;
+// người dùng chỉ đưa ra màn hình bằng textContent. Màn Bạn bè chỉ cho biết online, không hiện phòng / vị trí của người
+// hay bot; vẫn có thể mời bạn vào phòng mình, nhắn lời nhắn, xem hộp thư và ẩn trạng thái của mình;
 // có thư mới thì server gửi inbox.notify để tải lại hộp thư.
 import { avatarNode, levelBadge, titleBadge } from '/badges.js';
 import { onLangChange, t } from '/thien-i18n.js';
@@ -588,11 +588,9 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
 
   function savedFriendRow(friend) {
     const since = new Date(friend.since).toLocaleDateString(document.documentElement.lang || undefined);
-    const row = friendRow(friend, friend.online ? `🟢 ${placeName(friend.room)}` : t('friends.since', { date: since }));
+    const row = friendRow(friend, friend.online ? `🟢 ${t('chat.online')}` : t('friends.since', { date: since }));
     const actions = el('div', 'friend-actions');
-    const sameRoom = friend.online && friend.room.roomId === currentRoomId?.();
-    if (friend.online) actions.append(button('chip', sameRoom ? `📍 ${t('friends.walkTo')}` : `📍 ${t('friends.goTo')}`, () => goRoom(friend.room)));
-    if (friend.online && !sameRoom) actions.append(button('chip', `📨 ${t('friends.invite')}`, () => inviteFriend(friend)));
+    if (friend.online) actions.append(button('chip', `📨 ${t('friends.invite')}`, () => inviteFriend(friend)));
     actions.append(button('chip', `✉️ ${t('friends.note')}`, () => {
       noteFor = noteFor === friend.accountId ? null : friend.accountId;
       renderFriends();
@@ -615,18 +613,17 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
     return row;
   }
 
-  // Bạn bot: đang ở phòng này thì đi tới / nhắn được; không thì chỉ hiện ngày kết bạn.
+  // Bạn bot không hiện đang ở đâu; nếu bot tình cờ ở cùng phòng thì vẫn có thể nhắn.
   function botFriendRow(name, since) {
     const here = [...(everyone?.() || [])].find((person) => person.bot && person.displayName === name);
     const date = new Date(since).toLocaleDateString(document.documentElement.lang || undefined);
-    const row = friendRow(here || { displayName: name }, here ? `🟢 ${t('friends.inRoom')}` : t('friends.since', { date }));
+    const row = friendRow(here || { displayName: name }, t('friends.since', { date }));
     if (here) {
       const actions = el('div', 'friend-actions');
-      actions.append(button('chip', `📍 ${t('friends.walkTo')}`, () => goRoom({ roomId: currentRoomId?.(), participantId: here.id })));
       if (onMessageBot) actions.append(button('chip', `💬 ${t('social.messageBot')}`, () => { sheet.hidden = true; onMessageBot(here); }));
       row.append(actions);
     }
-    return { row, here: Boolean(here) };
+    return row;
   }
 
   function inboxRow(item) {
@@ -647,35 +644,22 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
   function renderFriends() {
     const back = button('mala-back', `‹ ${t('mala.back')}`, () => { sheet.hidden = true; });
     const list = el('div', 'friend-list');
-    // Bạn bot đã nằm trong danh sách đã lưu bên dưới.
-    const here = [...friends].map((id) => participant(id)).filter((person) => person && !person.bot);
-    if (here.length) {
-      list.append(el('h3', '', t('friends.here')));
-      for (const person of here) {
-        const row = friendRow(person, t('friends.inRoom'));
-        row.append(button('chip', `⚔️ ${t('social.challenge')}`, () => {
-          sheet.hidden = true;
-          send({ type: 'challenge.send', targetId: person.id, game: 'rps' });
-        }));
-        list.append(row);
-      }
-    }
+    // Không lặp lại danh sách người / bot đang ở phòng hiện tại: vị trí của bạn bè là riêng tư.
     if (inbox?.items?.length) {
       list.append(el('h3', '', `📬 ${t('friends.inbox')}`));
       for (const item of inbox.items.slice(0, 10)) list.append(inboxRow(item));
     }
     list.append(el('h3', '', t('friends.saved')));
-    const bots = [...botFriends].map(([name, since]) => botFriendRow(name, since)).sort((a, b) => Number(b.here) - Number(a.here));
+    const bots = [...botFriends].map(([name, since]) => botFriendRow(name, since));
     if (saved === null) list.append(el('p', 'social-note', t('friends.loading')));
     else if (saved === 'guest' && !bots.length) list.append(el('p', 'social-note', t('friends.signIn')));
     else if (Array.isArray(saved) && !saved.length && !bots.length) list.append(el('p', 'social-note', t('friends.none')));
     if (saved !== null) {
-      // Bạn đang online lên trước, rồi tới bạn bot đang ở phòng này.
+      // Bạn online lên trước; bot giữ thứ tự kết bạn, không dùng vị trí hiện tại để sắp xếp.
       const people = Array.isArray(saved) ? [...saved].sort((a, b) => Number(b.online) - Number(a.online)) : [];
       for (const friend of people.filter((item) => item.online)) list.append(savedFriendRow(friend));
-      for (const bot of bots.filter((item) => item.here)) list.append(bot.row);
       for (const friend of people.filter((item) => !item.online)) list.append(savedFriendRow(friend));
-      for (const bot of bots.filter((item) => !item.here)) list.append(bot.row);
+      for (const bot of bots) list.append(bot);
     }
     const nodes = [back, el('h2', '', t('friends.title')), list];
     if (Array.isArray(saved)) {

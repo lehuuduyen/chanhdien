@@ -23,6 +23,17 @@ export const WATER_INTERVAL_MS = 8 * 60 * 60 * 1_000;
 export const WILT_AFTER_MS = 24 * 60 * 60 * 1_000;
 export const FRUIT_KEEP_DAYS = 7;
 export const MAX_ITEMS_PER_REQUEST = 20;
+// Khu tưởng niệm: 36 ô mộ, đắp một mộ tốn 100 xu, giữ 24 giờ rồi ô trống lại. Tên trên bia 1–24 ký tự.
+export const GRAVE_COUNT = 36;
+export const GRAVE_PRICE = 100;
+export const GRAVE_TTL_MS = 24 * 60 * 60 * 1_000;
+export const GRAVE_NAME_MAX = 24;
+// Bỏ ký tự điều khiển / định dạng vô hình, gộp khoảng trắng. Trả '' nếu không hợp lệ (rỗng, quá dài).
+export function cleanGraveName(value) {
+  if (typeof value !== 'string') return '';
+  const name = value.normalize('NFC').replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return name && [...name].length <= GRAVE_NAME_MAX ? name : '';
+}
 export const PLANTS = Object.freeze({
   apple: Object.freeze({ seedPrice: 10, fruitPrice: 5 }),
   orange: Object.freeze({ seedPrice: 15, fruitPrice: 7 }),
@@ -357,6 +368,32 @@ const MIGRATIONS = [
   INSERT INTO garden_plots_new SELECT id, created_at FROM garden_plots;
   DROP TABLE garden_plots;
   ALTER TABLE garden_plots_new RENAME TO garden_plots;`,
+  // Khu tưởng niệm: mộ đắp bằng xu (loại giao dịch "memorial"), mỗi ô tối đa một mộ còn hạn.
+  `CREATE TABLE coin_transactions_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('grant', 'buy_seed', 'sell_fruit', 'game_bet', 'game_win', 'game_refund', 'quest', 'chore', 'admin_adjustment', 'private_room', 'memorial')),
+    plant_type TEXT,
+    quantity INTEGER,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO coin_transactions_new SELECT * FROM coin_transactions;
+  DROP TABLE coin_transactions;
+  ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
+  CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);
+  CREATE TABLE IF NOT EXISTS memorial_graves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slot INTEGER NOT NULL CHECK (slot BETWEEN 1 AND ${GRAVE_COUNT}),
+    name TEXT NOT NULL,
+    builder_account TEXT NOT NULL REFERENCES accounts(id),
+    built_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    removed_at INTEGER,
+    removed_by TEXT
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS memorial_graves_slot ON memorial_graves(slot) WHERE removed_at IS NULL;`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -523,6 +560,13 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     botCrops: db.prepare(`SELECT plot_id AS plotId, owner_account AS owner, status, last_water_at AS lastWaterAt, planted_at AS plantedAt
       FROM crop_cycles WHERE status IN ('growing', 'fruiting') AND owner_account LIKE 'gbot-%'`),
     takenPlots: db.prepare("SELECT plot_id AS plotId FROM crop_cycles WHERE status IN ('growing', 'fruiting')"),
+    graves: db.prepare(`SELECT g.id, g.slot, g.name, g.built_at AS builtAt, g.expires_at AS expiresAt, a.display_name AS builderName
+      FROM memorial_graves g JOIN accounts a ON a.id = g.builder_account WHERE g.removed_at IS NULL AND g.expires_at > ? ORDER BY g.slot`),
+    graveAt: db.prepare(`SELECT g.id, g.slot, g.name, g.built_at AS builtAt, g.expires_at AS expiresAt, a.display_name AS builderName
+      FROM memorial_graves g JOIN accounts a ON a.id = g.builder_account WHERE g.slot = ? AND g.removed_at IS NULL AND g.expires_at > ?`),
+    expireGraves: db.prepare("UPDATE memorial_graves SET removed_at = expires_at, removed_by = 'expired' WHERE removed_at IS NULL AND expires_at <= ?"),
+    insertGrave: db.prepare('INSERT INTO memorial_graves (slot, name, builder_account, built_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
+    removeGrave: db.prepare('UPDATE memorial_graves SET removed_at = ?, removed_by = ? WHERE slot = ? AND removed_at IS NULL AND expires_at > ?'),
     choreReward: db.prepare(`INSERT INTO chore_reward_events
       (account_id, event_key, day, chore, reward, balance_after, at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
   };
@@ -599,6 +643,8 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       },
     };
   }
+
+  const graveView = (row) => ({ slot: row.slot, grave: { name: row.name, builderName: row.builderName, builtAt: row.builtAt, expiresAt: row.expiresAt } });
 
   function ensureWallet(accountId) {
     const wallet = q.wallet.get(accountId);
@@ -886,6 +932,49 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         q.saveRequest.run(accountId, key, 'admin_coins', JSON.stringify(result), now());
         return result;
       });
+    },
+
+    // ---- Khu tưởng niệm ----
+    // Các mộ còn hạn (ô không có trong danh sách là ô trống).
+    graves() {
+      return q.graves.all(now()).map(graveView);
+    },
+    // Đắp mộ: trừ GRAVE_PRICE xu, giữ GRAVE_TTL_MS. Tên đã qua bộ lọc chữ ở API. Cùng khóa gửi lại trả kết quả cũ.
+    buildGrave(accountId, { slot, name } = {}, key) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      const clean = cleanGraveName(name);
+      if (!Number.isSafeInteger(slot) || slot < 1 || slot > GRAVE_COUNT || !clean) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const previous = q.request.get(accountId, key);
+        if (previous) {
+          if (previous.action !== 'memorial') return { ok: false, code: 'IDEMPOTENCY_KEY_REUSED' };
+          return { ...JSON.parse(previous.response), replayed: true };
+        }
+        const at = now();
+        q.expireGraves.run(at);
+        let result;
+        const taken = q.graveAt.get(slot, at);
+        const before = ensureWallet(accountId);
+        if (taken) result = { ok: false, code: 'GRAVE_TAKEN', graves: [graveView(taken)], coins: before };
+        else if (before < GRAVE_PRICE) result = { ok: false, code: 'INSUFFICIENT_COINS', coins: before };
+        else {
+          const coins = changeCoins(accountId, -GRAVE_PRICE, 'memorial', null, slot);
+          q.insertGrave.run(slot, clean, accountId, at, at + GRAVE_TTL_MS);
+          result = { ok: true, coins, graves: [graveView(q.graveAt.get(slot, at))] };
+        }
+        q.saveRequest.run(accountId, key, 'memorial', JSON.stringify(result), at);
+        return result;
+      });
+    },
+    // Quản trị gỡ một mộ (tên xúc phạm, quấy rối…). Không hoàn xu. Trả { ok, slot } hoặc NOT_FOUND.
+    removeGrave(slot, by = 'admin') {
+      if (!Number.isSafeInteger(slot) || slot < 1 || slot > GRAVE_COUNT) return { ok: false, code: 'INVALID' };
+      const at = now();
+      const grave = q.graveAt.get(slot, at);
+      if (!grave) return { ok: false, code: 'NOT_FOUND' };
+      q.removeGrave.run(at, String(by).slice(0, 80), slot, at);
+      return { ok: true, slot, name: grave.name, builderName: grave.builderName };
     },
 
     // Trừ xu mở phòng Lô Tô riêng (API gọi trước khi tạo phòng). Cùng key gửi lại trả nguyên kết quả cũ, không trừ hai lần.

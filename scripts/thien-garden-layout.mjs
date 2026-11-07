@@ -1,7 +1,7 @@
 // Sinh bố cục vườn chùa (world.courtyard + world.walk) cho scenes/thien-default: chạy `node scripts/thien-garden-layout.mjs`
 // ở gốc repo. Vật cản đi lại tính từ vị trí vật thể nên sửa bố cục ở đây rồi chạy lại (chạy nhiều lần cho cùng kết quả).
 import { readFileSync, writeFileSync } from 'node:fs';
-import { THIEN_GARDEN } from '@chanh-dien/room-rules';
+import { THIEN_GARDEN, THIEN_MEMORIAL } from '@chanh-dien/room-rules';
 const file = 'scenes/thien-default/scene.json';
 const scene = JSON.parse(readFileSync(file, 'utf8'));
 const w = scene.world;
@@ -20,7 +20,8 @@ c.facade = { width: HALL_HALF * 2 + 1.6, height: w.hall.height + 2.9 };
 c.porchPillars = [-8.4, -5.4, -2.4, 2.4, 5.4, 8.4].map((x) => [x, 17.3]);
 c.instruments = [{ type: 'bell', x: -11.6, z: 19.2, scale: 1 }, { type: 'drum', x: 11.6, z: 19.2, scale: 1 }];
 c.board = { ...c.board, x: -14, z: 19.6 };
-const HALF = 36, END = 100, GATE = 98.6;
+// Sân rộng 104 m (mở thêm 16 m mỗi bên cho khu tưởng niệm phía tây và bãi cỏ phía đông).
+const HALF = 52, END = 100, GATE = 98.6;
 const WALK_END = Math.round((GATE - 0.9) * 10) / 10;
 c.ground = { x: [-HALF, HALF], z: [16, END] };
 c.floor = 'grass';
@@ -31,6 +32,7 @@ c.paths = [
   { x: [-4.6, 4.6], z: [75.4, 84.6] },    // sân nhỏ quanh bồn nước
   { x: [1.8, 13.2], z: [67.4, 68.6] },     // lối đá từ lối giữa vào cổng Vườn Công Đức
   { x: [1.8, 9.2], z: [85.8, 87.2] },      // lối vào Khu vui chơi thú cưng
+  { x: [THIEN_MEMORIAL.fence.x[1], -1.8], z: [THIEN_MEMORIAL.gate.z - 0.6, THIEN_MEMORIAL.gate.z + 0.6] }, // lối đá tới Khu tưởng niệm
 ];
 delete c.lawns;
 // 9 vị mỗi bên, cách 4,5 m; lối ngang z = 50 nằm giữa hàng thứ 4 và 5.
@@ -101,6 +103,25 @@ c.garden = {
     [GARDEN_FENCE.x[0], GARDEN_GATE.z - GARDEN_GATE.width / 2, GARDEN_FENCE.x[0], GARDEN_FENCE.z[0]],
   ],
 };
+// Khu tưởng niệm (dải sân mở rộng phía tây): 36 ô mộ trong hàng rào đá thấp, cổng cạnh đông, lư hương nhỏ cạnh cổng.
+// Mộ do người chơi đắp (API) nên scene chỉ khai báo ô; engine vẽ nấm mộ + bia theo dữ liệu server.
+const MEMORIAL_FENCE = THIEN_MEMORIAL.fence;
+const MEMORIAL_GATE = THIEN_MEMORIAL.gate;
+c.memorial = {
+  sign: 'KHU TƯỞNG NIỆM',
+  entrance: { x: MEMORIAL_FENCE.x[1], z: MEMORIAL_GATE.z, ry: 1.5708, width: MEMORIAL_GATE.width },
+  mound: THIEN_MEMORIAL.mound,
+  graves: THIEN_MEMORIAL.graves.map(({ id, x, z }) => ({ id, x, z })),
+  // Lư hương đá ngoài cổng (thắp hương tưởng niệm, trang trí).
+  burner: { x: MEMORIAL_FENCE.x[1] + 1.6, z: MEMORIAL_GATE.z + 2.6 },
+  fence: [
+    [MEMORIAL_FENCE.x[0], MEMORIAL_FENCE.z[0], MEMORIAL_FENCE.x[1], MEMORIAL_FENCE.z[0]],
+    [MEMORIAL_FENCE.x[1], MEMORIAL_FENCE.z[0], MEMORIAL_FENCE.x[1], MEMORIAL_GATE.z - MEMORIAL_GATE.width / 2],
+    [MEMORIAL_FENCE.x[1], MEMORIAL_GATE.z + MEMORIAL_GATE.width / 2, MEMORIAL_FENCE.x[1], MEMORIAL_FENCE.z[1]],
+    [MEMORIAL_FENCE.x[1], MEMORIAL_FENCE.z[1], MEMORIAL_FENCE.x[0], MEMORIAL_FENCE.z[1]],
+    [MEMORIAL_FENCE.x[0], MEMORIAL_FENCE.z[1], MEMORIAL_FENCE.x[0], MEMORIAL_FENCE.z[0]],
+  ],
+};
 // Khu thú cưng phía sau bên phải: có cổng mở về lối giữa, đồ chơi và sáu chó mèo có tên riêng.
 const PET_FENCE = { x: [7.2, 34], z: [77, 97] };
 const PET_GATE = { z: 86.5, width: 3.2 };
@@ -125,8 +146,12 @@ c.petZone = {
   ],
 };
 c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 33.5, z: 54.5, size: 1.0 }, { x: -30, z: 40, size: 1.2 }, { x: 13, z: 93, size: 1.0 }];
-c.pines = [[-8.6, 20], [-9, 27], [9, 28.5], [-31, 20], [31, 22], [-31, 62], [31, 40], [-15, 95], [21, 95], [-32, 94]];
-c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [-24, 30], [24, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60]];
+// Dải sân mới hai bên: tùng dọc tường, cây lớn và bụi cây trên bãi cỏ phía đông.
+c.trees.push({ x: -44, z: 30, size: 1.2 }, { x: 44, z: 34, size: 1.15 }, { x: 43, z: 66, size: 1.1 }, { x: 44, z: 90, size: 1.2 });
+c.pines = [[-8.6, 20], [-9, 27], [9, 28.5], [-31, 20], [31, 22], [-31, 59.5], [31, 40], [-15, 95], [21, 95], [-32, 94],
+  [-49, 22], [-49, 44], [-36, 46], [49, 22], [49, 50], [49, 78], [38, 97]];
+c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [-24, 30], [24, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60],
+  [-40, 38], [40, 46], [38, 60], [40, 80], [47, 64]];
 c.animals = [
   { id: 'pet-dog-moc', name: 'Mộc', type: 'dog', color: '#c8893f', x: 15, z: 84, area: { x: [8, 33], z: [78, 96] } },
   { id: 'pet-dog-nau', name: 'Nâu', type: 'dog', color: '#2b2522', x: 24, z: 86, area: { x: [8, 33], z: [78, 96] } },
@@ -209,6 +234,18 @@ const obstacles = [
   ...c.garden.plots.map((plot) => ({ x: plot.x, z: plot.z, rx: c.garden.bed / 2 + 0.05, rz: c.garden.bed / 2 + 0.05 })),
   circle(c.garden.barrel.x, c.garden.barrel.z, 0.35),
   circle(c.garden.shop.x, c.garden.shop.z, 1.3),
+  // Mộ: nấm đất + bia (hình chữ nhật đúng cỡ, bia ở đầu phía tây), lư hương ngoài cổng, hàng rào đá.
+  ...c.memorial.graves.map((grave) => ({ x: grave.x - 0.1, z: grave.z, rx: c.memorial.mound.length / 2 + 0.2, rz: c.memorial.mound.width / 2 + 0.05 })),
+  circle(c.memorial.burner.x, c.memorial.burner.z, 0.6),
+  ...c.memorial.fence.flatMap(([x0, z0, x1, z1]) => {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const steps = Math.ceil(length / 0.5);
+    return Array.from({ length: steps + 1 }, (_, index) => circle(
+      Math.round((x0 + ((x1 - x0) * index) / steps) * 100) / 100,
+      Math.round((z0 + ((z1 - z0) * index) / steps) * 100) / 100,
+      0.25,
+    ));
+  }),
   ...c.garden.fence.flatMap(([x0, z0, x1, z1]) => {
     const length = Math.hypot(x1 - x0, z1 - z0);
     const steps = Math.ceil(length / 0.5);

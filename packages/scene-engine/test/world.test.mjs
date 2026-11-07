@@ -21,7 +21,7 @@ test('bắt lỗi bố cục 3D sai và giữ camera trong tường', () => {
   const { ok, errors } = validateWorld(broken);
   assert.equal(ok, false);
   assert.ok(errors.some((error) => error.includes('quá gần')));
-  assert.deepEqual(clampToBounds({ x: 40, y: -3, z: 5 }, scene.world.camera.bounds), { x: scene.world.camera.bounds.x[1], y: 0.6, z: 5 });
+  assert.deepEqual(clampToBounds({ x: 80, y: -3, z: 5 }, scene.world.camera.bounds), { x: scene.world.camera.bounds.x[1], y: 0.6, z: 5 });
 });
 
 test('góc mặc định thấy trọn 4 cột bồ đoàn trên điện thoại dọc lẫn máy tính, camera nằm trong chánh điện', () => {

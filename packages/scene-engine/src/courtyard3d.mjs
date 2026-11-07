@@ -656,6 +656,70 @@ function addGarden(batch, m, garden, pickables, root, signs) {
   }
 }
 
+// Khu tưởng niệm (world.courtyard.memorial): nền sỏi, hàng rào đá thấp có trụ, cổng đá có biển tên quay ra lối đi,
+// lư hương đá ngoài cổng, mỗi ô mộ một bệ đá phẳng (ô trống). Nấm mộ + bia ghi tên thay đổi theo dữ liệu server nên
+// dựng ở memorial3d.mjs; ở đây chỉ phần tĩnh + mesh ẩn để chạm vào từng ô.
+function addMemorial(batch, m, memorial, pickables, root, signs) {
+  const mound = memorial.mound || { length: 2, width: 1.1 };
+  const points = (memorial.fence || []).flatMap(([x0, z0, x1, z1]) => [[x0, z0], [x1, z1]]);
+  if (points.length) {
+    const box = {
+      x: [Math.min(...points.map((p) => p[0])), Math.max(...points.map((p) => p[0]))],
+      z: [Math.min(...points.map((p) => p[1])), Math.max(...points.map((p) => p[1]))],
+    };
+    const gravel = new THREE.PlaneGeometry(box.x[1] - box.x[0], box.z[1] - box.z[0]);
+    gravel.rotateX(-Math.PI / 2);
+    batch.add(gravel, m.gravel, { position: [(box.x[0] + box.x[1]) / 2, 0.004, (box.z[0] + box.z[1]) / 2] });
+  }
+  // Hàng rào đá: tường thấp 0,55 m, trụ vuông có mũ cách nhau ~3 m.
+  for (const [x0, z0, x1, z1] of memorial.fence || []) {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const angle = Math.atan2(x1 - x0, z1 - z0);
+    batch.add(new THREE.BoxGeometry(0.28, 0.55, length), m.stone, { position: [(x0 + x1) / 2, 0.28, (z0 + z1) / 2], rotation: [0, angle, 0] });
+    batch.add(new THREE.BoxGeometry(0.36, 0.06, length + 0.08), m.darkStone, { position: [(x0 + x1) / 2, 0.58, (z0 + z1) / 2], rotation: [0, angle, 0] });
+    const count = Math.max(1, Math.round(length / 3));
+    for (let index = 0; index <= count; index += 1) {
+      const x = x0 + ((x1 - x0) * index) / count;
+      const z = z0 + ((z1 - z0) * index) / count;
+      batch.add(new THREE.BoxGeometry(0.42, 0.85, 0.42), m.stone, { position: [x, 0.43, z] });
+      batch.add(new THREE.ConeGeometry(0.34, 0.22, 4), m.darkStone, { position: [x, 0.96, z], rotation: [0, Math.PI / 4, 0] });
+    }
+  }
+  // Cổng: hai trụ đá cao, xà ngang, biển tên quay ra ngoài (phía người đi tới).
+  const gate = memorial.entrance;
+  if (gate) {
+    const half = (gate.width || 2.4) / 2;
+    const at = (local) => localTransform({ ...gate, scale: 1 }, local);
+    for (const side of [-1, 1]) {
+      batch.add(new THREE.BoxGeometry(0.5, 2.5, 0.5), m.stone, { position: at([side * (half + 0.25), 1.25, 0]), rotation: [0, gate.ry || 0, 0] });
+      batch.add(new THREE.ConeGeometry(0.42, 0.3, 4), m.darkStone, { position: at([side * (half + 0.25), 2.65, 0]), rotation: [0, (gate.ry || 0) + Math.PI / 4, 0] });
+    }
+    batch.add(new THREE.BoxGeometry(half * 2 + 1.1, 0.24, 0.42), m.darkStone, { position: at([0, 2.38, 0]), rotation: [0, gate.ry || 0, 0] });
+    signs.push({ text: memorial.sign || '', position: at([0, 1.98, 0.24]), ry: gate.ry || 0, width: Math.min(2.6, half * 2 + 0.4) });
+  }
+  // Lư hương đá ngoài cổng, ba nén hương.
+  if (memorial.burner) {
+    const { x, z } = memorial.burner;
+    batch.add(new THREE.BoxGeometry(0.9, 0.5, 0.9), m.stone, { position: [x, 0.25, z] });
+    batch.add(new THREE.CylinderGeometry(0.34, 0.26, 0.36, 14), m.bronze, { position: [x, 0.68, z] });
+    for (const dx of [-0.08, 0, 0.08]) {
+      batch.add(new THREE.CylinderGeometry(0.012, 0.012, 0.42, 4), m.wood, { position: [x + dx, 1.05, z] });
+      batch.add(new THREE.SphereGeometry(0.02, 5, 4), m.lantern, { position: [x + dx, 1.27, z] });
+    }
+  }
+  // Ô mộ: bệ đá phẳng (ô trống vẫn thấy chỗ), mesh ẩn để chạm.
+  const proxyMaterial = new THREE.MeshBasicMaterial({ visible: false });
+  for (const grave of memorial.graves || []) {
+    batch.add(new THREE.BoxGeometry(mound.length + 0.5, 0.05, mound.width + 0.3), m.darkStone, { position: [grave.x - 0.1, 0.025, grave.z] });
+    batch.add(new THREE.BoxGeometry(mound.length + 0.3, 0.07, mound.width + 0.1), m.stone, { position: [grave.x - 0.1, 0.05, grave.z] });
+    const proxy = new THREE.Mesh(new THREE.BoxGeometry(mound.length + 0.6, 1.6, mound.width + 0.3), proxyMaterial);
+    proxy.position.set(grave.x - 0.1, 0.8, grave.z);
+    proxy.userData.memorialGrave = grave.id;
+    root.add(proxy);
+    pickables.push(proxy);
+  }
+}
+
 // Bảng gỗ mô tả đặt trước mỗi khu. Tọa độ, góc xoay và nội dung đều lấy từ scene JSON; mesh ẩn chỉ dùng raycast
 // để mở lại hướng dẫn, còn va chạm do world.walk.obstacles của cảnh quyết định.
 function addGuideBoard(batch, m, item, pickables, root, signs) {
@@ -1378,6 +1442,18 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       root.add(board);
     }
   }
+  // Khu tưởng niệm: phần tĩnh; biển tên là mesh riêng (texture chữ).
+  const memorialPickables = [];
+  if (data.memorial) {
+    const memorialSigns = [];
+    addMemorial(batch, m, data.memorial, memorialPickables, root, memorialSigns);
+    for (const sign of memorialSigns) {
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.width * 0.24), new THREE.MeshStandardMaterial({ map: textBoard(sign.text, { background: '#3d3a36', color: '#f1eee5', border: '#a7a39a' }), roughness: 0.6, side: THREE.DoubleSide }));
+      board.position.set(...sign.position);
+      board.rotation.y = sign.ry;
+      root.add(board);
+    }
+  }
   if (data.petZone) {
     const petSigns = [];
     addPetZone(root, batch, m, data.petZone, petSigns);
@@ -1592,6 +1668,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     benchPickables,
     meritBoardPickables,
     gardenPickables,
+    memorialPickables,
     guidePickables,
     setCommunityProject(project) {
       if (project?.id === data.bodhi?.projectId) communityBodhi?.set(project);
