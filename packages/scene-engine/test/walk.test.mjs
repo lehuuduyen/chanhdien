@@ -34,8 +34,18 @@ test('ghế đá ngoài sân có đúng mã realtime, nhỏ vừa nhân vật v�
   assert.equal(benches.length, THIEN_RULES.benches.count);
   assert.deepEqual(benches.map((item) => item.id), Array.from({ length: benches.length }, (_, index) => `B-${index + 1}`));
   for (const bench of benches) {
-    assert.ok(bench.scale >= 0.65 && bench.scale <= 0.8, 'ghế đá không lớn hơn nhân vật chibi');
+    if (!bench.kind) assert.ok(bench.scale >= 0.65 && bench.scale <= 0.8, 'ghế đá không lớn hơn nhân vật chibi');
     assert.equal(bench.seats, THIEN_RULES.benches.seatsPerBench);
+  }
+  // Khu vui chơi: hai xích đu + hai cầu tuột, đứng được ở điểm chờ, chỗ ngồi nằm trong vật cản (không ai đi xuyên).
+  const play = benches.filter((item) => item.kind);
+  assert.deepEqual(play.map((item) => item.kind), ['swing', 'swing', 'slide']);
+  for (const item of play) {
+    const [lx, lz] = item.approach;
+    const x = item.x + lx * Math.cos(item.ry) + lz * Math.sin(item.ry);
+    const z = item.z - lx * Math.sin(item.ry) + lz * Math.cos(item.ry);
+    assert.equal(isWalkable(walk, x, z), true, `điểm chờ ${item.id} phải đứng được`);
+    assert.equal(isWalkable(walk, item.x, item.z), false, `${item.id} là vật cản`);
   }
 });
 

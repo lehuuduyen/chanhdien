@@ -29,6 +29,14 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     const bench = renderer?.scene?.world?.courtyard?.benches?.find((item) => item.id === person.benchId);
     if (!bench) return null;
     const side = person.benchSpot === 1 ? -1 : 1;
+    // Xích đu / cầu tuột: engine tự tính dáng theo thời gian; đây chỉ là gốc (ghế xích đu bên trái/phải, tâm cầu tuột).
+    if (bench.kind) {
+      return {
+        ...benchPoint(bench, bench.kind === 'swing' ? side * 0.75 : 0, 0),
+        ry: Math.atan2(Math.sin((bench.ry || 0) + Math.PI), Math.cos((bench.ry || 0) + Math.PI)),
+        benchY: 0,
+      };
+    }
     return {
       ...benchPoint(bench, side * 0.48, 0),
       ry: Math.atan2(Math.sin((bench.ry || 0) + Math.PI), Math.cos((bench.ry || 0) + Math.PI)),
@@ -40,11 +48,13 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     if (mine?.benchId === bench.id) return;
     const occupied = lastState.filter((person) => person.benchId === bench.id).length;
     if (occupied >= (bench.seats || 2)) {
-      showToast(t('err.BENCH_FULL'));
+      showToast(t(bench.kind ? 'park.full' : 'err.BENCH_FULL'));
       return;
     }
-    // Đi tới trước ghế rồi mới xin chỗ; server là nơi quyết định spot 1/2 để chống hai người bấm cùng lúc.
-    const approach = benchPoint(bench, 0, 0.95);
+    // Đi tới trước ghế (xích đu / cầu tuột: điểm chờ approach) rồi mới xin chỗ; server quyết định spot 1/2 để chống
+    // hai người bấm cùng lúc.
+    const [approachX, approachZ] = Array.isArray(bench.approach) ? bench.approach : [0, 0.95];
+    const approach = benchPoint(bench, approachX, approachZ);
     api?.walkTo(approach, () => session.send({
       type: 'bench.select', requestId: `bench-${crypto.randomUUID()}`, benchId: bench.id,
     }));
@@ -192,9 +202,14 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   sitNearby.type = 'button';
   sitNearby.className = 'near-sit';
   sitNearby.hidden = true;
-  sitNearby.textContent = t('explore.sitDown');
+  // Gần xích đu / cầu tuột thì nút ghi "Đu xích đu" / "Chơi cầu tuột".
+  const labelSitNearby = () => {
+    const play = sitNearby.dataset.play;
+    sitNearby.textContent = t(play === 'swing' ? 'park.swing' : play === 'slide' ? 'park.slide' : 'explore.sitDown');
+  };
+  labelSitNearby();
   sitNearby.addEventListener('click', () => api?.activateNearby?.());
-  onLangChange(() => { sitNearby.textContent = t('explore.sitDown'); });
+  onLangChange(labelSitNearby);
 
   // Công việc chỉ hiện khi nhân vật đã đứng trong bán kính của điểm việc. Snapshot từ server quyết định tiến độ
   // và danh sách người đang làm; client không tự cộng để nhiều máy luôn nhìn cùng một kết quả.
@@ -275,8 +290,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelPanel.setAttribute('role', 'menu');
   travelPanel.hidden = true;
   // exits: map khác (vd: rạp phim) — { id, icon, go() }; bấm vào thì trang tự chuyển, không gửi travel.go.
-  const travelIcons = { hall: '🛕', courtyard: '🌳', garden: '🌱', pets: '🐾', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
-  const travelButtons = ['hall', 'courtyard', 'garden', 'pets', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
+  const travelIcons = { hall: '🛕', courtyard: '🌳', park: '🛝', garden: '🌱', pets: '🐾', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
+  const travelButtons = ['hall', 'courtyard', 'park', 'garden', 'pets', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.destination = destination;
@@ -435,7 +450,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       // Người đi theo tự điều khiển nhân vật: buông tay (server báo hand.state cho cả hai).
       onHandBreak: () => session.send({ type: 'hand.release', requestId: `social-${crypto.randomUUID()}` }),
       onWalkerTap: (id) => onWalkerTap?.(id),
-      hintText: (kind) => t(kind === 'plot' ? 'garden.hintPlot' : kind === 'shop' ? 'garden.hintShop' : 'explore.tapToSit'),
+      // Chó mèo đã có bảng hành động riêng khi lại gần nên không thêm chữ.
+      hintText: (kind) => (kind === 'pet' ? '' : t({ plot: 'garden.hintPlot', shop: 'garden.hintShop', grave: 'memorial.hint', guide: 'explore.hintGuide', merit: 'explore.hintMerit', swing: 'park.hintSwing', slide: 'park.hintSlide' }[kind] || 'explore.tapToSit')),
       onGardenTap: (target) => onGardenTap?.(target),
       onMemorialTap: (target) => onMemorialTap?.(target),
       onGuideTap: (place) => onGuideTap?.(place),
@@ -450,6 +466,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       onNearbyChange: (target) => {
         sitNearby.hidden = !target;
         sitNearby.dataset.kind = target?.kind || '';
+        sitNearby.dataset.play = target?.play || '';
+        labelSitNearby();
         if (target) requestAnimationFrame(place);
       },
       onNearbyChoreChange: (target) => {
@@ -491,7 +509,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     },
     // Vào phòng xong thì đi thẳng tới khu này, dùng khi quay về từ map khác.
     arriveAt(destination) {
-      if (['hall', 'courtyard', 'garden', 'pets', 'memorial'].includes(destination)) arrival = destination;
+      if (['hall', 'courtyard', 'park', 'garden', 'pets', 'memorial'].includes(destination)) arrival = destination;
     },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {

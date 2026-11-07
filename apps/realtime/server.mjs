@@ -92,9 +92,11 @@ const BOT_SPOT_GAP = 0.9;
 const BOT_YIELD_MS = 3_000;
 // Bot đi khắp sân (có bản đồ scene): tỉ lệ chọn ghế đá / chỗ ngắm cảnh (phần còn lại đi loanh quanh), thời gian ngồi
 // ghế, đứng lại theo loại chỗ, và dừng nhìn quanh giữa đường.
-const BOT_BENCH_CHANCE = 0.15;
+// Ghế gồm cả xích đu / cầu tuột ở khu vui chơi (bench có kind); chơi ngắn hơn ngồi ghế đá.
+const BOT_BENCH_CHANCE = 0.2;
 const BOT_SIGHT_CHANCE = 0.65;
 const BOT_SIT_MS = [25_000, 90_000];
+const BOT_PLAY_MS = [20_000, 60_000];
 const BOT_DWELL_MS = {
   pond: [10_000, 35_000], fountain: [8_000, 25_000], bodhi: [10_000, 30_000], guanyin: [12_000, 35_000],
   arhat: [6_000, 18_000], pets: [10_000, 30_000], burner: [6_000, 15_000], gate: [3_000, 8_000], bench: [4_000, 10_000], wander: [2_000, 9_000],
@@ -254,7 +256,10 @@ export class Room {
     this.botLimit = this.rules.bots?.max ?? this.rules.seats ?? 0;
     // Bản đồ đi lại của scene cho bot đi khắp sân (bots.walk.roam); không có thì bot đi vòng theo waypoints.
     this.nav = this.rules.bots?.walk?.roam && this.rules.sceneId ? botNavFor(this.rules.sceneId) : null;
-    this.botCount = Math.max(0, Math.min(options.botCount ?? this.rules.bots?.count ?? 0, this.botLimit));
+    // bots.range [thấp, cao]: số bot mặc định chọn ngẫu nhiên trong khoảng (rạp phim).
+    const range = this.rules.bots?.range;
+    const defaultBots = range ? range[0] + Math.floor(Math.random() * (range[1] - range[0] + 1)) : this.rules.bots?.count ?? 0;
+    this.botCount = Math.max(0, Math.min(options.botCount ?? defaultBots, this.botLimit));
     // Bot do `addbot N` quản lý vẫn giữ phòng và bàn game chạy khi chưa có người thật.
     this.keepBotsAlive = false;
     this.botTimer = null;
@@ -293,6 +298,12 @@ export class Room {
     this.table = DICE_TABLE_GAMES[game]
       ? new BauCuaTable({ room: this, rules: this.rules.interaction, ...(options.bauCua || {}) })
       : game === 'loto' ? new LottoTable({ room: this, rules: this.rules.interaction, ...(options.lotto || {}) }) : null;
+    // Phòng game công cộng cấu hình alwaysOn tự tạo đủ bot ngay khi room actor mở, giữ bàn chạy khi chưa có người
+    // thật và dùng cùng cơ chế dao động của addbot. Giá trị botCount truyền vào (env / Telegram) vẫn được ưu tiên.
+    if (this.rules.bots?.alwaysOn && this.botCount > 0) {
+      const range = options.botCount === undefined ? this.rules.bots.range : null;
+      this.setBotCount(this.botCount, { managed: true, drift: this.rules.bots.drift === true, range });
+    }
   }
 
   snapshot() {
@@ -1477,9 +1488,11 @@ export class Room {
   }
 
   // ---- Bot: bot mặc định theo người thật; bot do Telegram quản lý có thể giữ phòng hoạt động. ----
-  freeSeat(except) {
+  freeSeat(except, random = null) {
     const taken = new Set([...this.participants.values()].map((participant) => participant.seatId).filter(Boolean));
-    return [...this.seatIds].find((seatId) => seatId !== except && !taken.has(seatId)) || null;
+    if (!random) return [...this.seatIds].find((seatId) => seatId !== except && !taken.has(seatId)) || null;
+    const free = [...this.seatIds].filter((seatId) => seatId !== except && !taken.has(seatId));
+    return free.length ? free[Math.floor(random() * free.length)] : null;
   }
 
   // Bot không bị đẩy khỏi ghế khi có người bấm vào. Khi số người thật tăng, bot ngồi rời trước để mỗi người thật
@@ -1556,7 +1569,8 @@ export class Room {
     const walkLimit = seeded ? Math.max(config.walk?.initial || 0, Math.ceil(this.botWalkingTarget / 2)) : this.botWalkingTarget;
     const walking = Boolean(config.walk?.waypoints?.length && walkingNow < Math.min(walkLimit, this.botTargetCount));
     const needsSeat = Boolean(this.rules.seats);
-    const seatId = walking || !needsSeat ? null : this.freeSeat();
+    // bots.randomSeat: bot ngồi rải rác khắp phòng (rạp) thay vì lấp từ ghế đầu.
+    const seatId = walking || !needsSeat ? null : this.freeSeat(undefined, config.randomSeat ? Math.random : null);
     if (!walking && needsSeat && !seatId) return null;
     const displayName = names[Math.floor(Math.random() * names.length)];
     if (!displayName) return null;
@@ -1730,7 +1744,7 @@ export class Room {
     walk.spot = null;
     if (dest?.face) this.move(bot.id, { x: bot.pos.x, z: bot.pos.z, ry: headingOf(dest.face.x - bot.pos.x, dest.face.z - bot.pos.z), moving: false });
     if (dest?.bench && this.selectBench(bot.id, dest.bench).ok) {
-      walk.waitUntil = now + randomBetween(BOT_SIT_MS);
+      walk.waitUntil = now + randomBetween(dest.play ? BOT_PLAY_MS : BOT_SIT_MS);
       return;
     }
     walk.waitUntil = now + randomBetween(BOT_DWELL_MS[dest?.kind] || BOT_DWELL_MS.wander);
@@ -2001,8 +2015,10 @@ export class Room {
   driftBotCount(now = Date.now(), random = Math.random) {
     const drift = this.botDrift;
     if (!drift) return;
-    const low = Math.max(Math.min(drift.base, 2), drift.base - BOT_DRIFT_RANGE);
-    const high = Math.min(this.botLimit, drift.base + BOT_DRIFT_RANGE);
+    // bots.range (rạp): dao động trong khoảng cố định thay vì quanh con số gốc.
+    const range = drift.range;
+    const low = range ? range[0] : Math.max(Math.min(drift.base, 2), drift.base - BOT_DRIFT_RANGE);
+    const high = Math.min(this.botLimit, range ? range[1] : drift.base + BOT_DRIFT_RANGE);
     if (!drift.nextTargetAt) {
       drift.nextTargetAt = now + randomBetween(BOT_DRIFT_TARGET_MS);
       drift.nextStepAt = now + randomBetween(BOT_DRIFT_STEP_MS);
@@ -2022,7 +2038,9 @@ export class Room {
     const next = Math.max(0, Math.min(Number.isSafeInteger(count) ? count : 0, this.botLimit));
     this.botCount = next;
     // addbot: nhớ con số gốc để dao động quanh nó (0 thì tắt hẳn, không dao động).
-    this.botDrift = options.drift && next > 0 ? { base: next, target: next, nextStepAt: 0, nextTargetAt: 0 } : null;
+    // Phòng có bots.range chỉ dao động trong khoảng đó khi đang chạy số mặc định (BOTS_CINEMA ghi đè thì đứng yên quanh số đặt).
+    const range = options.range || null;
+    this.botDrift = options.drift && next > 0 ? { base: next, target: next, range, nextStepAt: 0, nextTargetAt: 0 } : null;
     this.keepBotsAlive = options.managed !== false && next > 0;
     if (!next) {
       this.removeBots();
@@ -2043,13 +2061,12 @@ export class Room {
     return [...this.participants.values()].filter((participant) => participant.bot).length;
   }
 
-  botTick() {
+  botTick(now = Date.now(), random = Math.random) {
     if ((!this.connectedCount && !this.keepBotsAlive) || !this.botState) return;
     const config = this.rules.bots;
     const state = this.botState;
-    const now = Date.now();
     const bots = [...this.participants.values()].filter((participant) => participant.bot);
-    this.driftBotCount(now);
+    this.driftBotCount(now, random);
     const target = this.botTargetCount;
     let changed = false;
     const busyBot = (bot) => this.activeChallengeOf(bot.id) || this.activeChoreOf(bot.id)
@@ -2795,10 +2812,11 @@ export class RoomRegistry {
     this.botManaged = true;
     this.botPlanReplacesDefaults = true;
     for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto']) this.botCounts[type] = 0;
-    const baseRooms = ['thien-1', 'cinema-1', 'game-1', 'taixiu-1', 'loto-1'];
+    const baseRooms = ['thien-1', 'game-1', 'taixiu-1', 'loto-1'];
     if (total > 0) await Promise.all(baseRooms.map((roomId) => this.open(roomId)));
 
-    const rooms = [...this.rooms.values()].filter((room) => room.rules.bots && !room.closed);
+    // Phòng có bots.range (rạp) tự giữ số bot trong khoảng của nó, addbot không chia vào.
+    const rooms = [...this.rooms.values()].filter((room) => room.rules.bots && !room.rules.bots.range && !room.closed);
     const allocations = new Map(rooms.map((room) => [room.id, 0]));
     const capacity = (room) => Math.max(0, Math.min(room.botLimit, room.maxParticipants - room.realCount));
     let remaining = total;
@@ -2857,7 +2875,7 @@ export class RoomRegistry {
 
     const result = [];
     for (const room of [...this.rooms.values()]) {
-      if (!room.rules.bots || room.closed) continue;
+      if (!room.rules.bots || room.rules.bots.range || room.closed) continue;
       if (!replace && !allocations.has(room.id) && !perState(room)) continue;
       const bots = room.setBotCount(this.managedBotCount(room.id) ?? 0, { managed: !parseThienRoomId(room.id), drift: true });
       if (bots > 0 || allocations.has(room.id)) result.push({ roomId: room.id, type: room.type, name: this.roomName(room.id), bots });
@@ -2870,6 +2888,7 @@ export class RoomRegistry {
   // số bot của thien-1 áp dụng cho từng chánh điện tiểu bang. Phòng tiểu bang không giữ lease chỉ vì bot (managed:
   // false), hết người thật thì đóng như thường.
   managedBotCount(roomId) {
+    if (getRoomRules(roomTypeOf(roomId))?.bots?.range) return undefined;
     if (this.botManaged && this.managedBotCounts.has(roomId)) return this.managedBotCounts.get(roomId);
     if (this.botManaged && parseThienRoomId(roomId) && this.managedBotCounts.has('thien-1')) return this.managedBotCounts.get('thien-1');
     return this.botPlanReplacesDefaults ? 0 : undefined;

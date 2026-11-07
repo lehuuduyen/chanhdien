@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { StaticBatch } from './temple3d-models.mjs';
 import { buildAnimals } from './animals3d.mjs';
+import { addPlayground, loadParkModel, playgroundMaterials } from './park3d.mjs';
 import { hallLayout } from './temple3d-models.mjs';
 
 const MAX_SMOKE = 12;
@@ -191,7 +192,8 @@ function bakedCourtyardShadows(data) {
     for (const item of data.instruments || []) pole(item.x, item.z, 2.5 * (item.scale || 1), 0.72 * (item.scale || 1), 0.4);
     for (const item of data.arhats || []) pole(item.x, item.z, 1.7 * (item.scale || 1), 0.55 * (item.scale || 1), 0.26);
     for (const item of data.planters || []) pole(item.x, item.z, 1.25, 0.42, 0.22);
-    for (const item of data.benches || []) pole(item.x, item.z, 1.25 * (item.scale || 1), 1.05 * (item.scale || 1), 0.2);
+    // Xích đu / cầu tuột nằm trong mô hình khu vui chơi (bóng thật của mesh), không nướng bóng ghế.
+    for (const item of data.benches || []) if (!item.kind) pole(item.x, item.z, 1.25 * (item.scale || 1), 1.05 * (item.scale || 1), 0.2);
     // Cây công trình đổi kích thước theo tiến độ nên dùng bóng thật của mesh, không nướng bóng cây hoàn chỉnh từ đầu.
     if (data.bodhi && !data.bodhi.projectId) pole(data.bodhi.x, data.bodhi.z, 7.5 * (data.bodhi.size || 1), 2.2 * (data.bodhi.size || 1), 0.42);
     if (data.guanyin) pole(data.guanyin.x, data.guanyin.z, 4.1 * (data.guanyin.scale || 1), 1.2 * (data.guanyin.scale || 1), 0.38);
@@ -712,8 +714,9 @@ function addMemorial(batch, m, memorial, pickables, root, signs) {
   for (const grave of memorial.graves || []) {
     batch.add(new THREE.BoxGeometry(mound.length + 0.5, 0.05, mound.width + 0.3), m.darkStone, { position: [grave.x - 0.1, 0.025, grave.z] });
     batch.add(new THREE.BoxGeometry(mound.length + 0.3, 0.07, mound.width + 0.1), m.stone, { position: [grave.x - 0.1, 0.05, grave.z] });
-    const proxy = new THREE.Mesh(new THREE.BoxGeometry(mound.length + 0.6, 1.6, mound.width + 0.3), proxyMaterial);
-    proxy.position.set(grave.x - 0.1, 0.8, grave.z);
+    // Thấp vừa tới đỉnh bia: cao hơn thì nhìn xiên chạm vào ô phía sau dễ trúng ô phía trước.
+    const proxy = new THREE.Mesh(new THREE.BoxGeometry(mound.length + 0.6, 1.2, mound.width + 0.3), proxyMaterial);
+    proxy.position.set(grave.x - 0.1, 0.6, grave.z);
     proxy.userData.memorialGrave = grave.id;
     root.add(proxy);
     pickables.push(proxy);
@@ -1404,7 +1407,39 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const benchProxyGeometry = new THREE.BoxGeometry(2.3, 1.05, 0.85);
   const benchProxyMaterial = new THREE.MeshBasicMaterial({ visible: false });
   (data.arhats || []).forEach((item, index) => addArhat(arhatBatch, m, item, index));
+  // Khu vui chơi: mô hình park.glb (khung xích đu, tháp + cầu tuột, đu quay…), biển tên, ghế xích đu đu được (park3d.mjs).
+  const playRigs = [];
+  const playMaterials = (data.benches || []).some((item) => item.kind) ? playgroundMaterials() : null;
+  const parkSigns = [];
+  if (data.park) {
+    loadParkModel(root, data.park.model);
+    const post = data.park.signPost;
+    if (post) {
+      const at = (local) => localTransform({ ...post, scale: 1 }, local);
+      const postMaterial = new THREE.MeshStandardMaterial({ color: '#2f7fc1', roughness: 0.4, metalness: 0.3 });
+      for (const side of [-1, 1]) batch.add(new THREE.CylinderGeometry(0.07, 0.07, 2.1, 8), postMaterial, { position: at([side * 0.95, 1.05, 0]) });
+      parkSigns.push({ text: data.park.sign || '', position: at([0, 1.75, 0.08]), ry: post.ry || 0, width: 2.1 });
+    }
+  }
+  for (const sign of parkSigns) {
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.width * 0.26), new THREE.MeshStandardMaterial({ map: textBoard(sign.text, { background: '#2f7fc1', color: '#fff6dc', border: '#f0bd49' }), roughness: 0.6, side: THREE.DoubleSide }));
+    board.position.set(...sign.position);
+    board.rotation.y = sign.ry;
+    root.add(board);
+  }
   for (const item of data.benches || []) {
+    if (item.kind && playMaterials) {
+      playRigs.push(addPlayground({ root, item, materials: playMaterials }));
+      // Vùng chạm: item.pick = [rộng, cao, sâu, tâm z local] (khung xích đu / tháp + máng trượt trong mô hình).
+      const [width = 2, height = 2, depth = 2, centerZ = 0] = item.pick || [];
+      const proxy = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), benchProxyMaterial);
+      proxy.position.set(...localTransform({ ...item, scale: 1 }, [0, height / 2, centerZ]));
+      proxy.rotation.y = item.ry || 0;
+      proxy.userData.benchId = item.id;
+      root.add(proxy);
+      benchPickables.push(proxy);
+      continue;
+    }
     addBench(batch, m, item);
     // Mesh đơn giản chỉ dùng raycast: ghế thật đã gộp vào StaticBatch nên không còn nhận diện được từng ghế.
     const proxy = new THREE.Mesh(benchProxyGeometry, benchProxyMaterial);
@@ -1666,6 +1701,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     proceduralStatues,
     animals,
     benchPickables,
+    // Xích đu / cầu tuột: [{ id, kind, pivots }] (ghế xích đu để engine đu theo người ngồi).
+    playRigs,
     meritBoardPickables,
     gardenPickables,
     memorialPickables,

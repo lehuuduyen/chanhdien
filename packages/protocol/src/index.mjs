@@ -74,7 +74,7 @@ export const PET_ACTIONS = Object.freeze(['pet', 'feed', 'play']);
 export const COMMUNITY_PROJECT_STAGES = Object.freeze(['ground', 'sprout', 'young', 'mature', 'complete']);
 export const COMMUNITY_PROJECT_KINDS = Object.freeze(['bodhi', 'lotus']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
-export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial']);
+export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
 export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 'fire']);
 // Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
