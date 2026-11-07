@@ -90,10 +90,14 @@ export const CINEMA_RULES = defineRoomRules({
   // video vào hàng chờ, không thêm được thì hoàn.
   content: { source: 'youtube', videoPrice: 20 },
   interaction: { queue: 'everyone', skipVotePercent: 35 },
-  // Mặc định rạp không có bot; lệnh Telegram `addbot N` mới chia bot vào. Bot chỉ trò chuyện mô phỏng, không vote
-  // đổi phim và không chiếm quyền điều khiển hàng chờ.
+  // Rạp luôn có khán giả: số bot ngẫu nhiên trong range (10–30), realtime cho dao động trong khoảng đó như người ra
+  // vào, mỗi bot ngồi một ghế trống ngẫu nhiên (randomSeat). Khoảng này cố định: addbot không đổi, chỉ BOTS_CINEMA ghi
+  // đè được (0 là tắt). Bot chỉ trò chuyện mô phỏng, không vote đổi phim và không chiếm quyền điều khiển hàng chờ.
   bots: {
-    count: 0,
+    range: [10, 30],
+    alwaysOn: true,
+    drift: true,
+    randomSeat: true,
     max: 100,
     initial: 5,
     arrivalMs: [2_000, 7_000],
@@ -162,8 +166,8 @@ export const THIEN_RULES = defineRoomRules({
   // động lại API + realtime.
   seats: 20,
   // Ghế đá ngoài sân là chỗ ngồi xã hội, tách khỏi 20 bồ đoàn và không ảnh hưởng ngưỡng mở phòng.
-  // Scene dùng mã B-1…B-6; realtime giữ tối đa hai người trên mỗi ghế.
-  benches: { count: 6, seatsPerBench: 2 },
+  // Scene dùng mã B-1…B-9 (B-1…B-6 ghế đá, B-7…B-9 xích đu / cầu tuột ở khu vui chơi); mỗi món tối đa hai người.
+  benches: { count: 9, seatsPerBench: 2 },
   lang: 'vi',
   moderation: 'strict',
   content: { source: 'none' },
@@ -188,6 +192,7 @@ export const THIEN_RULES = defineRoomRules({
       garden: { x: 10.8, z: 68, ry: -1.5708 },
       pets: { x: 10.5, z: 87.5, ry: -1.5708 },
       memorial: { x: -35.8, z: 63.5, ry: 1.5708 },
+      park: { x: 13.2, z: 28.6, ry: -1.5708 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
     pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo'],
@@ -442,7 +447,11 @@ export const LOTO_RULES = defineRoomRules({
   lang: 'vi',
   moderation: 'standard',
   bots: {
-    count: 0,
+    // Phòng công cộng luôn có bàn đang chơi: khởi đầu 30 bot, realtime cho dao động ±10 như người ra vào.
+    // BOTS_LOTO / addbot riêng vẫn có thể ghi đè (0 là tắt). Phòng Lô Tô riêng loại bỏ toàn bộ cấu hình bots này.
+    count: 30,
+    alwaysOn: true,
+    drift: true,
     max: 100,
     initial: 5,
     arrivalMs: [2_000, 7_000],

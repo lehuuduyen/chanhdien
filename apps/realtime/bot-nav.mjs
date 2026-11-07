@@ -248,9 +248,10 @@ export function createBotNav(world) {
     }
   };
   for (const bench of yard.benches || []) {
-    // Đứng trước ghế 0,95 m (như người chơi đi tới rồi mới ngồi).
+    // Đứng trước ghế 0,95 m (như người chơi đi tới rồi mới ngồi); xích đu / cầu tuột có điểm chờ riêng (approach).
     const scale = bench.scale || 1;
-    add('bench', local(bench, 0, 0.95 * scale), null, { bench: bench.id });
+    const [ax, az] = Array.isArray(bench.approach) ? bench.approach : [0, 0.95];
+    add('bench', local(bench, ax * scale, az * scale), null, { bench: bench.id, ...(bench.kind ? { play: bench.kind } : {}) });
   }
   if (yard.fountain) ring('fountain', yard.fountain, yard.fountain.radius + 1.6, yard.fountain.radius + 1.6, 10);
   if (yard.pond) ring('pond', yard.pond, yard.pond.radiusX + 1.3, yard.pond.radiusZ + 1.3, 16);

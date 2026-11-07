@@ -22,6 +22,14 @@ test('Cinema dùng YouTube, có 100 ghế và ngưỡng bỏ qua 35%', () => {
   assert.equal(Object.isFrozen(CINEMA_RULES.interaction), true);
 });
 
+test('Lô Tô công cộng mặc định khoảng 30 bot; phòng riêng dùng luật tách biệt', () => {
+  assert.deepEqual(
+    [LOTO_RULES.bots.count, LOTO_RULES.bots.alwaysOn, LOTO_RULES.bots.drift, LOTO_RULES.bots.max],
+    [30, true, true, 100],
+  );
+  assert.equal(getRoomRules('loto-private').bots, undefined, 'phòng riêng không tự thêm bot');
+});
+
 test('skin thưởng đăng nhập là hình cao cấp và có mốc ngày cố định', async () => {
   const { isPremiumSkin, LOGIN_ACHIEVEMENT, LOGIN_REWARD_ITEMS, LOGIN_REWARDS, THIEN_RULES } = await import('../src/index.mjs');
   assert.deepEqual(LOGIN_REWARDS.map(({ days, skin }) => [days, skin]), [[3, 'chibigirl'], [7, 'swordsman']]);
@@ -38,8 +46,8 @@ test('Chánh điện: số bồ đoàn cấu hình được, lễ vật có côn
   const { THIEN_RULES, ROOM_CATALOG, roomTypeOf } = await import('../src/index.mjs');
   assert.equal(getRoomRules('thien'), THIEN_RULES);
   assert.ok(THIEN_RULES.seats > 0 && THIEN_RULES.seats <= 20);
-  assert.deepEqual(THIEN_RULES.benches, { count: 6, seatsPerBench: 2 });
-  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden', 'pets', 'memorial']);
+  assert.deepEqual(THIEN_RULES.benches, { count: 9, seatsPerBench: 2 });
+  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park']);
   for (const point of Object.values(THIEN_RULES.world.travel)) {
     assert.ok(point.x >= THIEN_RULES.world.bounds.x[0] && point.x <= THIEN_RULES.world.bounds.x[1]);
     assert.ok(point.z >= THIEN_RULES.world.bounds.z[0] && point.z <= THIEN_RULES.world.bounds.z[1]);

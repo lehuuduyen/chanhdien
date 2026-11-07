@@ -154,7 +154,7 @@ test('kế hoạch bot theo phòng đi đúng node giữ lease và còn hiệu l
 });
 
 test('room từ chối hai người chọn cùng một ghế', () => {
-  const room = new Room('cinema-1');
+  const room = new Room('cinema-1', { botCount: 0 });
   const socket = { readyState: WebSocket.CLOSED };
   room.join(socket, { participantId: 'u-1', displayName: 'An' });
   room.join(socket, { participantId: 'u-2', displayName: 'Bình' });
@@ -163,7 +163,7 @@ test('room từ chối hai người chọn cùng một ghế', () => {
 });
 
 test('room giữ ghế khi rớt mạng và xóa sau thời hạn resume', async () => {
-  const room = new Room('cinema-1', { resumeTtlMs: 20 });
+  const room = new Room('cinema-1', { botCount: 0, resumeTtlMs: 20 });
   const socket = { readyState: WebSocket.CLOSED };
   const joined = room.join(socket, { participantId: 'u-1', displayName: 'An' });
   room.selectSeat('u-1', 'S-1');
@@ -182,7 +182,7 @@ test('room giữ ghế khi rớt mạng và xóa sau thời hạn resume', async
 });
 
 test('hai client vào cùng phòng, chọn ghế và nhận chat realtime', async (t) => {
-  const server = createRealtimeServer({ secret: SECRET });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const port = server.address().port;
@@ -216,7 +216,7 @@ test('hai client vào cùng phòng, chọn ghế và nhận chat realtime', asyn
 });
 
 test('client nối lại bằng resume token và giữ nguyên ghế', async (t) => {
-  const server = createRealtimeServer({ secret: SECRET });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const port = server.address().port;
@@ -256,7 +256,7 @@ test('client nối lại bằng resume token và giữ nguyên ghế', async (t)
 
 async function startNode(directory, nodeId, options = {}) {
   const server = createRealtimeServer({
-    secret: SECRET, directory, nodeId, leaseTtlMs: 150, nodeTtlMs: 150, tickMs: 25, ...options,
+    botCounts: { cinema: 0 }, secret: SECRET, directory, nodeId, leaseTtlMs: 150, nodeTtlMs: 150, tickMs: 25, ...options,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -372,7 +372,7 @@ test('rút máy trả lease và giữ snapshot để máy khác nhận ngay', as
 });
 
 test('giới hạn chat theo người vẫn giữ khi nối lại; cả phòng có trần chung', () => {
-  const room = new Room('cinema-1');
+  const room = new Room('cinema-1', { botCount: 0 });
   for (let index = 0; index < 5; index += 1) assert.equal(room.allow('u-1:chat', 5, 10_000), true);
   assert.equal(room.allow('u-1:chat', 5, 10_000), false);
   assert.equal(room.allow('u-2:chat', 5, 10_000), true);
@@ -385,7 +385,7 @@ test('giới hạn chat theo người vẫn giữ khi nối lại; cả phòng c
 });
 
 test('dựng lại từ snapshot hỏng: bỏ mục hỏng, không để hai người cùng một ghế', () => {
-  const room = new Room('cinema-1');
+  const room = new Room('cinema-1', { botCount: 0 });
   room.restore({
     revision: 'x',
     participants: [
@@ -409,7 +409,7 @@ test('snapshot không đọc được thì phòng mở trống thay vì kẹt', 
   await directory.acquireRoom('cinema-1', 'rt-old');
   await directory.saveSnapshot('cinema-1', 'rt-old', 1, { revision: 1, participants: 'hỏng' });
   await directory.releaseRoom('cinema-1', 'rt-old', 1);
-  const registry = new RoomRegistry({ nodeId: 'rt-new', directory });
+  const registry = new RoomRegistry({ nodeId: 'rt-new', directory, botCounts: { cinema: 0 } });
   const opened = await registry.open('cinema-1');
   assert.equal(opened.ok, true);
   assert.equal(opened.room.epoch, 2);
@@ -417,7 +417,7 @@ test('snapshot không đọc được thì phòng mở trống thay vì kẹt', 
 });
 
 test('resume token đã hết chỗ giữ thì server báo INVALID_RESUME_TOKEN rồi đóng', async (t) => {
-  const server = createRealtimeServer({ secret: SECRET, resumeTtlMs: 30 });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, resumeTtlMs: 30 });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const sockets = [];
@@ -440,7 +440,7 @@ test('resume token đã hết chỗ giữ thì server báo INVALID_RESUME_TOKEN 
 });
 
 test('kết nối không gửi hello bị đóng sau thời gian chờ', async (t) => {
-  const server = createRealtimeServer({ secret: SECRET, helloTimeoutMs: 50 });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, helloTimeoutMs: 50 });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -461,7 +461,7 @@ test('máy realtime báo số người theo phòng trong nhịp đăng ký', asy
 });
 
 test('vé sai hoặc ký bằng khóa cũ: server báo INVALID_TICKET để client xin vé mới', async (t) => {
-  const server = createRealtimeServer({ secret: SECRET });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -476,7 +476,7 @@ test('vé sai hoặc ký bằng khóa cũ: server báo INVALID_TICKET để clie
 });
 
 function seatedRoom(count) {
-  const room = new Room('cinema-1');
+  const room = new Room('cinema-1', { botCount: 0 });
   for (let index = 1; index <= count; index += 1) room.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: `u-${index}`, displayName: `Người ${index}` });
   return room;
 }
@@ -496,7 +496,7 @@ test('hàng chờ: video đầu phát ngay, video sau xếp hàng, chặn trùng
 });
 
 test('danh sách YouTube admin chỉ phát khi có người, lặp vòng và nhường ưu tiên cho hàng chờ', () => {
-  const room = new Room('cinema-1');
+  const room = new Room('cinema-1', { botCount: 0 });
   room.setFallbackPlaylist([
     { videoId: 'aaaaaaaaaaa', title: 'Phim nhà chùa A' },
     { videoId: 'bbbbbbbbbbb', title: 'Phim nhà chùa B' },
@@ -575,7 +575,7 @@ test('failover giữ bài đang chiếu, giờ bắt đầu và hàng chờ', ()
   room.report('u-1', room.playback.current.itemId, 'duration', 300);
   const record = JSON.parse(JSON.stringify(room.toRecord()));
   room.close();
-  const restored = new Room('cinema-1', { epoch: 2 });
+  const restored = new Room('cinema-1', { botCount: 0, epoch: 2 });
   restored.restore(record);
   const state = restored.playbackState();
   assert.equal(state.current.videoId, 'aaaaaaaaaaa');
@@ -600,7 +600,7 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
     },
     refund: async () => ({ ok: true }),
   };
-  const server = createRealtimeServer({ secret: SECRET, fetchVideoInfo, wallet });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, fetchVideoInfo, wallet });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const port = server.address().port;
@@ -647,7 +647,7 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
 test('mở phim: đã trừ kim cương mà video không vào được hàng chờ thì hoàn; cùng requestId dùng cùng khóa', async () => {
   const calls = [];
   const wallet = { spend: async (input) => { calls.push(['spend', input.key]); return { ok: true, diamonds: 80 }; }, refund: async (input) => { calls.push(['refund', input.key]); return { ok: true }; } };
-  const room = new Room('cinema-1', { wallet });
+  const room = new Room('cinema-1', { botCount: 0, wallet });
   room.join({ readyState: WebSocket.CLOSED, send() {}, close() {} }, { participantId: 'u-1', displayName: 'An', accountId: 'a-1-00000001' });
   // Có người khác vừa thêm đúng video này trong lúc đang trừ tiền.
   const original = room.addVideo.bind(room);
@@ -937,7 +937,7 @@ test('phòng tiểu bang/ngôn ngữ từ chối người vượt sức chứa p
 });
 
 test('Cinema chỉ có nhân vật Nam/Nữ, không lễ vật; chánh điện không nhận video', async (t) => {
-  const cinema = new Room('cinema-1');
+  const cinema = new Room('cinema-1', { botCount: 0 });
   cinema.join({ readyState: WebSocket.CLOSED, close() {} }, { participantId: 'u-1', displayName: 'An' });
   assert.equal(cinema.offer('u-1', 'bell').error, 'OFFERING_NOT_ALLOWED');
   // Rạp chỉ có nhân vật Nam/Nữ (chọn ở cổng chùa), không có công đức.
@@ -948,7 +948,7 @@ test('Cinema chỉ có nhân vật Nam/Nữ, không lễ vật; chánh điện k
   assert.ok(!('merit' in cinema.snapshot().participants[0]));
   cinema.close();
 
-  const server = createRealtimeServer({ secret: SECRET, fetchVideoInfo: async () => ({ ok: true, title: '' }) });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, fetchVideoInfo: async () => ({ ok: true, title: '' }) });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const sockets = [];
@@ -1032,7 +1032,42 @@ test('số bot cấu hình được (0 là tắt), bằng đúng số addbot t�
   assert.equal(many.botSeatedTarget, THIEN_RULES.seats - 16, 'người thật vào: bot ngồi nhường bồ đoàn');
   assert.equal(many.botTargetCount, 60, 'bot nhường ghế ra sân đi dạo, tổng không đổi');
   many.close();
-  assert.equal(new Room('cinema-1').botCount, 0, 'Cinema chưa bật bot');
+  assert.equal(new Room('cinema-1', { botCount: 0 }).botCount, 0, 'BOTS_CINEMA=0 tắt bot rạp');
+});
+
+test('rạp luôn có 10–30 bot ngồi ghế ngẫu nhiên, dao động trong khoảng đó; addbot không đổi số bot rạp', async () => {
+  const counts = new Set();
+  for (let index = 0; index < 12; index += 1) {
+    const room = new Room('cinema-1');
+    const bots = [...room.participants.values()].filter((person) => person.bot);
+    assert.ok(room.botCount >= 10 && room.botCount <= 30, `số bot ${room.botCount}`);
+    assert.equal(bots.length, room.botCount, 'đủ bot ngay khi mở rạp, chưa cần người vào');
+    assert.ok(bots.every((bot) => bot.seatId), 'bot nào cũng ngồi ghế');
+    assert.equal(new Set(bots.map((bot) => bot.seatId)).size, bots.length, 'không hai bot một ghế');
+    assert.equal(room.keepBotsAlive, true, 'phòng giữ bot khi chưa có người');
+    counts.add(room.botCount);
+    // Ghế ngẫu nhiên: không lấp liền từ S-1.
+    const firstSeats = Array.from({ length: bots.length }, (_, k) => `S-${k + 1}`);
+    assert.notDeepEqual(bots.map((bot) => bot.seatId).sort(), firstSeats.sort());
+    // Dao động không ra ngoài [10, 30].
+    let now = Date.now();
+    for (let step = 0; step < 400; step += 1) {
+      now += 60_000;
+      room.driftBotCount(now, Math.random);
+      assert.ok(room.botCount >= 10 && room.botCount <= 30, `dao động ra ngoài khoảng: ${room.botCount}`);
+    }
+    room.close();
+  }
+  assert.ok(counts.size > 1, 'mỗi lần mở rạp một số khác nhau');
+
+  const registry = new RoomRegistry({ nodeId: 'rt-cinema-bots' });
+  const opened = await registry.open('cinema-1');
+  const before = opened.room.botCount;
+  await registry.setBotTotal(0);
+  assert.equal(opened.room.botCount, before, 'addbot 0 không tắt bot rạp');
+  assert.equal(registry.managedBotCount('cinema-1'), undefined);
+  await registry.shutdown?.();
+  for (const room of registry.rooms.values()) room.close();
 });
 
 test('bot có nhịp riêng, dâng hương nhiều nhất và không bao giờ thỉnh chuông', () => {
@@ -1086,7 +1121,10 @@ test('bot ngoài sân tự chọn chỗ tới, tìm đường rồi đi, phát r
   assert.ok(Math.abs(headingError) < 0.02, 'bot quay mặt đúng hướng đang đi, không trượt lùi');
   const batch = sent.find((message) => message.type === 'room.moves' && message.moves.some((move) => move.id === walker.id));
   assert.ok(batch, 'mọi client nhận được vị trí bot');
-  assert.equal(batch.moves.find((move) => move.id === walker.id).m, true);
+  const move = batch.moves.find((item) => item.id === walker.id);
+  // Tuyến ngẫu nhiên có thể ngắn: nếu bước này vừa tới đích thì bot đúng khi phát m=false (đứng lại), không phải
+  // lúc nào cũng m=true. Gói gửi cho client phải phản ánh đúng toàn bộ vị trí / trạng thái hiện tại của bot.
+  assert.deepEqual(move, { id: walker.id, x: walker.pos.x, z: walker.pos.z, ry: walker.pos.ry, m: walker.moving });
   room.close();
 });
 
@@ -1114,7 +1152,7 @@ test('nhập vai: vị trí gom 200 ms, chặn dịch chuyển tức thời, gi�
   assert.deepEqual(room.emote('u-1', 'bow3'), { ok: true });
   assert.equal(sent.at(-1).type, 'emote');
   assert.equal(room.snapshot().participants.find((person) => person.id === 'u-1').emote, 'bow3', 'người vào sau thấy đang lạy');
-  assert.equal(new Room('cinema-1').move('x', { x: 0, z: 5, ry: 0, moving: true }).error, 'NOT_IN_ROOM');
+  assert.equal(new Room('cinema-1', { botCount: 0 }).move('x', { x: 0, z: 5, ry: 0, moving: true }).error, 'NOT_IN_ROOM');
   room.close();
 });
 
@@ -1207,7 +1245,7 @@ test('nhận sớ: cả phòng thấy thầy nhận sớ của ai, không có t�
   room.announcePrayer('u-1', 'peace');
   room.announcePrayer('u-1', 'peace');
   assert.equal(room.announcePrayer('u-1', 'peace').error, 'RATE_LIMITED');
-  assert.equal(new Room('cinema-1').announcePrayer('x', 'peace').error, 'NOT_IN_ROOM');
+  assert.equal(new Room('cinema-1', { botCount: 0 }).announcePrayer('x', 'peace').error, 'NOT_IN_ROOM');
   room.close();
 });
 
@@ -2033,7 +2071,7 @@ test('nhún nhảy: chỉ ngoài sân chùa (trong chánh điện / đang ngồi
 });
 
 test('chat trong ngày: người vào sau nhận chat.history có tin cả phòng vừa nói', async (t) => {
-  const server = createRealtimeServer({ secret: SECRET });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const port = server.address().port;
@@ -2127,6 +2165,38 @@ test('addbot: số bot dao động ±10 quanh con số đặt, mỗi bước m�
     assert.equal(room.botCount, 0, 'addbot 0 là tắt hẳn');
   } finally {
     room.close();
+  }
+});
+
+test('Lô Tô công cộng luôn khởi tạo 30 bot và dao động 20–40; Lô Tô riêng không tự thêm bot', () => {
+  const room = new Room('loto-1');
+  const privateRoom = new Room('loto-p-abcd1234', { privateOwner: 'a-chu-00000001' });
+  try {
+    assert.equal(room.botCount, 30);
+    assert.equal([...room.participants.values()].filter((person) => person.bot).length, 30, 'vào phòng thấy đủ bot ngay');
+    assert.equal(room.keepBotsAlive, true, 'không có người thật bàn vẫn chạy');
+    assert.equal(room.table.running, true);
+    let now = Date.now();
+    room.botTick(now, () => 0);
+    const seen = [];
+    for (let index = 0; index < 36; index += 1) {
+      now += 10 * 60_000;
+      room.botTick(now, index < 12 ? () => 0 : () => 0.999999);
+      const actual = [...room.participants.values()].filter((person) => person.bot).length;
+      assert.equal(actual, room.botCount, 'bot thật theo kịp mục tiêu mỗi nhịp');
+      assert.ok(actual >= 20 && actual <= 40, `dao động quanh 30: ${actual}`);
+      seen.push(actual);
+    }
+    assert.ok(Math.min(...seen) < 30 && Math.max(...seen) > 30, `đã đi cả dưới và trên 30: ${Math.min(...seen)}–${Math.max(...seen)}`);
+    // Sang ván mua vé mới, con số người chơi trên giao diện phải bằng số bot thật hiện tại.
+    room.table.nextRound();
+    for (const bot of room.participants.values()) if (bot.bot) room.botAct(bot);
+    assert.equal(room.table.stateMessage().players, room.botCount);
+    assert.equal(privateRoom.botCount, 0);
+    assert.equal([...privateRoom.participants.values()].some((person) => person.bot), false);
+  } finally {
+    room.close();
+    privateRoom.close();
   }
 });
 

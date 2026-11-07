@@ -123,3 +123,25 @@ test('khu tưởng niệm: đủ 36 ô khớp room rules / garden / protocol; t�
   assert.equal(registry.broadcastMemorial({ graves: [{ slot: 99, grave: null }] }), null);
   for (const item of registry.rooms.values()) item.close();
 });
+
+test('khu vui chơi: bot đi tới được xích đu / cầu tuột, mỗi món hai chỗ như ghế đá, chơi xong thì đi tiếp', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { createBotNav } = await import('../bot-nav.mjs');
+  const scene = JSON.parse(readFileSync(new URL('../../../scenes/thien-default/scene.json', import.meta.url), 'utf8'));
+  const nav = createBotNav(scene.world);
+  const play = nav.spots.filter((spot) => spot.play);
+  assert.deepEqual(play.map((spot) => [spot.bench, spot.play]), [['B-7', 'swing'], ['B-8', 'swing'], ['B-9', 'slide']]);
+  for (const spot of play) assert.ok(nav.route({ x: 0, z: 33 }, spot)?.length, `đi tới được ${spot.bench}`);
+
+  const { room, addBot } = yardRoom();
+  const slide = play.find((spot) => spot.play === 'slide');
+  for (const id of ['bot-a', 'bot-b', 'bot-c']) {
+    addBot(id, id, { x: slide.x, z: slide.z });
+    room.participants.get(id).walk.dest = slide;
+    room.botArrive(room.participants.get(id), Date.now());
+  }
+  assert.deepEqual(['bot-a', 'bot-b', 'bot-c'].map((id) => room.participants.get(id).benchId || null), [slide.bench, slide.bench, null], 'món đã đủ hai người thì bot thứ ba không chen vào');
+  const waited = room.participants.get('bot-a').walk.waitUntil - Date.now();
+  assert.ok(waited >= 19_000 && waited <= 61_000, 'bot chơi 20–60 giây');
+  room.close();
+});

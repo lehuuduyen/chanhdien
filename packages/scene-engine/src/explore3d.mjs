@@ -7,6 +7,7 @@
 import { findPath, resolveMove } from './walk.mjs';
 import { createGardenView } from './garden3d.mjs';
 import { createMemorialView } from './memorial3d.mjs';
+import { playPose, updateSwings } from './park3d.mjs';
 import { buildChibiWalker, DANCE_STYLES, danceStyleOf } from './chibi3d.mjs';
 
 const SEND_INTERVAL_MS = 200;
@@ -344,7 +345,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         }
       }
       const bench = pickBenchAt(event.clientX, event.clientY);
-      if (bench && self && Math.hypot(bench.x - self.x, bench.z - self.z) < NEAR) {
+      // Xích đu / cầu tuột: chạm từ xa cũng đi tới điểm chờ rồi chơi (món to, dễ nhìn thấy cả khu).
+      if (bench && self && Math.hypot(bench.x - self.x, bench.z - self.z) < (bench.kind ? 14 : NEAR)) {
         onBenchTap(bench);
         return;
       }
@@ -483,7 +485,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       const STAND_HIP = hips.stand;
       const KNEEL_HIP = hips.kneel;
       workRig?.set(false);
-      if (walker.benchId) {
+      if (walker.benchId && !walker.playStand) {
         walker.phase += dt * 1.2;
         figure.position.y = walker.benchY;
         figure.rotation.z = 0;
@@ -664,13 +666,16 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     const followOrbitDistance = Math.hypot(followDistance, followHeight - followTargetHeight);
     let cameraReady = false;
     let lastUpdate = 0;
-    // ---- Vòng sáng chỗ ngồi được: lại gần bồ đoàn / ghế đá còn trống thì sáng lên để biết chạm được ----
+    // ---- Vòng sáng chỗ chạm được: lại gần bồ đoàn / ghế đá còn trống, luống, ô mộ, bảng, chó mèo thì sáng lên ----
     const NEAR = 2.6;
     const seatTargets = [
       ...(world.seats || []).map((seat) => ({ kind: 'seat', id: seat.id, x: seat.x, z: seat.z, sx: 0.55, sz: 0.55, ry: 0 })),
       ...(world.courtyard?.benches || []).map((bench) => ({
         kind: 'bench', id: bench.id, x: bench.x, z: bench.z, ry: bench.ry || 0, seats: bench.seats || 2,
         sx: 1.35 * (bench.scale || 1), sz: 0.62 * (bench.scale || 1),
+        // Xích đu / cầu tuột: vòng to theo cỡ món, sáng từ xa hơn (điểm chờ cách tâm 2–3 m).
+        ...(bench.kind === 'swing' ? { play: 'swing', sx: 2.3, sz: 1.5, near: 3.6 } : {}),
+        ...(bench.kind === 'slide' ? { play: 'slide', sx: 1.0, sz: 3.0, near: 4 } : {}),
       })),
     ];
     const choreTargets = world.courtyard?.chores || [];
@@ -711,7 +716,28 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       x: [Math.min(...gardenPoints.map(([x]) => x)) - 2.8, Math.max(...gardenPoints.map(([x]) => x)) + 0.5],
       z: [Math.min(...gardenPoints.map(([, z]) => z)) - 0.5, Math.max(...gardenPoints.map(([, z]) => z)) + 0.5],
     } : null;
+    // Xích đu / cầu tuột (ghế có kind): dáng người tính theo thời gian ở park3d; playOccupied = chỗ đang có người.
+    const playItems = new Map((world.courtyard?.benches || []).filter((bench) => bench.kind).map((bench) => [bench.id, bench]));
+    const playOccupied = new Set();
+    let selfPlay = null;
+    let lastPlayFollow = null;
     const memorialData = world.courtyard?.memorial;
+    // Chỗ chạm được khác cũng sáng vòng khi lại gần: ô mộ, bảng hướng dẫn, bảng vàng công đức (xa hơn chỗ ngồi
+    // một chút để thấy từ lối đi). Chó mèo đi lại nên tính vòng theo con gần nhất mỗi khung (updateRings).
+    if (memorialData) {
+      const mound = memorialData.mound || { length: 2, width: 1.1 };
+      for (const grave of memorialData.graves || []) {
+        // Vòng nằm ngoài bệ đá (bệ dài length + 0.5, rộng width + 0.3; vòng trong = 0,8 vòng ngoài) để nấm mộ không che.
+        seatTargets.push({ kind: 'grave', id: grave.id, x: grave.x - 0.1, z: grave.z, sx: (mound.length + 0.7) / 1.6, sz: (mound.width + 0.4) / 1.6, ry: 0, near: 3.6, y: 0.1 });
+      }
+    }
+    for (const board of world.courtyard?.guideBoards || []) {
+      seatTargets.push({ kind: 'guide', id: board.id, x: board.x, z: board.z, sx: ((board.width || 2.2) + 0.5) / 2, sz: 0.55, ry: board.ry || 0, near: 4 });
+    }
+    if (world.courtyard?.board) {
+      const board = world.courtyard.board;
+      seatTargets.push({ kind: 'merit', id: 'merit', x: board.x, z: board.z, sx: 1.25, sz: 0.55, ry: 0, near: 4 });
+    }
     const memorialView = memorialData ? createMemorialView({ THREE, root, memorial: memorialData }) : null;
     const memorialPoints = (memorialData?.fence || []).flatMap(([x0, z0, x1, z1]) => [[x0, z0], [x1, z1]]);
     const memorialBounds = memorialPoints.length ? {
@@ -725,6 +751,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (hall && self.x >= -hall.halfWidth && self.x <= hall.halfWidth && self.z >= hall.back && self.z <= hall.front) return 'hall';
       const pets = world.courtyard?.petZone?.area;
       if (pets && self.x >= pets.x[0] && self.x <= pets.x[1] && self.z >= pets.z[0] && self.z <= pets.z[1]) return 'pets';
+      const park = world.courtyard?.park?.area;
+      if (park && self.x >= park.x[0] - 2 && self.x <= park.x[1] && self.z >= park.z[0] && self.z <= park.z[1]) return 'park';
       if (gardenBounds && self.x >= gardenBounds.x[0] && self.x <= gardenBounds.x[1]
         && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
       if (memorialBounds && self.x >= memorialBounds.x[0] && self.x <= memorialBounds.x[1]
@@ -744,7 +772,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     ringGeometry.rotateX(-Math.PI / 2);
     // Trộn màu thường (không cộng sáng): trên cỏ xanh, cộng sáng làm vàng ngả xanh khó thấy.
     const ringMaterial = new THREE.MeshBasicMaterial({ color: '#ffd25a', transparent: true, opacity: 0.75, depthWrite: false, toneMapped: false });
-    const rings = Array.from({ length: 3 }, () => {
+    const rings = Array.from({ length: 4 }, () => {
       const ring = new THREE.Mesh(ringGeometry, ringMaterial);
       ring.visible = false;
       ring.renderOrder = 3;
@@ -756,9 +784,11 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     function updateRings(self, time) {
       const free = (target) => (target.kind === 'seat' ? !occupancy.seats.has(target.id)
         : target.kind === 'bench' ? (occupancy.benches.get(target.id) || 0) < target.seats : true);
-      const near = !self || selfSeated || self.benchId || spectator ? [] : seatTargets
+      const pet = self && !selfSeated && !self.benchId && !spectator ? courtyard?.animals?.nearest?.(self.x, self.z, 2.8) : null;
+      const targets = pet ? [...seatTargets, { kind: 'pet', id: pet.id, x: pet.x, z: pet.z, sx: 0.6, sz: 0.6, ry: 0, near: 2.8 }] : seatTargets;
+      const near = !self || selfSeated || self.benchId || spectator ? [] : targets
         .map((target) => ({ target, distance: Math.hypot(target.x - self.x, target.z - self.z) }))
-        .filter((item) => item.distance < NEAR && free(item.target))
+        .filter((item) => item.distance < (item.target.near || NEAR) && free(item.target))
         .sort((a, b) => a.distance - b.distance)
         .slice(0, rings.length);
       const pulse = reduceMotion ? 1 : 1 + Math.sin(time / 260) * 0.07;
@@ -768,13 +798,15 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         ring.visible = Boolean(item);
         if (!item) return;
         // Gần hơn thì sáng rõ hơn một chút (vòng xa nhỏ, mờ).
-        const fade = 1 - (item.distance / NEAR) * 0.25;
-        ring.position.set(item.target.x, 0.03, item.target.z);
+        const fade = 1 - (item.distance / (item.target.near || NEAR)) * 0.25;
+        ring.position.set(item.target.x, item.target.y ?? 0.03, item.target.z);
         ring.rotation.y = item.target.ry;
         ring.scale.set(item.target.sx * pulse * fade, 1, item.target.sz * pulse * fade);
       });
       // Chữ "Chạm để ngồi" trên chỗ gần nhất.
-      const text = near.length ? hintText?.(near[0].target.kind) || '' : '';
+      // Ô mộ đã có mộ: chỉ sáng vòng, không thêm chữ (chữ che mặt bia).
+      const top = near[0]?.target;
+      const text = top && !(top.kind === 'grave' && memorialView?.grave(top.id)) ? hintText?.(top.play || top.kind) || '' : '';
       if (text !== hintLabel) {
         if (hint) {
           root.remove(hint);
@@ -787,13 +819,13 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           root.add(hint);
         }
       }
-      const hintY = { bench: 1.5, plot: 3.3, shop: 2.9 }[near[0]?.target.kind] || 1.0;
+      const hintY = { bench: 1.5, plot: 3.3, shop: 2.9, grave: 1.7, guide: 2.4, merit: 2.9, pet: 1.1, swing: 2.9, slide: 2.6 }[near[0]?.target.play || near[0]?.target.kind] || 1.0;
       if (hint && near[0]) hint.position.set(near[0].target.x, hintY, near[0].target.z);
       nearbySit = near.find((item) => ['seat', 'bench'].includes(item.target.kind))?.target || null;
       const nextKey = nearbySit ? `${nearbySit.kind}:${nearbySit.id}` : '';
       if (nextKey !== nearbySitKey) {
         nearbySitKey = nextKey;
-        onNearbyChange?.(nearbySit ? { kind: nearbySit.kind, id: nearbySit.id } : null);
+        onNearbyChange?.(nearbySit ? { kind: nearbySit.kind, id: nearbySit.id, ...(nearbySit.play ? { play: nearbySit.play } : {}) } : null);
       }
     }
 
@@ -809,6 +841,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       updateNearbyPet(self);
       gardenView?.update(dt);
       memorialView?.update();
+      playOccupied.clear();
+      selfPlay = null;
       for (const walker of walkers.values()) {
         if (walker.id !== selfId) {
           const beforeX = walker.x;
@@ -841,6 +875,17 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const choreZ = -walker.choreOffset * Math.sin(walker.choreRy || 0);
         walker.group.position.set(walker.x + choreX, 0, walker.z + choreZ);
         walker.parts.figure.rotation.y = walker.ry;
+        // Đang chơi xích đu / cầu tuột: vị trí, độ cao, hướng mặt theo thời gian (park3d); gốc (walker.x/z) giữ ở chỗ
+        // server cấp nên camera và va chạm không đổi.
+        const playItem = walker.benchId && walker.benchSpot ? playItems.get(walker.benchId) : null;
+        const play = playItem ? playPose(playItem, walker.benchSpot, Date.now() / 1_000) : null;
+        if (play) {
+          walker.group.position.set(play.x, play.y, play.z);
+          walker.parts.figure.rotation.y = play.ry;
+          playOccupied.add(`${walker.benchId}:${walker.benchSpot}`);
+        }
+        // Camera chỉ đi theo khi chơi cầu tuột (xích đu đu qua lại, camera lắc theo thì chóng mặt).
+        if (walker.id === selfId) selfPlay = playItem?.kind === 'slide' ? play : null;
         const outside = Boolean(world.courtyard && walker.z > world.courtyard.ground.z[0] - 0.5);
         if (outside) {
           walker.parts.shadow.position.set(shadowVector.x * 0.42, 0.014, shadowVector.z * 0.42);
@@ -853,20 +898,44 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           walker.parts.shadow.scale.set(1, 1, 1);
           walker.parts.shadow.material.opacity = 0.16;
         }
-        pose(walker, dt);
+        if (play) {
+          // Leo thang / đi vòng về: dáng đi bình thường; ngồi (đu, trên sàn, trượt): dáng ngồi ghế. Bóng dưới chân nằm
+          // trên mặt đất, không bay theo người.
+          const moving = walker.moving;
+          walker.moving = play.walking;
+          walker.playStand = !play.sit;
+          walker.benchY = 0;
+          pose(walker, dt);
+          walker.moving = moving;
+          walker.playStand = false;
+          walker.parts.shadow.position.y = 0.014 - play.y;
+        } else pose(walker, dt);
         if (walker.bubble && performance.now() - walker.bubble.at > 6_000) {
           walker.group.remove(walker.bubble.sprite);
           disposeSprite(walker.bubble.sprite);
           walker.bubble = null;
         }
       }
+      if (courtyard?.playRigs?.length) updateSwings(courtyard.playRigs, playOccupied, Date.now() / 1_000, dt);
       // Camera bám sau lưng nhân vật. Khoảng cách/cao độ là dữ liệu scene; thien-default khóa zoom để nhân vật
       // luôn có cùng kích thước trên màn hình, nhưng vẫn cho xoay góc nhìn quanh nhân vật.
       if (self && !selfSeated) {
-        followTarget.set(self.x, followTargetHeight, self.z);
+        // Đang chơi xích đu / cầu tuột: camera dời theo người (như khi đi bộ) để không bị thang / khung che.
+        const followX = selfPlay ? selfPlay.x : self.x;
+        const followZ = selfPlay ? selfPlay.z : self.z;
+        if (selfPlay && lastPlayFollow && cameraReady) {
+          camera.position.x += followX - lastPlayFollow.x;
+          camera.position.z += followZ - lastPlayFollow.z;
+          controls.target.x += followX - lastPlayFollow.x;
+          controls.target.z += followZ - lastPlayFollow.z;
+        }
+        lastPlayFollow = selfPlay ? { x: followX, z: followZ } : null;
+        followTarget.set(followX, followTargetHeight + (selfPlay ? selfPlay.y * 0.5 : 0), followZ);
         if (!cameraReady) {
           controls.target.copy(followTarget);
-          camera.position.set(self.x + Math.sin(self.ry) * followDistance, followHeight, self.z + Math.cos(self.ry) * followDistance);
+          // Cầu tuột: nhìn chéo từ phía bên (phía không có lối đi vòng) để thấy cả leo thang lẫn trượt xuống.
+          const angle = self.ry + (selfPlay ? 0.9 : 0);
+          camera.position.set(followX + Math.sin(angle) * followDistance, followHeight, followZ + Math.cos(angle) * followDistance);
           cameraReady = true;
         } else controls.target.lerp(followTarget, Math.min(1, dt * 8));
       }
@@ -886,6 +955,12 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       },
       debugMemorial() {
         return memorialView?.debug() || null;
+      },
+      // Chỉ để kiểm tra: tọa độ màn hình (px, theo viewport) của một điểm trong cảnh.
+      debugScreen(x, y, z) {
+        const rect = canvas.getBoundingClientRect();
+        const point = new THREE.Vector3(x, y, z).project(camera);
+        return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height, inView: Math.abs(point.z) <= 1 };
       },
       // Server phát một snapshot chung; worker id quyết định ai đang có hoạt ảnh và mọi người dùng cùng nhịp.
       setChores(list = []) {

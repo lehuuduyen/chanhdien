@@ -78,6 +78,73 @@ c.benches = [
   { x: 6.2, z: 77.5, ry: -1.5708 }, { x: 6.2, z: 82.5, ry: -1.5708 },
   { x: -15, z: 46.2, ry: 0 }, { x: 15, z: 46.2, ry: 0 },
 ].map((item, index) => ({ id: `B-${index + 1}`, ...item, scale: 0.72, seats: 2 }));
+// Khu vui chơi bên phải sân đá trước chánh điện: mô hình nhanvat/park.glb (nén + cắt ghế xích đu bằng
+// scripts/park-model.mjs) phóng 1,25 lần, nền mô hình dày 0,25 m hạ xuống ngang mặt cỏ. Trong mô hình: 2 bộ xích đu
+// (mỗi bộ 2 ghế), tháp có cầu tuột, đu quay, 2 thú nhún, khung leo, bụi cây. Xích đu / cầu tuột dùng chung cơ chế ghế
+// đá (bench.select, B-7…B-9, mỗi món hai chỗ) nên người chơi và bot "ngồi" như ghế; engine (park3d.mjs) đu ghế, cho
+// leo – trượt – đi vòng lại. Số đo dưới đây là tọa độ trong mô hình (m, trước khi phóng), đo từ park.glb.
+const PARK_MODEL = { src: '/models/park/park.glb', x: 23, z: 30.9, ry: 0, scale: 1.25, sink: 0.25, half: 5.88 };
+const PS = PARK_MODEL.scale;
+const parkPoint = (mx, mz) => {
+  const ry = PARK_MODEL.ry;
+  return {
+    x: Math.round((PARK_MODEL.x + (mx * Math.cos(ry) + mz * Math.sin(ry)) * PS) * 1000) / 1000,
+    z: Math.round((PARK_MODEL.z + (-mx * Math.sin(ry) + mz * Math.cos(ry)) * PS) * 1000) / 1000,
+  };
+};
+const round3 = (value) => Math.round(value * 1000) / 1000;
+// Độ cao trong mô hình (tính từ mặt nền cam) → độ cao thật.
+const parkY = (y) => round3(y * PS);
+// Bộ xích đu: tâm cặp ghế (mx, mz), nửa khoảng cách hai ghế; xà cao 2,25 m, mặt ghế 0,58 m (tính từ đáy mô hình).
+const parkSwing = (id, mx, half) => {
+  const at = parkPoint(mx, -4.07);
+  const pivotY = parkY(2.25 - PARK_MODEL.sink);
+  return {
+    id, kind: 'swing', ...at, ry: PARK_MODEL.ry, scale: 1, seats: 2,
+    pivotY, rope: round3(pivotY - parkY(0.55 - PARK_MODEL.sink)), seatX: round3(half * PS), seatWidth: 0.68,
+    approach: [0, round3(1.85 * PS)], pick: [round3(2.6 * PS), 2.8, round3(1.9 * PS), 0],
+  };
+};
+// Cầu tuột: neo ở (3,0; 1,5) trong mô hình; leo thang phía tây tháp, ngồi trên sàn, trượt theo máng vàng xuống +z,
+// đi vòng phía tây về chân thang. Điểm [mx, mz, y] trong mô hình → local của món (m thật).
+const SLIDE_ANCHOR = [3.0, 1.5];
+const slideLocal = ([mx, mz, y]) => [round3((mx - SLIDE_ANCHOR[0]) * PS), round3((mz - SLIDE_ANCHOR[1]) * PS), ...(y === undefined ? [] : [parkY(y)])];
+const PARK_SLIDE = {
+  climb: [[1.0, -0.95, 0], [1.15, 0.35, 0], [2.35, 0.35, 1.3]],
+  deck: [3.0, 0.65, 1.3],
+  chute: [[3.0, 1.05, 1.4], [3.0, 1.5, 1.33], [3.0, 2.0, 1.0], [3.0, 2.5, 0.6], [3.0, 3.0, 0.27], [3.0, 3.4, 0.08], [3.0, 3.7, 0.05]],
+  back: [[3.0, 4.15], [1.8, 3.95], [1.05, 1.3], [1.0, -0.95]],
+};
+c.park = {
+  sign: 'KHU VUI CHƠI',
+  area: { x: [round3(PARK_MODEL.x - PARK_MODEL.half * PS), round3(PARK_MODEL.x + PARK_MODEL.half * PS)], z: [round3(PARK_MODEL.z - PARK_MODEL.half * PS), round3(PARK_MODEL.z + PARK_MODEL.half * PS)] },
+  signPost: { x: round3(PARK_MODEL.x - PARK_MODEL.half * PS - 0.7), z: PARK_MODEL.z, ry: -1.5708 },
+  // Hạ nền mô hình xuống ngang mặt cỏ, cao hơn 1,5 cm để không nhấp nháy với cỏ.
+  model: { src: PARK_MODEL.src, x: PARK_MODEL.x, z: PARK_MODEL.z, ry: PARK_MODEL.ry, scale: PS, y: round3(-PARK_MODEL.sink * PS + 0.015) },
+};
+c.benches.push(
+  parkSwing('B-7', -3.2, 0.345),
+  parkSwing('B-8', 0.77, 0.41),
+  {
+    id: 'B-9', kind: 'slide', ...parkPoint(...SLIDE_ANCHOR), ry: PARK_MODEL.ry, scale: 1, seats: 2,
+    approach: slideLocal([1.0, -0.95]).slice(0, 2),
+    pick: [round3(2.0 * PS), 3.2, round3(5.4 * PS), round3(-0.3 * PS)],
+    track: {
+      climb: PARK_SLIDE.climb.map(slideLocal), deck: slideLocal(PARK_SLIDE.deck),
+      chute: PARK_SLIDE.chute.map(slideLocal), back: PARK_SLIDE.back.map(slideLocal),
+    },
+  },
+);
+// Vật cản trong mô hình (tọa độ mô hình): khung xích đu (gồm vùng đu), tháp, cầu thang, thang leo, máng trượt, khung
+// leo, đu quay, thú nhún, bụi cây. Viền nền thấp nên đi qua được.
+const PARK_RECTS = [
+  [-4.5, -1.85, -5.1, -3.0], [-1.15, 2.15, -5.1, -3.0],
+  [2.3, 3.95, -0.35, 1.15], [2.55, 3.65, -1.5, -0.35], [1.3, 2.3, 0, 0.7], [2.45, 3.55, 1.15, 3.9], [3.3, 4.3, -2.9, -1.7],
+];
+const PARK_CIRCLES = [
+  [-0.55, 0, 1.3], [-3.5, -0.72, 0.5], [-2.9, 2.8, 0.5], [3.82, -3.2, 0.55], [4.69, -4.79, 0.45],
+  [-4.75, 4.45, 0.45], [-4.75, 4.96, 0.45], [-1.0, 4.85, 0.45], [-0.4, 4.75, 0.45], [4.75, 4.24, 0.45], [4.75, 4.96, 0.45],
+];
 c.planters = [];
 for (const z of [36.25, 45.25, 58.75, 67.75]) c.planters.push({ x: -3.3, z, flower: 'pink' }, { x: 3.3, z, flower: 'yellow' });
 c.planters.push({ x: -10, z: 30, flower: 'yellow' }, { x: 10, z: 30, flower: 'pink' }, { x: -14, z: 53.6, flower: 'pink' }, { x: 14, z: 53.6, flower: 'yellow' });
@@ -150,7 +217,7 @@ c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 33.5, z: 54.5, size: 1.0 }, { x: -
 c.trees.push({ x: -44, z: 30, size: 1.2 }, { x: 44, z: 34, size: 1.15 }, { x: 43, z: 66, size: 1.1 }, { x: 44, z: 90, size: 1.2 });
 c.pines = [[-8.6, 20], [-9, 27], [9, 28.5], [-31, 20], [31, 22], [-31, 59.5], [31, 40], [-15, 95], [21, 95], [-32, 94],
   [-49, 22], [-49, 44], [-36, 46], [49, 22], [49, 50], [49, 78], [38, 97]];
-c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [-24, 30], [24, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60],
+c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [-24, 30], [33, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60],
   [-40, 38], [40, 46], [38, 60], [40, 80], [47, 64]];
 c.animals = [
   { id: 'pet-dog-moc', name: 'Mộc', type: 'dog', color: '#c8893f', x: 15, z: 84, area: { x: [8, 33], z: [78, 96] } },
@@ -217,6 +284,7 @@ const obstacles = [
   ...c.pines.map(([x, z]) => circle(x, z, 0.6)),
   ...c.bushes.map(([x, z]) => circle(x, z, 0.7)),
   circle(c.board.x, c.board.z, 0.7),
+  circle(c.park.signPost.x, c.park.signPost.z, 0.35),
   // Hai Hộ pháp ngoài hiên, hai bên cửa chánh điện.
   circle(-3.9, 17.7, 0.75), circle(3.9, 17.7, 0.75),
   ...c.instruments.map((item) => circle(item.x, item.z, 0.8)),
@@ -226,7 +294,16 @@ const obstacles = [
   circle(c.fountain.x, c.fountain.z, 3),
   { x: c.pond.x, z: c.pond.z, rx: c.pond.radiusX + 0.45, rz: c.pond.radiusZ + 0.45 },
   // Ghế dài 2,2 m: elip đúng chiều ghế, không để lọt qua hai đầu. Bụi cây cũng là vật thể đặc thay vì chỉ trang trí.
-  ...c.benches.map(benchObstacle),
+  ...c.benches.filter((item) => !item.kind).map(benchObstacle),
+  // Khu vui chơi: vật cản lấy theo mô hình (xích đu / cầu tuột nằm trong các khối này).
+  ...PARK_RECTS.map(([x0, x1, z0, z1]) => {
+    const center = parkPoint((x0 + x1) / 2, (z0 + z1) / 2);
+    const turned = Math.abs(Math.sin(PARK_MODEL.ry)) > 0.5;
+    const rx = round3(((x1 - x0) / 2) * PS);
+    const rz = round3(((z1 - z0) / 2) * PS);
+    return { ...center, rx: turned ? rz : rx, rz: turned ? rx : rz };
+  }),
+  ...PARK_CIRCLES.map(([mx, mz, r]) => circle(parkPoint(mx, mz).x, parkPoint(mx, mz).z, round3(r * PS))),
   ...c.planters.map((p) => circle(p.x, p.z, 0.55)),
   ...c.arhats.map((a) => circle(a.x, a.z, 1.0)),
   // Luống vườn (đi quanh, không giẫm lên), quầy hạt giống, hàng rào (chuỗi vật cản nhỏ dọc từng đoạn).
