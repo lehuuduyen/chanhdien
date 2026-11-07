@@ -13,6 +13,9 @@
 // }
 
 const CELL = 0.25;
+// Chia vật cản thành các ô lớn để A* không phải quét toàn bộ hàng trăm bụi cây / đèn / tượng cho mỗi điểm lưới.
+// Chỉ mục chỉ sống trong một lần findPath nên không bị cũ nếu dữ liệu cảnh được thay thế.
+const PATH_BUCKET = 2;
 // Không để một khung hình đi xa hơn vật cản nhỏ nhất. Nếu chỉ kiểm tra điểm cuối, lúc chạy hoặc máy chậm
 // nhân vật có thể nhảy từ phía này sang phía kia của vật mà không chạm vào nó (tunnelling).
 const MAX_SWEEP_STEP = 0.2;
@@ -116,6 +119,45 @@ export function resolveMove(walk, from, to) {
   return current;
 }
 
+// Tạo hàm kiểm tra nhanh cho A*. `maxRadius` là bán kính lớn nhất sẽ hỏi (gồm lề khi rút gọn đường), nhờ vậy
+// vật cản được đưa vào mọi bucket có thể chạm tới; lúc kiểm tra vẫn dùng đúng bán kính của từng trường hợp.
+function pathWalkable(walk, maxRadius) {
+  const { bounds } = walk;
+  const columns = Math.ceil((bounds.x[1] - bounds.x[0]) / PATH_BUCKET) + 1;
+  const rows = Math.ceil((bounds.z[1] - bounds.z[0]) / PATH_BUCKET) + 1;
+  const buckets = new Map();
+  const bucketKey = (column, row) => row * columns + column;
+  for (const item of walk.obstacles || []) {
+    const rx = (item.rx ?? item.r) + maxRadius;
+    const rz = (item.rz ?? item.r) + maxRadius;
+    const minColumn = Math.max(0, Math.floor((item.x - rx - bounds.x[0]) / PATH_BUCKET));
+    const maxColumn = Math.min(columns - 1, Math.floor((item.x + rx - bounds.x[0]) / PATH_BUCKET));
+    const minRow = Math.max(0, Math.floor((item.z - rz - bounds.z[0]) / PATH_BUCKET));
+    const maxRow = Math.min(rows - 1, Math.floor((item.z + rz - bounds.z[0]) / PATH_BUCKET));
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let column = minColumn; column <= maxColumn; column += 1) {
+        const key = bucketKey(column, row);
+        const nearby = buckets.get(key);
+        if (nearby) nearby.push(item);
+        else buckets.set(key, [item]);
+      }
+    }
+  }
+  return (x, z, radius) => {
+    if (!inAreas(walk, x, z)) return false;
+    const column = Math.min(columns - 1, Math.max(0, Math.floor((x - bounds.x[0]) / PATH_BUCKET)));
+    const row = Math.min(rows - 1, Math.max(0, Math.floor((z - bounds.z[0]) / PATH_BUCKET)));
+    for (const item of buckets.get(bucketKey(column, row)) || []) {
+      const dx = x - item.x;
+      const dz = z - item.z;
+      if (item.rx) {
+        if ((dx / (item.rx + radius)) ** 2 + (dz / (item.rz + radius)) ** 2 < 1) return false;
+      } else if (dx * dx + dz * dz < (item.r + radius) ** 2) return false;
+    }
+    return true;
+  };
+}
+
 // Tìm đường A* trên lưới 25 cm: trả danh sách điểm (đã rút gọn đoạn thẳng), hoặc [] nếu không tới được.
 export function findPath(walk, from, to) {
   const { bounds } = walk;
@@ -129,13 +171,16 @@ export function findPath(walk, from, to) {
   // A* hỏi lại cùng một ô nhiều lần (từ các ô kề và khi cấm cắt góc). Với cảnh rộng có nhiều
   // vật cản, quét toàn bộ danh sách vật cản cho mỗi lần hỏi chiếm phần lớn thời gian tìm đường.
   // Cache chỉ sống trong một lần tìm đường nên luôn khớp với dữ liệu walk hiện tại.
+  const radius = walk.radius ?? 0.25;
+  const marginRadius = radius + 0.02;
+  const fastWalkable = pathWalkable(walk, marginRadius);
   const walkableCells = new Uint8Array(columns * rows); // 0: chưa biết, 1: bị chặn, 2: đi được
   const free = (column, row) => {
     if (column < 0 || row < 0 || column >= columns || row >= rows) return false;
     const index = row * columns + column;
     if (walkableCells[index]) return walkableCells[index] === 2;
     const point = pointOf(column, row);
-    const walkable = isWalkable(walk, point.x, point.z);
+    const walkable = fastWalkable(point.x, point.z, radius);
     walkableCells[index] = walkable ? 2 : 1;
     return walkable;
   };
@@ -215,12 +260,11 @@ export function findPath(walk, from, to) {
   cells[cells.length - 1] = goal;
   // Rút gọn: bỏ điểm giữa nếu đi thẳng từ điểm trước tới điểm sau không chạm vật cản.
   // Kiểm tra với thân người nới thêm 2 cm: đoạn thẳng lướt sát mép vật cản giữa hai điểm lấy mẫu vẫn bị loại.
-  const margin = { ...walk, radius: (walk.radius ?? 0.25) + 0.02 };
   const clear = (a, b) => {
     const length = Math.hypot(b.x - a.x, b.z - a.z);
     for (let t = 0; t <= length; t += CELL / 2) {
       const k = length ? t / length : 0;
-      if (!isWalkable(margin, a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k)) return false;
+      if (!fastWalkable(a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k, marginRadius)) return false;
     }
     return true;
   };
