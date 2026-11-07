@@ -150,7 +150,7 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
         row.type = 'button';
         const text = el('div', 'friend-text');
         const date = new Date(bot.since).toLocaleDateString(document.documentElement.lang || undefined);
-        text.append(el('b', '', `🤖 ${bot.name}`), el('span', 'friend-sub', t('friends.since', { date })));
+        text.append(el('b', '', bot.name), el('span', 'friend-sub', t('friends.since', { date })));
         row.append(avatarNode({ displayName: bot.name }, 'avatar'), text);
         row.addEventListener('click', () => openThread({ bot: true, displayName: bot.name }));
         list.append(row);
@@ -162,7 +162,7 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
   function renderThread(body) {
     const { friend, items } = thread;
     const head = el('div', 'chat-thread-head');
-    head.append(button('chip', `‹ ${t('chat.tabFriends')}`, () => { thread = null; render(); refreshUnread(); }), el('b', '', friend.bot ? `🤖 ${friend.displayName}` : friend.displayName));
+    head.append(button('chip', `‹ ${t('chat.tabFriends')}`, () => { thread = null; render(); refreshUnread(); }), el('b', '', friend.displayName));
     logNode = el('div', 'chat-log');
     fillThread();
     if (friend.bot) {
