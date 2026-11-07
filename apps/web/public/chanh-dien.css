@@ -609,6 +609,11 @@ button.chip { cursor: pointer; }
 .garden-seed-count { color: #b8c7a4; font-size: 12px; }
 .garden-main { min-height: 52px; padding: 0 18px; color: #1b140c; background: linear-gradient(180deg, #ffe08f, #f1b84a); border: 0; border-radius: 14px; box-shadow: 0 6px 18px rgba(241, 184, 74, .25); font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; }
 .garden-main:disabled { color: #4b4b40; background: #8a8f7d; box-shadow: none; cursor: default; }
+/* Khu tưởng niệm: ô nhập tên trên bia + nút đắp mộ (dùng chung thẻ của vườn). */
+.memorial-form { display: flex; flex-direction: column; gap: 8px; }
+.memorial-form input { min-height: 46px; padding: 0 14px; color: var(--fg); font: inherit; font-size: 16px; background: rgba(0, 0, 0, .35); border: 1px solid var(--line); border-radius: 12px; }
+.memorial-rip { color: #f0d27a; font-weight: 700; }
+.memorial-rule { font-size: 12px; opacity: .75; }
 .garden-link { align-self: center; padding: 4px 0; color: #b9de8f; background: none; border: 0; font: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .garden-note .garden-main { align-self: stretch; }
 

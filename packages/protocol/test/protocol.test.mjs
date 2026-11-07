@@ -406,3 +406,15 @@ test('inbox.notify: chỉ báo loại thư, không mang nội dung', () => {
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'inbox.notify', epoch: 1, kind: 'invite' }).ok, true);
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'inbox.notify', epoch: 1, kind: 'note', text: 'chào' }).ok, false);
 });
+
+test('memorial.grave: ô mộ trống hoặc có mộ hợp lệ; từ chối ô ngoài 1–36, tên rỗng, hạn trước lúc đắp, trường lạ', () => {
+  const grave = { name: 'Ông Ba', builderName: 'An', builtAt: 10, expiresAt: 20 };
+  const message = (graves) => parseServerMessage({ v: PROTOCOL_VERSION, type: 'memorial.grave', epoch: 1, graves });
+  assert.equal(message([{ slot: 1, grave }, { slot: 36, grave: null }]).ok, true);
+  assert.equal(message([{ slot: 37, grave: null }]).error, 'INVALID_MESSAGE');
+  assert.equal(message([{ slot: 1, grave: { ...grave, name: '' } }]).error, 'INVALID_MESSAGE');
+  assert.equal(message([{ slot: 1, grave: { ...grave, expiresAt: 10 } }]).error, 'INVALID_MESSAGE');
+  assert.equal(message([{ slot: 1, grave: { ...grave, owner: 'a-1' } }]).error, 'INVALID_MESSAGE');
+  assert.equal(message([]).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'travel.go', requestId: 'r1', destination: 'memorial' }).ok, true);
+});

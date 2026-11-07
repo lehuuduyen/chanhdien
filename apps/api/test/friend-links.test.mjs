@@ -45,7 +45,7 @@ function setup() {
   return { an, binh, chi, call, presence, notified, tick: (ms) => { clock += ms; }, options };
 }
 
-test('bạn bè: máy realtime báo ai đang ở phòng nào; danh sách bạn kèm phòng (chánh điện có mã mời, phòng khác có trang); ẩn mình thì bạn thấy offline', async () => {
+test('bạn bè: máy realtime giữ vị trí nội bộ nhưng danh sách chỉ trả online; ẩn mình thì bạn thấy offline', async () => {
   const { an, binh, chi, call, presence, tick } = setup();
   assert.equal((await request({ secret: SECRET, friendLinks: setup().options.friendLinks }, 'POST', '/internal/presence', { body: { nodeId: 'rt-1', entries: [] } })).status, 403);
   assert.equal((await presence('rt-1', [{ accountId: binh.id, roomId: 'thien-az-vi-1', participantId: 'p-binh' }])).json.count, 1);
@@ -53,9 +53,10 @@ test('bạn bè: máy realtime báo ai đang ở phòng nào; danh sách bạn k
   const listed = (await call(an, 'GET', '/api/v1/me/friends')).json;
   const byName = Object.fromEntries(listed.friends.map((friend) => [friend.displayName, friend]));
   assert.equal(listed.hidden, false);
-  assert.deepEqual([byName['Bình'].online, byName['Bình'].room.type, byName['Bình'].room.name, byName['Bình'].room.participantId], [true, 'thien', 'Arizona · PV1', 'p-binh']);
-  assert.equal(verifyRoomInvite(byName['Bình'].room.inviteCode, SECRET).value.roomId, 'thien-az-vi-1');
-  assert.deepEqual([byName.Chi.room.type, byName.Chi.room.href], ['loto', '/loto.html']);
+  assert.equal(byName['Bình'].online, true);
+  assert.equal(byName.Chi.online, true);
+  assert.equal('room' in byName['Bình'], false, 'không trả tên phòng, mã mời hay participantId');
+  assert.equal('room' in byName.Chi, false, 'phòng game cũng không lộ trang / phòng hiện tại');
 
   assert.deepEqual((await call(binh, 'POST', '/api/v1/me/presence', { hidden: true })).json, { ok: true, hidden: true });
   assert.equal((await call(an, 'GET', '/api/v1/me/friends')).json.friends.find((friend) => friend.displayName === 'Bình').online, false, 'ẩn mình');

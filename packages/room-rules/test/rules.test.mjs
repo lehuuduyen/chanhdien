@@ -39,7 +39,7 @@ test('Chánh điện: số bồ đoàn cấu hình được, lễ vật có côn
   assert.equal(getRoomRules('thien'), THIEN_RULES);
   assert.ok(THIEN_RULES.seats > 0 && THIEN_RULES.seats <= 20);
   assert.deepEqual(THIEN_RULES.benches, { count: 6, seatsPerBench: 2 });
-  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden', 'pets']);
+  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden', 'pets', 'memorial']);
   for (const point of Object.values(THIEN_RULES.world.travel)) {
     assert.ok(point.x >= THIEN_RULES.world.bounds.x[0] && point.x <= THIEN_RULES.world.bounds.x[1]);
     assert.ok(point.z >= THIEN_RULES.world.bounds.z[0] && point.z <= THIEN_RULES.world.bounds.z[1]);

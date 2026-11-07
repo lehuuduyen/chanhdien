@@ -91,3 +91,35 @@ test('chat trong ngày: người vào sau nhận chat.history; tin hôm trước
   assert.equal(parseServerMessage(history).ok, true);
   room.close();
 });
+
+test('khu tưởng niệm: đủ 36 ô khớp room rules / garden / protocol; từ lối giữa đi tới trước mọi bia; phát memorial.grave cho phòng chánh điện', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { THIEN_MEMORIAL } = await import('@chanh-dien/room-rules');
+  const { GRAVE_COUNT, GRAVE_NAME_MAX } = await import('@chanh-dien/garden');
+  const { MEMORIAL_GRAVE_MAX, MEMORIAL_NAME_MAX } = await import('@chanh-dien/protocol');
+  const { createBotNav } = await import('../bot-nav.mjs');
+  const scene = JSON.parse(readFileSync(new URL('../../../scenes/thien-default/scene.json', import.meta.url), 'utf8'));
+  const memorial = scene.world.courtyard.memorial;
+  assert.deepEqual([THIEN_MEMORIAL.graves.length, GRAVE_COUNT, MEMORIAL_GRAVE_MAX], [36, 36, 36]);
+  assert.equal(GRAVE_NAME_MAX, MEMORIAL_NAME_MAX);
+  assert.deepEqual(memorial.graves, THIEN_MEMORIAL.graves.map(({ id, x, z }) => ({ id, x, z })));
+  const bounds = scene.world.walk.bounds;
+  for (const grave of memorial.graves) assert.ok(grave.x - 1.5 > bounds.x[0] && grave.z > bounds.z[0] && grave.z < bounds.z[1], `ô ${grave.id} nằm trong sân`);
+  // Người đọc bia đứng giữa lối đi phía đông nấm mộ (lối rộng ~2 m: bot cũng đi được, người chơi càng rộng).
+  const nav = createBotNav(scene.world);
+  for (const grave of memorial.graves) {
+    const front = { x: grave.x + 2, z: grave.z };
+    assert.ok(nav.walkable(front), `đứng được trước mộ ô ${grave.id}`);
+    assert.ok(nav.route({ x: 0, z: THIEN_MEMORIAL.gate.z }, front)?.length, `đi tới được mộ ô ${grave.id}`);
+  }
+
+  const registry = new RoomRegistry({ nodeId: 'rt-m', directory: createMemoryDirectory(), botCounts: { thien: 0 } });
+  const { room } = await registry.open('thien-ca-vi-1');
+  const inbox = [];
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} }, { participantId: 'an', displayName: 'An', role: 'guest' });
+  const grave = { name: 'Ông Ba', builderName: 'An', builtAt: 1, expiresAt: 2 };
+  assert.equal(registry.broadcastMemorial({ graves: [{ slot: 4, grave }] }), 1);
+  assert.deepEqual(inbox.filter((message) => message.type === 'memorial.grave').map((message) => message.graves), [[{ slot: 4, grave }]]);
+  assert.equal(registry.broadcastMemorial({ graves: [{ slot: 99, grave: null }] }), null);
+  for (const item of registry.rooms.values()) item.close();
+});

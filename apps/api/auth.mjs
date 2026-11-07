@@ -340,7 +340,7 @@ export async function handleAuthRequest(req, res, pathname, options) {
       return true;
     }
     if (pathname === '/api/v1/me/friends') {
-      // friendLinks (friend-links.mjs): kèm bạn đang online ở phòng nào và mình có đang ẩn trạng thái không.
+      // friendLinks (friend-links.mjs): chỉ kèm online, không lộ phòng / vị trí; thêm trạng thái ẩn của chính mình.
       const friends = accounts.friends(account.id);
       const links = options.friendLinks;
       json(req, res, 200, links ? { friends: links.decorate(account.id, friends), botFriends: links.botFriends(account.id), hidden: links.hidden(account.id) } : { friends });

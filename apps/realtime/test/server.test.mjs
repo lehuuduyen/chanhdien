@@ -744,6 +744,48 @@ test('công việc trong chùa: phải đứng gần, hai người làm nhanh h�
   restored.close();
 });
 
+test('bot đứng gần tự phụ người thật làm đủ sáu công việc, mỗi việc chỉ một bot và dừng khi người thật nghỉ', () => {
+  const socket = { readyState: WebSocket.CLOSED, close() {} };
+  const room = new Room('thien-1', { botCount: 2 });
+  room.join(socket, { participantId: 'u-1', displayName: 'An' });
+  const bots = [...room.participants.values()].filter((participant) => participant.bot && participant.pos);
+  assert.equal(bots.length, 2);
+  let now = Date.now();
+
+  for (const chore of room.chores.values()) {
+    const [helper, other] = bots;
+    room.participants.get('u-1').movedAt = 0;
+    helper.movedAt = 0;
+    other.movedAt = 0;
+    helper.talkUntil = 0;
+    other.talkUntil = 0;
+    helper.benchId = null;
+    other.benchId = null;
+    helper.pos = { x: chore.x + 0.8, z: chore.z, ry: 0 };
+    other.pos = { x: chore.x - 0.8, z: chore.z, ry: 0 };
+    helper.walk.waitUntil = Number.POSITIVE_INFINITY;
+    other.walk.waitUntil = Number.POSITIVE_INFINITY;
+    assert.equal(room.move('u-1', { x: chore.x, z: chore.z, ry: 0, moving: false }).ok, true);
+    assert.equal(room.startChore('u-1', chore.id).ok, true);
+
+    now += 1_000;
+    room.advanceBotWalk(helper, now);
+    room.advanceBotWalk(other, now);
+    clearInterval(room.choreTimer);
+    room.choreTimer = null;
+    const workers = [...chore.workers];
+    assert.equal(workers.includes('u-1'), true, `${chore.kind}: người thật vẫn đang làm`);
+    assert.equal(workers.filter((id) => room.participants.get(id)?.bot).length, 1, `${chore.kind}: đúng một bot phụ`);
+    assert.equal(helper.moving, false, `${chore.kind}: bot dừng đi để cầm dụng cụ`);
+
+    room.stopChore('u-1', chore.id);
+    room.advanceBotWalk(helper, now + 1_000);
+    assert.equal(chore.workers.size, 0, `${chore.kind}: bot nghỉ khi không còn người thật`);
+  }
+
+  room.close();
+});
+
 test('hoàn thành công việc chỉ yêu cầu trả xu cho thành viên đăng nhập', async () => {
   const recorded = [];
   const socket = { readyState: WebSocket.CLOSED, close() {} };
@@ -2219,12 +2261,14 @@ test('deploy: phòng game lưu ván vào snapshot; danh bạ một máy xuất/n
   }
 });
 
-test('bot làm vườn: tìm đường tới cổng vườn, đi lối trong vườn, không giẫm luống, làm việc API giao rồi quay ra lối giữa', async () => {
+test('bot làm vườn: tìm đường tới cổng vườn, đi lối trong vườn, không giẫm luống, làm liền các việc API giao rồi quay ra lối giữa', async () => {
   const calls = [];
+  // Việc thứ nhất gieo luống 27, việc thứ hai tưới luống 42 (hàng khác: đi qua lối dọc), rồi hết việc.
+  const tasks = [{ action: 'plant', plotId: 27, plantType: 'peach' }, { action: 'water', plotId: 42 }, null];
   const gardenBots = {
     task: async (name) => {
       calls.push({ op: 'task', name });
-      return { action: 'plant', plotId: 27, plantType: 'peach' };
+      return tasks.shift();
     },
     act: async (input) => {
       calls.push({ op: 'act', ...input });
@@ -2264,9 +2308,25 @@ test('bot làm vườn: tìm đường tới cổng vườn, đi lối trong vư
   assert.equal(bot.errand.phase, 'working');
   assert.ok(Math.hypot(bot.pos.x - plot.x, bot.pos.z - plot.aisle) < 0.1, 'đứng ở lối đi cạnh luống');
   await bot.errand.done;
+  assert.equal(bot.errand.phase, 'going', 'còn việc thì làm tiếp, chưa ra khỏi vườn');
+  const second = THIEN_GARDEN.plots.find((item) => item.id === 42);
+  for (let step = 0; step < 200 && bot.errand?.phase === 'going'; step += 1) {
+    now += 1_000;
+    bot.walk.waitUntil = 0;
+    bot.movedAt = 0;
+    room.rates.clear();
+    room.advanceBotWalk(bot, now);
+    assert.equal(onBed(), false, `bot giẫm lên luống ở ${bot.pos.x}, ${bot.pos.z}`);
+  }
+  assert.equal(bot.errand.phase, 'working');
+  assert.ok(Math.hypot(bot.pos.x - second.x, bot.pos.z - second.aisle) < 0.1);
+  await bot.errand.done;
   assert.deepEqual(calls, [
     { op: 'task', name: bot.displayName },
     { op: 'act', name: bot.displayName, action: 'plant', plotId: 27, plantType: 'peach' },
+    { op: 'task', name: bot.displayName },
+    { op: 'act', name: bot.displayName, action: 'water', plotId: 42 },
+    { op: 'task', name: bot.displayName },
   ]);
   assert.equal(bot.errand.phase, 'returning');
   for (let step = 0; step < 200 && bot.errand; step += 1) {

@@ -18,6 +18,7 @@ import { handleSupportRequest, openSupportStore } from './support.mjs';
 import { handleShopRequest, openShopStore, shopConfig } from './shop.mjs';
 import { handleBotChatRequest, openBotChatStore, realtimeBotSpeaker } from './bot-chat.mjs';
 import { handleFriendLinksRequest, openFriendLinks, realtimeInboxNotifier } from './friend-links.mjs';
+import { handleMemorialRequest } from './memorial.mjs';
 import { createPrivateRooms, handlePrivateRoomRequest, realtimePrivateRoomNotifier } from './private-rooms.mjs';
 import { batchNotifier, banMessage, handleModerationRequest, openModerationStore, requestIpHash } from './moderation.mjs';
 import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
@@ -209,6 +210,7 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleCommunityProjectRequest(req, res, pathname, options)) return;
   if (await handleGardenRequest(req, res, pathname, options)) return;
   if (await handleGardenBotRequest(req, res, pathname, options)) return;
+  if (await handleMemorialRequest(req, res, pathname, options)) return;
   if (await handleChoreRewardRequest(req, res, pathname, options)) return;
   if (await handleGameRequest(req, res, pathname, options)) return;
   if (await handleTelegramDonateRequest(req, res, pathname, options)) return;
@@ -286,6 +288,8 @@ if (isMain) {
     // Chat với bot: tin người chơi nhắn bot báo về Telegram ngay (không gom), /tl trả lời thay bot.
     botChats: openBotChatStore(accounts, createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID })),
     botSpeaker: realtimeBotSpeaker(realtimeInternalUrls, secret),
+    // Khu tưởng niệm: mỗi mộ mới báo nhóm Telegram để quản trị gỡ được (/xoamo) nếu tên xúc phạm.
+    memorialNotify: createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }),
     supportStore, notifySupport, shopStore, shop, shopModelDir, moderation,
     friendLinks,
     // Phòng Lô Tô riêng cho nhóm bạn: trừ xu ở ví vườn, danh sách mời ở SQLite, báo máy realtime thêm bot / đuổi người.

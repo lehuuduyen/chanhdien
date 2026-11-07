@@ -394,6 +394,7 @@ const HELP = [
   '/unban <mã k-… | tên đăng nhập> — mở khóa',
   '/ban <tên đăng nhập> [giờ] — khóa nick (mặc định 24 giờ)',
   '/dsban — người đang bị khóa',
+  '/xoamo <số ô> — gỡ mộ ở Khu tưởng niệm (không hoàn xu)',
 ].join('\n');
 
 // Lệnh kiểm duyệt trong nhóm Telegram quản trị (webhook đã kiểm tra secret + chat ID). Trả câu trả lời hoặc null.
