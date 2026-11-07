@@ -754,7 +754,7 @@
       if (!room.members.length) nodes.push(el('p', room.isOwner ? 'Chưa có ai. Gửi link hoặc mời bạn bè bên dưới.' : 'Chưa có khách nào.', 'private-empty'));
       for (const member of room.members) {
         const row = el('div', undefined, 'private-row');
-        row.append(el('span', `${member.kind === 'bot' ? '🤖' : '👤'} ${member.kind === 'bot' ? member.name : member.displayName}`));
+        row.append(el('span', member.kind === 'bot' ? member.name : member.displayName));
         if (room.isOwner) {
           row.append(button('Đuổi', async () => {
             const result = await api(`/api/v1/private-rooms/${room.roomId}/kick`, member.kind === 'bot' ? { botName: member.name } : { accountId: member.accountId });
@@ -774,7 +774,7 @@
         const bots = (friends.data.botFriends || []).filter((bot) => !invited.has(`bot:${bot.name}`));
         nodes.push(el('h3', 'Bạn bè'));
         if (!people.length && !bots.length) nodes.push(el('p', 'Không còn bạn nào để mời. Kết bạn ở chánh điện (bấm vào người / bot rồi chọn Kết bạn).', 'private-empty'));
-        for (const [label, body] of [...people.map((friend) => [`👤 ${friend.displayName}${friend.online ? ' · 🟢' : ''}`, { accountId: friend.accountId }]), ...bots.map((bot) => [`🤖 ${bot.name}`, { botName: bot.name }])]) {
+        for (const [label, body] of [...people.map((friend) => [`${friend.displayName}${friend.online ? ' · 🟢' : ''}`, { accountId: friend.accountId }]), ...bots.map((bot) => [bot.name, { botName: bot.name }])]) {
           const row = el('div', undefined, 'private-row');
           row.append(el('span', label), button('Mời', async () => {
             const result = await api(`/api/v1/private-rooms/${room.roomId}/invite`, body);
