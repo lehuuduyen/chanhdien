@@ -39,6 +39,10 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
 
   const plantName = (type) => `${ICONS[type] || ''} ${t(`garden.plant.${type}`)}`;
   const mine = (crop) => Boolean(crop && me?.myCropIds?.includes(crop.id));
+  // Quyền sở hữu chỉ có trong /garden/me; gắn cờ cục bộ trước khi đưa xuống bộ vẽ để cây của tài khoản hiện tại
+  // có vòng sáng riêng. Server vẫn không cần công bố accountId của chủ luống trong snapshot chung.
+  const viewPlot = (plot) => ({ ...plot, mine: mine(plot.crop) });
+  const syncGardenView = (list = [...plots.values()]) => explore.setGarden?.(list.map(viewPlot));
   const canWater = (crop) => crop.nextWaterAt
     ? Boolean(crop.canWater) || Date.now() >= crop.nextWaterAt
     : (crop.canWater ?? !crop.wateredToday);
@@ -61,7 +65,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
 
   function applyPlots(list) {
     for (const plot of list) plots.set(plot.id, plot);
-    explore.setGarden?.(list);
+    syncGardenView(list);
     renderOpen();
   }
 
@@ -79,6 +83,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
     if (!account()) {
       me = null;
       history = [];
+      syncGardenView();
       renderOpen();
       return;
     }
@@ -86,6 +91,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
       const response = await fetch('/api/v1/garden/me', { credentials: 'same-origin' });
       if (response.ok) ({ me, history } = await response.json());
     } catch {}
+    syncGardenView();
     renderOpen();
   }
 
