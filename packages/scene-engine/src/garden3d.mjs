@@ -6,7 +6,21 @@ const LEAF_COLORS = { apple: '#4f8f3a', orange: '#2f6f35', peach: '#7aa04a' };
 const MAX_FRUITS = 10;
 
 export function createGardenView({ THREE, root, garden, makeBubble, disposeSprite, labelFor, reduceMotion = false }) {
-  const plots = new Map((garden?.plots || []).map((plot) => [plot.id, { ...plot, group: null, label: null, labelText: '', key: '' }]));
+  const bed = garden?.bed || 2.6;
+  const ownMarkerGeometry = new THREE.RingGeometry(bed * 0.36, bed * 0.49, 32);
+  ownMarkerGeometry.rotateX(-Math.PI / 2);
+  const ownMarkerMaterial = new THREE.MeshBasicMaterial({
+    color: '#78f096', transparent: true, opacity: 0.82, depthWrite: false,
+    side: THREE.DoubleSide, toneMapped: false,
+  });
+  const plots = new Map((garden?.plots || []).map((plot) => {
+    const ownMarker = new THREE.Mesh(ownMarkerGeometry, ownMarkerMaterial);
+    ownMarker.position.set(plot.x, 0.235, plot.z);
+    ownMarker.renderOrder = 3;
+    ownMarker.visible = false;
+    root.add(ownMarker);
+    return [plot.id, { ...plot, group: null, label: null, labelText: '', key: '', mine: false, ownMarker }];
+  }));
   const material = (color, roughness = 0.85) => new THREE.MeshStandardMaterial({ color, roughness });
   const m = {
     mound: material('#7b5130', 1),
@@ -191,7 +205,10 @@ export function createGardenView({ THREE, root, garden, makeBubble, disposeSprit
     },
     // Kiểm tra: mỗi luống đang vẽ gì.
     debug() {
-      return [...plots.values()].map((plot) => ({ id: plot.id, x: plot.x, z: plot.z, key: plot.key, meshes: plot.group?.children.length || 0, label: plot.labelText }));
+      return [...plots.values()].map((plot) => ({
+        id: plot.id, x: plot.x, z: plot.z, key: plot.key, meshes: plot.group?.children.length || 0,
+        label: plot.labelText, mine: plot.mine, ownMarker: plot.ownMarker.visible,
+      }));
     },
     // plots: [{ id, crop }] từ server. Chỉ dựng lại cây khi loại / giai đoạn đổi; quả và nhãn cập nhật mỗi lần.
     setPlots(list) {
@@ -199,6 +216,8 @@ export function createGardenView({ THREE, root, garden, makeBubble, disposeSprit
         const plot = plots.get(data.id);
         if (!plot) continue;
         const crop = data.crop;
+        plot.mine = Boolean(crop && data.mine);
+        plot.ownMarker.visible = plot.mine;
         const key = crop ? `${crop.id}:${crop.plantType}:${crop.stage}:${crop.wilted ? 'wilted' : 'fresh'}` : '';
         if (key !== plot.key) {
           if (plot.group) root.remove(plot.group);
@@ -222,6 +241,11 @@ export function createGardenView({ THREE, root, garden, makeBubble, disposeSprit
       if (plot && !reduceMotion) burst(plot, kind, plantType);
     },
     update(dt) {
+      if (!reduceMotion) {
+        const pulse = 1 + Math.sin(performance.now() / 520) * 0.045;
+        ownMarkerMaterial.opacity = 0.68 + (pulse - 0.955) * 2.2;
+        for (const plot of plots.values()) if (plot.mine) plot.ownMarker.scale.setScalar(pulse);
+      }
       for (let index = particles.length - 1; index >= 0; index -= 1) {
         const item = particles[index];
         if (item.delay > 0) {

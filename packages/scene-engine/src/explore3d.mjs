@@ -345,8 +345,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         }
       }
       const bench = pickBenchAt(event.clientX, event.clientY);
-      // Xích đu / cầu tuột: chạm từ xa cũng đi tới điểm chờ rồi chơi (món to, dễ nhìn thấy cả khu).
-      if (bench && self && Math.hypot(bench.x - self.x, bench.z - self.z) < (bench.kind ? 14 : NEAR)) {
+      // Xích đu / cầu tuột: chạm ở khoảng cách nào cũng đi tới điểm chờ rồi chơi (món to, thấy được từ xa; điểm đi
+      // nhanh Khu vui chơi đã cách tâm cầu tuột hơn 14 m).
+      if (bench && self && (bench.kind || Math.hypot(bench.x - self.x, bench.z - self.z) < NEAR)) {
         onBenchTap(bench);
         return;
       }
