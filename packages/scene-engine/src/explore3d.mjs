@@ -754,6 +754,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (pets && self.x >= pets.x[0] && self.x <= pets.x[1] && self.z >= pets.z[0] && self.z <= pets.z[1]) return 'pets';
       const park = world.courtyard?.park?.area;
       if (park && self.x >= park.x[0] - 2 && self.x <= park.x[1] && self.z >= park.z[0] && self.z <= park.z[1]) return 'park';
+      const flowers = world.courtyard?.flowerGarden?.area;
+      if (flowers && self.x >= flowers.x[0] && self.x <= flowers.x[1] + 2 && self.z >= flowers.z[0] && self.z <= flowers.z[1]) return 'flowers';
       if (gardenBounds && self.x >= gardenBounds.x[0] && self.x <= gardenBounds.x[1]
         && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
       if (memorialBounds && self.x >= memorialBounds.x[0] && self.x <= memorialBounds.x[1]

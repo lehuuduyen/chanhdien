@@ -49,6 +49,36 @@ test('ghế đá ngoài sân có đúng mã realtime, nhỏ vừa nhân vật v�
   }
 });
 
+test('Vườn Hoa: vào được qua hai cổng, đi tới ghế và điểm ngắm, không giẫm lên luống', () => {
+  const garden = scene.world.courtyard.flowerGarden;
+  const benches = scene.world.courtyard.benches.filter((item) => /^B-1\d$/.test(item.id));
+  assert.equal(benches.length, 4);
+  const start = THIEN_RULES.world.travel.flowers;
+  const reach = (point, label) => {
+    const route = findPath(walk, start, point);
+    assert.ok(route.length > 0, `đi tới ${label} được`);
+    const last = route.at(-1);
+    assert.ok(Math.hypot(last.x - point.x, last.z - point.z) < 0.6, `${label}: tới đúng chỗ`);
+  };
+  for (const bench of benches) {
+    const front = { x: bench.x + Math.sin(bench.ry) * 0.95 * bench.scale, z: bench.z + Math.cos(bench.ry) * 0.95 * bench.scale };
+    assert.equal(isWalkable(walk, front.x, front.z), true, `trước ghế ${bench.id} đứng được`);
+    reach(front, `ghế ${bench.id}`);
+  }
+  for (const view of garden.views) assert.equal(isWalkable(walk, view.x, view.z), true, `điểm ngắm (${view.x}, ${view.z})`);
+  reach(garden.center, 'giữa đình');
+  // Lối ra bắc nối tới Khu tưởng niệm.
+  reach({ x: garden.entrances[1].x, z: garden.entrances[1].z + 3 }, 'lối ra phía bắc');
+  for (const bed of garden.beds) {
+    const x = (bed.x[0] + bed.x[1]) / 2;
+    const z = (bed.z[0] + bed.z[1]) / 2;
+    assert.equal(isWalkable(walk, x, z), false, `luống ${bed.theme} là vật cản`);
+    assert.equal(isWalkable(walk, bed.x[0] + 0.5, bed.z[0] + 0.5) && isWalkable(walk, bed.x[1] - 0.5, bed.z[1] - 0.5), false, `góc luống ${bed.theme}`);
+  }
+  // Hàng rào kín ngoài hai cổng.
+  assert.equal(isWalkable(walk, garden.area.x[1] - 0.3, garden.center.z + 5), false, 'không chui qua rào');
+});
+
 test('toàn bộ tuyến tuần tra của bot ngoài sân không xuyên vật thể', () => {
   const points = THIEN_RULES.bots.walk.waypoints;
   for (const point of points) {

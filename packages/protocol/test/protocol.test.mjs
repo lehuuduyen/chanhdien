@@ -418,4 +418,5 @@ test('memorial.grave: ô mộ trống hoặc có mộ hợp lệ; từ chối ô
   assert.equal(message([]).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'travel.go', requestId: 'r1', destination: 'memorial' }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'travel.go', requestId: 'r1', destination: 'park' }).ok, true);
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'travel.go', requestId: 'r2', destination: 'flowers' }).ok, true);
 });

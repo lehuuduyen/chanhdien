@@ -80,6 +80,35 @@ const BOT_APPROACH_GAP_MS = [3 * 60_000, 6 * 60_000];
 const BOT_DRIFT_RANGE = 10;
 const BOT_DRIFT_STEP_MS = [15_000, 45_000];
 const BOT_DRIFT_TARGET_MS = [2 * 60_000, 5 * 60_000];
+// Kiểu dao động "đám đông" (rules bots.drift là object, vd Lô Tô): đích mới mỗi 3–8 phút lệch quanh tâm theo phân phối
+// tam giác (hay gần tâm, thỉnh thoảng mới chạm biên), tâm đi theo đường cong trong ngày (daily). Còn xa đích thì người
+// vào / ra dồn dập hơn, gần đích thì thưa; thỉnh thoảng có một bước ngược chiều (người này vào, người kia về) để con số
+// không đi thẳng một mạch. Bàn đang chơi dở thì bot có vé ở lại tới hết ván (xem botTick).
+const BOT_CROWD_TARGET_MS = [3 * 60_000, 8 * 60_000];
+const BOT_CROWD_STEP_FAR_MS = [5_000, 15_000];
+const BOT_CROWD_STEP_NEAR_MS = [15_000, 50_000];
+const BOT_CROWD_BACKSTEP = 0.18;
+// Hệ số đông người theo giờ (0h…23h, giờ GARDEN_TIMEZONE): vắng nhất 3–5h sáng, đông nhất 20–22h.
+const BOT_CROWD_HOURS = [0.85, 0.74, 0.66, 0.6, 0.58, 0.6, 0.68, 0.78, 0.86, 0.9, 0.94, 0.98,
+  1.02, 0.98, 0.94, 0.94, 0.97, 1.02, 1.08, 1.14, 1.2, 1.2, 1.12, 0.98];
+const crowdHourFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: process.env.GARDEN_TIMEZONE || 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
+});
+// Hệ số đông người lúc `now`, nội suy giữa hai giờ liền nhau cho mượt.
+export function crowdFactor(now = Date.now()) {
+  const parts = Object.fromEntries(crowdHourFormat.formatToParts(new Date(now)).map((part) => [part.type, part.value]));
+  const hour = (Number(parts.hour) || 0) % 24;
+  const k = (Number(parts.minute) || 0) / 60;
+  return BOT_CROWD_HOURS[hour] * (1 - k) + BOT_CROWD_HOURS[(hour + 1) % 24] * k;
+}
+// Đích kiểu đám đông: tâm = gốc × hệ số giờ (daily), lệch tam giác ± nửa bề rộng khoảng, kẹp trong [low, high].
+function crowdTarget(base, style, now, random, low, high) {
+  const center = base * (style?.daily ? crowdFactor(now) : 1);
+  const offset = (random() + random() - 1) * (high - low) / 2;
+  return Math.max(low, Math.min(high, Math.round(center + offset)));
+}
+// Bot dư so với mục tiêu nhưng con nào cũng đang chơi dở: dư không quá ngần này thì chờ hết ván mới cho về.
+const BOT_LEAVE_WAIT_EXCESS = 3;
 const BOT_APPROACH_RANGE = 8;
 const BOT_APPROACH_PERSON_MS = 30 * 60_000;
 const BOT_APPROACH_HOLD_MS = 25_000;
@@ -302,7 +331,16 @@ export class Room {
     // thật và dùng cùng cơ chế dao động của addbot. Giá trị botCount truyền vào (env / Telegram) vẫn được ưu tiên.
     if (this.rules.bots?.alwaysOn && this.botCount > 0) {
       const range = options.botCount === undefined ? this.rules.bots.range : null;
-      this.setBotCount(this.botCount, { managed: true, drift: this.rules.bots.drift === true, range });
+      // drift.randomStart (Lô Tô): mở phòng không đúng tròn con số gốc mà chọn ngẫu nhiên trong khoảng dao động (gần tâm
+      // theo giờ trong ngày). Số đặt riêng (env / addbot) thì giữ đúng con số đó.
+      const style = this.rules.bots.drift;
+      const base = this.botCount;
+      let start = base;
+      if (style?.randomStart && options.botCount === undefined) {
+        const { low, high } = this.driftBand(base, null, style);
+        start = crowdTarget(base, style, Date.now(), Math.random, low, high);
+      }
+      this.setBotCount(start, { managed: true, drift: Boolean(style), range, base });
     }
   }
 
@@ -1231,6 +1269,17 @@ export class Room {
     for (const item of items) {
       if (!validRecordParticipant(item, this.seatIds, this.benchIds, this.seatsPerBench) || this.participants.has(item.id)) continue;
       if (item.seatId && seats.has(item.seatId)) item.seatId = null;
+      // Bot tạo sẵn lúc mở phòng (rạp luôn có bot) mà ngồi đúng chỗ của người được dựng lại thì bot nhường (rời phòng,
+      // botTick cho bot khác vào ghế trống sau).
+      for (const [id, other] of this.participants) {
+        if (!other.bot) continue;
+        const sameSeat = item.seatId && other.seatId === item.seatId;
+        const sameBench = item.benchId && other.benchId === item.benchId && other.benchSpot === item.benchSpot;
+        if (sameSeat || sameBench) {
+          this.dropSocial(id);
+          this.participants.delete(id);
+        }
+      }
       if (item.seatId) seats.add(item.seatId);
       const benchKey = item.benchId ? `${item.benchId}:${item.benchSpot}` : null;
       if (benchKey && benchSpots.has(benchKey)) {
@@ -1599,6 +1648,11 @@ export class Room {
       ...(this.rules.interaction?.offerings ? { merit: seeded ? [120, 80, 55, 30, 20, 12, 8, 5][state.serial - 1] || 0 : Math.floor(Math.random() * 40) } : {}),
       // Nhịp riêng: 0,6 → tụng nhiều; 1,8 → ít nói.
       pace: 0.6 + Math.random() * 1.2,
+      // Lô Tô: thói quen mua vé riêng (bots.tickets) — xác suất mua mỗi ván và xác suất mua 2 vé.
+      ...(config.tickets ? {
+        ticketChance: randomBetween(config.tickets.chance || [1, 1]),
+        doubleChance: Math.random() * (config.tickets.double || 0),
+      } : {}),
       nextActionAt: Date.now() + randomBetween(config.actionMs) * (seeded ? 0.5 : 1),
     };
     if (walking) {
@@ -2012,13 +2066,23 @@ export class Room {
   // chờ từng bot vào theo nhịp arrivalMs; sau đó churn vẫn thay người dần như cũ.
   // Dao động số bot quanh con số addbot: [gốc - 10, gốc + 10], không dưới min(gốc, 2) để bàn game vẫn đủ người
   // mở ván, không vượt giới hạn bot của phòng. botTick thêm / bớt bot theo botCount mới như bot ra vào thường ngày.
+  // Khoảng dao động: bots.range (rạp) cố định; còn lại quanh con số gốc ± spread (rules drift.spread hoặc 10), không
+  // dưới min(gốc, 2) để bàn game vẫn đủ người mở ván.
+  driftBand(base, range, style) {
+    const spread = style?.spread ?? BOT_DRIFT_RANGE;
+    const low = range ? range[0] : Math.max(Math.min(base, 2), base - spread);
+    const high = Math.max(low, Math.min(this.botLimit, range ? range[1] : base + spread));
+    return { low, high };
+  }
+
   driftBotCount(now = Date.now(), random = Math.random) {
     const drift = this.botDrift;
     if (!drift) return;
-    // bots.range (rạp): dao động trong khoảng cố định thay vì quanh con số gốc.
-    const range = drift.range;
-    const low = range ? range[0] : Math.max(Math.min(drift.base, 2), drift.base - BOT_DRIFT_RANGE);
-    const high = Math.min(this.botLimit, range ? range[1] : drift.base + BOT_DRIFT_RANGE);
+    const { low, high } = this.driftBand(drift.base, drift.range, drift.crowd);
+    if (drift.crowd) {
+      this.driftCrowd(now, random, low, high);
+      return;
+    }
     if (!drift.nextTargetAt) {
       drift.nextTargetAt = now + randomBetween(BOT_DRIFT_TARGET_MS);
       drift.nextStepAt = now + randomBetween(BOT_DRIFT_STEP_MS);
@@ -2034,13 +2098,32 @@ export class Room {
     this.botCount = Math.max(low, Math.min(high, this.botCount + Math.sign(drift.target - this.botCount)));
   }
 
+  driftCrowd(now, random, low, high) {
+    const drift = this.botDrift;
+    if (!drift.nextTargetAt || now >= drift.nextTargetAt) {
+      if (drift.nextTargetAt) drift.target = crowdTarget(drift.base, drift.crowd, now, random, low, high);
+      drift.nextTargetAt = now + randomBetween(BOT_CROWD_TARGET_MS);
+      drift.nextStepAt ||= now + randomBetween(BOT_CROWD_STEP_NEAR_MS);
+    }
+    if (now < drift.nextStepAt) return;
+    const gap = drift.target - this.botCount;
+    drift.nextStepAt = now + randomBetween(Math.abs(gap) > 4 ? BOT_CROWD_STEP_FAR_MS : BOT_CROWD_STEP_NEAR_MS);
+    // Tới đích rồi vẫn có người ra / vào lẻ tẻ: đứng yên hoặc lệch một người.
+    let step = gap ? Math.sign(gap) : (Math.random() < 0.3 ? (Math.random() < 0.5 ? -1 : 1) : 0);
+    if (gap && Math.random() < BOT_CROWD_BACKSTEP) step = -step;
+    this.botCount = Math.max(low, Math.min(high, this.botCount + step));
+  }
+
   setBotCount(count, options = {}) {
     const next = Math.max(0, Math.min(Number.isSafeInteger(count) ? count : 0, this.botLimit));
     this.botCount = next;
     // addbot: nhớ con số gốc để dao động quanh nó (0 thì tắt hẳn, không dao động).
-    // Phòng có bots.range chỉ dao động trong khoảng đó khi đang chạy số mặc định (BOTS_CINEMA ghi đè thì đứng yên quanh số đặt).
+    // Phòng có bots.range (rạp) dao động trong khoảng đó khi chạy số mặc định; số đặt riêng (test) thì dao động quanh số đặt.
     const range = options.range || null;
-    this.botDrift = options.drift && next > 0 ? { base: next, target: next, range, nextStepAt: 0, nextTargetAt: 0 } : null;
+    // rules bots.drift là object (Lô Tô): dao động kiểu đám đông (crowd), áp dụng cả khi addbot đặt con số gốc.
+    const style = typeof this.rules.bots?.drift === 'object' ? this.rules.bots.drift : null;
+    const base = Number.isSafeInteger(options.base) && options.base > 0 ? options.base : next;
+    this.botDrift = options.drift && next > 0 ? { base, target: next, range, crowd: style, nextStepAt: 0, nextTargetAt: 0 } : null;
     this.keepBotsAlive = options.managed !== false && next > 0;
     if (!next) {
       this.removeBots();
@@ -2072,12 +2155,16 @@ export class Room {
     const busyBot = (bot) => this.activeChallengeOf(bot.id) || this.activeChoreOf(bot.id)
       || this.table?.hasBotBet?.(bot.id) || this.table?.hasBotTicket?.(bot.id)
       || bot.handWith || (bot.talkUntil || 0) > now;
-    if (bots.length > target) {
-      // Bớt bot (addbot giảm / số bot dao động): ưu tiên bot rảnh, bot đang chơi dở rời sau cùng.
-      const leaving = [...bots].reverse().find((bot) => !busyBot(bot)) || bots[bots.length - 1];
+    const idle = bots.length > target ? [...bots].reverse().find((bot) => !busyBot(bot)) : null;
+    if (bots.length > target && (idle || bots.length - target > BOT_LEAVE_WAIT_EXCESS)) {
+      // Bớt bot (addbot giảm / số bot dao động): ưu tiên bot rảnh. Bot nào cũng đang chơi dở (Lô Tô đang gọi số, ai cũng
+      // có vé) thì chờ hết ván mới về như người thật, trừ khi dư quá nhiều (addbot giảm mạnh).
+      const leaving = idle || bots[bots.length - 1];
       this.dropSocial(leaving.id);
       this.participants.delete(leaving.id);
       changed = true;
+    } else if (bots.length > target) {
+      // Chờ hết ván.
     } else if (bots.length < target && now >= state.nextArrivalAt) {
       changed = Boolean(this.addBot());
       state.nextArrivalAt = now + randomBetween(config.arrivalMs);
@@ -2288,6 +2375,28 @@ export class Room {
     return { ok: true };
   }
 
+  // Bot mua vé Lô Tô như người: mỗi ván quyết một lần (theo ticketChance của bot) có mua hay ngồi xem, mua 1 hay 2
+  // vé, và mua lúc nào trong pha mua vé (rải trong phần đầu tickets.spread của pha) nên số người chơi tăng dần lúc mở
+  // bán và mỗi ván một khác. Phòng ít bot (≤ 4) thì bot nào cũng mua để bàn đủ người mở ván.
+  botBuyTicket(bot, plan) {
+    const round = this.table.round;
+    if (!plan || !round) {
+      this.table.placeBotTicket(bot);
+      return;
+    }
+    if (round.phase !== 'buying') return;
+    if (bot.ticketRound !== round.id) {
+      const buyMs = this.rules.interaction?.buyMs || 0;
+      const sure = this.botCount <= 4;
+      bot.ticketRound = round.id;
+      bot.ticketSkip = !sure && Math.random() >= (bot.ticketChance ?? 1);
+      bot.ticketCount = Math.random() < (bot.doubleChance || 0) ? 2 : 1;
+      bot.ticketAt = round.endsAt - buyMs + Math.random() * buyMs * (sure ? 0.3 : plan.spread ?? 0.85);
+    }
+    if (bot.ticketSkip || this.table.now() < bot.ticketAt) return;
+    this.table.placeBotTicket(bot, bot.ticketCount);
+  }
+
   // Tụng một câu kinh, hoặc dâng lễ (dâng hương là thường nhất), đôi khi kèm lời nguyện. Bot không thỉnh chuông.
   botAct(bot) {
     const config = this.rules.bots;
@@ -2301,7 +2410,7 @@ export class Room {
       return;
     }
     if (config.play === 'loto' && this.table?.placeBotTicket) {
-      this.table.placeBotTicket(bot);
+      this.botBuyTicket(bot, config.tickets);
       return;
     }
     const { lines } = this.botWords();
@@ -4037,9 +4146,10 @@ if (isMain) {
   const nodeId = process.env.NODE_ID || `rt-${port}`;
   const publicUrl = process.env.REALTIME_PUBLIC_URL || `ws://${host}:${port}/ws`;
   const { directory, shared } = await createDirectoryFromEnv();
-  // Số bot theo loại phòng: BOTS_THIEN / BOTS_CINEMA / BOTS_GAME / BOTS_TAIXIU / BOTS_LOTO (0 để tắt).
+  // Số bot theo loại phòng: BOTS_THIEN / BOTS_GAME / BOTS_TAIXIU / BOTS_LOTO (0 để tắt). Rạp phim (bots.range trong room
+  // rules) luôn giữ số bot trong khoảng của nó nên bỏ qua BOTS_CINEMA (file env cũ có thể còn BOTS_CINEMA=0).
   const botCounts = {};
-  for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto']) {
+  for (const type of ['thien', 'game', 'taixiu', 'loto']) {
     const value = process.env[`BOTS_${type.toUpperCase()}`];
     if (value !== undefined && /^\d+$/.test(value)) botCounts[type] = Number(value);
   }

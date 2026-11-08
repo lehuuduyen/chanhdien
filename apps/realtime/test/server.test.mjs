@@ -92,7 +92,15 @@ test('addbot chia ngẫu nhiên tổng bot, giữ đủ người cho ba trò và
     assert.equal(room.table.running, true, 'bàn tiếp tục chạy khi chỉ có bot');
   }
   const lotto = registry.rooms.get('loto-1');
-  for (const bot of [...lotto.participants.values()].filter((person) => person.bot).slice(0, 2)) lotto.botAct(bot);
+  // Hai bot chắc chắn mua 1 vé (thói quen riêng), tới lượt mua cuối pha mua vé.
+  const buyEnd = lotto.table.round.endsAt - 1;
+  const realNow = lotto.table.now;
+  lotto.table.now = () => buyEnd;
+  for (const bot of [...lotto.participants.values()].filter((person) => person.bot).slice(0, 2)) {
+    Object.assign(bot, { ticketChance: 1, doubleChance: 0 });
+    lotto.botAct(bot);
+  }
+  lotto.table.now = realNow;
   assert.deepEqual([lotto.table.stateMessage().players, lotto.table.stateMessage().tickets, lotto.table.stateMessage().pool], [2, 2, 20], 'vé bot góp quỹ');
   await lotto.table.startCalling();
   assert.equal(lotto.table.stateMessage().phase, 'calling');
@@ -1032,7 +1040,16 @@ test('số bot cấu hình được (0 là tắt), bằng đúng số addbot t�
   assert.equal(many.botSeatedTarget, THIEN_RULES.seats - 16, 'người thật vào: bot ngồi nhường bồ đoàn');
   assert.equal(many.botTargetCount, 60, 'bot nhường ghế ra sân đi dạo, tổng không đổi');
   many.close();
-  assert.equal(new Room('cinema-1', { botCount: 0 }).botCount, 0, 'BOTS_CINEMA=0 tắt bot rạp');
+  assert.equal(new Room('cinema-1', { botCount: 0 }).botCount, 0, 'botCount truyền thẳng vào Room vẫn tắt được bot rạp (dùng trong test)');
+});
+
+test('dựng lại rạp từ snapshot: bot tạo sẵn ngồi trùng ghế người cũ thì bot nhường ghế', () => {
+  const room = new Room('cinema-1');
+  const taken = [...room.participants.values()].find((person) => person.bot).seatId;
+  room.restore({ revision: 3, participants: [{ id: 'u-1', displayName: 'An', seatId: taken, resumeToken: 'r'.repeat(32) }] });
+  const onSeat = [...room.participants.values()].filter((person) => person.seatId === taken);
+  assert.deepEqual(onSeat.map((person) => person.id), ['u-1']);
+  room.close();
 });
 
 test('rạp luôn có 10–30 bot ngồi ghế ngẫu nhiên, dao động trong khoảng đó; addbot không đổi số bot rạp', async () => {
@@ -2168,35 +2185,81 @@ test('addbot: số bot dao động ±10 quanh con số đặt, mỗi bước m�
   }
 });
 
-test('Lô Tô công cộng luôn khởi tạo 30 bot và dao động 20–40; Lô Tô riêng không tự thêm bot', () => {
+test('Lô Tô công cộng: số bot mở phòng ngẫu nhiên quanh 30, tăng / giảm dần kiểu đám đông; Lô Tô riêng không tự thêm bot', () => {
   const room = new Room('loto-1');
   const privateRoom = new Room('loto-p-abcd1234', { privateOwner: 'a-chu-00000001' });
+  const bots = () => [...room.participants.values()].filter((person) => person.bot);
   try {
-    assert.equal(room.botCount, 30);
-    assert.equal([...room.participants.values()].filter((person) => person.bot).length, 30, 'vào phòng thấy đủ bot ngay');
+    assert.ok(room.botCount >= 18 && room.botCount <= 42, `mở phòng trong 30 ± 12: ${room.botCount}`);
+    assert.equal(bots().length, room.botCount, 'vào phòng thấy đủ bot ngay');
+    assert.equal(room.botDrift.base, 30, 'vẫn dao động quanh con số gốc 30');
     assert.equal(room.keepBotsAlive, true, 'không có người thật bàn vẫn chạy');
     assert.equal(room.table.running, true);
-    let now = Date.now();
+    // 20h tối giờ Los Angeles (giờ đông người): đích thấp nhất 36 − 12, cao nhất chạm 42.
+    let now = Date.UTC(2026, 10, 7, 4, 0);
     room.botTick(now, () => 0);
     const seen = [];
-    for (let index = 0; index < 36; index += 1) {
-      now += 10 * 60_000;
-      room.botTick(now, index < 12 ? () => 0 : () => 0.999999);
-      const actual = [...room.participants.values()].filter((person) => person.bot).length;
-      assert.equal(actual, room.botCount, 'bot thật theo kịp mục tiêu mỗi nhịp');
-      assert.ok(actual >= 20 && actual <= 40, `dao động quanh 30: ${actual}`);
-      seen.push(actual);
+    let previous = room.botCount;
+    // Mỗi nhịp 1 phút (đủ cho một bước vào / ra) để cả bài vẫn nằm trong giờ đông người.
+    for (let index = 0; index < 110; index += 1) {
+      now += 60_000;
+      room.botTick(now, index < 45 ? () => 0 : () => 0.999999);
+      assert.ok(Math.abs(room.botCount - previous) <= 1, 'mỗi bước chỉ một người vào / ra');
+      previous = room.botCount;
+      const actual = bots().length;
+      // Bot đang có vé ở lại tới hết ván nên có thể trễ mục tiêu vài người.
+      assert.ok(Math.abs(actual - room.botCount) <= 3, `bot thật theo sát mục tiêu: ${actual} / ${room.botCount}`);
+      assert.ok(room.botCount >= 18 && room.botCount <= 42, `dao động trong 18–42: ${room.botCount}`);
+      seen.push(room.botCount);
     }
-    assert.ok(Math.min(...seen) < 30 && Math.max(...seen) > 30, `đã đi cả dưới và trên 30: ${Math.min(...seen)}–${Math.max(...seen)}`);
-    // Sang ván mua vé mới, con số người chơi trên giao diện phải bằng số bot thật hiện tại.
-    room.table.nextRound();
-    for (const bot of room.participants.values()) if (bot.bot) room.botAct(bot);
-    assert.equal(room.table.stateMessage().players, room.botCount);
+    assert.ok(Math.min(...seen) <= 26 && Math.max(...seen) >= 38, `đã đi cả xuống và lên: ${Math.min(...seen)}–${Math.max(...seen)}`);
     assert.equal(privateRoom.botCount, 0);
     assert.equal([...privateRoom.participants.values()].some((person) => person.bot), false);
   } finally {
     room.close();
     privateRoom.close();
+  }
+});
+
+test('Lô Tô: bot mua vé rải rác trong pha mua vé, có bot ngồi xem, có bot mua 2 vé', () => {
+  const room = new Room('loto-1');
+  const realNow = room.table.now;
+  try {
+    room.table.nextRound();
+    const round = room.table.round;
+    const buyMs = room.rules.interaction.buyMs;
+    const everyone = () => {
+      for (const bot of room.participants.values()) if (bot.bot) room.botAct(bot);
+      return room.table.stateMessage();
+    };
+    room.table.now = () => round.endsAt - buyMs;
+    assert.equal(everyone().players, 0, 'vừa mở bán chưa ai kịp mua');
+    room.table.now = () => round.endsAt - buyMs / 2;
+    const middle = everyone().players;
+    room.table.now = () => round.endsAt - 1;
+    const end = everyone();
+    assert.ok(middle > 0 && middle < end.players, `số người chơi tăng dần: ${middle} → ${end.players}`);
+    assert.ok(end.players < room.botCount, `có bot ngồi xem: ${end.players} / ${room.botCount}`);
+    assert.ok(end.tickets > end.players, `có bot mua 2 vé: ${end.tickets} vé / ${end.players} người`);
+    // Mỗi ván quyết lại: lần gọi sau trong cùng ván không đổi ý.
+    assert.equal(everyone().players, end.players);
+  } finally {
+    room.table.now = realNow;
+    room.close();
+  }
+});
+
+test('Lô Tô ít bot (addbot loto 2): bot nào cũng mua vé để bàn đủ người mở ván', () => {
+  const room = new Room('loto-1', { botCount: 2 });
+  try {
+    assert.equal(room.botCount, 2, 'số đặt riêng giữ đúng, không ngẫu nhiên');
+    room.table.nextRound();
+    const round = room.table.round;
+    room.table.now = () => round.endsAt - 1;
+    for (const bot of room.participants.values()) if (bot.bot) room.botAct(bot);
+    assert.equal(room.table.stateMessage().players, 2);
+  } finally {
+    room.close();
   }
 });
 

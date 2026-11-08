@@ -91,8 +91,8 @@ export const CINEMA_RULES = defineRoomRules({
   content: { source: 'youtube', videoPrice: 20 },
   interaction: { queue: 'everyone', skipVotePercent: 35 },
   // Rạp luôn có khán giả: số bot ngẫu nhiên trong range (10–30), realtime cho dao động trong khoảng đó như người ra
-  // vào, mỗi bot ngồi một ghế trống ngẫu nhiên (randomSeat). Khoảng này cố định: addbot không đổi, chỉ BOTS_CINEMA ghi
-  // đè được (0 là tắt). Bot chỉ trò chuyện mô phỏng, không vote đổi phim và không chiếm quyền điều khiển hàng chờ.
+  // vào, mỗi bot ngồi một ghế trống ngẫu nhiên (randomSeat). Khoảng này cố định: addbot và BOTS_CINEMA đều không đổi
+  // (máy realtime bỏ qua BOTS_CINEMA). Bot chỉ trò chuyện mô phỏng, không vote đổi phim và không chiếm quyền điều khiển hàng chờ.
   bots: {
     range: [10, 30],
     alwaysOn: true,
@@ -167,7 +167,7 @@ export const THIEN_RULES = defineRoomRules({
   seats: 20,
   // Ghế đá ngoài sân là chỗ ngồi xã hội, tách khỏi 20 bồ đoàn và không ảnh hưởng ngưỡng mở phòng.
   // Scene dùng mã B-1…B-9 (B-1…B-6 ghế đá, B-7…B-9 xích đu / cầu tuột ở khu vui chơi); mỗi món tối đa hai người.
-  benches: { count: 9, seatsPerBench: 2 },
+  benches: { count: 13, seatsPerBench: 2 },
   lang: 'vi',
   moderation: 'strict',
   content: { source: 'none' },
@@ -193,6 +193,7 @@ export const THIEN_RULES = defineRoomRules({
       pets: { x: 10.5, z: 87.5, ry: -1.5708 },
       memorial: { x: -35.8, z: 63.5, ry: 1.5708 },
       park: { x: 13.2, z: 28.6, ry: -1.5708 },
+      flowers: { x: -25.4, z: 40.75, ry: 1.5708 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
     pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo'],
@@ -447,11 +448,15 @@ export const LOTO_RULES = defineRoomRules({
   lang: 'vi',
   moderation: 'standard',
   bots: {
-    // Phòng công cộng luôn có bàn đang chơi: khởi đầu 30 bot, realtime cho dao động ±10 như người ra vào.
-    // BOTS_LOTO / addbot riêng vẫn có thể ghi đè (0 là tắt). Phòng Lô Tô riêng loại bỏ toàn bộ cấu hình bots này.
+    // Phòng công cộng luôn có bàn đang chơi: quanh 30 bot. Mở phòng chọn ngẫu nhiên trong 30 ± spread rồi tăng /
+    // giảm dần như người ra vào, đông lên buổi tối, vắng lúc khuya (daily, theo GARDEN_TIMEZONE). BOTS_LOTO / addbot
+    // riêng vẫn ghi đè con số gốc (0 là tắt). Phòng Lô Tô riêng loại bỏ toàn bộ cấu hình bots này.
     count: 30,
     alwaysOn: true,
-    drift: true,
+    drift: { spread: 12, daily: true, randomStart: true },
+    // Mỗi bot một thói quen: có ván ngồi xem không mua (chance = xác suất mua vé mỗi ván), có người hay mua 2 vé
+    // (double = xác suất cao nhất mua 2 vé); mua rải rác trong pha mua vé (spread = phần đầu của pha mua vé).
+    tickets: { chance: [0.5, 0.95], double: 0.6, spread: 0.85 },
     max: 100,
     initial: 5,
     arrivalMs: [2_000, 7_000],
