@@ -4,7 +4,7 @@
 // xu). Ô đổi thì báo máy realtime phát `memorial.grave` cho mọi phòng chánh điện.
 //   GET  /api/v1/memorial                         → { graves: [{ slot, grave }], price, ttlMs, nameMax, count }
 //   POST /api/v1/memorial/build { slot, name }    → { ok, code?, coins, graves }
-import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
+import { postToRealtime } from './realtime-broadcast.mjs';
 import { cleanGraveName, GRAVE_COUNT, GRAVE_NAME_MAX, GRAVE_PRICE, GRAVE_TTL_MS } from '@chanh-dien/garden';
 import { allow, body, currentAccount, sameOrigin } from './auth.mjs';
 import { json } from './http.mjs';
@@ -13,15 +13,10 @@ import { requestIpHash } from './moderation.mjs';
 const BUILD_LIMIT = [5, 60_000];
 const STATUS = { INVALID: 400, IDEMPOTENCY_KEY_REQUIRED: 400, IDEMPOTENCY_KEY_REUSED: 409, NOT_SIGNED_IN: 401, GRAVE_TAKEN: 409, INSUFFICIENT_COINS: 409 };
 
-// Báo máy realtime để phát cho mọi phòng chánh điện. Lỗi mạng không làm hỏng thao tác (client tự tải lại khi mở bảng).
+// Báo mọi máy realtime để phát cho mọi phòng chánh điện. Lỗi mạng không làm hỏng thao tác (client tự tải lại khi mở bảng).
 export function notifyMemorial(options, graves) {
-  if (!options.realtimeInternalUrl || !graves?.length) return Promise.resolve();
-  return fetch(new URL('/internal/memorial', options.realtimeInternalUrl), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-internal-key': internalKey(options.secret || DEFAULT_LOCAL_SECRET) },
-    body: JSON.stringify({ graves }),
-    signal: AbortSignal.timeout(3_000),
-  }).catch((error) => console.warn(`Không báo được realtime về khu tưởng niệm: ${error.message}`));
+  if (!graves?.length) return Promise.resolve();
+  return postToRealtime(options, '/internal/memorial', { graves }, 'khu tưởng niệm');
 }
 
 export async function handleMemorialRequest(req, res, pathname, options) {

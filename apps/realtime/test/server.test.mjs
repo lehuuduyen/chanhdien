@@ -1430,11 +1430,12 @@ test('vườn: /internal/garden cần khóa nội bộ, kiểm tra schema rồi 
   const plot = { id: 2, crop: { id: 7, plantType: 'apple', ownerName: 'An', stage: 'sprout', waterDays: 1, waterNeeded: 3, wateredToday: true, fruitsLeft: 0, fruitsTotal: 0, plantedAt: 1 } };
   assert.equal((await call({ plots: [plot] })).status, 403);
   assert.equal((await call({ plots: [{ id: 99, crop: null }] }, internalKey(SECRET))).status, 400);
-  const ok = await call({ plots: [plot], effect: { plotId: 2, kind: 'water', by: 'An' } }, internalKey(SECRET));
+  const ok = await call({ plots: [plot], effect: { plotId: 2, kind: 'water', by: 'An' }, at: 1_762_000_000_123 }, internalKey(SECRET));
   assert.equal(ok.status, 200);
   const sent = inbox.find((message) => message.type === 'garden.plot');
   assert.equal(sent.plots[0].crop.stage, 'sprout');
   assert.equal(sent.effect.kind, 'water');
+  assert.equal(sent.at, 1_762_000_000_123, 'chuyển nguyên mốc thứ tự của API cho client');
   thien.close();
 });
 

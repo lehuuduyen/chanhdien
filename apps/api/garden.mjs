@@ -7,6 +7,7 @@
 //   POST /internal/garden/bot { op: 'act', name, action, plotId, plantType? }   → { ok, code?, plots }
 import { timingSafeEqual } from 'node:crypto';
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
+import { postToRealtime } from './realtime-broadcast.mjs';
 import { createGardenStore } from '@chanh-dien/garden';
 import { allow, body, currentAccount, sameOrigin } from './auth.mjs';
 import { json } from './http.mjs';
@@ -23,15 +24,16 @@ export function openGardenStore(accounts, timeZone = process.env.GARDEN_TIMEZONE
   return accounts ? createGardenStore({ db: accounts.database, timeZone }) : null;
 }
 
-// Báo máy realtime để phát cho mọi phòng chánh điện. Lỗi mạng không làm hỏng thao tác (client tự tải lại định kỳ).
+// Mốc thứ tự cho mỗi lần đọc / đổi vườn (ms, tăng dần trong máy API). Nhiều người thao tác cùng lúc thì tin báo
+// realtime có thể tới trình duyệt lệch thứ tự, và lần tải lại định kỳ có thể trả về trạng thái cũ hơn tin vừa nhận:
+// client giữ mốc mới nhất của từng luống và bỏ qua dữ liệu có mốc cũ hơn.
+let lastStamp = 0;
+export const gardenStamp = () => (lastStamp = Math.max(Date.now(), lastStamp + 1));
+
+// Báo mọi máy realtime để phát cho mọi phòng chánh điện. Lỗi mạng không làm hỏng thao tác (client tự tải lại định kỳ).
 export function notifyGarden(options, event) {
-  if (!options.realtimeInternalUrl || !event.plots?.length) return Promise.resolve();
-  return fetch(new URL('/internal/garden', options.realtimeInternalUrl), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-internal-key': internalKey(options.secret || DEFAULT_LOCAL_SECRET) },
-    body: JSON.stringify(event),
-    signal: AbortSignal.timeout(3_000),
-  }).catch((error) => console.warn(`Không báo được realtime về vườn: ${error.message}`));
+  if (!event.plots?.length) return Promise.resolve();
+  return postToRealtime(options, '/internal/garden', { ...event, at: event.at ?? gardenStamp() }, 'vườn');
 }
 
 export async function handleGardenRequest(req, res, pathname, options) {
@@ -43,8 +45,9 @@ export async function handleGardenRequest(req, res, pathname, options) {
   }
   if (req.method === 'GET' && pathname === '/api/v1/garden') {
     const snapshot = garden.snapshot();
-    if (snapshot.expired.length) notifyGarden(options, { plots: snapshot.expired.map((id) => garden.plot(id)) });
-    json(req, res, 200, { day: snapshot.day, timeZone: snapshot.timeZone, plots: snapshot.plots, plants: garden.plants });
+    const at = gardenStamp();
+    if (snapshot.expired.length) notifyGarden(options, { plots: snapshot.expired.map((id) => garden.plot(id)), at });
+    json(req, res, 200, { day: snapshot.day, timeZone: snapshot.timeZone, plots: snapshot.plots, plants: garden.plants, at });
     return true;
   }
   const account = currentAccount(req, options);
@@ -82,10 +85,12 @@ export async function handleGardenRequest(req, res, pathname, options) {
   if (input.quest !== undefined) clean.quest = input.quest;
   const action = match[1];
   const result = garden.perform(account.id, action, clean, req.headers?.['idempotency-key']);
+  // Lần gửi lại (replayed) trả kết quả cũ: không kèm mốc để client không đè trạng thái mới hơn bằng nó.
+  const at = result.replayed ? undefined : gardenStamp();
   if (result.ok && !result.replayed) {
-    notifyGarden(options, { plots: result.plots, effect: result.plots.length ? { plotId: result.plots.at(-1).id, kind: action, by: account.displayName } : undefined });
-  } else if (result.plots?.length && !result.replayed) notifyGarden(options, { plots: result.plots });
-  json(req, res, result.ok ? 200 : STATUS[result.code] || 400, result);
+    notifyGarden(options, { plots: result.plots, at, effect: result.plots.length ? { plotId: result.plots.at(-1).id, kind: action, by: account.displayName } : undefined });
+  } else if (result.plots?.length && !result.replayed) notifyGarden(options, { plots: result.plots, at });
+  json(req, res, result.ok ? 200 : STATUS[result.code] || 400, at === undefined ? result : { ...result, at });
   return true;
 }
 
