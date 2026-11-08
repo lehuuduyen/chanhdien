@@ -153,6 +153,15 @@ test('web có trang chánh điện nhiều người và các module dùng chung'
   assert.match(readFileSync(resolvePublicFile('/'), 'utf8'), /href="\/chanh-dien\.html"/);
 });
 
+test('shop hiện linh thú thành khu riêng và nhận nuôi qua API an toàn', () => {
+  const source = readFileSync(resolveWebFile('/shop.html'), 'utf8');
+  assert.match(source, /id="petShop"[\s\S]*id="pets"/);
+  assert.match(source, /api\('\/api\/v1\/pets'/);
+  assert.match(source, /api\('\/api\/v1\/pets\/adopt'[\s\S]*idempotency-key/);
+  assert.match(source, /api\('\/api\/v1\/pets\/companion'/);
+  assert.doesNotMatch(source, /innerHTML\s*=/);
+});
+
 test('chat nổi của người và bot hiện ở mọi khu; thông báo nghi lễ chỉ hiện trong chánh điện', () => {
   const markup = readFileSync(resolveWebFile('/chanh-dien.html'), 'utf8');
   const styles = readFileSync(resolveWebFile('/chanh-dien.css'), 'utf8');

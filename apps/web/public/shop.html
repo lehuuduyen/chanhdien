@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#2a0f06">
-  <title>Shop nhân vật · Chánh Điện Online</title>
+  <title>Shop · Chánh Điện Online</title>
   <script type="importmap">
     { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
   </script>
@@ -85,6 +85,22 @@
     .unwear { background: rgba(255, 255, 255, .06); border: 1px solid var(--line); }
     .tag { display: inline-block; margin-bottom: 4px; padding: 2px 8px; color: #2a1404; background: var(--gold); border-radius: 999px; font-size: 11px; font-weight: 800; }
 
+    /* Linh thú nằm thành khu riêng trong shop, không còn bị giấu trong menu cài đặt của chánh điện. */
+    .pet-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .pet { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 10px; background: rgba(0, 0, 0, .22); border: 1px solid var(--line); border-radius: 14px; }
+    .pet.owned { border-color: rgba(243, 201, 105, .72); }
+    .pet.following { box-shadow: inset 0 0 20px rgba(127, 215, 255, .12); border-color: var(--gem); }
+    .pet-art { position: relative; display: grid; place-items: center; min-height: 116px; overflow: hidden; background: radial-gradient(circle at 50% 60%, rgba(255, 214, 140, .2), transparent 70%); border-radius: 10px; }
+    .pet-art img { width: 100%; height: 116px; object-fit: contain; }
+    .pet-art .tag { position: absolute; top: 5px; left: 5px; margin: 0; }
+    .pet h3 { margin: 0; font-size: 16px; }
+    .pet p { min-height: 38px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .pet .price { min-height: auto; margin: 0; }
+    .pet .actions { display: grid; gap: 6px; }
+    .pet .actions button { min-height: 38px; padding: 5px 4px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+    .pet-follow { color: #06202c; background: var(--gem); border: 0; }
+    .pet-home { background: rgba(255, 255, 255, .06); border: 1px solid var(--line); }
+
     .packs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .pack { display: grid; gap: 2px; justify-items: center; padding: 12px 6px; background: rgba(0, 0, 0, .25); border: 1px solid var(--line); border-radius: 14px; }
     .pack b { color: var(--gem); font-size: 18px; }
@@ -117,8 +133,8 @@
     </div>
 
     <section class="hero">
-      <h1>Shop nhân vật</h1>
-      <p>Mua hình nhân vật bằng kim cương 💎. Mặc ở chùa và rạp phim, mọi người trong phòng đều thấy.</p>
+      <h1>Shop Chánh Điện</h1>
+      <p>Nhận nuôi linh thú hoặc mua hình nhân vật bằng kim cương 💎. Mọi người trong phòng đều thấy lựa chọn của bạn.</p>
     </section>
 
     <section class="card signin" id="signin" hidden>
@@ -131,6 +147,12 @@
       <p class="muted" id="loginStatus">Đăng nhập mỗi ngày để nhận skin, danh hiệu và khung vĩnh viễn. Không cần liên tiếp.</p>
       <div class="event-days" id="loginDays" aria-label="Tiến độ đăng nhập"></div>
       <div class="event-rewards" id="loginRewards"></div>
+    </section>
+
+    <section class="card" id="petShop">
+      <h2>🐾 Linh thú</h2>
+      <p class="muted">Nhận nuôi một lần, chăm bằng xu và chọn một linh thú đi theo bạn ngoài sân chùa.</p>
+      <div class="pet-items" id="pets"><p class="muted">Đang tải…</p></div>
     </section>
 
     <section class="card">
@@ -161,8 +183,15 @@
       chibigirl: { name: 'Bé Mũ Đỏ', desc: 'Mũ lưỡi trai đỏ, áo trắng, quần túi hộp. Giữ nguyên bộ đồ ở chùa và rạp phim.' },
       swordsman: { name: 'Kiếm Sĩ', desc: 'Trang phục lam, đai đỏ và kiếm sau lưng. Quà riêng khi đăng nhập đủ 7 ngày.' },
     };
+    const PET_TEXT = {
+      carp: { name: 'Cá Chép', desc: 'Linh vật may mắn, bơi bên cạnh và đào xu đều đặn.' },
+      turtle: { name: 'Rùa Thần', desc: 'Điềm tĩnh, trường thọ và đồng hành bền bỉ.' },
+      crane: { name: 'Hạc Tiên', desc: 'Thanh nhã, nổi bật với đôi cánh trắng.' },
+      lion: { name: 'Sư Tử', desc: 'Linh thú hộ pháp mạnh mẽ, đào xu nhanh nhất.' },
+    };
     const usd = (cents) => `$${(cents / 100).toFixed(2)}`;
     let shop = null;
+    let petShop = null;
     let portraits = {};
     const BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -216,9 +245,9 @@
       returnToRoom();
     }
 
-    async function api(path, body) {
+    async function api(path, body, headers = {}) {
       const response = await fetch(path, body
-        ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+        ? { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }
         : { cache: 'no-store' });
       return { status: response.status, body: await response.json().catch(() => ({})) };
     }
@@ -231,6 +260,51 @@
       element.disabled = disabled;
       element.addEventListener('click', onClick);
       return element;
+    }
+
+    function renderPets() {
+      const container = $('pets');
+      if (!petShop) {
+        container.replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: 'Linh thú đang tạm nghỉ, bạn quay lại sau nhé.' }));
+        return;
+      }
+      const owned = new Map((petShop.pets || []).map((pet) => [pet.species, pet]));
+      const offers = new Map((petShop.species || []).map((item) => [item.id, item]));
+      // Linh thú admin tạm ngừng bán vẫn hiện cho người đã nhận nuôi.
+      for (const pet of owned.values()) if (!offers.has(pet.species)) offers.set(pet.species, { id: pet.species, price: null });
+      container.replaceChildren();
+      for (const item of offers.values()) {
+        const text = PET_TEXT[item.id] || { name: item.id, desc: 'Linh thú đồng hành ngoài sân chùa.' };
+        const mine = owned.get(item.id);
+        const following = petShop.companion === item.id;
+        const card = document.createElement('article');
+        card.className = `pet${mine ? ' owned' : ''}${following ? ' following' : ''}`;
+        const art = document.createElement('div');
+        art.className = 'pet-art';
+        const image = document.createElement('img');
+        image.src = `/models/spirits/${encodeURIComponent(item.id)}.webp`;
+        image.alt = text.name;
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        art.append(image);
+        if (mine) art.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: following ? 'Đang đi theo' : 'Đã nhận nuôi' }));
+        const title = document.createElement('h3');
+        title.textContent = mine?.name || text.name;
+        const desc = document.createElement('p');
+        desc.textContent = mine ? `${text.name} · Cấp ${mine.level}` : text.desc;
+        const price = document.createElement('p');
+        price.className = 'price';
+        if (!mine && item.price !== null) price.append(Object.assign(document.createElement('b'), { textContent: `${item.price} 💎` }));
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        if (!mine && item.price !== null) {
+          actions.append(button('buy', `Nhận nuôi · ${item.price} 💎`, (event) => adoptPet(item, event.currentTarget), !shop?.me));
+        } else if (mine) {
+          actions.append(button(following ? 'pet-home' : 'pet-follow', following ? 'Cho ở nhà' : 'Dẫn theo', (event) => setPetCompanion(following ? null : item.id, event.currentTarget)));
+        }
+        card.append(art, title, desc, price, actions);
+        container.append(card);
+      }
     }
 
     function render() {
@@ -293,6 +367,8 @@
         row.className = `item${worn ? ' worn' : ''}`;
         const image = document.createElement('img');
         image.alt = text.name;
+        image.loading = 'lazy';
+        image.decoding = 'async';
         // Ảnh chân dung dựng sẵn (thumb) hiện ngay; chưa có thì ô trống chờ ảnh dựng 3D (không hiện nhầm hình khác).
         image.src = item.thumb || portraits[item.skin] || BLANK;
         const art = document.createElement('div');
@@ -343,6 +419,8 @@
         items.append(row);
       }
 
+      renderPets();
+
       $('topupOff').hidden = Boolean(shop?.payments);
       const packs = $('packs');
       packs.replaceChildren();
@@ -364,10 +442,65 @@
     }
 
     async function load() {
-      const result = await api('/api/v1/shop').catch(() => null);
+      const [result, petsResult] = await Promise.all([
+        api('/api/v1/shop').catch(() => null),
+        api('/api/v1/pets').catch(() => null),
+      ]);
       if (result?.status === 200) shop = result.body;
       else $('items').replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: 'Shop đang tạm đóng, bạn quay lại sau nhé.' }));
+      if (petsResult?.status === 200) petShop = petsResult.body;
       if (shop) render();
+      else renderPets();
+    }
+
+    async function adoptPet(item, element) {
+      if (!shop?.me) {
+        toast('Đăng nhập ở cổng chùa để nhận nuôi linh thú');
+        return;
+      }
+      if (shop.me.diamonds < item.price) {
+        toast(`Cần ${item.price} 💎 · nạp thêm ở mục Nạp kim cương`);
+        $('topup').scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+      element.disabled = true;
+      element.textContent = 'Đang nhận nuôi…';
+      const result = await api('/api/v1/pets/adopt', { species: item.id }, { 'idempotency-key': crypto.randomUUID() }).catch(() => null);
+      if (result?.status === 200) {
+        petShop.pets.push(result.body.pet);
+        if (!petShop.companion) petShop.companion = result.body.pet.species;
+        petShop.diamonds = result.body.diamonds;
+        shop.me.diamonds = result.body.diamonds;
+        render();
+        toast(`Đã nhận nuôi ${PET_TEXT[item.id]?.name || item.id} · linh thú đang đi theo bạn`);
+        return;
+      }
+      element.disabled = false;
+      if (result?.body?.code === 'INSUFFICIENT_DIAMONDS') {
+        toast('Không đủ kim cương');
+        $('topup').scrollIntoView({ behavior: 'smooth' });
+      } else if (result?.body?.code === 'ALREADY_OWNED') {
+        const refreshed = await api('/api/v1/pets').catch(() => null);
+        if (refreshed?.status === 200) petShop = refreshed.body;
+        render();
+      } else if (result?.body?.code === 'NOT_FOR_SALE') toast('Linh thú này đang tạm ngừng nhận nuôi');
+      else toast('Chưa nhận nuôi được, thử lại sau nhé');
+    }
+
+    async function setPetCompanion(species, element) {
+      if (!shop?.me || !petShop) return;
+      element.disabled = true;
+      element.textContent = 'Đang cập nhật…';
+      const result = await api('/api/v1/pets/companion', { species }).catch(() => null);
+      if (result?.status === 200) {
+        petShop.companion = result.body.companion;
+        renderPets();
+        toast(species ? `${PET_TEXT[species]?.name || species} sẽ đi theo bạn ngoài sân` : 'Linh thú đang nghỉ ở nhà');
+        return;
+      }
+      element.disabled = false;
+      renderPets();
+      toast('Chưa đổi được linh thú đi theo');
     }
 
     async function buy(item, element) {
