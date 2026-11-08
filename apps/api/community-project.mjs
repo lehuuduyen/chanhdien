@@ -1,7 +1,7 @@
 // API công trình chung: đọc công khai, đóng góp cần đăng nhập + cùng origin + Idempotency-Key.
 // API báo realtime sau khi giao dịch SQLite đã commit; nếu báo lỗi, client vẫn tự tải lại định kỳ.
 import { createCommunityProjectStore } from '@chanh-dien/community-project';
-import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
+import { postToRealtime } from './realtime-broadcast.mjs';
 import { allow, body, currentAccount, sameOrigin } from './auth.mjs';
 import { json } from './http.mjs';
 
@@ -18,13 +18,8 @@ export function openCommunityProjectStore(accounts, options = {}) {
 }
 
 export function notifyCommunityProject(options, project) {
-  if (!options.realtimeInternalUrl || !project) return Promise.resolve();
-  return fetch(new URL('/internal/community-project', options.realtimeInternalUrl), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-internal-key': internalKey(options.secret || DEFAULT_LOCAL_SECRET) },
-    body: JSON.stringify({ project }),
-    signal: AbortSignal.timeout(3_000),
-  }).catch((error) => console.warn(`Không báo được realtime về công trình chung: ${error.message}`));
+  if (!project) return Promise.resolve();
+  return postToRealtime(options, '/internal/community-project', { project }, 'công trình chung');
 }
 
 export async function handleCommunityProjectRequest(req, res, pathname, options) {

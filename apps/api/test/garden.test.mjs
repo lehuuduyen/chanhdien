@@ -85,21 +85,24 @@ test('vườn: thao tác cần khóa idempotency, cùng origin; số liệu do s
   assert.equal(me.json.history.length, 2);
 });
 
-test('vườn: gieo / tưới báo realtime để mọi phòng cùng thấy; người thứ hai không chiếm được luống', async () => {
+test('vườn: gieo / tưới báo MỌI máy realtime kèm mốc thứ tự; người thứ hai không chiếm được luống', async () => {
   const received = [];
-  const realtime = http.createServer((req, res) => {
+  // Hai máy realtime (production chạy 4001 + 4002): phòng nằm ở máy nào cũng phải nhận tin.
+  const nodes = [0, 1].map((node) => http.createServer((req, res) => {
     let raw = '';
     req.on('data', (chunk) => { raw += chunk; });
     req.on('end', () => {
-      received.push({ url: req.url, key: req.headers['x-internal-key'], body: JSON.parse(raw) });
+      received.push({ node, url: req.url, key: req.headers['x-internal-key'], body: JSON.parse(raw) });
       res.end('{}');
     });
-  });
-  await new Promise((resolve) => realtime.listen(0, '127.0.0.1', resolve));
-  const options = setup({ realtimeInternalUrl: `http://127.0.0.1:${realtime.address().port}` });
+  }));
+  await Promise.all(nodes.map((node) => new Promise((resolve) => node.listen(0, '127.0.0.1', resolve))));
+  const urls = nodes.map((node) => `http://127.0.0.1:${node.address().port}`);
+  const options = setup({ realtimeInternalUrl: urls[0], realtimeBroadcastUrls: urls.join(',') });
   const an = await signUp(options, 'an.lac');
   const binh = await signUp(options, 'binh.an');
   for (const cookie of [an, binh]) await request(options, 'POST', '/api/v1/garden/buy', { body: { plantType: 'orange', quantity: 1 }, headers: { cookie, 'idempotency-key': key() } });
+  const before = await request(options, 'GET', '/api/v1/garden');
   const planted = await request(options, 'POST', '/api/v1/garden/plant', { body: { plotId: 4, plantType: 'orange' }, headers: { cookie: an, 'idempotency-key': key() } });
   assert.equal(planted.status, 200);
   const taken = await request(options, 'POST', '/api/v1/garden/plant', { body: { plotId: 4, plantType: 'orange' }, headers: { cookie: binh, 'idempotency-key': key() } });
@@ -107,11 +110,17 @@ test('vườn: gieo / tưới báo realtime để mọi phòng cùng thấy; ng�
   assert.equal(taken.json.code, 'PLOT_TAKEN');
   const watered = await request(options, 'POST', '/api/v1/garden/water', { body: { plotId: 4 }, headers: { cookie: binh, 'idempotency-key': key() } });
   assert.equal(watered.json.plots[0].crop.stage, 'sprout');
+  // Mốc tăng dần theo thứ tự thao tác: tải vườn < gieo < tưới; câu trả lời cho người bấm cũng có mốc.
+  assert.ok(Number.isInteger(before.json.at) && before.json.at < planted.json.at && planted.json.at < watered.json.at);
   await new Promise((resolve) => setTimeout(resolve, 100));
-  realtime.close();
-  assert.deepEqual(received.map((item) => [item.url, item.body.effect?.kind]), [['/internal/garden', 'plant'], ['/internal/garden', 'water']]);
-  assert.equal(received[0].body.plots[0].crop.ownerName, 'an.lac');
-  assert.ok(received[0].key, 'gọi realtime có khóa nội bộ');
+  nodes.forEach((node) => node.close());
+  for (const node of [0, 1]) {
+    const mine = received.filter((item) => item.node === node);
+    assert.deepEqual(mine.map((item) => [item.url, item.body.effect?.kind]), [['/internal/garden', 'plant'], ['/internal/garden', 'water']], `máy ${node + 1} nhận đủ tin`);
+    assert.deepEqual(mine.map((item) => item.body.at), [planted.json.at, watered.json.at]);
+    assert.equal(mine[0].body.plots[0].crop.ownerName, 'an.lac');
+    assert.ok(mine[0].key, 'gọi realtime có khóa nội bộ');
+  }
 });
 
 test('API nội bộ bot làm vườn: cần khóa máy, gieo luống trống và báo realtime', async () => {

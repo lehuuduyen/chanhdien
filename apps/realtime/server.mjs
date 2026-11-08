@@ -2802,7 +2802,10 @@ export class Room {
 export class RoomRegistry {
   // Phát luống vườn cho mọi phòng chánh điện (kiểm tra bằng schema protocol trước khi phát). Trả số phòng, null nếu sai.
   broadcastGarden(input) {
-    const message = { v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 0, plots: input?.plots, ...(input?.effect ? { effect: input.effect } : {}) };
+    const message = {
+      v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 0, plots: input?.plots,
+      ...(input?.effect ? { effect: input.effect } : {}), ...(input?.at !== undefined ? { at: input.at } : {}),
+    };
     if (!parseServerMessage(message).ok) return null;
     let count = 0;
     for (const room of this.rooms.values()) {

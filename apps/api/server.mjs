@@ -292,6 +292,8 @@ if (isMain) {
     memorialNotify: createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }),
     supportStore, notifySupport, shopStore, shop, shopModelDir, moderation,
     friendLinks,
+    // Vườn / khu tưởng niệm / công trình chung báo tới mọi máy realtime (mỗi máy phát cho phòng nó đang giữ).
+    realtimeBroadcastUrls: realtimeInternalUrls,
     // Phòng Lô Tô riêng cho nhóm bạn: trừ xu ở ví vườn, danh sách mời ở SQLite, báo máy realtime thêm bot / đuổi người.
     privateRooms: accounts ? createPrivateRooms({ db: accounts.database, accounts, garden, friendLinks, notifyRealtime: realtimePrivateRoomNotifier(realtimeInternalUrls, secret) }) : null,
   });

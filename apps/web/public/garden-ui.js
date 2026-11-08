@@ -63,9 +63,19 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
     return `${plot.id} · ${plantName(crop.plantType)} · ${crop.ownerName} · ${progress}`;
   }
 
-  function applyPlots(list) {
-    for (const plot of list) plots.set(plot.id, plot);
-    syncGardenView(list);
+  // at: mốc thứ tự của API. Nhiều người thao tác cùng lúc thì tin realtime có thể tới lệch thứ tự, lần tải lại định kỳ
+  // có thể cũ hơn tin vừa nhận: luống nào đã có dữ liệu mới hơn thì bỏ qua dữ liệu cũ.
+  const plotAt = new Map();
+  function applyPlots(list, at) {
+    const fresh = list.filter((plot) => {
+      if (!Number.isFinite(at)) return true;
+      if ((plotAt.get(plot.id) ?? -1) > at) return false;
+      plotAt.set(plot.id, at);
+      return true;
+    });
+    for (const plot of fresh) plots.set(plot.id, plot);
+    if (!fresh.length) return;
+    syncGardenView(fresh);
     renderOpen();
   }
 
@@ -75,7 +85,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
       if (!response.ok) return;
       const data = await response.json();
       plants = data.plants || plants;
-      applyPlots(data.plots || []);
+      applyPlots(data.plots || [], data.at);
     } catch {}
   }
 
@@ -121,7 +131,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
     if (!result) showToast(t('garden.err.NETWORK'));
     else {
       if (result.me) me = result.me;
-      if (result.plots?.length) applyPlots(result.plots);
+      if (result.plots?.length) applyPlots(result.plots, result.at);
       if (!result.ok) {
         const known = t(`garden.err.${result.code}`);
         showToast(known === `garden.err.${result.code}` ? t('garden.err.GENERIC') : known);
@@ -460,7 +470,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
     },
     onMessage(message) {
       if (message.type !== 'garden.plot') return false;
-      applyPlots(message.plots);
+      applyPlots(message.plots, message.at);
       const effect = message.effect;
       // Hiệu ứng của người khác (của mình đã chạy lúc bấm).
       if (effect && !(account() && effect.by === account().displayName)) {

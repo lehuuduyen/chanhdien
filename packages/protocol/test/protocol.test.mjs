@@ -268,6 +268,8 @@ test('garden.plot: luống trống hoặc có vụ hợp lệ; từ chối luố
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 50, crop: null }] }).ok, true);
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop: { ...crop, coins: 9 } }] }).error, 'INVALID_MESSAGE');
   assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop }], effect: { plotId: 1, kind: 'harvest', by: 'An' } }).ok, true);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop }], at: 1_762_000_000_000 }).ok, true, 'mốc thứ tự at');
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'garden.plot', epoch: 1, plots: [{ id: 1, crop }], at: '1' }).error, 'INVALID_MESSAGE');
 });
 
 test('community.project chỉ nhận snapshot công trình chung hợp lệ', () => {

@@ -664,7 +664,8 @@ const serverSchemas = {
         && choice(message.last.from) && choice(message.last.to) && RESULT_SIDES.includes(message.last.winner)))
       && (message.winner === undefined || RESULT_SIDES.includes(message.winner));
   },
-  // Luống vườn vừa đổi (gieo, tưới, ra quả, hái, trống lại). effect: hiệu ứng để mọi người cùng thấy.
+  // Luống vườn vừa đổi (gieo, tưới, ra quả, hái, trống lại). effect: hiệu ứng để mọi người cùng thấy. at: mốc thứ tự của
+  // API (ms, tăng dần) để client bỏ qua tin tới trễ có trạng thái cũ hơn cái đang hiện.
   'garden.plot'(message) {
     const crop = (value) => value === null || (isRecord(value)
       && exactKeys(value, ['id', 'plantType', 'ownerName', 'stage', 'waterDays', 'waterNeeded', 'wateredToday', 'fruitsLeft', 'fruitsTotal', 'plantedAt'],
@@ -677,7 +678,8 @@ const serverSchemas = {
       && (value.wilted === undefined || typeof value.wilted === 'boolean')
       && ['lastWateredAt', 'nextWaterAt', 'wiltsAt'].every((key) => value[key] === undefined || (isInteger(value[key]) && value[key] >= 0)));
     const plot = (value) => isRecord(value) && exactKeys(value, ['id', 'crop']) && isInteger(value.id) && value.id >= 1 && value.id <= GARDEN_PLOT_MAX && crop(value.crop);
-    return exactKeys(message, ['v', 'type', 'epoch', 'plots'], ['effect'])
+    return exactKeys(message, ['v', 'type', 'epoch', 'plots'], ['effect', 'at'])
+      && (message.at === undefined || (isInteger(message.at) && message.at >= 0))
       && Array.isArray(message.plots) && message.plots.length >= 1 && message.plots.length <= GARDEN_PLOT_MAX && message.plots.every(plot)
       && (message.effect === undefined || (isRecord(message.effect) && exactKeys(message.effect, ['plotId', 'kind', 'by'])
         && isInteger(message.effect.plotId) && message.effect.plotId >= 1 && message.effect.plotId <= GARDEN_PLOT_MAX
