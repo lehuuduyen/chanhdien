@@ -511,8 +511,8 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
     DROP TABLE garden_plots;
     ALTER TABLE garden_plots_old RENAME TO garden_plots;
     PRAGMA foreign_keys = ON;`);
-  // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm).
-  db.prepare("UPDATE garden_meta SET value = CAST(value - 2 AS TEXT) WHERE key = 'schema_version'").run();
+  // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm và hai bản Linh thú).
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 4 AS TEXT) WHERE key = 'schema_version'").run();
   assert.throws(() => db.prepare('INSERT INTO garden_plots (id, created_at) VALUES (11, 1)').run());
   const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
   assert.equal(upgraded.plot(3).crop.ownerName, 'an_lac');

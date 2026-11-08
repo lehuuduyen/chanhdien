@@ -196,3 +196,26 @@ test('hồ lớn là vật cản elip: đi vào hồ thì bị đẩy lên bờ 
   const route = findPath(walk, { x: pond.x, z: pond.z - pond.rz - 1 }, { x: pond.x, z: pond.z + pond.rz + 1 });
   assert.ok(route.length >= 2, 'đi vòng quanh hồ');
 });
+
+test('Nông trại nhỏ: từ sân vào qua cổng nam, từ khu thú cưng qua lối nối; chuồng, ao vịt là vật cản', () => {
+  const farm = scene.world.courtyard.farmZone;
+  const travel = THIEN_RULES.world.travel.farm;
+  assert.equal(isWalkable(walk, travel.x, travel.z), true, 'điểm đi nhanh đứng được');
+  const reach = (from, to, label) => {
+    const route = findPath(walk, from, to);
+    assert.ok(route.length > 0, `${label}: có đường`);
+    assert.ok(Math.hypot(route.at(-1).x - to.x, route.at(-1).z - to.z) < 0.6, `${label}: tới đúng chỗ`);
+  };
+  // Từ sân trước chánh điện đi vòng qua bãi cỏ phía đông vào cổng nam.
+  reach(THIEN_RULES.world.travel.courtyard, travel, 'sân → nông trại');
+  // Từ khu thú cưng sang nông trại qua lối nối (z = 88).
+  reach(THIEN_RULES.world.travel.pets, { x: 40, z: 88 }, 'khu thú cưng → nông trại');
+  reach(travel, { x: 44, z: 95.5 }, 'đi tới cuối nông trại');
+  for (const item of farm.props.filter((prop) => ['barn', 'duckpond'].includes(prop.type))) {
+    assert.equal(isWalkable(walk, item.x, item.z), false, `${item.type} là vật cản`);
+  }
+  // Thú nông trại xuất phát ở chỗ đi được.
+  for (const animal of scene.world.courtyard.animals.filter((item) => item.id.startsWith('farm-'))) {
+    assert.equal(isWalkable({ ...walk, radius: 0.3 }, animal.x, animal.z), true, `${animal.id} đứng được`);
+  }
+});

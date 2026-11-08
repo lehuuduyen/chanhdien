@@ -1,12 +1,21 @@
 // Màn 💬 Tin nhắn của chánh điện: thẻ "Chung" là chat của phòng trong ngày hôm nay (máy realtime gửi chat.history lúc
 // vào; khung tin trên cảnh chỉ hiện 3 tin rồi mờ đi), thẻ "Bạn bè" là cuộc trò chuyện riêng với từng bạn đã lưu (lời nhắn
-// qua API, đọc được cả khi bạn offline, cũng chỉ giữ trong ngày) và với từng bạn bot (tin mình nhắn "@Tên bot", câu bot
-// trả lời / bắt chuyện; API lưu trong ngày, nhắn tiếp được khi bot đang ở phòng này). Nút có số tin chưa xem. Văn bản từ người dùng chỉ đưa ra màn hình bằng textContent.
+// qua API, đọc được cả khi bạn offline, cũng chỉ giữ trong ngày). Bạn bot hiện y như bạn là người (không có chữ "bot"):
+// cùng một danh sách, tin cuối, số tin chưa đọc, nhắn riêng được bất cứ lúc nào (POST /api/v1/me/bot-thread, bot không cần
+// ở phòng này; quản trị trả lời qua Telegram /tl, câu trả lời tới sau qua inbox.notify). Nút có số tin chưa xem. Văn bản từ người dùng chỉ đưa ra màn hình bằng textContent.
 import { avatarNode } from '/badges.js';
 import { dayStartOf } from '/shared/room-rules.mjs';
 import { onLangChange, t } from '/thien-i18n.js';
 
 const ROOM_KEEP = 100;
+// Tin của bạn bot đã xem tới đâu (tên → mốc ms), giữ ở máy này: API không có cột "đã đọc" cho cuộc trò chuyện với bot.
+const BOT_SEEN_KEY = 'chat-bot-seen';
+const readBotSeen = () => {
+  try { return JSON.parse(localStorage.getItem(BOT_SEEN_KEY) || '{}') || {}; } catch { return {}; }
+};
+const writeBotSeen = (seen) => {
+  try { localStorage.setItem(BOT_SEEN_KEY, JSON.stringify(seen)); } catch {}
+};
 // Cùng mốc ngày với server (GARDEN_TIMEZONE mặc định): qua nửa đêm thì bỏ tin hôm trước.
 const dropYesterday = (items) => {
   const today = dayStartOf(Date.now());
@@ -29,7 +38,7 @@ function button(className, text, onClick) {
 }
 
 // sendRoom(text) → true nếu đã gửi; isBlocked(participantId): người mình đã chặn thì không hiện tin của họ.
-// botHere(name): bot tên đó đang ở phòng này (participant) hay không.
+// botHere(name): bạn bot tên đó đang ở phòng này (participant) hay không → hiện "Đang online".
 export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId, botHere = () => null }) {
   const openButton = el('button', 'chip chat-open');
   openButton.type = 'button';
@@ -43,7 +52,9 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
   let friendUnread = 0;
   let tab = 'room';
   let friends = null; // null: đang tải; 'guest': chưa đăng nhập; [] danh sách bạn đã lưu
-  let botFriends = []; // [{ name, since }]
+  let botFriends = []; // [{ name, since, last?: { text, at, mine } }]
+  let botSeen = readBotSeen();
+  let botsLoaded = false;
   let threadReload = null;
   let inbox = [];
   let thread = null; // { friend, items }
@@ -51,8 +62,15 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
   let logNode = null;
 
   const timeOf = (at) => new Date(at).toLocaleTimeString(document.documentElement.lang || undefined, { hour: '2-digit', minute: '2-digit' });
+  // Bạn bot có câu trả lời mới chưa xem.
+  const botUnread = (bot) => Boolean(bot.last && !bot.last.mine && bot.last.at > (botSeen[bot.name] || 0));
+  const markBotSeen = (name, at) => {
+    if (!(at > (botSeen[name] || 0))) return;
+    botSeen = { ...readBotSeen(), [name]: at };
+    writeBotSeen(botSeen);
+  };
   const label = () => {
-    const unread = unseenRoom + friendUnread;
+    const unread = unseenRoom + friendUnread + botFriends.filter(botUnread).length;
     // Cạnh ô chat chỗ hẹp: chỉ biểu tượng + số tin chưa xem.
     openButton.textContent = `💬${unread ? ` ${unread > 99 ? '99+' : unread}` : ''}`;
     openButton.setAttribute('aria-label', t('chat.center'));
@@ -131,28 +149,25 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
       const lastFrom = new Map();
       for (const item of inbox) if (item.kind === 'note' && !lastFrom.has(item.from.accountId)) lastFrom.set(item.from.accountId, item);
       const unreadOf = (id) => inbox.filter((item) => item.kind === 'note' && !item.read && item.from.accountId === id).length;
-      const people = [...friends].sort((a, b) => (unreadOf(b.accountId) - unreadOf(a.accountId)) || ((lastFrom.get(b.accountId)?.at || 0) - (lastFrom.get(a.accountId)?.at || 0)) || (Number(b.online) - Number(a.online)));
-      for (const friend of people) {
+      // Người và bạn bot chung một danh sách, cùng cách hiện: có tin chưa đọc lên đầu, rồi theo tin mới nhất, rồi online.
+      // Không hiện bạn bot đang ở phòng nào; "online" chỉ khi đang ở cùng phòng này.
+      const rows = [
+        ...friends.map((friend) => {
+          const last = lastFrom.get(friend.accountId);
+          return { friend, unread: unreadOf(friend.accountId), last, online: Boolean(friend.online) };
+        }),
+        ...botFriends.map((bot) => ({
+          friend: { bot: true, displayName: bot.name }, unread: botUnread(bot) ? 1 : 0, last: bot.last, online: Boolean(botHere(bot.name)),
+        })),
+      ].sort((a, b) => (b.unread - a.unread) || ((b.last?.at || 0) - (a.last?.at || 0)) || (Number(b.online) - Number(a.online)));
+      for (const { friend, unread, last, online } of rows) {
         const row = el('button', 'friend-row chat-friend');
         row.type = 'button';
-        const unread = unreadOf(friend.accountId);
         row.classList.toggle('unread', Boolean(unread));
         const text = el('div', 'friend-text');
-        const last = lastFrom.get(friend.accountId);
-        text.append(el('b', '', `${friend.displayName}${unread ? ` · ${unread}` : ''}`), el('span', 'friend-sub', last ? last.text : friend.online ? `🟢 ${t('chat.online')}` : t('chat.offline')));
+        text.append(el('b', '', `${friend.displayName}${unread ? ` · ${unread}` : ''}`), el('span', 'friend-sub', last ? last.text : online ? `🟢 ${t('chat.online')}` : t('chat.offline')));
         row.append(avatarNode(friend, 'avatar'), text);
         row.addEventListener('click', () => openThread(friend));
-        list.append(row);
-      }
-      // Không hiện bot đang ở phòng nào; trạng thái nội bộ chỉ dùng để quyết định có nhắn trực tiếp được hay không.
-      for (const bot of botFriends) {
-        const row = el('button', 'friend-row chat-friend');
-        row.type = 'button';
-        const text = el('div', 'friend-text');
-        const date = new Date(bot.since).toLocaleDateString(document.documentElement.lang || undefined);
-        text.append(el('b', '', bot.name), el('span', 'friend-sub', t('friends.since', { date })));
-        row.append(avatarNode({ displayName: bot.name }, 'avatar'), text);
-        row.addEventListener('click', () => openThread({ bot: true, displayName: bot.name }));
         list.append(row);
       }
     }
@@ -165,25 +180,21 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
     head.append(button('chip', `‹ ${t('chat.tabFriends')}`, () => { thread = null; render(); refreshUnread(); }), el('b', '', friend.displayName));
     logNode = el('div', 'chat-log');
     fillThread();
-    if (friend.bot) {
-      // Nhắn bot = chat "@Tên bot …" trong phòng: chỉ được khi bot đang ở phòng này.
-      const here = botHere(friend.displayName);
-      body.append(head, logNode, here ? composer(t('chat.placeholderFriend', { name: friend.displayName }), (text) => {
-        const sent = sendRoom(`@${friend.displayName} ${text}`.slice(0, 280));
-        if (sent !== false) reloadThreadSoon();
-        return sent !== false;
-      }) : el('p', 'social-note', t('chat.botAway')));
-      scrollDown(logNode);
-      return;
-    }
+    // Bạn bot nhắn y như bạn là người: tin riêng qua API, không cần đang ở cùng phòng.
     body.append(head, logNode, composer(t('chat.placeholderFriend', { name: friend.displayName }), async (text) => {
-      const result = await api('/api/v1/me/friends/note', { accountId: friend.accountId, text }).catch(() => ({ ok: false, data: {} }));
+      const result = await (friend.bot
+        ? api('/api/v1/me/bot-thread', { name: friend.displayName, text })
+        : api('/api/v1/me/friends/note', { accountId: friend.accountId, text })).catch(() => ({ ok: false, data: {} }));
       if (!result.ok) {
         const own = t(`friends.err.${result.data?.error}`);
         showToast(own !== `friends.err.${result.data?.error}` ? own : t('friends.err.other'));
         return false;
       }
-      await loadThread();
+      if (friend.bot && Array.isArray(result.data.items) && thread?.friend === friend) {
+        thread.items = result.data.items;
+        fillThread();
+        scrollDown(logNode);
+      } else await loadThread();
       return true;
     }));
     scrollDown(logNode);
@@ -200,7 +211,8 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
     const close = button('mala-back', `‹ ${t('mala.back')}`, () => { sheet.hidden = true; });
     const tabs = el('div', 'tabs chat-tabs');
     tabs.setAttribute('role', 'tablist');
-    for (const [key, text] of [['room', t('chat.tabRoom')], ['friends', `${t('chat.tabFriends')}${friendUnread ? ` · ${friendUnread}` : ''}`]]) {
+    const friendsUnread = friendUnread + botFriends.filter(botUnread).length;
+    for (const [key, text] of [['room', t('chat.tabRoom')], ['friends', `${t('chat.tabFriends')}${friendsUnread ? ` · ${friendsUnread}` : ''}`]]) {
       const tabButton = button('', text, () => { tab = key; thread = null; if (key === 'friends') loadFriends(); render(); });
       tabButton.setAttribute('role', 'tab');
       tabButton.setAttribute('aria-selected', String(tab === key));
@@ -231,6 +243,14 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
     if (!sheet.hidden && tab === 'friends' && !thread) render();
   }
 
+  async function loadBotFriends() {
+    const result = await api('/api/v1/me/friends').catch(() => null);
+    if (!result?.ok) return;
+    botFriends = (result.data.botFriends || []).filter((item) => typeof item?.name === 'string');
+    label();
+    if (!sheet.hidden && tab === 'friends' && !thread) render();
+  }
+
   async function loadThread() {
     if (!thread) return;
     const current = thread;
@@ -239,6 +259,15 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
       : `/api/v1/me/friends/thread?with=${encodeURIComponent(current.friend.accountId)}`).catch(() => null);
     if (thread !== current) return;
     current.items = result?.ok ? result.data.items : [];
+    if (current.friend.bot) {
+      // Đang mở cuộc trò chuyện là đã xem câu trả lời mới nhất.
+      const lastReply = [...current.items].reverse().find((item) => !item.mine);
+      if (lastReply) markBotSeen(current.friend.displayName, lastReply.at);
+      const bot = botFriends.find((item) => item.name === current.friend.displayName);
+      const latest = current.items.at(-1);
+      if (bot && latest) bot.last = { text: latest.text, at: latest.at, mine: latest.mine };
+      label();
+    }
     if (!sheet.hidden && logNode && thread === current) {
       fillThread();
       scrollDown(logNode);
@@ -272,7 +301,7 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
   }
 
   // Có tin riêng của bạn bè chưa đọc thì mở thẳng thẻ Bạn bè.
-  openButton.addEventListener('click', () => open(friendUnread ? 'friends' : tab));
+  openButton.addEventListener('click', () => open(friendUnread || botFriends.some(botUnread) ? 'friends' : tab));
   onLangChange(() => {
     label();
     if (!sheet.hidden) render();
@@ -284,9 +313,16 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
     // Không "nuốt" message: chánh điện và màn Bạn bè vẫn xử lý tiếp.
     onMessage(message) {
       if (message.type === 'room.state' && !friendUnread && friends === null) refreshUnread();
+      // Vào phòng: tải bạn bot một lần để nút 💬 có số câu trả lời chưa xem.
+      if (message.type === 'room.state' && !botsLoaded) {
+        botsLoaded = true;
+        loadBotFriends();
+      }
       if (message.type === 'inbox.notify') {
         refreshUnread();
         if (thread && !sheet.hidden) loadThread();
+        // Có thể là câu trả lời của bạn bot: tải lại danh sách (tin cuối, số chưa đọc) mà không làm nháy màn đang xem.
+        else loadBotFriends();
       }
       // Vào phòng / nối lại: thay bằng sổ chat trong ngày của phòng (không cộng vào số tin chưa xem).
       if (message.type === 'chat.history') {

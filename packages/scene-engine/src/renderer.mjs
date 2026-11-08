@@ -175,8 +175,8 @@ export async function createSceneRenderer({ canvas, scene: rawScene, baseUrl = '
   const [backgroundImage, seatbacksImage, ...images] = await Promise.all([
     scene.background?.type === 'image' ? loadImage(resolveSrc(scene.background.src)) : null,
     scene.seatbacks?.type === 'image' ? loadImage(resolveSrc(scene.seatbacks.src)) : null,
-    ...(scene.characters.style === 'sprite' ? scene.characters.skins.map((skin) => loadImage(`${scene.characters.base}${skin}.png`)) : []),
-    ...effectNames.map(([, file]) => loadImage(`${scene.effects.base}${file}.png`)),
+    ...(scene.characters.style === 'sprite' ? scene.characters.skins.map((skin) => loadImage(`${scene.characters.base}${skin}.webp`)) : []),
+    ...effectNames.map(([, file]) => loadImage(`${scene.effects.base}${file}.webp`)),
   ]);
   const skinCount = scene.characters.style === 'sprite' ? scene.characters.skins.length : 0;
   const skins = new Map((scene.characters.skins || []).map((skin, index) => [skin, images[index]]));

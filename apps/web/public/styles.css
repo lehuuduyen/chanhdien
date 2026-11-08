@@ -186,7 +186,7 @@ h1 {
   position: relative;
   min-height: 410px;
   overflow: hidden;
-  background: #27120b url('/thien/assets/hall.jpg') center 34% / cover no-repeat;
+  background: #27120b url('/thien/assets/hall.webp') center 34% / cover no-repeat;
 }
 
 .room-visual::after {

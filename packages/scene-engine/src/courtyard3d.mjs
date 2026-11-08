@@ -6,8 +6,30 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { StaticBatch } from './temple3d-models.mjs';
 import { buildAnimals } from './animals3d.mjs';
-import { addPlayground, loadParkModel, playgroundMaterials } from './park3d.mjs';
+import { addPlayground, loadParkModel, loadStaticModel, playgroundMaterials } from './park3d.mjs';
 import { addFlowerGarden } from './flowers3d.mjs';
+import { createWaterMaterial } from './water3d.mjs';
+import { instanceProp, placeProp } from './props3d.mjs';
+
+const SCENE_MODELS = '/models/scene';
+
+// Cụm lau sậy quanh bờ hồ: thân xanh mảnh và bông nâu (bông lau), gộp vào batch. center: tâm hồ; rx, rz: bán kính
+// elip mép nước; angles: góc các cụm; y: mặt nước.
+function addReeds(batch, m, { x, z, rx, rz, angles, y = 0, scale = 1, count = 9 }) {
+  angles.forEach((angle, cluster) => {
+    for (let index = 0; index < count; index += 1) {
+      const spread = ((index * 37 + cluster * 11) % 9) / 9 - 0.5;
+      const inset = (0.25 + ((index * 53) % 5) * 0.08) * scale;
+      const a = angle + spread * 0.12;
+      const px = x + Math.cos(a) * (rx - inset);
+      const pz = z + Math.sin(a) * (rz - inset);
+      const height = (0.7 + ((index * 29 + cluster) % 7) * 0.1) * scale;
+      const lean = spread * 0.25;
+      batch.add(new THREE.CylinderGeometry(0.012, 0.018, height, 4), m.reed, { position: [px, y + height / 2, pz], rotation: [lean, 0, -lean] });
+      if (index % 2 === 0) batch.add(new THREE.CapsuleGeometry(0.03, 0.14, 2, 6), m.cattail, { position: [px - lean * height * 0.5, y + height * 0.92, pz + lean * height * 0.5] });
+    }
+  });
+}
 import { hallLayout } from './temple3d-models.mjs';
 
 const MAX_SMOKE = 12;
@@ -510,6 +532,7 @@ function plotNumberTexture() {
 // trên luống thay đổi theo dữ liệu thật nên dựng riêng ở garden3d.mjs; ở đây chỉ là phần tĩnh + mesh ẩn để chạm.
 function addGarden(batch, m, garden, pickables, root, signs) {
   const bed = garden.bed || 2.6;
+  const hasDetailedModel = Boolean(garden.model?.src);
   // Mái hai tấm dọc theo trục x cục bộ của công trình (xoay theo ry), nóc mạ vàng.
   const gableRoof = (item, length, depth, y) => {
     for (const side of [-1, 1]) {
@@ -628,7 +651,7 @@ function addGarden(batch, m, garden, pickables, root, signs) {
     }
   }
   // Cổng gỗ: hai cột, xà ngang, mái nhỏ, biển tên (rộng theo entrance.width).
-  if (gate) {
+  if (gate && !hasDetailedModel) {
     const half = (gate.width || 3.8) / 2;
     const at = (local) => localTransform({ ...gate, scale: 1 }, local);
     for (const side of [-1, 1]) {
@@ -644,13 +667,15 @@ function addGarden(batch, m, garden, pickables, root, signs) {
   if (shop) {
     const at = (local) => localTransform({ ...shop, scale: 1 }, local);
     const turn = [0, shop.ry || 0, 0];
-    batch.add(new THREE.BoxGeometry(2.2, 0.95, 0.8), m.wood, { position: at([0, 0.48, 0]), rotation: turn });
-    batch.add(new THREE.BoxGeometry(2.4, 0.06, 0.95), m.stone, { position: at([0, 0.98, 0]), rotation: turn });
-    for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.1, 2.3, 0.1), m.wood, { position: at([side * 1.1, 1.15, 0.45]), rotation: turn });
-    gableRoof(shop, 2.8, 1.6, 2.4);
-    [m.lantern, m.flowerYellow, m.flowerPink, m.leaf].forEach((material, index) => {
-      batch.add(new THREE.BoxGeometry(0.34, 0.22, 0.3), material, { position: at([-0.75 + index * 0.5, 1.13, 0.1]), rotation: turn });
-    });
+    if (!hasDetailedModel) {
+      batch.add(new THREE.BoxGeometry(2.2, 0.95, 0.8), m.wood, { position: at([0, 0.48, 0]), rotation: turn });
+      batch.add(new THREE.BoxGeometry(2.4, 0.06, 0.95), m.stone, { position: at([0, 0.98, 0]), rotation: turn });
+      for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.1, 2.3, 0.1), m.wood, { position: at([side * 1.1, 1.15, 0.45]), rotation: turn });
+      gableRoof(shop, 2.8, 1.6, 2.4);
+      [m.lantern, m.flowerYellow, m.flowerPink, m.leaf].forEach((material, index) => {
+        batch.add(new THREE.BoxGeometry(0.34, 0.22, 0.3), material, { position: at([-0.75 + index * 0.5, 1.13, 0.1]), rotation: turn });
+      });
+    }
     signs.push({ text: garden.shopSign || '', position: at([0, 1.85, -0.5]), ry: (shop.ry || 0) + Math.PI, width: 1.8 });
     const proxy = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 1.2), proxyMaterial);
     proxy.position.set(...at([0, 1.2, 0]));
@@ -1038,12 +1063,58 @@ function addPetZone(root, batch, m, zone, signs) {
       ['#e95045', '#f0bd49', '#4b8dc8'].forEach((color, index) => batch.add(new THREE.SphereGeometry(0.18 + index * 0.03, 12, 8), new THREE.MeshStandardMaterial({ color, roughness: 0.75 }), {
         position: at(item, [(index - 1) * 0.42, 0.2 + index * 0.02, (index % 2) * 0.22]),
       }));
+    } else if (item.type === 'barn') {
+      // Chuồng gỗ đỏ mái dốc, cửa trắng chéo kiểu nông trại.
+      const ry = item.ry || 0;
+      batch.add(new THREE.BoxGeometry(4.2, 2.1, 3.2), m.barn, { position: at(item, [0, 1.05, 0]), rotation: [0, ry, 0] });
+      for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(2.45, 0.12, 3.5), m.roof, {
+        position: at(item, [side * 1.08, 2.62, 0]), rotation: [0, ry, side * -0.62, 'YXZ'],
+      });
+      batch.add(new THREE.BoxGeometry(1.5, 1.55, 0.08), m.barnTrim, { position: at(item, [0, 0.78, 1.62]), rotation: [0, ry, 0] });
+      for (const tilt of [-0.8, 0.8]) batch.add(new THREE.BoxGeometry(0.1, 2.05, 0.1), m.barnTrim, { position: at(item, [0, 0.78, 1.67]), rotation: [0, ry, tilt, 'YXZ'] });
+    } else if (item.type === 'trough') {
+      batch.add(new THREE.BoxGeometry(0.75, 0.42, 2.0), m.wood, { position: at(item, [0, 0.36, 0]), rotation: [0, item.ry || 0, 0] });
+      batch.add(new THREE.BoxGeometry(0.6, 0.06, 1.85), m.hay, { position: at(item, [0, 0.58, 0]), rotation: [0, item.ry || 0, 0] });
+      for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.1, 0.36, 0.1), m.wood, { position: at(item, [0, 0.12, side * 0.85]) });
+    } else if (item.type === 'hay') {
+      batch.add(new THREE.CylinderGeometry(0.55, 0.55, 0.9, 16), m.hay, { position: at(item, [0, 0.55, 0]), rotation: [Math.PI / 2, item.ry || 0, 0, 'YXZ'] });
+    } else if (item.type === 'duckpond') {
+      const water = new THREE.Mesh(new THREE.CircleGeometry(1, 40), m.lakeWater);
+      water.rotation.x = -Math.PI / 2;
+      water.scale.set(1.65, 1.3, 1);
+      water.position.set(item.x, 0.05, item.z);
+      root.add(water);
+      // Bờ đá: mô hình đá Meshy; tải lỗi thì giữ đá khối (nhóm dự phòng riêng).
+      const fallback = new StaticBatch();
+      const rocks = [];
+      for (let index = 0; index < 14; index += 1) {
+        const angle = (index / 14) * Math.PI * 2;
+        const position = [item.x + Math.cos(angle) * 1.78, 0.08, item.z + Math.sin(angle) * 1.42];
+        fallback.add(new THREE.SphereGeometry(0.2 + (index % 3) * 0.04, 8, 6), m.stone, { position, scale: [1.2, 0.55, 1] });
+        rocks.push({ x: position[0], y: -0.04, z: position[2], ry: index * 1.9, s: 0.75 + (index % 3) * 0.2 });
+      }
+      const fallbackGroup = new THREE.Group();
+      fallback.build(fallbackGroup, { castShadow: true, receiveShadow: true });
+      root.add(fallbackGroup);
+      instanceProp(root, `${SCENE_MODELS}/rock.glb`, rocks, { size: 0.5 }, { brighten: 0.35 }).then((group) => { if (group) fallbackGroup.visible = false; });
+      // Lá súng nổi và lau sậy ở mép phía bắc.
+      for (let index = 0; index < 6; index += 1) {
+        const angle = index * 2.4;
+        batch.add(new THREE.CircleGeometry(0.16 + (index % 2) * 0.05, 10, 0.4, Math.PI * 2 - 0.4), m.lilyPad, {
+          position: [item.x + Math.cos(angle) * 0.9, 0.065, item.z + Math.sin(angle) * 0.7], rotation: [-Math.PI / 2, 0, angle],
+        });
+      }
+      addReeds(batch, m, { x: item.x, z: item.z, rx: 1.65, rz: 1.3, angles: [1.3, 4.6], y: 0.05, scale: 0.55, count: 6 });
+    } else if (item.type === 'duckhouse') {
+      placeProp(root, `${SCENE_MODELS}/duckhouse.glb`, { x: item.x, z: item.z, ry: item.ry || 0, height: 1.1 });
     }
   }
 }
 
 export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const data = world.courtyard;
+  // Mặt nước hồ sen lớn và ao vịt dùng chung một vật liệu (một lần biên dịch shader).
+  const lakeWater = createWaterMaterial();
   const ground = data.ground;
   const m = {
     tiles: new THREE.MeshStandardMaterial({ map: stoneTiles([(ground.x[1] - ground.x[0]) / 6, (ground.z[1] - ground.z[0]) / 6]), roughness: 0.92 }),
@@ -1066,6 +1137,12 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     pot: new THREE.MeshStandardMaterial({ color: '#8b3e28', roughness: 0.88 }),
     soil: new THREE.MeshStandardMaterial({ map: soilTexture(), roughness: 1 }),
     fence: new THREE.MeshStandardMaterial({ color: '#c9a36a', roughness: 0.85 }),
+    barn: new THREE.MeshStandardMaterial({ color: '#a8342a', roughness: 0.82 }),
+    barnTrim: new THREE.MeshStandardMaterial({ color: '#f2ead8', roughness: 0.8 }),
+    hay: new THREE.MeshStandardMaterial({ color: '#d9b45a', roughness: 0.95 }),
+    reed: new THREE.MeshStandardMaterial({ color: '#5f8a3a', roughness: 0.9 }),
+    cattail: new THREE.MeshStandardMaterial({ color: '#6b4426', roughness: 0.95 }),
+    lilyPad: new THREE.MeshStandardMaterial({ color: '#3f7a35', roughness: 0.8, side: THREE.DoubleSide }),
     gravel: new THREE.MeshStandardMaterial({ map: gravelTexture(), roughness: 1 }),
     flowerViolet: new THREE.MeshStandardMaterial({ color: '#a77be0', roughness: 0.8 }),
     plotNumbers: new THREE.MeshStandardMaterial({ map: plotNumberTexture(), roughness: 0.7 }),
@@ -1084,6 +1161,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       depthWrite: false, side: THREE.DoubleSide,
     }),
     pondBed: new THREE.MeshStandardMaterial({ color: '#6b6a4e', roughness: 1, side: THREE.BackSide }),
+    lakeWater: lakeWater.material,
     rock: new THREE.MeshStandardMaterial({ color: '#7d7a72', roughness: 0.95, flatShading: true }),
     koi: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5 }),
     mountain: new THREE.MeshStandardMaterial({ color: '#4f6a63', roughness: 1, flatShading: true }),
@@ -1294,10 +1372,11 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     bed.scale.set(pond.radiusX + 0.35, 1, pond.radiusZ + 0.35);
     bed.position.set(pond.x, 0, pond.z);
     root.add(bed);
-    // Một lớp nước nông có cả mặt và thành bên: ở góc camera thấp vẫn thấy rõ màu nước thay vì chỉ thấy đáy hồ.
-    const water = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.18, 64, 1, false), m.pondWater);
-    water.scale.set(pond.radiusX + 0.3, 1, pond.radiusZ + 0.3);
-    water.position.set(pond.x, -0.21, pond.z);
+    // Mặt nước (water3d.mjs): giữa hồ thẫm, mép nhạt, gợn sóng ánh sáng và viền bọt sát bờ.
+    const water = new THREE.Mesh(new THREE.CircleGeometry(1, 72), m.lakeWater);
+    water.rotation.x = -Math.PI / 2;
+    water.scale.set(pond.radiusX + 0.3, pond.radiusZ + 0.3, 1);
+    water.position.set(pond.x, -0.14, pond.z);
     water.renderOrder = 2;
     // Hồ cá là cảnh nền có sẵn: mặt nước không được biến mất trong lúc chờ tải tiến độ công trình hồ sen.
     if (stagedPond) water.visible = (pond.stageVisibility?.water ?? 1) === 0;
@@ -1348,6 +1427,25 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     }
     if (stagedPond) koiMesh.visible = (pond.stageVisibility?.fish ?? 4) === 0;
     root.add(koiMesh);
+    // Mô hình Meshy: đá bờ (thay đá khối khi tải xong) và sen nở trên lá; vị trí theo cùng vòng elip với bản khối.
+    const rockCount = Math.round(perimeter / 1.1);
+    const rockItems = Array.from({ length: rockCount }, (_, index) => {
+      const angle = (index / rockCount) * Math.PI * 2 + ((index * 17) % 5) * 0.01;
+      const out = 0.38 + ((index * 23) % 5) * 0.06;
+      return { x: pond.x + Math.cos(angle) * (pond.radiusX + out), y: -0.12, z: pond.z + Math.sin(angle) * (pond.radiusZ + out), ry: index * 2.3, s: 0.8 + ((index * 31) % 6) * 0.12 };
+    });
+    const lotusItems = Array.from({ length: 12 }, (_, index) => {
+      const angle = index * 2.39996 + 0.7;
+      const reach = 0.3 + 0.55 * Math.sqrt((index + 0.5) / 12);
+      return { x: pond.x - Math.abs(Math.cos(angle)) * reach * pond.radiusX * 0.88, y: -0.16, z: pond.z + Math.sin(angle) * reach * pond.radiusZ * 0.88, ry: index * 1.3, s: 0.8 + (index % 3) * 0.18 };
+    });
+    // Đèn đá bên bờ (luôn hiện, không theo giai đoạn công trình) và lau sậy ở mép phía tây.
+    for (const lantern of pond.lanterns || []) {
+      placeProp(root, `${SCENE_MODELS}/lantern.glb`, { x: lantern.x, z: lantern.z, ry: lantern.ry || 0, height: 1.35 });
+      lanternGlows.push(new THREE.Vector3(lantern.x, 0.95, lantern.z));
+    }
+    // Lau sậy từng cụm quanh bờ (luôn hiện, kể cả khi công trình hồ sen chưa lên giai đoạn có đá / sen).
+    addReeds(batch, m, { x: pond.x, z: pond.z, rx: pond.radiusX + 0.3, rz: pond.radiusZ + 0.3, angles: [0.5, 1.2, 2.6, 3.0, 3.5, 4.0, 5.1, 5.8], y: -0.14 });
     if (stagedPond) {
       const rocksGroup = new THREE.Group();
       const lotusGroup = new THREE.Group();
@@ -1355,6 +1453,11 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       lotusGroup.name = 'community-lotus-plants';
       rockBatch.build(rocksGroup, { castShadow: true, receiveShadow: true });
       lotusBatch.build(lotusGroup, { castShadow: true, receiveShadow: true });
+      const rockFallback = [...rocksGroup.children];
+      instanceProp(rocksGroup, `${SCENE_MODELS}/rock.glb`, rockItems, { size: 0.85 }, { brighten: 0.35 }).then((group) => {
+        if (group) for (const child of rockFallback) child.visible = false;
+      });
+      instanceProp(lotusGroup, `${SCENE_MODELS}/lotus.glb`, lotusItems, { width: 0.95 });
       rocksGroup.visible = false;
       lotusGroup.visible = false;
       root.add(rocksGroup, lotusGroup);
@@ -1407,6 +1510,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const guanyinBatch = new StaticBatch();
   const benchPickables = [];
   const meritBoardPickables = [];
+  const lazyAssets = [];
   const benchProxyGeometry = new THREE.BoxGeometry(2.3, 1.05, 0.85);
   const benchProxyMaterial = new THREE.MeshBasicMaterial({ visible: false });
   (data.arhats || []).forEach((item, index) => addArhat(arhatBatch, m, item, index));
@@ -1415,7 +1519,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const playMaterials = (data.benches || []).some((item) => item.kind) ? playgroundMaterials() : null;
   const parkSigns = [];
   if (data.park) {
-    loadParkModel(root, data.park.model);
+    const parkModel = loadParkModel(root, data.park.model);
+    if (parkModel?.userData.lazyAsset) lazyAssets.push(parkModel.userData.lazyAsset);
     const post = data.park.signPost;
     if (post) {
       const at = (local) => localTransform({ ...post, scale: 1 }, local);
@@ -1472,6 +1577,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const gardenPickables = [];
   if (data.garden) {
     const gardenSigns = [];
+    const gardenModel = loadStaticModel(root, data.garden.model, 'cổng Vườn Công Đức');
+    if (gardenModel?.userData.lazyAsset) lazyAssets.push(gardenModel.userData.lazyAsset);
     addGarden(batch, m, data.garden, gardenPickables, root, gardenSigns);
     for (const sign of gardenSigns) {
       const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.width * 0.24), new THREE.MeshStandardMaterial({ map: textBoard(sign.text), roughness: 0.6, side: THREE.DoubleSide }));
@@ -1495,6 +1602,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   if (data.petZone) {
     const petSigns = [];
     addPetZone(root, batch, m, data.petZone, petSigns);
+    // Nông trại nhỏ: cùng kiểu cỏ, hàng rào, cổng có bảng tên như khu thú cưng.
+    if (data.farmZone) addPetZone(root, batch, m, data.farmZone, petSigns);
     for (const sign of petSigns) {
       const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.height), new THREE.MeshStandardMaterial({ map: textBoard(sign.text), roughness: 0.6, side: THREE.DoubleSide }));
       board.position.set(...sign.position);
@@ -1718,6 +1827,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     gardenPickables,
     memorialPickables,
     guidePickables,
+    activateAssets() {
+      flowerGarden?.activate?.();
+    },
     setCommunityProject(project) {
       if (project?.id === data.bodhi?.projectId) communityBodhi?.set(project);
       if (project?.id === data.pond?.projectId) communityLotus?.set(project);
@@ -1767,7 +1879,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
         koiMesh.setMatrixAt(index, koiDummy.matrix);
       }
       if (koiMesh) koiMesh.instanceMatrix.needsUpdate = true;
-      animals?.update(dt, time);
+      for (const asset of lazyAssets) asset.update(camera.position);
+      animals?.update(dt, time, camera);
+      lakeWater.tick(time / 1000);
       flowerGarden?.update(dt, time, camera);
       for (const spray of sprays) {
         const k = ((time / 1_600) + spray.phase) % 1;

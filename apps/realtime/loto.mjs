@@ -101,6 +101,16 @@ export class LottoTable {
     const round = record?.round;
     const ticketList = (value) => (Array.isArray(value) ? value : []).filter((entry) => Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1]));
     if (!round || typeof round.id !== 'string' || !['buying', 'calling', 'claiming', 'settling', 'result'].includes(round.phase)) return false;
+    // Phòng công cộng có bot nên bàn có thể đã start() ngay trong constructor, trước lúc RoomRegistry tải snapshot.
+    // Khi đó timer của ván rỗng đang chạy; chỉ ghi đè `round` sẽ làm callback cũ thoát vì pha không khớp và ván
+    // snapshot đứng vĩnh viễn. Hủy mọi timer cũ rồi resume ngay nếu bàn đã chạy.
+    const wasRunning = this.running;
+    if (wasRunning) {
+      clearTimeout(this.timer);
+      clearTimeout(this.stateTimer);
+      this.timer = null;
+      this.stateTimer = null;
+    }
     const called = (Array.isArray(round.called) ? round.called : []).filter((number) => Number.isSafeInteger(number) && number >= 1 && number <= 90);
     this.serial = Number.isSafeInteger(record.serial) ? record.serial : this.serial;
     this.round = {
@@ -125,6 +135,7 @@ export class LottoTable {
     };
     this.round.waiting = this.waitingList();
     this.restored = true;
+    if (wasRunning) this.resume();
     return true;
   }
 

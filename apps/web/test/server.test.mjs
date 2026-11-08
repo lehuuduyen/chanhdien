@@ -16,7 +16,7 @@ test('web resolve sảnh phòng', () => {
 
 test('web phục vụ phòng Thiền và asset legacy trong cùng origin', () => {
   const room = resolveWebFile('/thien/');
-  const background = resolveWebFile('/thien/assets/hall.jpg');
+  const background = resolveWebFile('/thien/assets/hall.webp');
   assert.ok(room);
   assert.ok(background);
   assert.match(readFileSync(room, 'utf8'), /Vào chánh điện/);

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   AVATAR_FRAMES, AVATAR_URL, CHAT_HISTORY_MAX, GAME_ROOMS, parseClientMessage, parseServerMessage, PET_ACTIONS, PLAYER_TITLES, PROTOCOL_VERSION, RPS_CHOICES,
+  SPIRIT_LEVEL_MAX, SPIRIT_SPECIES,
 } from '@chanh-dien/protocol';
 import {
   createDirectoryFromEnv,
@@ -154,6 +155,9 @@ const seatIdsFor = (rules) => new Set(Array.from({ length: rules.seats || 0 }, (
 const benchIdsFor = (rules) => new Set(Array.from({ length: rules.benches?.count || 0 }, (_, index) => `B-${index + 1}`));
 
 const randomBetween = ([min, max]) => min + Math.random() * (max - min);
+// Linh thú đi theo (vé vào phòng / API báo): chỉ giữ { species, level } hợp lệ, còn lại coi như không có.
+const spiritPetOf = (value) => (value && SPIRIT_SPECIES.includes(value.species) && Number.isSafeInteger(value.level)
+  && value.level >= 1 && value.level <= SPIRIT_LEVEL_MAX ? { species: value.species, level: value.level } : null);
 // Chibi quay mặt về trục −z cục bộ; phải cùng công thức với explore3d.mjs để không trượt lùi.
 const headingOf = (dx, dz) => Math.atan2(-dx, -dz);
 
@@ -355,7 +359,7 @@ export class Room {
     };
   }
 
-  entryOf({ id, displayName, seatId, benchId, benchSpot, connected, skin, merit, bot, level, avatarUrl, title, frame, pos, emote, sutra, handWith, handLead }) {
+  entryOf({ id, displayName, seatId, benchId, benchSpot, connected, skin, merit, bot, level, avatarUrl, title, frame, pet, pos, emote, sutra, handWith, handLead }) {
     return {
       id,
       displayName,
@@ -369,6 +373,7 @@ export class Room {
       ...(avatarUrl ? { avatarUrl } : {}),
       ...(title ? { title } : {}),
       ...(frame ? { frame } : {}),
+      ...(pet ? { pet } : {}),
       ...(emote ? { emote } : {}),
       ...(emote === 'chant' && sutra ? { sutra } : {}),
       ...(handWith ? { handWith, ...(handLead ? { handLead: true } : {}) } : {}),
@@ -844,9 +849,10 @@ export class Room {
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     if (this.type !== 'thien' || !this.rules.world?.pets?.includes(petId) || !PET_ACTIONS.includes(action)) return { ok: false, error: 'INVALID_PET' };
     if (!participant.pos || participant.seatId || participant.benchId) return { ok: false, error: 'NOT_ALLOWED' };
-    const area = this.rules.world.petArea;
-    if (!area || participant.pos.x < area.x[0] || participant.pos.x > area.x[1]
-      || participant.pos.z < area.z[0] || participant.pos.z > area.z[1]) return { ok: false, error: 'TOO_FAR' };
+    // Đứng trong khu thú cưng hoặc Nông trại nhỏ.
+    const inside = (area) => area && participant.pos.x >= area.x[0] && participant.pos.x <= area.x[1]
+      && participant.pos.z >= area.z[0] && participant.pos.z <= area.z[1];
+    if (!inside(this.rules.world.petArea) && !inside(this.rules.world.farmArea)) return { ok: false, error: 'TOO_FAR' };
     if (!this.allow(`${participantId}:pet`, 6, 10_000)) return { ok: false, error: 'RATE_LIMITED' };
     this.broadcast({ v: PROTOCOL_VERSION, type: 'pet.interaction', epoch: this.epoch, participantId, petId, action, at: Date.now() });
     return { ok: true };
@@ -1648,6 +1654,10 @@ export class Room {
       ...(this.rules.interaction?.offerings ? { merit: seeded ? [120, 80, 55, 30, 20, 12, 8, 5][state.serial - 1] || 0 : Math.floor(Math.random() * 40) } : {}),
       // Nhịp riêng: 0,6 → tụng nhiều; 1,8 → ít nói.
       pace: 0.6 + Math.random() * 1.2,
+      // Linh thú đi theo (bots.spiritPets = tỉ lệ bot có): loài ngẫu nhiên, cấp thấp thường gặp hơn cấp cao.
+      ...(config.spiritPets && Math.random() < config.spiritPets ? {
+        pet: { species: SPIRIT_SPECIES[Math.floor(Math.random() * SPIRIT_SPECIES.length)], level: 1 + Math.floor(Math.random() ** 2 * SPIRIT_LEVEL_MAX) },
+      } : {}),
       // Lô Tô: thói quen mua vé riêng (bots.tickets) — xác suất mua mỗi ván và xác suất mua 2 vé.
       ...(config.tickets ? {
         ticketChance: randomBetween(config.tickets.chance || [1, 1]),
@@ -2506,6 +2516,8 @@ export class Room {
         ...(AVATAR_FRAMES.includes(claims.frame) ? { frame: claims.frame } : {}),
         // Hình đã mua (theo vé); nối lại bằng resume token thì giữ danh sách cũ.
         ownedSkins: claims.skins || previous?.ownedSkins || [],
+        // Linh thú đang dẫn theo (theo vé; nối lại thì vé dựng từ chính người này nên giữ nguyên con đang có).
+        ...(spiritPetOf(claims.pet) ? { pet: spiritPetOf(claims.pet) } : {}),
       } : {}),
       // "Nick mới" khi dò clone: khách, hoặc tài khoản tạo chưa tới 24 giờ (vé ghi).
       fresh: claims.role === 'guest' || claims.fresh === true,
@@ -3165,6 +3177,29 @@ export class RoomRegistry {
   }
 
   // Có lời nhắn / lời mời bạn bè mới: báo mọi kết nối của tài khoản này trên máy này để trang tải hộp thư.
+  // API báo linh thú dẫn theo của một tài khoản vừa đổi (đổi con, nhận nuôi, lên cấp): cập nhật mọi kết nối của tài
+  // khoản đó trên máy này rồi phát lại danh sách phòng. Trả số người đã đổi.
+  setAccountPet(accountId, value) {
+    const pet = spiritPetOf(value);
+    let changed = 0;
+    for (const room of this.rooms.values()) {
+      let touched = false;
+      for (const participant of room.participants.values()) {
+        if (participant.accountId !== accountId) continue;
+        if (JSON.stringify(participant.pet || null) === JSON.stringify(pet)) continue;
+        if (pet) participant.pet = pet;
+        else delete participant.pet;
+        touched = true;
+        changed += 1;
+      }
+      if (touched) {
+        room.revision += 1;
+        room.broadcastState();
+      }
+    }
+    return changed;
+  }
+
   notifyAccount(accountId, kind) {
     let sent = 0;
     for (const room of this.rooms.values()) {
@@ -3615,6 +3650,7 @@ async function authorizeUpgrade(url, registry, secret) {
       participantId: participant.id, roomId, displayName: participant.displayName, role: 'member',
       accountId: participant.accountId, level: participant.level, avatarUrl: participant.avatarUrl,
       title: participant.title, frame: participant.frame, skins: participant.ownedSkins, fresh: participant.fresh,
+      ...(participant.pet ? { pet: participant.pet } : {}),
     }
     : { participantId: participant.id, roomId, displayName: participant.displayName, role: 'guest' };
   return { claims, room: opened.room };
@@ -3680,6 +3716,27 @@ export function handleRealtimeRequest(req, res, registry = new RoomRegistry(), o
       }
       res.writeHead(valid ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
         .end(JSON.stringify(valid ? { ok: true, done } : { error: 'invalid' }));
+    });
+    return;
+  }
+  // API báo linh thú dẫn theo của một tài khoản vừa đổi: { accountId, pet: { species, level } | null }.
+  if (req.method === 'POST' && req.url === '/internal/account-pet') {
+    if (!options.secret || req.headers?.['x-internal-key'] !== internalKey(options.secret)) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"forbidden"}');
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1_024) req.destroy();
+    });
+    req.on('end', () => {
+      let input = null;
+      try { input = JSON.parse(raw); } catch {}
+      const valid = /^a-[a-zA-Z0-9-]{8,64}$/.test(input?.accountId || '') && (input.pet === null || Boolean(spiritPetOf(input.pet)));
+      const changed = valid ? registry.setAccountPet(input.accountId, input.pet) : 0;
+      res.writeHead(valid ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+        .end(JSON.stringify(valid ? { ok: true, changed } : { error: 'invalid' }));
     });
     return;
   }

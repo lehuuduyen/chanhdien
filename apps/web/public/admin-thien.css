@@ -73,6 +73,10 @@ button:disabled { opacity: .5; cursor: wait; }
 .pack-row button { padding: 9px 0; }
 .pack-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 @media (max-width: 560px) { .pack-head, .pack-row { grid-template-columns: 1fr 1fr 1fr 34px 38px; gap: 6px; } }
+.pet-price-admin[hidden], #petPriceEmpty[hidden] { display: none; }
+.pet-price-head, .pet-price-row { grid-template-columns: minmax(110px, 1.4fr) minmax(90px, 1fr) minmax(110px, 1.2fr) 56px; }
+.pet-price-row span { color: var(--muted); font-size: 13px; }
+@media (max-width: 560px) { .pet-price-head, .pet-price-row { grid-template-columns: 1.2fr 1fr 1fr 40px; gap: 6px; } }
 
 /* 06 · Nhân vật trong Shop: form tải lên + danh sách món (ảnh, tên, giá, bật/tắt, thay file). */
 .model-admin { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #18110d; }

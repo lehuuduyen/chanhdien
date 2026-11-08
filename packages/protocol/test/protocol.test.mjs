@@ -102,6 +102,19 @@ test('snapshot chỉ nhận danh hiệu và khung sự kiện đã định nghĩ
   assert.equal(parseServerMessage({ ...state, participants: [{ ...state.participants[0], frame: 'vip-paid' }] }).error, 'INVALID_MESSAGE');
 });
 
+test('snapshot: linh thú đi theo chỉ nhận loài đã định nghĩa và cấp 1–10, không có trường lạ', () => {
+  const state = {
+    v: PROTOCOL_VERSION, type: 'room.state', epoch: 1, roomId: 'thien-1', revision: 2,
+    participants: [{ id: 'u-1', displayName: 'An', pet: { species: 'carp', level: 4 } }],
+  };
+  const withPet = (pet) => parseServerMessage({ ...state, participants: [{ ...state.participants[0], pet }] });
+  assert.equal(parseServerMessage(state).ok, true);
+  assert.equal(withPet({ species: 'lion', level: 10 }).ok, true);
+  assert.equal(withPet({ species: 'dragon', level: 1 }).error, 'INVALID_MESSAGE');
+  assert.equal(withPet({ species: 'crane', level: 11 }).error, 'INVALID_MESSAGE');
+  assert.equal(withPet({ species: 'crane', level: 2, name: 'Bạch Hạc' }).error, 'INVALID_MESSAGE', 'tên linh thú không đi qua phòng');
+});
+
 test('queue.add chỉ nhận id video YouTube 11 ký tự; playback.report kiểm tra giá trị', () => {
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'r1', videoId: 'dQw4w9WgXcQ' }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'r1', videoId: 'https://youtu.be/x' }).error, 'INVALID_MESSAGE');

@@ -1,6 +1,9 @@
 // Phần thuần của chế độ 3D: kiểm tra bố cục thế giới (mét) và giới hạn camera; chạy được trên Node để test.
 import { validateWalk } from './walk.mjs';
 
+// Loại thú ngoài sân: chó mèo (dựng bằng khối hoặc mô hình) và thú Nông trại nhỏ (mô hình Meshy).
+const ANIMAL_TYPES = ['dog', 'cat', 'rabbit', 'duck', 'goat', 'pig', 'deer', 'pony'];
+
 export function validateWorld(scene) {
   const errors = [];
   const world = scene.world;
@@ -78,7 +81,19 @@ export function validateWorld(scene) {
       for (const id of allowed) if (!guideIds.has(id)) errors.push(`thiếu bảng hướng dẫn ${id}`);
     }
   }
+  const gardenModel = world.courtyard?.garden?.model;
+  if (gardenModel !== undefined && (typeof gardenModel.src !== 'string'
+    || !/^\/models\/garden\/[a-z0-9-]{1,64}\.glb$/.test(gardenModel.src)
+    || ![gardenModel.x, gardenModel.y, gardenModel.z, gardenModel.ry, gardenModel.scale].every(Number.isFinite)
+    || gardenModel.scale <= 0 || gardenModel.scale > 10)) {
+    errors.push('world.courtyard.garden.model không hợp lệ');
+  }
   const petZone = world.courtyard?.petZone;
+  const farmZone = world.courtyard?.farmZone;
+  if (farmZone !== undefined && (!Array.isArray(farmZone?.area?.x) || !Array.isArray(farmZone?.area?.z) || !Array.isArray(farmZone.fence)
+    || farmZone.fence.length < 4 || typeof farmZone.sign !== 'string' || !farmZone.sign.trim() || farmZone.sign.length > 40)) {
+    errors.push('world.courtyard.farmZone thiếu khu vực, hàng rào hoặc bảng tên hợp lệ');
+  }
   const animals = world.courtyard?.animals;
   if (petZone !== undefined || animals !== undefined) {
     const validRange = (range) => Array.isArray(range) && range.length === 2
@@ -97,7 +112,10 @@ export function validateWorld(scene) {
           errors.push(`thú cưng ${animal.id || '?'} có id không hợp lệ hoặc bị trùng`);
         }
         if (typeof animal.name !== 'string' || !animal.name.trim() || animal.name.length > 40) errors.push(`thú cưng ${animal.id || '?'} thiếu tên`);
-        if (!['dog', 'cat'].includes(animal.type)) errors.push(`thú cưng ${animal.id || '?'} có loại không hợp lệ`);
+        // Chó mèo (khu thú cưng) và thú Nông trại nhỏ (chỉ có mô hình riêng).
+        if (!ANIMAL_TYPES.includes(animal.type) || (!['dog', 'cat'].includes(animal.type) && animal.model === undefined)) {
+          errors.push(`thú cưng ${animal.id || '?'} có loại không hợp lệ`);
+        }
         if (![animal.x, animal.z].every(Number.isFinite) || !validRange(animal.area?.x) || !validRange(animal.area?.z)) {
           errors.push(`thú cưng ${animal.id || '?'} thiếu toạ độ hoặc vùng đi lại`);
         }

@@ -1200,6 +1200,22 @@ test('khu thú cưng: chỉ tương tác khi đang ở trong khu và phát hiệ
   room.close();
 });
 
+test('Nông trại nhỏ: đứng trong nông trại tương tác được (kể cả làm trò); đứng ngoài thì quá xa', () => {
+  const room = new Room('thien-1', { botCount: 0 });
+  const inbox = [];
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} }, { participantId: 'u-1', displayName: 'An' });
+  room.participants.get('u-1').pos = { x: 43, z: 75, ry: 0 };
+  assert.deepEqual(room.petInteract('u-1', 'farm-deer-sao', 'trick'), { ok: true });
+  const event = inbox.find((message) => message.type === 'pet.interaction');
+  assert.equal(parseServerMessage(event).ok, true);
+  assert.equal(event.action, 'trick');
+  assert.deepEqual(room.petInteract('u-1', 'farm-pony-gio', 'feed'), { ok: true });
+  // Đứng ở dải lối nối giữa hai khu (ngoài cả hai vùng) thì chưa tương tác được.
+  room.participants.get('u-1').pos = { x: 35, z: 88, ry: 0 };
+  assert.equal(room.petInteract('u-1', 'farm-pony-gio', 'pet').error, 'TOO_FAR');
+  room.close();
+});
+
 test('đi nhanh: server chỉ nhận các điểm cố định, rời chỗ ngồi và phát vị trí mới', async () => {
   const room = new Room('thien-1', { botCount: 0 });
   const sent = [];
@@ -2040,6 +2056,47 @@ test('/internal/bot-say: chỉ máy giữ phòng có bot đó cho bot nói; cầ
   room.close();
 });
 
+test('linh thú đi theo: vé mang pet vào room.state; API đổi con / lên cấp thì cả phòng thấy ngay; bot có linh thú riêng', async () => {
+  const registry = new RoomRegistry({ nodeId: 'rt-spirit' });
+  const room = new Room('thien-1', { botCount: 0 });
+  registry.rooms.set('thien-1', room);
+  const inbox = [];
+  const socket = { readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() {} };
+  room.join(socket, { participantId: 'p-an', displayName: 'An', accountId: 'a-11111111', role: 'member', pet: { species: 'carp', level: 3 } });
+  room.join({ readyState: WebSocket.OPEN, send() {}, close() {} }, { participantId: 'p-khach', displayName: 'Khách', role: 'guest', pet: { species: 'lion', level: 2 } });
+  const entry = (id) => room.snapshot().participants.find((item) => item.id === id);
+  assert.deepEqual(entry('p-an').pet, { species: 'carp', level: 3 });
+  assert.equal(entry('p-khach').pet, undefined, 'khách không có linh thú');
+  assert.equal(parseServerMessage(room.snapshot()).ok, true);
+
+  const call = (body) => new Promise((resolve) => {
+    const res = { status: 0, body: '', writeHead(status) { this.status = status; return this; }, end(chunk = '') { this.body += chunk; resolve(this); } };
+    const req = Object.assign(new EventEmitter(), { method: 'POST', url: '/internal/account-pet', headers: { 'x-internal-key': internalKey(SECRET) } });
+    handleRealtimeRequest(req, res, registry, { secret: SECRET });
+    req.emit('data', JSON.stringify(body));
+    req.emit('end');
+  });
+  inbox.length = 0;
+  assert.equal((await call({ accountId: 'a-11111111', pet: { species: 'crane', level: 4 } })).status, 200);
+  assert.deepEqual(entry('p-an').pet, { species: 'crane', level: 4 });
+  assert.ok(inbox.some((message) => message.type === 'room.state' && message.participants.find((item) => item.id === 'p-an')?.pet?.species === 'crane'), 'phát lại cho phòng');
+  assert.equal((await call({ accountId: 'a-11111111', pet: { species: 'dragon', level: 1 } })).status, 400);
+  assert.equal((await call({ accountId: 'a-11111111', pet: null })).status, 200);
+  assert.equal(entry('p-an').pet, undefined, 'cho linh thú ở nhà');
+  room.close();
+
+  // Khoảng 30% bot chánh điện dẫn theo linh thú hợp lệ.
+  const busy = new Room('thien-az-vi-2', { botCount: 0 });
+  try {
+    busy.setBotCount(120, { managed: true });
+    const pets = busy.snapshot().participants.filter((item) => item.bot && item.pet);
+    assert.ok(pets.length > 15 && pets.length < 60, `${pets.length}/120 bot có linh thú`);
+    assert.equal(parseServerMessage(busy.snapshot()).ok, true);
+  } finally {
+    busy.close();
+  }
+});
+
 test('bạn bè: máy realtime liệt kê thành viên đang kết nối (báo API) và chuyển inbox.notify tới mọi kết nối của tài khoản', async () => {
   const registry = new RoomRegistry({ nodeId: 'rt-friends' });
   const room = new Room('thien-1', { botCount: 0 });
@@ -2326,6 +2383,50 @@ test('deploy: ván Lô Tô lưu vào snapshot, máy mới dựng lại và gọi
   }
 });
 
+test('deploy: bàn Lô Tô đã chạy bởi bot thay timer ván rỗng bằng timer snapshot, người vào lại thấy số tiếp tục gọi', async () => {
+  const { LottoTable, RESUME_GRACE_MS } = await import('../loto.mjs');
+  let clock = 2_000_000;
+  const states = [];
+  const room = { id: 'loto-1', epoch: 4, participants: new Map(), broadcast: (message) => states.push(message) };
+  const rules = {
+    buyMs: 30_000, callMs: 4_000, claimWindowMs: 3_000, resultMs: 8_000,
+    graceAfterLastMs: 15_000, falseClaimLockMs: 10_000, ticketPrice: 10,
+  };
+  const table = new LottoTable({ room, rules, now: () => clock, random: () => 0 });
+  table.start();
+  const emptyRoundId = table.round.id;
+  const oldTimer = table.timer;
+  const restored = {
+    serial: 7,
+    round: {
+      id: 'lt-loto-1-3-7-test', phase: 'calling', endsAt: clock - 10_000, nextCallAt: clock - 10_000,
+      called: [1, 2, 3], tickets: [], botTickets: [], names: {}, autoMark: [], claims: [], botClaims: [],
+      winners: null, void: false,
+    },
+  };
+  let scheduled = null;
+  // Không chờ thật 4 giây: giữ callback mà resume() lập, rồi tiến đồng hồ test tới đúng nhịp và gọi nó.
+  table.schedule = (ms, work) => {
+    clearTimeout(table.timer);
+    table.timer = null;
+    scheduled = { ms, work };
+  };
+  try {
+    assert.equal(table.restoreRecord(restored), true);
+    assert.notEqual(table.round.id, emptyRoundId, 'đã thay ván rỗng bằng ván snapshot');
+    assert.notEqual(table.timer, oldTimer, 'timer ván rỗng đã bị hủy');
+    assert.equal(scheduled.ms, RESUME_GRACE_MS, 'lập lại nhịp gọi với thời gian chờ nối lại');
+    assert.equal(table.stateMessage().nextCallAt, clock + RESUME_GRACE_MS);
+
+    clock += scheduled.ms;
+    scheduled.work();
+    assert.deepEqual(table.stateMessage().called, [1, 2, 3, 4], 'sau khi người vào lại, bàn gọi được số kế tiếp');
+    assert.equal(states.at(-1).called.length, 4, 'trạng thái mới được phát cho client vừa vào lại');
+  } finally {
+    table.stop();
+  }
+});
+
 test('deploy: bàn Bầu Cua dựng lại đang cược thì cược tiếp; đang lắc dở thì mở đúng xúc xắc đã lắc', async () => {
   const { BauCuaTable } = await import('../bau-cua.mjs');
   const { RESUME_GRACE_MS } = await import('../loto.mjs');
@@ -2352,6 +2453,19 @@ test('deploy: bàn Bầu Cua dựng lại đang cược thì cược tiếp; đa
     assert.deepEqual(table.mineMessage('a-an-00000001').mine, { cua: 15 });
   } finally {
     table.stop();
+  }
+
+  // Phòng bot luôn bật đã start một ván rỗng trước khi danh bạ trả snapshot: timer snapshot phải thay timer đó.
+  const live = new BauCuaTable({ room, rules, now: () => clock });
+  live.start();
+  const emptyTimer = live.timer;
+  try {
+    assert.equal(live.restoreRecord(betting), true);
+    assert.notEqual(live.timer, emptyTimer, 'timer ván rỗng đã được thay');
+    assert.equal(live.stateMessage().roundId, old.round.id);
+    assert.ok(live.stateMessage().endsAt >= clock + RESUME_GRACE_MS);
+  } finally {
+    live.stop();
   }
 
   // Máy chết giữa lúc lắc (đã gửi API chốt với xúc xắc này): máy mới dùng lại đúng xúc xắc.

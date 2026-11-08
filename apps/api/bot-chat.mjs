@@ -5,10 +5,13 @@
 // Cuộc trò chuyện của thành viên với từng bot (tin họ nhắn, câu bot trả lời / bắt chuyện, câu quản trị trả lời thay)
 // lưu bảng bot_talk theo tên bot, chỉ trong ngày như lời nhắn bạn bè: màn 💬 Tin nhắn → Bạn bè hiện lại
 // (GET /api/v1/me/bot-thread?name=<tên bot>).
+// Nhắn riêng bạn bot như nhắn bạn bè (POST /api/v1/me/bot-thread { name, text }, bot không cần ở cùng phòng): lưu tin và
+// báo Telegram; chỉ quản trị trả lời (/tl <mã>), câu trả lời vào thẳng cuộc trò chuyện và báo trang người nhận
+// (inbox.notify). Nhắn chung trong phòng ("@Tên bot") thì AI ở máy realtime trả lời.
 import { randomInt, timingSafeEqual } from 'node:crypto';
 import { dayStartOf, thienRoomName } from '@chanh-dien/room-rules';
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
-import { currentAccount } from './auth.mjs';
+import { allow, currentAccount, sameOrigin } from './auth.mjs';
 import { json, readJson } from './http.mjs';
 
 const CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -17,7 +20,11 @@ const KEEP_MS = 3 * 24 * 60 * 60_000;
 const TEXT_MAX = 280;
 const text = (value, max) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const newCode = () => Array.from({ length: 5 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
-const roomLabel = (roomId) => thienRoomName(roomId) || roomId;
+// Tin nhắn riêng (màn Tin nhắn) không thuộc phòng nào: lưu bot_chats với roomId / botId = DIRECT.
+const DIRECT = 'direct';
+const roomLabel = (roomId) => (roomId === DIRECT ? 'Tin nhắn riêng' : thienRoomName(roomId) || roomId);
+const DM_TEXT_MAX = 200;
+const DM_BURST = [8, 60_000];
 const ACCOUNT_ID = /^a-[a-zA-Z0-9-]{8,64}$/;
 // Mỗi thành viên tối đa 400 tin với bot mỗi ngày (cả hai chiều); màn Tin nhắn hiện 50 tin gần nhất.
 const TALK_DAY_MAX = 400;
@@ -67,6 +74,8 @@ export function createBotChatStore({ db, notify = null, now = Date.now, timeZone
     talkThread: db.prepare(`SELECT id, from_bot AS fromBot, text, at FROM bot_talk
       WHERE account_id = ? AND bot_name = ? AND at >= ? ORDER BY at DESC, id DESC LIMIT ${THREAD_MAX}`),
     talkPrune: db.prepare('DELETE FROM bot_talk WHERE at < ?'),
+    talkLatest: db.prepare(`SELECT bot_name AS botName, from_bot AS fromBot, text, at FROM bot_talk
+      WHERE account_id = ? AND at >= ? ORDER BY at DESC, id DESC LIMIT 400`),
   };
   const today = () => dayStartOf(now(), timeZone);
   let prunedAt = 0;
@@ -89,6 +98,14 @@ export function createBotChatStore({ db, notify = null, now = Date.now, timeZone
     // Cuộc trò chuyện hôm nay với một bot (cũ trước).
     thread: (accountId, botName) => q.talkThread.all(accountId, botName, today()).reverse()
       .map((row) => ({ id: row.id, mine: !row.fromBot, text: row.text, at: row.at })),
+    // Tin cuối hôm nay với từng bot: Map tên bot → { text, at, mine } (danh sách bạn bè hiện như bạn là người).
+    lastByBot(accountId) {
+      const last = new Map();
+      for (const row of q.talkLatest.all(accountId, today())) {
+        if (!last.has(row.botName)) last.set(row.botName, { text: row.text, at: row.at, mine: !row.fromBot });
+      }
+      return last;
+    },
     // Tin người chơi nhắn bot: lưu + báo Telegram. Trả mã trả lời.
     record({ roomId, botId, botName, fromName, accountId = null, text: message }) {
       const at = now();
@@ -105,7 +122,7 @@ export function createBotChatStore({ db, notify = null, now = Date.now, timeZone
       }
       if (member) talk(member, botName, false, message);
       notify?.([
-        `💬 Nhắn bot · ${roomLabel(roomId)}`,
+        `💬 Nhắn bot · ${roomLabel(roomId)}${roomId === DIRECT ? ' (bot không cần ở trong phòng)' : ''}`,
         `${fromName} → 🤖 ${botName}: "${message}"`,
         `Trả lời: /tl ${code} <nội dung>  (hoặc bấm Reply vào tin này rồi gõ)`,
       ].join('\n'));
@@ -162,11 +179,40 @@ export async function botChatTelegramCommand(message, options) {
   const body = text(reply, TEXT_MAX);
   if (!body) return `Thiếu nội dung. Ví dụ: /tl ${code} Chào bạn, chúc bạn an lạc 🙏`;
   // Nhắc tên người hỏi để họ biết bot đang trả lời mình (trừ khi quản trị đã tự gõ @).
+  // Tin nhắn riêng: lưu thẳng vào cuộc trò chuyện (không cần bot ở phòng nào) và báo trang người nhận.
+  if (chat.roomId === DIRECT) {
+    if (!chat.accountId || !options.botChats.talk(chat.accountId, chat.botName, true, body)) return `Chưa lưu được câu trả lời cho ${chat.fromName}.`;
+    options.notifyInbox?.(chat.accountId, 'note');
+    return `✅ 🤖 ${chat.botName} đã trả lời tin nhắn riêng của ${chat.fromName}: "${body}"`;
+  }
   const said = body.startsWith('@') ? body : `@${chat.fromName} ${body}`.slice(0, TEXT_MAX);
   const result = options.botSpeaker ? await options.botSpeaker({ roomId: chat.roomId, botId: chat.botId, botName: chat.botName, text: said }) : null;
   if (!result) return `🤖 ${chat.botName} đã rời ${roomLabel(chat.roomId)} (hoặc phòng đã đóng), chưa gửi được.`;
   if (chat.accountId) options.botChats.talk(chat.accountId, chat.botName, true, said);
   return `✅ 🤖 ${chat.botName} đã nói trong ${roomLabel(chat.roomId)}: "${said}"`;
+}
+
+// Thành viên nhắn riêng một bạn bot: lưu + báo Telegram. Quản trị trả lời bằng /tl thì tin tới sau (inbox.notify).
+async function sendDirect(req, res, account, options) {
+  if (!sameOrigin(req)) return json(req, res, 403, { error: 'forbidden_origin' });
+  if (!allow(options, `bot-dm:${account.id}`, DM_BURST)) return json(req, res, 429, { error: 'rate_limited' });
+  let input;
+  try { input = await readJson(req); } catch { return json(req, res, 400, { error: 'invalid_json' }); }
+  const name = text(input?.name, 40);
+  const said = text(input?.text, DM_TEXT_MAX);
+  if (!name) return json(req, res, 400, { error: 'invalid_bot' });
+  if (!said) return json(req, res, 400, { error: 'empty_note' });
+  if (!options.friendLinks?.botFriends(account.id).some((bot) => bot.name === name)) return json(req, res, 403, { error: 'not_friends' });
+  // Qua bộ lọc chữ và sổ khóa như chat / lời nhắn bạn bè.
+  if (options.moderation?.restriction({ accountId: account.id })) return json(req, res, 403, { error: 'chat_restricted' });
+  if (options.moderation?.check(said).action === 'block') return json(req, res, 400, { error: 'text_not_allowed' });
+  const botChats = options.botChats;
+  const before = botChats.thread(account.id, name);
+  botChats.record({ roomId: DIRECT, botId: DIRECT, botName: name, fromName: account.displayName, accountId: account.id, text: said });
+  const items = botChats.thread(account.id, name);
+  // Quá 400 tin hôm nay thì record không lưu thêm.
+  if (items.at(-1)?.id === before.at(-1)?.id) return json(req, res, 429, { error: 'rate_limited' });
+  json(req, res, 200, { ok: true, items });
 }
 
 const internalAllowed = (req, options) => {
@@ -179,10 +225,14 @@ const internalAllowed = (req, options) => {
 // Trang hỏi cuộc trò chuyện với một bot: GET /api/v1/me/bot-thread?name=<tên bot>.
 export async function handleBotChatRequest(req, res, pathname, options) {
   if (pathname === '/api/v1/me/bot-thread') {
-    if (req.method !== 'GET') return json(req, res, 405, { error: 'method_not_allowed' }), true;
+    if (req.method !== 'GET' && req.method !== 'POST') return json(req, res, 405, { error: 'method_not_allowed' }), true;
     if (!options.botChats) return json(req, res, 503, { error: 'bot_chat_disabled' }), true;
     const account = currentAccount(req, options);
     if (!account) return json(req, res, 401, { error: 'not_signed_in' }), true;
+    if (req.method === 'POST') {
+      await sendDirect(req, res, account, options);
+      return true;
+    }
     const name = text(new URL(req.url, 'http://local').searchParams.get('name'), 40);
     if (!name) return json(req, res, 400, { error: 'invalid_bot' }), true;
     return json(req, res, 200, { ok: true, items: options.botChats.thread(account.id, name) }), true;

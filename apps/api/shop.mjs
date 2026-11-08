@@ -18,6 +18,7 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmS
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { PET_LEVEL_DAYS, petRate, SPIRIT_PETS } from '@chanh-dien/garden';
 import { isPremiumSkin, isShopSkin, LOGIN_REWARD_ITEMS, LOGIN_REWARDS, SHOP_ITEMS } from '@chanh-dien/room-rules';
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
 import { allow, currentAccount, loginRewardView, sameOrigin } from './auth.mjs';
@@ -136,8 +137,8 @@ export function shopConfig(env = process.env) {
 
 // Loại giao dịch trong sổ kim cương. spend / refund: tiêu trong phòng (mở phim) và hoàn khi không thực hiện được.
 const TX_KINDS = "'topup', 'purchase', 'admin_adjustment', 'spend', 'refund'";
-// Việc được phép tiêu kim cương qua máy realtime (lý do ghi vào sổ).
-export const SPEND_REASONS = Object.freeze(['cinema_video']);
+// Việc được phép tiêu kim cương (lý do ghi vào sổ): mở phim (máy realtime), nhận nuôi linh thú (API).
+export const SPEND_REASONS = Object.freeze(['cinema_video', 'pet_adopt']);
 const SPEND_KEY = /^[A-Za-z0-9_-]{8,64}$/;
 
 export function createShopStore({ db, now = Date.now }) {
@@ -240,6 +241,13 @@ export function createShopStore({ db, now = Date.now }) {
     ALTER TABLE shop_transactions_new RENAME TO shop_transactions;
     CREATE INDEX IF NOT EXISTS shop_transactions_account ON shop_transactions (account_id, id);
     COMMIT;`);
+  // Giá nhận nuôi linh thú (kim cương) do admin đặt; tắt thì không nhận nuôi mới được (con đã nuôi vẫn nuôi tiếp).
+  db.exec(`CREATE TABLE IF NOT EXISTS spirit_pet_prices (
+      species TEXT PRIMARY KEY,
+      price INTEGER NOT NULL CHECK (price >= 1),
+      active INTEGER NOT NULL CHECK (active IN (0, 1)),
+      updated_at INTEGER NOT NULL
+    );`);
   // Giá gốc (gạch ngang khi đang giảm giá): thêm cột cho database tạo trước khi có tính năng này.
   const catalogColumns = db.prepare('PRAGMA table_info(shop_catalog)').all().map((column) => column.name);
   if (!catalogColumns.includes('original_price')) db.exec('ALTER TABLE shop_catalog ADD COLUMN original_price INTEGER');
@@ -248,6 +256,9 @@ export function createShopStore({ db, now = Date.now }) {
   // Kiểu nhún nhảy khi file không có điệu nhảy riêng (DANCE_STYLES).
   if (!catalogColumns.includes('dance')) db.exec("ALTER TABLE shop_catalog ADD COLUMN dance TEXT NOT NULL DEFAULT 'bounce'");
   const q = {
+    petPrices: db.prepare('SELECT species, price, active FROM spirit_pet_prices'),
+    setPetPrice: db.prepare(`INSERT INTO spirit_pet_prices (species, price, active, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(species) DO UPDATE SET price = excluded.price, active = excluded.active, updated_at = excluded.updated_at`),
     preferredSkin: db.prepare('SELECT skin FROM account_skins WHERE account_id = ?'),
     setPreferredSkin: db.prepare(`INSERT INTO account_skins (account_id, skin, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(account_id) DO UPDATE SET skin = excluded.skin, updated_at = excluded.updated_at`),
@@ -346,6 +357,26 @@ export function createShopStore({ db, now = Date.now }) {
   if (!q.packCount.get().count) transaction(() => writePacks(DIAMOND_PACKS.map((pack) => ({ ...pack, active: true }))));
 
   return {
+    // Giá linh thú theo thứ tự SPIRIT_PETS; loài chưa đặt giá dùng giá khởi tạo trong code. Người dùng chỉ thấy loài đang bán.
+    petPrices({ all = false } = {}) {
+      const saved = new Map(q.petPrices.all().map((row) => [row.species, row]));
+      return Object.entries(SPIRIT_PETS).map(([species, item]) => {
+        const row = saved.get(species);
+        return { species, price: row?.price ?? item.price, active: row ? row.active === 1 : true };
+      }).filter((item) => all || item.active);
+    },
+    // Admin lưu giá: [{ species, price, active }] (loài phải có trong SPIRIT_PETS, giá nguyên 1–1.000.000). Sai thì null.
+    setPetPrices(list) {
+      if (!Array.isArray(list) || !list.length || list.length > Object.keys(SPIRIT_PETS).length) return null;
+      const seen = new Set();
+      for (const item of list) {
+        if (!item || typeof item !== 'object' || !Object.hasOwn(SPIRIT_PETS, item.species) || seen.has(item.species)
+          || !Number.isSafeInteger(item.price) || item.price < 1 || item.price > 1_000_000 || typeof item.active !== 'boolean') return null;
+        seen.add(item.species);
+      }
+      transaction(() => { for (const item of list) q.setPetPrice.run(item.species, item.price, item.active ? 1 : 0, now()); });
+      return this.petPrices({ all: true });
+    },
     // Gói nạp: người dùng chỉ thấy gói đang bật; admin thấy cả gói tắt.
     packs({ all = false } = {}) {
       return q.packs.all().map((row) => ({ id: row.id, diamonds: row.diamonds, cents: row.cents, active: row.active === 1 }))
@@ -745,6 +776,20 @@ export async function handleShopRequest(req, res, pathname, options) {
       rmSync(raw, { force: true });
       rmSync(packed, { force: true });
     }
+  }
+  // Admin: giá nhận nuôi linh thú (GET / PUT { pets: [{ species, price, active }] }, khóa ADMIN_SECRET).
+  if (pathname === '/api/v1/admin/shop/pets') {
+    if (!store) return json(req, res, 503, { error: 'shop_unavailable' }), true;
+    if (!isAdmin(req, options)) return json(req, res, 403, { error: 'forbidden' }), true;
+    // Kèm tốc độ đào (xu/giờ) ở cấp 1 và cấp cao nhất để admin xem; con số này nằm trong code, không sửa ở đây.
+    const withRates = (pets) => pets.map((pet) => ({ ...pet, rate: [petRate(pet.species, 1) / 100, petRate(pet.species, PET_LEVEL_DAYS.length) / 100] }));
+    if (req.method === 'GET') return json(req, res, 200, { pets: withRates(store.petPrices({ all: true })) }), true;
+    if (req.method !== 'PUT') return json(req, res, 405, { error: 'method_not_allowed' }), true;
+    const input = await readBody(req, res);
+    if (!input) return true;
+    const pets = store.setPetPrices(input.pets);
+    if (!pets) return json(req, res, 400, { error: 'invalid_pets' }), true;
+    return json(req, res, 200, { pets: withRates(pets) }), true;
   }
   // Admin: xem / lưu cả danh sách gói nạp (khóa ADMIN_SECRET trong header x-admin-key).
   if (pathname === '/api/v1/admin/shop/packs') {

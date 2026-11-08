@@ -90,9 +90,9 @@ addEventListener('resize', fit); fit();
 
 /* ======================= assets ======================= */
 const A = {};
-const IMG = { hall:'/assets/hall.jpg', monk:'/assets/c_monk.png', nun:'/assets/c_nun.png', granny:'/assets/c_granny.png', man:'/assets/c_man.png',
-  woman:'/assets/c_woman.png', child:'/assets/c_child.png', anim_man:'/assets/anim_man.png', anim_woman:'/assets/anim_woman.png', anim_granny:'/assets/anim_granny.png',
-  lotus:'/assets/fx_lotus.png', halo:'/assets/fx_halo.png', bell:'/assets/fx_bell.png', incense:'/assets/fx_incense.png', petal:'/assets/fx_petal.png' };
+const IMG = { hall:'/assets/hall.webp', monk:'/assets/c_monk.webp', nun:'/assets/c_nun.webp', granny:'/assets/c_granny.webp', man:'/assets/c_man.webp',
+  woman:'/assets/c_woman.webp', child:'/assets/c_child.webp', anim_man:'/assets/anim_man.webp', anim_woman:'/assets/anim_woman.webp', anim_granny:'/assets/anim_granny.webp',
+  lotus:'/assets/fx_lotus.webp', halo:'/assets/fx_halo.webp', bell:'/assets/fx_bell.webp', incense:'/assets/fx_incense.webp', petal:'/assets/fx_petal.webp' };
 for (const [k,src] of Object.entries(IMG)){ const im=new Image(); im.src=src; A[k]=im; }
 const ANIM = { man:{fw:212,fh:300,seatH:210}, woman:{fw:212,fh:300,seatH:220}, granny:{fw:195,fh:300,seatH:222} };
 const hasAnim = k => ANIM[k] && A['anim_'+k]?.naturalWidth > 0;

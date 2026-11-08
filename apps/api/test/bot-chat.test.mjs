@@ -115,3 +115,44 @@ test('bảng bot_chats cũ (chưa có cột account_id) được thêm cột, m�
   assert.equal(store.get('abcde').accountId, null);
   assert.equal(store.get('abcde').botName, 'Sen Nhỏ');
 });
+
+test('nhắn riêng bạn bot như bạn bè: không cần ở cùng phòng, chỉ báo Telegram (không AI); /tl trả lời thẳng vào cuộc trò chuyện', async () => {
+  const { createFriendLinks } = await import('../friend-links.mjs');
+  const { THIEN_RULES } = await import('@chanh-dien/room-rules');
+  const { options, sent, spoken } = setup();
+  const bot = THIEN_RULES.bots.names[0];
+  const notified = [];
+  Object.assign(options, {
+    friendLinks: createFriendLinks({ db: options.accounts.database, accounts: options.accounts, secret: SECRET }),
+    notifyInbox: (accountId, kind) => notified.push([accountId, kind]),
+  });
+  const anh = options.accounts.register({ username: 'anh.dm', password: 'matkhau123', displayName: 'Anh' }).account;
+  const headers = { cookie: `cd_session=${createSessionToken({ accountId: anh.id, version: anh.sessionVersion ?? 0 }, SECRET)}` };
+  const send = (body) => request(options, 'POST', '/api/v1/me/bot-thread', { body, headers });
+  const thread = async () => (await request(options, 'GET', `/api/v1/me/bot-thread?name=${encodeURIComponent(bot)}`, { headers })).json.items;
+
+  assert.equal((await request(options, 'POST', '/api/v1/me/bot-thread', { body: { name: bot, text: 'chào' } })).status, 401);
+  assert.equal((await send({ name: bot, text: 'chào' })).json.error, 'not_friends', 'chỉ nhắn được bạn đã kết');
+  assert.equal(options.friendLinks.addBotFriend(anh.id, bot).ok, true);
+  assert.equal((await send({ name: bot, text: '   ' })).json.error, 'empty_note');
+  assert.equal((await request(options, 'POST', '/api/v1/me/bot-thread', { body: { name: bot, text: 'chào' }, headers: { ...headers, origin: 'https://evil.test' } })).status, 403, 'khác origin');
+
+  const done = await send({ name: bot, text: 'Hôm nay bạn có đi chùa không?' });
+  assert.equal(done.status, 200);
+  assert.equal(done.json.items.at(-1).text, 'Hôm nay bạn có đi chùa không?');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual((await thread()).map((item) => item.mine), [true], 'không có câu tự trả lời: chờ quản trị');
+  assert.deepEqual(spoken, [], 'tin riêng không bắt bot nói trong phòng nào');
+  assert.match(sent.at(-1), /💬 Nhắn bot · Tin nhắn riêng/);
+  assert.match(sent.at(-1), /Anh → 🤖 .*: "Hôm nay bạn có đi chùa không\?"/);
+
+  const code = /\/tl ([a-z0-9]{5})/.exec(sent.at(-1))[1];
+  const reply = await telegram(options, { text: `/tl ${code} Có chứ, chiều nay mình lên chùa 🙏` });
+  assert.match(reply.json.text, /đã trả lời tin nhắn riêng của Anh/);
+  assert.deepEqual(notified.at(-1), [anh.id, 'note'], 'báo trang người nhận có tin mới');
+  const after = await thread();
+  assert.deepEqual(after.map(({ mine, text }) => [mine, text]), [[true, 'Hôm nay bạn có đi chùa không?'], [false, 'Có chứ, chiều nay mình lên chùa 🙏']]);
+  // Danh sách bạn bè: bạn bot kèm tin cuối như bạn là người.
+  const friends = (await request(options, 'GET', '/api/v1/me/friends', { headers })).json;
+  assert.deepEqual(friends.botFriends.map((item) => [item.name, item.last?.text, item.last?.mine]), [[bot, 'Có chứ, chiều nay mình lên chùa 🙏', false]]);
+});

@@ -270,6 +270,13 @@ export function createBotNav(world) {
       add('pets', { x: pets.x[0] + 2 + ((index * 7) % 10) / 10 * (pets.x[1] - pets.x[0] - 4), z: pets.z[0] + 2 + (index / 10) * (pets.z[1] - pets.z[0] - 4) });
     }
   }
+  // Nông trại nhỏ: cùng loại điểm với khu thú cưng (đứng xem thú một lúc rồi đi tiếp).
+  const farm = yard.farmZone?.area;
+  if (farm) {
+    for (let index = 0; index < 8; index += 1) {
+      add('pets', { x: farm.x[0] + 1.6 + ((index * 5) % 8) / 8 * (farm.x[1] - farm.x[0] - 3.2), z: farm.z[0] + 2 + (index / 8) * (farm.z[1] - farm.z[0] - 4) });
+    }
+  }
   if (yard.gate?.z) for (const x of [-2, 0, 2]) add('gate', { x, z: yard.gate.z - 3 }, { x, z: yard.gate.z });
   const entry = yard.gate?.z ? (() => {
     const at = nearestFree({ x: 0, z: yard.gate.z - 1.5 });
