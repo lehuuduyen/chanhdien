@@ -73,9 +73,23 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   });
   const effectBase = sceneData.effects?.base || '/thien/assets/';
   const effectNames = Object.entries(sceneData.effects?.sprites || {});
-  const loaded = await Promise.all(effectNames.map(([, file]) => loadTexture(`${effectBase}${file}.png`)));
-  const effectTextures = new Map(effectNames.map(([name], index) => [name, loaded[index]]));
-  const textures = { glow: glowTexture('rgba(255, 220, 150, 1)', 'rgba(255, 160, 60, 0)'), halo: effectTextures.get('halo') };
+  const effectFiles = new Map(effectNames);
+  const effectTextures = new Map();
+  const effectLoads = new Map();
+  // Hiệu ứng chỉ tải ở lần dùng đầu tiên; không chặn màn hình vào phòng vì các nút dâng lễ có quầng sáng dựng bằng
+  // Canvas làm dự phòng trong lúc ảnh WebP đang giải mã.
+  const effectTexture = (name) => {
+    if (effectTextures.has(name)) return effectTextures.get(name);
+    const file = effectFiles.get(name);
+    if (file && !effectLoads.has(name)) {
+      effectLoads.set(name, loadTexture(`${effectBase}${file}.webp`).then((texture) => {
+        effectTextures.set(name, texture);
+        return texture;
+      }));
+    }
+    return null;
+  };
+  const textures = { glow: glowTexture('rgba(255, 220, 150, 1)', 'rgba(255, 160, 60, 0)') };
 
   const materials = createTempleMaterials();
   materials.bronze = materials.bronze || new THREE.MeshStandardMaterial({ color: '#7a5a2a', metalness: 0.85, roughness: 0.38 });
@@ -116,6 +130,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   const statueProgress = { done: 0, total: 0 };
   const statuesReady = loadStatues({
     root, world, buddha, courtyard, shadows: renderer.shadowMap.enabled, renderer, camera, scene3d,
+    defer: true,
     onProgress: (done, total) => Object.assign(statueProgress, { done, total }),
   });
   const altar = { candles: [] };
@@ -343,7 +358,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   // vẫn dưới 22 thì tắt ánh sáng môi trường. Không bao giờ nâng lại để tránh chập chờn.
   const quality = { level: 0, windowStart: 0, frames: 0, shadowTrial: touch && courtyard ? 'waiting' : 'done' };
   function adaptQuality(time) {
-    if (quality.level >= 2 || document.hidden) return;
+    if (document.hidden) return;
     if (!quality.windowStart) quality.windowStart = time;
     quality.frames += 1;
     const elapsed = time - quality.windowStart;
@@ -375,8 +390,6 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
         material.emissive.set(material === materials.bronze ? '#2a1a08' : '#5a3a0c');
         material.emissiveIntensity = 0.6;
       }
-      quality.level = 2;
-    } else if (measured >= 28) {
       quality.level = 2;
     }
   }
@@ -479,8 +492,9 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   }
 
   function addPetal(position, velocity, life) {
-    if (effects.petals.length >= MAX_PETALS || !effectTextures.get('petal')) return;
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: effectTextures.get('petal'), transparent: true, depthWrite: false }));
+    const petal = effectTexture('petal');
+    if (effects.petals.length >= MAX_PETALS || !petal) return;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: petal, transparent: true, depthWrite: false }));
     const scale = 0.12 + Math.random() * 0.08;
     sprite.scale.set(scale, scale, 1);
     sprite.position.copy(position);
@@ -499,7 +513,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     // Dâng hương: nén hương bay từ chỗ người dâng (hoặc từ cửa nếu ở khán đài) vào lư rồi cắm xuống.
     if (kind === 'incense') {
       const start = person ? new THREE.Vector3(person.group.position.x, 1.0, person.group.position.z) : new THREE.Vector3(0, 1.2, 9);
-      const texture = effectTextures.get('incense');
+      const texture = effectTexture('incense');
       if (texture) {
         const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
         sprite.scale.set(0.32, 0.32 * (texture.image.height / texture.image.width), 1);
@@ -511,7 +525,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     if (!person) return false;
     if (!reduceMotion) person.bowT = 0;
     const origin = person.group.position;
-    const texture = kind === 'incense' ? null : effectTextures.get(kind);
+    const texture = kind === 'incense' ? null : effectTexture(kind);
     if (texture) {
       if (effects.fx.length >= MAX_FX) {
         const old = effects.fx.shift();
@@ -794,6 +808,10 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     plugin: plugin?.api || null,
     // Danh sách tượng quét đã thay (để kiểm tra): Promise<['buddha', 'guanyin', 'arhats']>.
     statuesReady,
+    activateAssets() {
+      statuesReady.start?.();
+      courtyard?.activateAssets?.();
+    },
     // Tiến độ tải tượng { done, total } (trang hiện "Đang tải cảnh…" ở cổng vào).
     loadProgress() {
       return { ...statueProgress };
@@ -866,6 +884,16 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     },
     debugAnimals() {
       return courtyard?.animals?.positions() || [];
+    },
+    // Chỉ để kiểm tra khi phát triển: vật nằm dưới điểm (x, y) theo tỉ lệ 0–1 của khung vẽ.
+    debugPick(x, y) {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera);
+      return ray.intersectObjects(scene3d.children, true).slice(0, 4).map((hit) => {
+        const names = [];
+        for (let node = hit.object; node; node = node.parent) if (node.name) names.push(node.name);
+        return { distance: Math.round(hit.distance * 100) / 100, type: hit.object.type, names, material: hit.object.material?.type, color: hit.object.material?.color?.getHexString?.(), map: Boolean(hit.object.material?.map), point: hit.point.toArray().map((value) => Math.round(value * 100) / 100) };
+      });
     },
     debugView(position, target) {
       controls.enableDamping = false;

@@ -194,10 +194,15 @@ export const THIEN_RULES = defineRoomRules({
       memorial: { x: -35.8, z: 63.5, ry: 1.5708 },
       park: { x: 13.2, z: 28.6, ry: -1.5708 },
       flowers: { x: -25.4, z: 40.75, ry: 1.5708 },
+      farm: { x: 43.4, z: 64.6, ry: 3.1416 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
-    pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo'],
+    pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo',
+      // Nông trại nhỏ (kế bên khu thú cưng, mô hình Meshy).
+      'farm-rabbit-bong', 'farm-rabbit-mochi', 'farm-duck-vang', 'farm-duck-bau', 'farm-goat-rau', 'farm-pig-un', 'farm-deer-sao', 'farm-pony-gio'],
     petArea: { x: [7.2, 34], z: [77, 97] },
+    // Nông trại nhỏ: đứng trong khu này cũng tương tác được với thú (pet.interact).
+    farmArea: { x: [36, 50.8], z: [60, 97] },
     // Công việc chung trong sân chùa. Server dùng chính các điểm này để xác nhận người chơi đã lại gần; scene
     // thien-default khai báo cùng id/toạ độ để engine hiện nút và đạo cụ. Một người làm mất khoảng 36 giây,
     // nhiều người cùng làm được cộng thêm 25% hiệu quả cho mỗi người sau người đầu tiên.
@@ -222,6 +227,8 @@ export const THIEN_RULES = defineRoomRules({
     churnMs: [180_000, 360_000],
     // Hai hình cuối chỉ dành cho bot, không đưa vào THIEN_RULES.skins nên người dùng không thể chọn lách qua client.
     skins: ['man', 'woman', 'pilgrim', 'lotusgirl', 'granny', 'nun', 'monk', 'child'],
+    // Khoảng 30% bot dẫn theo một linh thú (loài, cấp ngẫu nhiên) như người chơi đã nuôi.
+    spiritPets: 0.3,
     // Một phần bot đi dạo ngoài khuôn viên. Tọa độ bám các lối đá trong scene thien-default; bot còn lại vẫn ngồi
     // bồ đoàn để chánh điện có người tụng. Máy realtime phát vị trí qua room.moves như người thật.
     // Số bot = đúng số addbot (tối đa max; mỗi bot cần một tên riêng nên phòng ngôn ngữ khác còn bị giới hạn bởi số tên).
@@ -404,7 +411,7 @@ export const TAI_XIU_RULES = defineRoomRules({
 // base: hình khối thay thế khi máy không tải được mô hình .glb (và ảnh 2D).
 export const SHOP_ITEMS = deepFreeze([
   // thumb: ảnh chân dung dựng sẵn (shop/cổng hiện ngay, không phải tải three.js và mô hình mới thấy hình).
-  { id: 'chibigirl', kind: 'skin', skin: 'chibigirl', base: 'woman', price: 300, thumb: '/models/characters/chibi-girl.png' },
+  { id: 'chibigirl', kind: 'skin', skin: 'chibigirl', base: 'woman', price: 300, thumb: '/models/characters/chibi-girl.webp' },
 ]);
 // Quà đăng nhập: tính tổng số ngày khác nhau đã điểm danh, không bắt buộc liên tiếp. Bé Mũ Đỏ vẫn có thể mua sớm;
 // Kiếm Sĩ chỉ nhận từ sự kiện. Quyền sở hữu được ghi chung vào shop_items nên tồn tại vĩnh viễn và không cấp trùng.

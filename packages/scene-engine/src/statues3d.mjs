@@ -102,8 +102,24 @@ function placeMatrix({ x, y = 0, z, ry = 0, height }) {
 
 const TEXTURE_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap'];
 
-// onProgress(done, total): số tệp tượng đã tải xong (để trang hiện "Đang tải cảnh…").
-export function loadStatues({ root, world, buddha, courtyard, shadows = false, renderer = null, camera = null, scene3d = null, onProgress = null }) {
+// defer: tạo Promise nhưng chỉ tải khi gọi promise.start(); dùng ở cổng vào để không tải vài MB tượng trước khi
+// người dùng thực sự vào phòng. onProgress(done, total): số tệp tượng đã tải xong.
+export function loadStatues(options) {
+  if (!options?.defer) return loadStatuesNow(options || {});
+  let started = false;
+  let start;
+  const ready = new Promise((resolve) => {
+    start = () => {
+      if (started) return;
+      started = true;
+      loadStatuesNow(options).then(resolve);
+    };
+  });
+  ready.start = start;
+  return ready;
+}
+
+function loadStatuesNow({ root, world, buddha, courtyard, shadows = false, renderer = null, camera = null, scene3d = null, onProgress = null }) {
   const config = world.statues;
   if (!config) return Promise.resolve([]);
   const tasks = [];

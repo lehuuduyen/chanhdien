@@ -82,9 +82,10 @@ function gltfLoader() {
   return loader;
 }
 
-// Mô hình khu vui chơi: { src, x, z, ry, scale, y } (y: độ cao đặt gốc mô hình, âm để nền mô hình ngang mặt cỏ).
-// Tải xong mới hiện; lỗi tải thì khu vẫn chơi được (ghế xích đu vẫn có), chỉ thiếu khung.
-export function loadParkModel(root, model) {
+// Mô hình cảnh tĩnh: { src, x, z, ry, scale, y, lazyDistance? }. Khi có lazyDistance, chỉ bắt đầu tải lúc camera
+// đến gần. Nhóm trả về có userData.lazyAsset.update(point) để cảnh gọi mỗi khung; lỗi tải thì cảnh thủ tục và chức
+// năng vẫn còn.
+export function loadStaticModel(root, model, label = 'cảnh') {
   if (!model?.src) return null;
   const group = new THREE.Group();
   group.position.set(model.x, model.y || 0, model.z);
@@ -92,16 +93,40 @@ export function loadParkModel(root, model) {
   group.scale.setScalar(model.scale || 1);
   group.visible = false;
   root.add(group);
-  gltfLoader().loadAsync(model.src).then((gltf) => {
-    gltf.scene.traverse((object) => {
-      if (!object.isMesh) return;
-      object.castShadow = true;
-      object.receiveShadow = true;
+  let state = 'idle';
+  const load = () => {
+    if (state !== 'idle') return;
+    state = 'loading';
+    gltfLoader().loadAsync(model.src).then((gltf) => {
+      gltf.scene.traverse((object) => {
+        if (!object.isMesh) return;
+        object.castShadow = true;
+        object.receiveShadow = true;
+      });
+      group.add(gltf.scene);
+      group.visible = true;
+      state = 'loaded';
+    }).catch((error) => {
+      state = 'failed';
+      console.warn(`Không tải được mô hình ${label}: ${error.message}`);
     });
-    group.add(gltf.scene);
-    group.visible = true;
-  }).catch((error) => console.warn(`Không tải được mô hình khu vui chơi: ${error.message}`));
+  };
+  const lazyDistance = Math.max(0, Number(model.lazyDistance) || 0);
+  group.userData.lazyAsset = {
+    load,
+    state: () => state,
+    update(point) {
+      if (state !== 'idle' || !point) return;
+      if (Math.hypot(point.x - model.x, point.z - model.z) <= lazyDistance) load();
+    },
+  };
+  if (!lazyDistance) load();
   return group;
+}
+
+// Mô hình khu vui chơi: y có thể âm để nền mô hình ngang mặt cỏ. Khi lỗi, ghế xích đu vẫn dùng được.
+export function loadParkModel(root, model) {
+  return loadStaticModel(root, model, 'khu vui chơi');
 }
 
 // Ghế xích đu (nhóm riêng để đu). Trả { id, kind, pivots } để engine đu ghế khi có người ngồi; cầu tuột không có

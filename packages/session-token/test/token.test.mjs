@@ -75,3 +75,11 @@ test('vé thành viên mang danh hiệu và khung; khách không thể tự khai
   assert.deepEqual([guest.title, guest.frame], [undefined, undefined]);
   assert.throws(() => createJoinTicket({ ...CLAIMS, accountId: 'a-12345678-aaaa', title: '<b>' }, SECRET), TypeError);
 });
+
+test('vé thành viên mang linh thú đang dẫn theo { species, level }; khách không có, cấp sai bị từ chối', () => {
+  const member = createJoinTicket({ ...CLAIMS, accountId: 'a-12345678-aaaa', pet: { species: 'crane', level: 7 } }, SECRET, { now: 1_000 });
+  assert.deepEqual(verifyJoinTicket(member, SECRET, { now: 2_000 }).value.pet, { species: 'crane', level: 7 });
+  const guest = createJoinTicket({ ...CLAIMS, pet: { species: 'crane', level: 7 } }, SECRET, { now: 1_000 });
+  assert.equal(verifyJoinTicket(guest, SECRET, { now: 2_000 }).value.pet, undefined, 'khách không mang linh thú');
+  assert.throws(() => createJoinTicket({ ...CLAIMS, accountId: 'a-12345678-aaaa', pet: { species: 'crane', level: 11 } }, SECRET));
+});

@@ -34,6 +34,42 @@ export function cleanGraveName(value) {
   const name = value.normalize('NFC').replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim();
   return name && [...name].length <= GRAVE_NAME_MAX ? name : '';
 }
+// Linh thú (Cá Chép, Rùa, Hạc, Sư tử): nhận nuôi bằng kim cương (ví shop, API trừ trước; giá admin đặt, `price` ở đây
+// chỉ là giá khởi tạo), nuôi bằng xu. Không phạt khi vắng: linh thú no (≤ PET_FULL_MS từ bữa cuối) đào đủ xu, hơi đói
+// (≤ PET_HUNGRY_MS) đào một nửa, lâu hơn thì ngủ (không đào, không mất gì; cho ăn bữa thường là thức dậy). Xu dồn vào
+// rương, đầy sau PET_CHEST_HOURS giờ thì ngừng — phải vào nhận. Mỗi ngày (theo ngày của vườn) cho ăn được một bữa; số
+// ngày được cho ăn quyết định cấp (PET_LEVEL_DAYS), mỗi cấp đào nhanh thêm PET_LEVEL_BONUS %. Xu tính theo phần trăm xu
+// (centi) để cộng dồn từng phút không mất phần lẻ.
+//
+// Cân bằng (người chơi miễn phí chăm chỉ kiếm ~120 xu/ngày: nhiệm vụ 35, công việc 60, vườn ~25):
+//   - rate: centi-xu/giờ ở cấp 1, tăng chậm hơn giá (con đắt đào nhiều hơn nhưng không tỉ lệ thuận) → vào mỗi ngày lãi
+//     ròng 14 (Cá Chép, Rùa) / 19 (Hạc) / 24 (Sư tử) xu/ngày ở cấp 1, 21 / 28 / 34 ở cấp 10.
+//   - Nuôi đủ 4 con cấp 10, vào mỗi ngày: ~100 xu/ngày < thu nhập miễn phí, người không mua không bị bỏ xa.
+//   - Vào mỗi ngày lãi hơn 2 ngày / lần ~5–8 xu/ngày (đáng để quay lại), vắng lâu lãi ít hơn nhưng không bao giờ âm.
+//   - Rương 30 giờ để người vào giờ khác nhau mỗi ngày không mất phần đào.
+// Đổi các con số này thì chạy lại test "cân bằng xu" (apps/api/test/pets.test.mjs) — nó mô phỏng bằng code thật.
+export const SPIRIT_PETS = Object.freeze({
+  carp: Object.freeze({ price: 200, rate: 80 }),
+  turtle: Object.freeze({ price: 200, rate: 80 }),
+  crane: Object.freeze({ price: 300, rate: 100 }),
+  lion: Object.freeze({ price: 400, rate: 120 }),
+});
+export const PET_FOOD_PRICE = 5;
+export const PET_FULL_MS = 24 * 60 * 60 * 1_000;
+export const PET_HUNGRY_MS = 48 * 60 * 60 * 1_000;
+export const PET_CHEST_HOURS = 30;
+export const PET_LEVEL_BONUS = 4;
+// Cấp n cần PET_LEVEL_DAYS[n − 1] ngày được cho ăn (cấp 1 khi vừa nhận, tối đa cấp 10).
+export const PET_LEVEL_DAYS = Object.freeze([0, 1, 3, 6, 10, 15, 21, 28, 36, 45]);
+export const PET_NAME_MAX = 20;
+// Tốc độ đào (centi-xu / giờ) của một loài ở một cấp: cấp 10 nhanh hơn cấp 1 là 36%.
+export const petRate = (species, level) => Math.round(((SPIRIT_PETS[species]?.rate ?? 0) * (100 + PET_LEVEL_BONUS * (Math.max(1, level) - 1))) / 100);
+export const petLevel = (fedDays) => PET_LEVEL_DAYS.filter((days) => fedDays >= days).length;
+export function cleanPetName(value) {
+  if (typeof value !== 'string') return '';
+  const name = value.normalize('NFC').replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return name && [...name].length <= PET_NAME_MAX ? name : '';
+}
 export const PLANTS = Object.freeze({
   apple: Object.freeze({ seedPrice: 10, fruitPrice: 5 }),
   orange: Object.freeze({ seedPrice: 15, fruitPrice: 7 }),
@@ -394,6 +430,39 @@ const MIGRATIONS = [
     removed_by TEXT
   );
   CREATE UNIQUE INDEX IF NOT EXISTS memorial_graves_slot ON memorial_graves(slot) WHERE removed_at IS NULL;`,
+  // Linh thú: thức ăn (pet_food) và xu nhận từ rương (pet_yield); mỗi tài khoản nuôi được mỗi loài một con.
+  `CREATE TABLE coin_transactions_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('grant', 'buy_seed', 'sell_fruit', 'game_bet', 'game_win', 'game_refund', 'quest', 'chore', 'admin_adjustment', 'private_room', 'memorial', 'pet_food', 'pet_yield')),
+    plant_type TEXT,
+    quantity INTEGER,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO coin_transactions_new SELECT * FROM coin_transactions;
+  DROP TABLE coin_transactions;
+  ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
+  CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);
+  CREATE TABLE IF NOT EXISTS spirit_pets (
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    species TEXT NOT NULL,
+    name TEXT NOT NULL,
+    adopted_at INTEGER NOT NULL,
+    fed_at INTEGER NOT NULL,
+    fed_day TEXT,
+    fed_days INTEGER NOT NULL DEFAULT 0,
+    streak INTEGER NOT NULL DEFAULT 0,
+    bank INTEGER NOT NULL DEFAULT 0 CHECK (bank >= 0),
+    accrued_at INTEGER NOT NULL,
+    PRIMARY KEY (account_id, species)
+  );`,
+  // Linh thú đang dẫn theo ngoài sân (mỗi tài khoản tối đa một con).
+  `CREATE TABLE IF NOT EXISTS spirit_pet_companion (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+    species TEXT NOT NULL
+  );`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -528,6 +597,16 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     myHarvests: db.prepare(`SELECT h.crop_id AS cropId, SUM(h.quantity) AS n FROM crop_harvest_events h JOIN crop_cycles c ON c.id = h.crop_id
       WHERE h.account_id = ? AND c.status IN ('growing', 'fruiting') GROUP BY h.crop_id`),
     request: db.prepare('SELECT action, response FROM garden_requests WHERE account_id = ? AND idem_key = ?'),
+    petsOf: db.prepare('SELECT * FROM spirit_pets WHERE account_id = ? ORDER BY adopted_at'),
+    companionOf: db.prepare('SELECT species FROM spirit_pet_companion WHERE account_id = ?'),
+    setCompanion: db.prepare(`INSERT INTO spirit_pet_companion (account_id, species) VALUES (?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET species = excluded.species`),
+    clearCompanion: db.prepare('DELETE FROM spirit_pet_companion WHERE account_id = ?'),
+    petOf: db.prepare('SELECT * FROM spirit_pets WHERE account_id = ? AND species = ?'),
+    insertPet: db.prepare(`INSERT OR IGNORE INTO spirit_pets (account_id, species, name, adopted_at, fed_at, accrued_at)
+      VALUES (?, ?, ?, ?, ?, ?)`),
+    savePet: db.prepare(`UPDATE spirit_pets SET name = ?, fed_at = ?, fed_day = ?, fed_days = ?, streak = ?, bank = ?, accrued_at = ?
+      WHERE account_id = ? AND species = ?`),
     saveRequest: db.prepare('INSERT INTO garden_requests (account_id, idem_key, action, response, at) VALUES (?, ?, ?, ?, ?)'),
     lottoTicketsOf: db.prepare('SELECT ticket_no AS no, numbers FROM lotto_tickets WHERE round_id = ? AND account_id = ? ORDER BY ticket_no'),
     lottoRoundTickets: db.prepare('SELECT account_id AS accountId, ticket_no AS no, numbers, price FROM lotto_tickets WHERE round_id = ?'),
@@ -641,6 +720,44 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         fruitsTotal: crop.fruits_total,
         plantedAt: crop.planted_at,
       },
+    };
+  }
+
+  // Cộng xu đào được từ accrued_at tới `at` vào rương (centi-xu): no thì đủ, hơi đói một nửa, ngủ thì không; rương đầy
+  // (PET_CHEST_HOURS giờ của cấp hiện tại) thì ngừng. Trả bản ghi đã cập nhật (chưa lưu).
+  function accrue(row, at) {
+    const pet = { ...row };
+    const rate = petRate(pet.species, petLevel(pet.fed_days));
+    const cap = rate * PET_CHEST_HOURS;
+    const from = Math.min(pet.accrued_at, at);
+    const overlap = (start, end) => Math.max(0, Math.min(at, end) - Math.max(from, start));
+    const fedMs = overlap(pet.fed_at, pet.fed_at + PET_FULL_MS);
+    const hungryMs = overlap(pet.fed_at + PET_FULL_MS, pet.fed_at + PET_HUNGRY_MS);
+    const gain = Math.floor((rate * (fedMs + hungryMs / 2)) / 3_600_000);
+    pet.bank = Math.min(cap, pet.bank + gain);
+    pet.accrued_at = at;
+    return pet;
+  }
+
+  function petView(pet, at) {
+    const level = petLevel(pet.fed_days);
+    const since = at - pet.fed_at;
+    const rate = petRate(pet.species, level);
+    return {
+      species: pet.species,
+      name: pet.name,
+      level,
+      maxLevel: PET_LEVEL_DAYS.length,
+      fedDays: pet.fed_days,
+      nextLevelDays: PET_LEVEL_DAYS[level] ?? null,
+      streak: pet.streak,
+      mood: since <= PET_FULL_MS ? 'happy' : since <= PET_HUNGRY_MS ? 'hungry' : 'sleeping',
+      fedAt: pet.fed_at,
+      canFeed: pet.fed_day !== today(),
+      chest: Math.floor(pet.bank / 100),
+      chestMax: Math.floor((rate * PET_CHEST_HOURS) / 100),
+      ratePerHour: rate / 100,
+      adoptedAt: pet.adopted_at,
     };
   }
 
@@ -975,6 +1092,95 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       if (!grave) return { ok: false, code: 'NOT_FOUND' };
       q.removeGrave.run(at, String(by).slice(0, 80), slot, at);
       return { ok: true, slot, name: grave.name, builderName: grave.builderName };
+    },
+
+    // ---- Linh thú ----
+    // Linh thú của một người + số xu (khách / chưa nuôi: danh sách rỗng).
+    pets(accountId) {
+      if (!q.account.get(accountId)) return { pets: [], coins: 0 };
+      const at = now();
+      return {
+        pets: q.petsOf.all(accountId).map((row) => petView(accrue(row, at), at)),
+        coins: ensureWallet(accountId),
+        companion: q.companionOf.get(accountId)?.species ?? null,
+      };
+    },
+    // Linh thú đang dẫn theo, để ghi vào vé vào phòng: { species, level } hoặc null.
+    companion(accountId) {
+      const species = q.companionOf.get(accountId)?.species;
+      const row = species && q.petOf.get(accountId, species);
+      return row ? { species, level: petLevel(row.fed_days) } : null;
+    },
+    // Chọn linh thú dẫn theo (null = không dẫn con nào). Phải là con mình đang nuôi.
+    setCompanion(accountId, species) {
+      if (species === null) {
+        q.clearCompanion.run(accountId);
+        return { ok: true, companion: null };
+      }
+      if (!Object.hasOwn(SPIRIT_PETS, species) || !q.petOf.get(accountId, species)) return { ok: false, code: 'NO_PET' };
+      q.setCompanion.run(accountId, species);
+      return { ok: true, companion: species };
+    },
+    // Ghi linh thú mới (API đã trừ kim cương trước). Đã có loài này thì không tạo thêm: created false.
+    adoptPet(accountId, species, name) {
+      if (!Object.hasOwn(SPIRIT_PETS, species) || !q.account.get(accountId)) return { ok: false, code: 'INVALID' };
+      const at = now();
+      const created = q.insertPet.run(accountId, species, cleanPetName(name) || '', at, at, at).changes === 1;
+      // Con đầu tiên tự đi theo chủ ngay.
+      if (created && !q.companionOf.get(accountId)) q.setCompanion.run(accountId, species);
+      return { ok: true, created, pet: petView(q.petOf.get(accountId, species), at) };
+    },
+    ownsPet: (accountId, species) => Boolean(q.petOf.get(accountId, species)),
+    // feed (PET_FOOD_PRICE xu, mỗi ngày một bữa) | collect (nhận xu trong rương) | rename. Cùng khóa gửi lại trả kết quả cũ.
+    petAction(accountId, action, { species, name } = {}, key) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (!['feed', 'collect', 'rename'].includes(action) || !Object.hasOwn(SPIRIT_PETS, species)) return { ok: false, code: 'INVALID' };
+      const clean = action === 'rename' ? cleanPetName(name) : '';
+      if (action === 'rename' && !clean) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const previous = q.request.get(accountId, key);
+        if (previous) {
+          if (previous.action !== 'pet') return { ok: false, code: 'IDEMPOTENCY_KEY_REUSED' };
+          return { ...JSON.parse(previous.response), replayed: true };
+        }
+        const at = now();
+        const found = q.petOf.get(accountId, species);
+        let result;
+        if (!found) result = { ok: false, code: 'NO_PET' };
+        else {
+          const pet = accrue(found, at);
+          let coins = ensureWallet(accountId);
+          let code = null;
+          let woke = false;
+          let gained = 0;
+          if (action === 'feed') {
+            const day = today();
+            if (pet.fed_day === day) code = 'ALREADY_FED';
+            else if (coins < PET_FOOD_PRICE) code = 'INSUFFICIENT_COINS';
+            else {
+              coins = changeCoins(accountId, -PET_FOOD_PRICE, 'pet_food', null, null);
+              woke = at - pet.fed_at > PET_HUNGRY_MS;
+              pet.streak = pet.fed_day && daysBetween(pet.fed_day, day) === 1 ? pet.streak + 1 : 1;
+              pet.fed_day = day;
+              pet.fed_days += 1;
+              pet.fed_at = at;
+            }
+          } else if (action === 'collect') {
+            gained = Math.floor(pet.bank / 100);
+            if (gained < 1) code = 'CHEST_EMPTY';
+            else {
+              coins = changeCoins(accountId, gained, 'pet_yield', null, gained);
+              pet.bank -= gained * 100;
+            }
+          } else pet.name = clean;
+          q.savePet.run(pet.name, pet.fed_at, pet.fed_day, pet.fed_days, pet.streak, pet.bank, pet.accrued_at, accountId, species);
+          const view = petView(pet, at);
+          result = code ? { ok: false, code, coins, pet: view } : { ok: true, coins, pet: view, ...(gained ? { gained } : {}), ...(woke ? { woke } : {}) };
+        }
+        q.saveRequest.run(accountId, key, 'pet', JSON.stringify(result), at);
+        return result;
+      });
     },
 
     // Trừ xu mở phòng Lô Tô riêng (API gọi trước khi tạo phòng). Cùng key gửi lại trả nguyên kết quả cũ, không trừ hai lần.

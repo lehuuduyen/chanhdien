@@ -773,7 +773,7 @@
         const people = (friends.data.friends || []).filter((friend) => !invited.has(friend.accountId));
         const bots = (friends.data.botFriends || []).filter((bot) => !invited.has(`bot:${bot.name}`));
         nodes.push(el('h3', 'Bạn bè'));
-        if (!people.length && !bots.length) nodes.push(el('p', 'Không còn bạn nào để mời. Kết bạn ở chánh điện (bấm vào người / bot rồi chọn Kết bạn).', 'private-empty'));
+        if (!people.length && !bots.length) nodes.push(el('p', 'Không còn bạn nào để mời. Kết bạn ở chánh điện (bấm vào một người rồi chọn Kết bạn).', 'private-empty'));
         for (const [label, body] of [...people.map((friend) => [`${friend.displayName}${friend.online ? ' · 🟢' : ''}`, { accountId: friend.accountId }]), ...bots.map((bot) => [bot.name, { botName: bot.name }])]) {
           const row = el('div', undefined, 'private-row');
           row.append(el('span', label), button('Mời', async () => {

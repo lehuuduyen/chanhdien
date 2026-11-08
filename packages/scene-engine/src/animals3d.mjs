@@ -62,13 +62,65 @@ const SPECIES = {
   },
 };
 
+// Thú Nông trại nhỏ: chỉ có mô hình riêng (Meshy), nên chỉ cần thông số đi lại. gait: hop = nhảy cóc (thỏ),
+// waddle = lạch bạch (vịt), còn lại đi bằng bốn chân.
+Object.assign(SPECIES, {
+  rabbit: { walkSpeed: 0.8, runSpeed: 2.3, legLength: 0.12, radius: 0.22, gait: 'hop' },
+  duck: { walkSpeed: 0.45, runSpeed: 1.1, legLength: 0.1, radius: 0.22, gait: 'waddle' },
+  goat: { walkSpeed: 0.9, runSpeed: 2.2, legLength: 0.32, radius: 0.35 },
+  pig: { walkSpeed: 0.7, runSpeed: 1.8, legLength: 0.18, radius: 0.32 },
+  deer: { walkSpeed: 1.0, runSpeed: 2.8, legLength: 0.45, radius: 0.42 },
+  pony: { walkSpeed: 1.1, runSpeed: 3.0, legLength: 0.55, radius: 0.55 },
+});
+
+// Thức ăn hiện ra khi bấm Cho ăn: màu, hình (cone = cà rốt, grain = hạt, hay = nắm cỏ) và có bát hay không.
+const FOOD = {
+  dog: { color: '#7a4b2a', shape: 'grain', bowl: true },
+  cat: { color: '#c7774a', shape: 'grain', bowl: true },
+  rabbit: { color: '#f08a24', shape: 'cone' },
+  duck: { color: '#e8c35a', shape: 'grain' },
+  goat: { color: '#9cbc4a', shape: 'hay' },
+  pig: { color: '#f2c230', shape: 'grain', bowl: true },
+  deer: { color: '#c9a36a', shape: 'grain' },
+  pony: { color: '#d9483b', shape: 'apple' },
+};
+
+// Làm trò (action 'trick', 2,6 giây): mỗi loài một kiểu. progress 0…1 → { y, rx, ry, rz } cộng thêm vào dáng.
+export const TRICK_SECONDS = 2.6;
+export function trickPose(type, progress) {
+  const wave = Math.sin(progress * Math.PI);
+  switch (type) {
+    // Thỏ nhảy tưng (binky): ba cú nhảy cao, xoay người giữa không trung.
+    case 'rabbit': return { y: Math.abs(Math.sin(progress * Math.PI * 3)) * 0.38, rx: 0, ry: Math.sin(progress * Math.PI * 3) * 0.5, rz: 0 };
+    // Vịt vỗ cánh: lắc người nhanh, nhún nhẹ.
+    case 'duck': return { y: Math.abs(Math.sin(progress * Math.PI * 6)) * 0.06, rx: 0, ry: 0, rz: Math.sin(progress * Math.PI * 12) * 0.25 };
+    // Dê đứng hai chân sau rồi nhảy.
+    case 'goat': return { y: wave * 0.15, rx: -wave * 0.55, ry: 0, rz: 0 };
+    // Heo lăn một vòng.
+    case 'pig': return { y: wave * 0.12, rx: 0, ry: 0, rz: progress * Math.PI * 2 };
+    // Nai cúi chào hai lần (như nai ở chùa Nara).
+    case 'deer': return { y: 0, rx: Math.max(0, Math.sin(progress * Math.PI * 2)) * 0.5, ry: 0, rz: 0 };
+    // Ngựa chồm hai chân trước.
+    case 'pony': return { y: wave * 0.2, rx: -wave * 0.6, ry: 0, rz: 0 };
+    // Mèo lăn tròn, chó quay vòng đuổi đuôi.
+    case 'cat': return { y: 0, rx: 0, ry: 0, rz: wave * Math.PI };
+    default: return { y: Math.abs(Math.sin(progress * Math.PI * 2)) * 0.08, rx: 0, ry: progress * Math.PI * 4, rz: 0 };
+  }
+}
+
 let loader = null;
+const modelCache = new Map();
 function gltfLoader() {
   if (!loader) {
     loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
   }
   return loader;
+}
+
+function loadAnimalModel(src) {
+  if (!modelCache.has(src)) modelCache.set(src, gltfLoader().loadAsync(src));
+  return modelCache.get(src);
 }
 
 export function buildAnimals({ root, animals, walk }) {
@@ -117,37 +169,52 @@ export function buildAnimals({ root, animals, walk }) {
     herds.push(herd);
     pickables.push(meshes.body);
   }
-  // Thú có mô hình riêng: mỗi con một nhóm; mô hình tải xong mới hiện (lỗi tải thì con đó không hiện, cảnh vẫn chạy).
+  // Thú có mô hình riêng: giữ nhóm rỗng và chỉ tải khi camera đến gần. Các con dùng chung một file (thỏ, vịt…)
+  // dùng chung Promise/cache để không tải và giải mã GLB nhiều lần.
   animals.filter((item) => item.model && SPECIES[item.type]).forEach((item, index) => {
     const animal = newAnimal(item, index + 3, item.type);
     const group = new THREE.Group();
     group.rotation.order = 'YXZ';
     group.visible = false;
     root.add(group);
-    solos.push({ spec: SPECIES[item.type], animal, group });
+    const solo = {
+      spec: SPECIES[item.type], animal, group,
+      loadDistance: Math.max(1, Number(item.lazyDistance) || 30),
+      loadState: 'idle',
+      load: null,
+    };
+    solos.push(solo);
     byId.set(item.id, animal);
-    gltfLoader().loadAsync(item.model).then((gltf) => {
-      const model = gltf.scene;
-      model.rotation.y = item.modelRy || 0;
-      model.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(model);
-      const size = box.getSize(new THREE.Vector3());
-      const scale = item.height / Math.max(1e-6, size.y);
-      const inner = new THREE.Group();
-      inner.scale.setScalar(scale);
-      inner.add(model);
-      // Đặt chân chạm đất, tâm thân ở gốc nhóm.
-      const center = box.getCenter(new THREE.Vector3());
-      model.position.set(-center.x, -box.min.y, -center.z);
-      model.traverse((node) => {
-        if (!node.isMesh) return;
-        node.castShadow = true;
-        node.userData.petId = item.id;
-        pickables.push(node);
+    solo.load = () => {
+      if (solo.loadState !== 'idle') return;
+      solo.loadState = 'loading';
+      loadAnimalModel(item.model).then((gltf) => {
+        const model = gltf.scene.clone(true);
+        model.rotation.y = item.modelRy || 0;
+        model.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const scale = item.height / Math.max(1e-6, size.y);
+        const inner = new THREE.Group();
+        inner.scale.setScalar(scale);
+        inner.add(model);
+        // Đặt chân chạm đất, tâm thân ở gốc nhóm.
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.set(-center.x, -box.min.y, -center.z);
+        model.traverse((node) => {
+          if (!node.isMesh) return;
+          node.castShadow = true;
+          node.userData.petId = item.id;
+          pickables.push(node);
+        });
+        group.add(inner);
+        group.visible = true;
+        solo.loadState = 'loaded';
+      }).catch((error) => {
+        solo.loadState = 'failed';
+        console.warn(`Không tải được mô hình thú ${item.id}: ${error.message}`);
       });
-      group.add(inner);
-      group.visible = true;
-    }).catch((error) => console.warn(`Không tải được mô hình thú ${item.id}: ${error.message}`));
+    };
   });
 
   const free = (x, z, spec, area) => x >= area.x[0] && x <= area.x[1] && z >= area.z[0] && z <= area.z[1]
@@ -245,13 +312,44 @@ export function buildAnimals({ root, animals, walk }) {
         group.add(bubble);
       }
     } else if (action === 'feed') {
-      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.12, 14), new THREE.MeshStandardMaterial({ color: '#d85a43', roughness: 0.72 }));
-      bowl.position.y = 0.07;
-      group.add(bowl);
+      const food = FOOD[animal.type] || FOOD.dog;
+      const material = new THREE.MeshStandardMaterial({ color: food.color, roughness: 0.9 });
+      const top = food.bowl ? 0.15 : 0.04;
+      if (food.bowl) {
+        const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.12, 14), new THREE.MeshStandardMaterial({ color: '#d85a43', roughness: 0.72 }));
+        bowl.position.y = 0.07;
+        group.add(bowl);
+      }
+      if (food.shape === 'cone') {
+        // Hai củ cà rốt nằm trên cỏ, có lá xanh.
+        for (const side of [-1, 1]) {
+          const carrot = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.2, 8), material);
+          carrot.rotation.set(0, side * 0.5, Math.PI / 2);
+          carrot.position.set(side * 0.06, top, side * 0.05);
+          const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), new THREE.MeshStandardMaterial({ color: '#4f9a3a', roughness: 1 }));
+          leaf.position.set(side * 0.06 - 0.11, top, side * 0.05);
+          group.add(carrot, leaf);
+        }
+      } else if (food.shape === 'hay' || food.shape === 'apple') {
+        for (let index = 0; index < 3; index += 1) {
+          const piece = new THREE.Mesh(food.shape === 'hay' ? new THREE.CylinderGeometry(0.05, 0.07, 0.16, 6) : new THREE.SphereGeometry(0.06, 10, 8), material);
+          if (food.shape === 'hay') piece.rotation.z = Math.PI / 2 + index * 0.6;
+          piece.position.set((index - 1) * 0.1, top + 0.03, (index % 2) * 0.06);
+          group.add(piece);
+        }
+      } else {
+        for (let index = 0; index < 8; index += 1) {
+          const grain = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), material);
+          grain.position.set(((index % 4) - 1.5) * 0.07, top, (Math.floor(index / 4) - 0.5) * 0.08);
+          group.add(grain);
+        }
+      }
+    } else if (action === 'trick') {
+      // Sao vàng tỏa ra quanh con thú.
       for (let index = 0; index < 8; index += 1) {
-        const food = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), new THREE.MeshStandardMaterial({ color: '#7a4b2a', roughness: 1 }));
-        food.position.set(((index % 4) - 1.5) * 0.07, 0.15, (Math.floor(index / 4) - 0.5) * 0.08);
-        group.add(food);
+        const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.06), new THREE.MeshBasicMaterial({ color: index % 2 ? '#ffd54a' : '#fff1a6', transparent: true, depthWrite: false }));
+        star.userData.angle = (index / 8) * Math.PI * 2;
+        group.add(star);
       }
     } else {
       const ball = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 10), new THREE.MeshStandardMaterial({ color: '#f3a52b', roughness: 0.62 }));
@@ -259,7 +357,7 @@ export function buildAnimals({ root, animals, walk }) {
       group.add(ball);
     }
     root.add(group);
-    effects.push({ group, animal, action, time: 0, duration: action === 'play' ? 5 : 3.5 });
+    effects.push({ group, animal, action, time: 0, duration: action === 'play' ? 5 : action === 'trick' ? TRICK_SECONDS : 3.5 });
   }
 
   function updateEffects(dt) {
@@ -276,6 +374,14 @@ export function buildAnimals({ root, animals, walk }) {
       } else if (effect.action === 'feed') {
         effect.group.position.x += Math.sin(effect.animal.heading) * 0.46;
         effect.group.position.z += Math.cos(effect.animal.heading) * 0.46;
+      } else if (effect.action === 'trick') {
+        const spread = 0.35 + effect.time * 0.45;
+        effect.group.children.forEach((star) => {
+          const angle = star.userData.angle + effect.time * 1.5;
+          star.position.set(Math.cos(angle) * spread, 0.5 + effect.time * 0.25, Math.sin(angle) * spread);
+          star.rotation.y += dt * 4;
+          star.material.opacity = Math.max(0, 1 - effect.time / effect.duration);
+        });
       } else {
         const ball = effect.group.children[0];
         ball.position.set(Math.sin(effect.time * 3.2) * 0.8, 0.18 + Math.abs(Math.sin(effect.time * 5)) * 0.48, Math.cos(effect.time * 3.2) * 0.8);
@@ -310,8 +416,8 @@ export function buildAnimals({ root, animals, walk }) {
     },
     interact(id, action) {
       const animal = byId.get(id);
-      if (!animal || !['pet', 'feed', 'play'].includes(action)) return false;
-      animal.reaction = { action, left: action === 'play' ? 5 : 3.5 };
+      if (!animal || !['pet', 'feed', 'play', 'trick'].includes(action)) return false;
+      animal.reaction = { action, left: action === 'play' ? 5 : action === 'trick' ? TRICK_SECONDS : 3.5 };
       if (action === 'play') playTarget(animal, SPECIES[animal.type]);
       else {
         animal.mode = 'idle';
@@ -326,7 +432,7 @@ export function buildAnimals({ root, animals, walk }) {
         ...solos.map(({ animal, group }) => ({ id: animal.id, name: animal.name, type: animal.type, model: true, loaded: group.visible, heading: animal.heading, x: animal.x, z: animal.z, mode: animal.mode })),
       ];
     },
-    update(dt, time) {
+    update(dt, time, camera = null) {
       const seconds = time / 1_000;
       for (const { spec, meshes, members } of herds) {
         members.forEach((animal, index) => {
@@ -336,8 +442,9 @@ export function buildAnimals({ root, animals, walk }) {
           const lowerTarget = animal.mode === 'rest' ? spec.legLength * 0.75 : animal.reaction?.action === 'feed' ? spec.legLength * 0.32 : 0;
           animal.lower += (lowerTarget - animal.lower) * Math.min(1, dt * 3);
           const bob = walking ? Math.abs(Math.sin(animal.gait)) * 0.02 : 0;
-          position.set(animal.x, bob - animal.lower, animal.z);
-          quaternion.setFromEuler(euler.set(0, animal.heading, 0));
+          const trick = animal.reaction?.action === 'trick' ? trickPose(animal.type, 1 - animal.reaction.left / TRICK_SECONDS) : null;
+          position.set(animal.x, bob - animal.lower + (trick?.y || 0), animal.z);
+          quaternion.setFromEuler(euler.set(trick?.rx || 0, animal.heading + (trick?.ry || 0), trick?.rz || 0, 'YXZ'));
           base.compose(position, quaternion, unit);
           meshes.body.setMatrixAt(index, base);
           const fold = 1 - (animal.lower / spec.legLength) * 0.85;
@@ -364,7 +471,9 @@ export function buildAnimals({ root, animals, walk }) {
           mesh.computeBoundingSphere();
         }
       }
-      solos.forEach(({ spec, animal, group }, index) => {
+      solos.forEach((solo, index) => {
+        const { spec, animal, group } = solo;
+        if (solo.loadState === 'idle' && (!camera || Math.hypot(camera.position.x - animal.x, camera.position.z - animal.z) <= solo.loadDistance)) solo.load();
         think(animal, spec, dt);
         const walking = animal.mode === 'walk';
         const lowerTarget = animal.mode === 'rest' ? 0.3 : 0;
@@ -372,10 +481,14 @@ export function buildAnimals({ root, animals, walk }) {
         const happy = animal.reaction?.action === 'pet' || animal.reaction?.action === 'feed';
         // Đi: nảy theo bước và lắc mình; vui (vuốt ve / cho ăn): lắc mông; ăn: cúi đầu; nằm: thân thấp và dẹp xuống.
         const step = walking ? Math.sin(animal.gait) : 0;
-        group.position.set(animal.x, walking ? Math.abs(step) * spec.legLength * 0.14 : 0, animal.z);
-        group.rotation.y = animal.heading + (happy ? Math.sin(seconds * 10 + index) * 0.12 : 0);
-        group.rotation.x = animal.reaction?.action === 'feed' ? 0.22 : walking ? Math.cos(animal.gait) * 0.03 : 0;
-        group.rotation.z = walking ? step * 0.05 : happy ? Math.sin(seconds * 14 + index) * 0.06 : 0;
+        // Thỏ nhảy cóc (nảy cao theo bước), vịt lạch bạch (lắc ngang nhiều), thú bốn chân nảy nhẹ.
+        const lift = spec.gait === 'hop' ? 0.9 : spec.gait === 'waddle' ? 0.2 : 0.14;
+        const sway = spec.gait === 'waddle' ? 0.18 : 0.05;
+        const trick = animal.reaction?.action === 'trick' ? trickPose(animal.type, 1 - animal.reaction.left / TRICK_SECONDS) : null;
+        group.position.set(animal.x, (walking ? Math.abs(step) * spec.legLength * lift : 0) + (trick?.y || 0), animal.z);
+        group.rotation.y = animal.heading + (happy ? Math.sin(seconds * 10 + index) * 0.12 : 0) + (trick?.ry || 0);
+        group.rotation.x = (animal.reaction?.action === 'feed' ? 0.22 : walking ? Math.cos(animal.gait) * 0.03 : 0) + (trick?.rx || 0);
+        group.rotation.z = (walking ? step * sway : happy ? Math.sin(seconds * 14 + index) * 0.06 : 0) + (trick?.rz || 0);
         group.scale.set(1, 1 - animal.lower, 1 + animal.lower * 0.15);
       });
       updateEffects(dt);

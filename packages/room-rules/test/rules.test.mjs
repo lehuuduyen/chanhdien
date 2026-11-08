@@ -50,12 +50,13 @@ test('Chánh điện: số bồ đoàn cấu hình được, lễ vật có côn
   assert.equal(getRoomRules('thien'), THIEN_RULES);
   assert.ok(THIEN_RULES.seats > 0 && THIEN_RULES.seats <= 20);
   assert.deepEqual(THIEN_RULES.benches, { count: 13, seatsPerBench: 2 });
-  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers']);
+  assert.deepEqual(Object.keys(THIEN_RULES.world.travel), ['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers', 'farm']);
   for (const point of Object.values(THIEN_RULES.world.travel)) {
     assert.ok(point.x >= THIEN_RULES.world.bounds.x[0] && point.x <= THIEN_RULES.world.bounds.x[1]);
     assert.ok(point.z >= THIEN_RULES.world.bounds.z[0] && point.z <= THIEN_RULES.world.bounds.z[1]);
   }
-  assert.equal(THIEN_RULES.world.pets.length, 9, "6 thú khối + Milo, Fox, Meomeo có mô hình riêng");
+  assert.equal(THIEN_RULES.world.pets.length, 17, "6 thú khối + Milo, Fox, Meomeo + 8 thú Nông trại nhỏ");
+  assert.deepEqual(THIEN_RULES.world.farmArea, { x: [36, 50.8], z: [60, 97] });
   assert.deepEqual(THIEN_RULES.world.petArea, { x: [7.2, 34], z: [77, 97] });
   assert.deepEqual(Object.keys(THIEN_RULES.interaction.offerings), ['petal', 'incense', 'lotus', 'bell']);
   assert.equal(THIEN_RULES.interaction.offerings.bell.merit, 99);

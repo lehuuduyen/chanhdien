@@ -30,6 +30,11 @@ export const SKINS = Object.freeze(['man', 'woman', 'granny', 'nun', 'monk', 'ch
 // Mỹ phẩm hồ sơ chỉ truyền id cố định; chữ hiển thị được dịch ở client.
 export const PLAYER_TITLES = Object.freeze(['steadfast-practitioner']);
 export const AVATAR_FRAMES = Object.freeze(['seven-day-lotus']);
+// Linh thú đi theo chủ ngoài sân (khớp SPIRIT_PETS trong @chanh-dien/garden); cấp 1–10 quyết định trang trí.
+export const SPIRIT_SPECIES = Object.freeze(['carp', 'turtle', 'crane', 'lion']);
+export const SPIRIT_LEVEL_MAX = 10;
+const spiritPet = (value) => isRecord(value) && exactKeys(value, ['species', 'level'])
+  && SPIRIT_SPECIES.includes(value.species) && isInteger(value.level) && value.level >= 1 && value.level <= SPIRIT_LEVEL_MAX;
 // Nhân vật admin tải lên (shop-<tên>); cùng mẫu với SHOP_SKIN trong @chanh-dien/room-rules.
 export const SHOP_SKIN = /^shop-[a-z0-9-]{2,30}$/;
 const validSkin = (skin) => SKINS.includes(skin) || (typeof skin === 'string' && SHOP_SKIN.test(skin));
@@ -69,12 +74,13 @@ export const MEMORIAL_NAME_MAX = 24;
 // bản dịch phía client, không nhận văn bản tùy ý từ mạng.
 export const CHORE_KINDS = Object.freeze(['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
 // Tương tác ngắn với chó mèo trong khu thú cưng. Đây là hiệu ứng phòng, không cộng xu/công đức và không lưu snapshot.
-export const PET_ACTIONS = Object.freeze(['pet', 'feed', 'play']);
+// trick: làm trò riêng từng loài (thỏ nhảy tưng, nai cúi chào, ngựa chồm lên…).
+export const PET_ACTIONS = Object.freeze(['pet', 'feed', 'play', 'trick']);
 // Các công trình dùng chung toàn hệ thống. Đóng góp đi qua REST có đăng nhập; realtime chỉ phát snapshot công khai.
 export const COMMUNITY_PROJECT_STAGES = Object.freeze(['ground', 'sprout', 'young', 'mature', 'complete']);
 export const COMMUNITY_PROJECT_KINDS = Object.freeze(['bodhi', 'lotus']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
-export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers']);
+export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers', 'farm']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
 export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 'fire']);
 // Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
@@ -392,7 +398,9 @@ const queueItem = (value) => isRecord(value)
   && isString(value.addedBy, LIMITS.displayName);
 
 const participant = (value) => isRecord(value)
-  && exactKeys(value, ['id', 'displayName'], ['seatId', 'benchId', 'benchSpot', 'connected', 'skin', 'merit', 'bot', 'level', 'avatarUrl', 'title', 'frame', 'pos', 'emote', 'sutra', 'handWith', 'handLead'])
+  && exactKeys(value, ['id', 'displayName'], ['seatId', 'benchId', 'benchSpot', 'connected', 'skin', 'merit', 'bot', 'level', 'avatarUrl', 'title', 'frame', 'pet', 'pos', 'emote', 'sutra', 'handWith', 'handLead'])
+  // Linh thú đang dẫn theo (chỉ hình, vị trí do client tự tính theo chủ).
+  && (value.pet === undefined || spiritPet(value.pet))
   // Đang nắm tay người khác (handWith = id người kia); handLead: người dẫn đường, người kia đi theo.
   && (value.handWith === undefined || isString(value.handWith, LIMITS.participantId, ID_PATTERN))
   && (value.handLead === undefined || (value.handLead === true && value.handWith !== undefined))

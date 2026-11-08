@@ -332,7 +332,7 @@ test('shop: admin tải nhân vật .glb → nén, hiện trong shop, mua đư�
     const image = await request(options, 'GET', '/api/v1/shop/models/shop-kiem-si.png');
     assert.equal(image.headers['Content-Type'], 'image/png');
     assert.equal((await request(options, 'GET', '/api/v1/shop')).json.models[0].thumb, '/api/v1/shop/models/shop-kiem-si.png?v=1');
-    assert.equal((await request(options, 'GET', '/api/v1/shop')).json.items[0].thumb, '/models/characters/chibi-girl.png');
+    assert.equal((await request(options, 'GET', '/api/v1/shop')).json.items[0].thumb, '/models/characters/chibi-girl.webp');
 
     // Mua bằng kim cương rồi vào phòng: vé ghi hình đã mua.
     const { cookie, accountId } = await signUp(options, 'hung.dung');

@@ -19,6 +19,7 @@ import { handleShopRequest, openShopStore, shopConfig } from './shop.mjs';
 import { handleBotChatRequest, openBotChatStore, realtimeBotSpeaker } from './bot-chat.mjs';
 import { handleFriendLinksRequest, openFriendLinks, realtimeInboxNotifier } from './friend-links.mjs';
 import { handleMemorialRequest } from './memorial.mjs';
+import { handlePetsRequest } from './pets.mjs';
 import { createPrivateRooms, handlePrivateRoomRequest, realtimePrivateRoomNotifier } from './private-rooms.mjs';
 import { batchNotifier, banMessage, handleModerationRequest, openModerationStore, requestIpHash } from './moderation.mjs';
 import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
@@ -115,6 +116,8 @@ export function createJoinResponse(input, options = {}) {
       ...(options.ownedSkins?.length ? { skins: options.ownedSkins } : {}),
       // Hình chọn lần cuối của tài khoản: máy realtime dựng đúng nhân vật ngay khi vào phòng.
       ...(options.preferredSkin ? { skin: options.preferredSkin } : {}),
+      // Linh thú đang dẫn theo ({ species, level }): người trong phòng thấy đi theo chủ ngoài sân.
+      ...(options.accountPet ? { pet: options.accountPet } : {}),
       // Tài khoản tạo dưới 24 giờ: máy realtime coi như "nick mới" khi dò clone nhắn trùng.
       ...(Number.isSafeInteger(account.createdAt) && (options.now ?? Date.now()) - account.createdAt < FRESH_ACCOUNT_MS ? { fresh: true } : {}),
     } : {}),
@@ -187,11 +190,12 @@ export async function handleApiRequest(req, res, options = {}) {
     const accountLevel = account ? options.accounts.profile(account.id).stats.level.level : undefined;
     const ownedSkins = account ? options.shopStore?.ownedSkins(account.id) : undefined;
     const preferredSkin = account ? options.shopStore?.preferredSkin(account.id) : undefined;
+    const accountPet = account ? options.garden?.companion(account.id) || undefined : undefined;
     const achievement = account ? loginRewardView(options, account.id)?.achievement : null;
     const accountTitle = achievement?.unlocked ? achievement.id : undefined;
     const accountFrame = achievement?.unlocked ? achievement.frame : undefined;
     const result = createJoinResponse(input, {
-      ...options, account, accountLevel, ownedSkins, preferredSkin, accountTitle, accountFrame,
+      ...options, account, accountLevel, ownedSkins, preferredSkin, accountTitle, accountFrame, accountPet,
     });
     if (result.status === 200) {
       const located = await locateRoom(result.body.roomId, options);
@@ -211,6 +215,7 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleGardenRequest(req, res, pathname, options)) return;
   if (await handleGardenBotRequest(req, res, pathname, options)) return;
   if (await handleMemorialRequest(req, res, pathname, options)) return;
+  if (await handlePetsRequest(req, res, pathname, options)) return;
   if (await handleChoreRewardRequest(req, res, pathname, options)) return;
   if (await handleGameRequest(req, res, pathname, options)) return;
   if (await handleTelegramDonateRequest(req, res, pathname, options)) return;
@@ -253,7 +258,8 @@ if (isMain) {
   const realtimeInternalUrls = process.env.REALTIME_INTERNAL_URLS
     || (shared ? `${realtimeInternalUrl},http://127.0.0.1:4002` : realtimeInternalUrl);
   // Bạn bè: online ở phòng nào, mời vào phòng, lời nhắn (báo trang người nhận qua máy realtime).
-  const friendLinks = openFriendLinks(accounts, { secret, notify: realtimeInboxNotifier(realtimeInternalUrls, secret) });
+  const notifyInbox = realtimeInboxNotifier(realtimeInternalUrls, secret);
+  const friendLinks = openFriendLinks(accounts, { secret, notify: notifyInbox });
   // ADMIN_SECRET riêng nếu có; local mặc định dùng SESSION_SECRET. Trang admin không lưu khóa này trên server.
   const adminSecret = process.env.ADMIN_SECRET || secret;
   // Trang Ủng hộ: thông tin Zelle từ biến môi trường DONATE_* (xem donate.mjs), không ghi trong repo.
@@ -288,6 +294,8 @@ if (isMain) {
     // Chat với bot: tin người chơi nhắn bot báo về Telegram ngay (không gom), /tl trả lời thay bot.
     botChats: openBotChatStore(accounts, createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID })),
     botSpeaker: realtimeBotSpeaker(realtimeInternalUrls, secret),
+    // Nhắn riêng bạn bot: quản trị trả lời bằng /tl thì báo trang người nhận có tin mới.
+    notifyInbox,
     // Khu tưởng niệm: mỗi mộ mới báo nhóm Telegram để quản trị gỡ được (/xoamo) nếu tên xúc phạm.
     memorialNotify: createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }),
     supportStore, notifySupport, shopStore, shop, shopModelDir, moderation,

@@ -81,6 +81,15 @@ export class BauCuaTable {
   restoreRecord(record) {
     const round = record?.round;
     if (!round || typeof round.id !== 'string' || !['betting', 'rolling', 'result'].includes(round.phase)) return false;
+    // Bàn có bot có thể đã chạy một ván rỗng trước khi RoomRegistry tải snapshot. Timer ván đó không còn hợp lệ
+    // sau khi `round` bị ghi đè; thay nó bằng timer tiếp tục đúng ván snapshot.
+    const wasRunning = this.running;
+    if (wasRunning) {
+      clearTimeout(this.timer);
+      clearTimeout(this.stateTimer);
+      this.timer = null;
+      this.stateTimer = null;
+    }
     const spots = this.definition.spots;
     const amounts = (value) => Object.fromEntries(spots.map((spot) => [spot, Number.isSafeInteger(value?.[spot]) && value[spot] >= 0 ? value[spot] : 0]));
     const dice = (value) => (Array.isArray(value) && value.length === 3 ? value : null);
@@ -104,6 +113,7 @@ export class BauCuaTable {
       void: Boolean(round.void),
     };
     this.restored = true;
+    if (wasRunning) this.resume();
     return true;
   }
 

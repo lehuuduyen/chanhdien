@@ -72,6 +72,8 @@ c.pond = {
   x: -19.5, z: 80, radiusX: 12, radiusZ: 9, depth: 1.3, fish: 26,
   projectId: c.pond?.projectId || 'lotus-global-1',
   stageVisibility: c.pond?.stageVisibility || { water: 0, rocks: 2, lotus: 3, fish: 0 },
+  // Hai đèn đá Meshy bên bờ (nam và tây bắc), quay mặt vào hồ.
+  lanterns: [{ x: -12.5, z: 71.7, ry: -0.7 }, { x: -27.1, z: 88, ry: 2.4 }],
 };
 c.benches = [
   { x: -6.4, z: 74.5, ry: -1.5708 }, { x: -6.4, z: 85.5, ry: -1.5708 },
@@ -83,7 +85,7 @@ c.benches = [
 // (mỗi bộ 2 ghế), tháp có cầu tuột, đu quay, 2 thú nhún, khung leo, bụi cây. Xích đu / cầu tuột dùng chung cơ chế ghế
 // đá (bench.select, B-7…B-9, mỗi món hai chỗ) nên người chơi và bot "ngồi" như ghế; engine (park3d.mjs) đu ghế, cho
 // leo – trượt – đi vòng lại. Số đo dưới đây là tọa độ trong mô hình (m, trước khi phóng), đo từ park.glb.
-const PARK_MODEL = { src: '/models/park/park.glb', x: 23, z: 30.9, ry: 0, scale: 1.25, sink: 0.25, half: 5.88 };
+const PARK_MODEL = { src: '/models/park/park.glb', x: 23, z: 30.9, ry: 0, scale: 1.25, sink: 0.25, half: 5.88, lazyDistance: 20 };
 const PS = PARK_MODEL.scale;
 const parkPoint = (mx, mz) => {
   const ry = PARK_MODEL.ry;
@@ -120,7 +122,7 @@ c.park = {
   area: { x: [round3(PARK_MODEL.x - PARK_MODEL.half * PS), round3(PARK_MODEL.x + PARK_MODEL.half * PS)], z: [round3(PARK_MODEL.z - PARK_MODEL.half * PS), round3(PARK_MODEL.z + PARK_MODEL.half * PS)] },
   signPost: { x: round3(PARK_MODEL.x - PARK_MODEL.half * PS - 0.7), z: PARK_MODEL.z, ry: -1.5708 },
   // Hạ nền mô hình xuống ngang mặt cỏ, cao hơn 1,5 cm để không nhấp nháy với cỏ.
-  model: { src: PARK_MODEL.src, x: PARK_MODEL.x, z: PARK_MODEL.z, ry: PARK_MODEL.ry, scale: PS, y: round3(-PARK_MODEL.sink * PS + 0.015) },
+  model: { src: PARK_MODEL.src, x: PARK_MODEL.x, z: PARK_MODEL.z, ry: PARK_MODEL.ry, scale: PS, y: round3(-PARK_MODEL.sink * PS + 0.015), lazyDistance: PARK_MODEL.lazyDistance },
 };
 c.benches.push(
   parkSwing('B-7', -3.2, 0.345),
@@ -157,7 +159,11 @@ c.garden = {
   shopSign: 'QUẦY HẠT GIỐNG',
   bed: THIEN_GARDEN.bed,
   entrance: { x: GARDEN_FENCE.x[0], z: GARDEN_GATE.z, ry: -1.5708, width: GARDEN_GATE.width },
-  shop: { x: 10.6, z: 64.2, ry: -1.5708 },
+  // Mô hình Meshy chỉ thay lớp cảnh tĩnh cổng + quầy; luống, cây động, vùng chạm và luật vườn vẫn do engine/API giữ.
+  // GLB có gốc ở tâm nên y nâng đáy mô hình về đúng mặt cỏ.
+  model: { src: '/models/garden/garden-entrance.glb', x: 12.35, y: 2.02, z: 68.35, ry: -1.5708, scale: 2.22, lazyDistance: 24 },
+  // Vùng chạm nằm ở gian nhỏ bên phải mô hình, chừa trống điểm đi nhanh (10.8, 68) trước cửa.
+  shop: { x: 10.85, z: 70.35, ry: -1.5708 },
   // Thùng nước gỗ cạnh cổng (trang trí, gợi ý chỗ tưới).
   barrel: { x: 12.5, z: 66.2 },
   plots: THIEN_GARDEN.plots.map(({ id, x, z }) => ({ id, x, z })),
@@ -192,13 +198,16 @@ c.memorial = {
 // Khu thú cưng phía sau bên phải: có cổng mở về lối giữa, đồ chơi và sáu chó mèo có tên riêng.
 const PET_FENCE = { x: [7.2, 34], z: [77, 97] };
 const PET_GATE = { z: 86.5, width: 3.2 };
+// Lối nối sang Nông trại nhỏ ở hàng rào phía đông (cùng z với cổng tây của nông trại).
+const PET_FARM_GATE = { z: 88, width: 2.6 };
 c.petZone = {
   sign: 'KHU VUI CHƠI THÚ CƯNG',
   area: PET_FENCE,
   entrance: { x: PET_FENCE.x[0], z: PET_GATE.z, ry: -1.5708, width: PET_GATE.width },
   fence: [
     [PET_FENCE.x[0], PET_FENCE.z[0], PET_FENCE.x[1], PET_FENCE.z[0]],
-    [PET_FENCE.x[1], PET_FENCE.z[0], PET_FENCE.x[1], PET_FENCE.z[1]],
+    [PET_FENCE.x[1], PET_FENCE.z[0], PET_FENCE.x[1], PET_FARM_GATE.z - PET_FARM_GATE.width / 2],
+    [PET_FENCE.x[1], PET_FARM_GATE.z + PET_FARM_GATE.width / 2, PET_FENCE.x[1], PET_FENCE.z[1]],
     [PET_FENCE.x[1], PET_FENCE.z[1], PET_FENCE.x[0], PET_FENCE.z[1]],
     [PET_FENCE.x[0], PET_FENCE.z[1], PET_FENCE.x[0], PET_GATE.z + PET_GATE.width / 2],
     [PET_FENCE.x[0], PET_GATE.z - PET_GATE.width / 2, PET_FENCE.x[0], PET_FENCE.z[0]],
@@ -294,6 +303,7 @@ const FLOWER_NORTH_GATE = { x: -33, width: 2.2 };
     trees,
     lamps,
     butterflies: 26,
+    lazyDistance: 36,
     views,
   };
   c.benches.push(...benches);
@@ -321,8 +331,56 @@ c.animals = [
   { id: 'pet-dog-fox', name: 'Fox', type: 'dog', model: '/models/pets/dog-fox.glb', height: 0.6, modelRy: 0, x: 30, z: 85, area: { x: [8, 33], z: [78, 96] } },
   { id: 'pet-cat-meomeo', name: 'Meomeo', type: 'cat', model: '/models/pets/cat-meomeo.glb', height: 0.38, modelRy: 0, x: 14, z: 92, area: { x: [8, 33], z: [78, 96] } },
 ];
+// Nông trại nhỏ (dải cỏ phía đông khu thú cưng): thỏ, vịt, dê con, heo con, nai sao, ngựa con (mô hình Meshy,
+// nhanvat/farm/<loài>.glb → /models/pets/farm-<loài>.glb). Cổng chính mở về bãi cỏ phía nam, cổng tây nối thẳng với
+// khu thú cưng. Khớp THIEN_RULES.world.farmArea (đứng trong khu này mới tương tác được với thú).
+const FARM = { x: [36, 50.8], z: [60, 97] };
+const FARM_SOUTH_GATE = { x: 43.4, width: 3.2 };
+const FARM_WEST_GATE = { z: PET_FARM_GATE.z, width: PET_FARM_GATE.width };
+const FARM_ROAM = { x: [FARM.x[0] + 1, FARM.x[1] - 1], z: [FARM.z[0] + 1, FARM.z[1] - 1] };
+c.farmZone = {
+  sign: 'NÔNG TRẠI NHỎ',
+  area: FARM,
+  entrance: { x: FARM_SOUTH_GATE.x, z: FARM.z[0], ry: 3.1416, width: FARM_SOUTH_GATE.width },
+  fence: [
+    [FARM.x[0], FARM.z[0], FARM_SOUTH_GATE.x - FARM_SOUTH_GATE.width / 2, FARM.z[0]],
+    [FARM_SOUTH_GATE.x + FARM_SOUTH_GATE.width / 2, FARM.z[0], FARM.x[1], FARM.z[0]],
+    [FARM.x[1], FARM.z[0], FARM.x[1], FARM.z[1]],
+    [FARM.x[1], FARM.z[1], FARM.x[0], FARM.z[1]],
+    [FARM.x[0], FARM.z[1], FARM.x[0], FARM_WEST_GATE.z + FARM_WEST_GATE.width / 2],
+    [FARM.x[0], FARM_WEST_GATE.z - FARM_WEST_GATE.width / 2, FARM.x[0], FARM.z[0]],
+  ],
+  props: [
+    { type: 'barn', x: 46.6, z: 93.4, ry: 3.1416 },
+    { type: 'trough', x: 38.4, z: 72, ry: 1.5708 },
+    { type: 'hay', x: 48.9, z: 70.5, ry: 0.4 },
+    { type: 'hay', x: 48.6, z: 72.4, ry: -0.3 },
+    { type: 'hay', x: 38.2, z: 92.6, ry: 0.2 },
+    { type: 'duckpond', x: 45.2, z: 80.5, ry: 0 },
+    { type: 'duckhouse', x: 47.6, z: 83.2, ry: -2.42 },
+  ],
+};
+// Cây bụi cũ nằm trong khu nông trại / trên hàng rào: bỏ (cây lớn 44, 90 giữ làm bóng mát).
+const inFarm = (x, z, pad = 0.8) => x > FARM.x[0] - pad && x < FARM.x[1] + pad && z > FARM.z[0] - pad && z < FARM.z[1] + pad;
+c.trees = c.trees.filter((t) => !inFarm(t.x, t.z) || (t.x === 44 && t.z === 90));
+c.pines = c.pines.filter(([x, z]) => !inFarm(x, z));
+c.bushes = c.bushes.filter(([x, z]) => !inFarm(x, z));
+// height: chiều cao đứng (m); mô hình Meshy nhìn về +z nên modelRy 0.
+const farmAnimal = (id, name, type, height, x, z) => ({ id, name, type, model: `/models/pets/farm-${type}.glb`, height, modelRy: 0, x, z, area: FARM_ROAM });
+c.animals.push(
+  farmAnimal('farm-rabbit-bong', 'Bông Gòn', 'rabbit', 0.36, 39.5, 66),
+  farmAnimal('farm-rabbit-mochi', 'Mochi', 'rabbit', 0.34, 41.5, 69),
+  farmAnimal('farm-duck-vang', 'Vịt Vàng', 'duck', 0.42, 43.5, 78),
+  farmAnimal('farm-duck-bau', 'Vịt Bầu', 'duck', 0.4, 43.6, 83.8),
+  farmAnimal('farm-goat-rau', 'Dê Râu', 'goat', 0.72, 46, 66),
+  farmAnimal('farm-pig-un', 'Ủn Ỉn', 'pig', 0.5, 40.5, 85),
+  farmAnimal('farm-deer-sao', 'Nai Sao', 'deer', 1.0, 44, 73),
+  farmAnimal('farm-pony-gio', 'Ngựa Gió', 'pony', 1.25, 42.5, 90),
+);
 c.guideBoards = [
-  ...(c.guideBoards || []).filter((item) => item.id !== 'pets'),
+  ...(c.guideBoards || []).filter((item) => !['garden', 'pets'].includes(item.id)),
+  // Bảng hướng dẫn đứng riêng bên trái cổng; Store nằm trong gian bên phải, không còn chồng vùng bấm / vòng sáng.
+  { id: 'garden', x: 10.6, z: 64.65, ry: -1.5708, width: 2.2, height: 1.15, sign: 'HƯỚNG DẪN KHU VƯỜN' },
   { id: 'pets', x: 9.4, z: 83.3, ry: -1.5708, width: 2.2, height: 1.15, sign: 'HƯỚNG DẪN KHU THÚ CƯNG' },
 ];
 c.gate = { ...c.gate, z: GATE };
@@ -383,6 +441,7 @@ const obstacles = [
   ...guanyinGardenObstacles,
   circle(c.fountain.x, c.fountain.z, 3),
   { x: c.pond.x, z: c.pond.z, rx: c.pond.radiusX + 0.45, rz: c.pond.radiusZ + 0.45 },
+  ...c.pond.lanterns.map((item) => circle(item.x, item.z, 0.45)),
   // Ghế dài 2,2 m: elip đúng chiều ghế, không để lọt qua hai đầu. Bụi cây cũng là vật thể đặc thay vì chỉ trang trí.
   ...c.benches.filter((item) => !item.kind && !/^B-1\d$/.test(item.id)).map(benchObstacle),
   // Khu vui chơi: vật cản lấy theo mô hình (xích đu / cầu tuột nằm trong các khối này).
@@ -431,6 +490,24 @@ const obstacles = [
       Math.round((z0 + ((z1 - z0) * index) / steps) * 100) / 100,
       0.25,
     ));
+  }),
+  // Nông trại nhỏ: hàng rào và chuồng, máng, cỏ khô, ao vịt.
+  ...c.farmZone.fence.flatMap(([x0, z0, x1, z1]) => {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const steps = Math.ceil(length / 0.5);
+    return Array.from({ length: steps + 1 }, (_, index) => circle(
+      Math.round((x0 + ((x1 - x0) * index) / steps) * 100) / 100,
+      Math.round((z0 + ((z1 - z0) * index) / steps) * 100) / 100,
+      0.25,
+    ));
+  }),
+  ...c.farmZone.props.flatMap((item) => {
+    if (item.type === 'barn') return [{ x: item.x, z: item.z, rx: 2.3, rz: 1.8 }];
+    if (item.type === 'trough') return [{ x: item.x, z: item.z, rx: 0.45, rz: 1.1 }];
+    if (item.type === 'hay') return [circle(item.x, item.z, 0.6)];
+    if (item.type === 'duckpond') return [{ x: item.x, z: item.z, rx: 1.9, rz: 1.5 }];
+    if (item.type === 'duckhouse') return [circle(item.x, item.z, 0.75)];
+    return [];
   }),
   ...c.petZone.props.flatMap((item) => {
     if (item.type === 'house') return [{ x: item.x, z: item.z, rx: 1.35, rz: 1.05 }];

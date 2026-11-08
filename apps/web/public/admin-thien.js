@@ -428,6 +428,59 @@ $('#savePacks').addEventListener('click', async () => {
     setMessage('Đã lưu gói nạp kim cương.');
   } catch (error) { setMessage(error.message, true); }
 });
+// ---- 09 · Giá linh thú (kim cương) ----
+const PET_NAMES = { carp: '🐟 Cá Chép', turtle: '🐢 Rùa Thần', crane: '🕊️ Hạc Tiên', lion: '🦁 Sư Tử' };
+const petPriceRows = $('#petPriceRows');
+function petPriceRow(item) {
+  const row = document.createElement('div');
+  row.className = 'pack-row pet-price-row';
+  row.dataset.species = item.species;
+  const name = Object.assign(document.createElement('b'), { textContent: PET_NAMES[item.species] || item.species });
+  const price = Object.assign(document.createElement('input'), { type: 'number', value: item.price, min: 1, max: 1_000_000, step: 1 });
+  price.dataset.field = 'price';
+  // Đào xu cấp 1 → cấp cao nhất (server tính từ code, chỉ để xem).
+  const rate = Object.assign(document.createElement('span'), {
+    textContent: Array.isArray(item.rate) ? `${item.rate.map((value) => value.toLocaleString('vi-VN')).join(' → ')} xu/giờ` : '',
+  });
+  const active = Object.assign(document.createElement('input'), { type: 'checkbox', checked: item.active, title: 'Đang bán / tạm ngừng' });
+  active.dataset.field = 'active';
+  row.append(name, price, rate, active);
+  return row;
+}
+function showPetPrices(pets) {
+  petPriceRows.replaceChildren(...pets.map(petPriceRow));
+  $('#petPriceAdmin').hidden = false;
+  $('#petPriceEmpty').hidden = true;
+}
+async function petPriceRequest(method, body) {
+  if (!key.value) throw new Error('Nhập khóa quản trị trước khi tải giá linh thú.');
+  sessionStorage.setItem('thien-admin-key', key.value);
+  const response = await fetch('/api/v1/admin/shop/pets', {
+    method,
+    headers: { 'x-admin-key': key.value, ...(body ? { 'content-type': 'application/json' } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (response.status === 403) throw new Error('Khóa quản trị không đúng.');
+  if (response.status === 400) throw new Error('Giá không hợp lệ: số nguyên từ 1 đến 1.000.000 kim cương.');
+  if (!response.ok) throw new Error('Không tải / lưu được giá linh thú.');
+  return response.json();
+}
+$('#loadPetPrices').addEventListener('click', async () => {
+  try {
+    showPetPrices((await petPriceRequest('GET')).pets);
+  } catch (error) { setMessage(error.message, true); }
+});
+$('#savePetPrices').addEventListener('click', async () => {
+  try {
+    const pets = [...petPriceRows.children].map((row) => ({
+      species: row.dataset.species,
+      price: Number(row.querySelector('[data-field="price"]').value),
+      active: row.querySelector('[data-field="active"]').checked,
+    }));
+    showPetPrices((await petPriceRequest('PUT', { pets })).pets);
+    setMessage('Đã lưu giá linh thú.');
+  } catch (error) { setMessage(error.message, true); }
+});
 $('#reset').addEventListener('click', async () => {
   if (!confirm('Khôi phục giờ và bốn video về cấu hình mặc định?')) return;
   try {

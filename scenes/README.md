@@ -5,7 +5,7 @@ Mỗi cảnh nằm trong `scenes/<sceneId>/scene.json` (cùng asset nếu có). 
 | Cảnh | Nền | Ghế | Nhân vật |
 | --- | --- | --- | --- |
 | `cinema-default` | vẽ bằng code (chưa có ảnh rạp) | 100 ghế S-1…S-100, khớp room rules Cinema | bóng người nhìn từ sau lưng |
-| `thien-default` | `/thien/assets/hall.jpg` | 16 bồ đoàn đo đúng tâm và bề rộng trong tranh; sprite (đã vẽ sẵn bồ đoàn) được phóng cho khít | sprite `c_*.png` của bản legacy |
+| `thien-default` | `/thien/assets/hall.webp` | 16 bồ đoàn đo đúng tâm và bề rộng trong tranh; sprite (đã vẽ sẵn bồ đoàn) được phóng cho khít | sprite `c_*.webp` của bản legacy |
 
 ## Định dạng (version 1)
 

@@ -71,23 +71,57 @@ test('mỗi khu có một bảng hướng dẫn đặt bằng dữ liệu cảnh
   assert.ok(validateWorld(broken).errors.some((error) => error.includes('bảng hướng dẫn')));
 });
 
+test('Vườn Công Đức dùng mô hình Meshy nội bộ nhưng giữ đủ 50 luống và vùng tương tác', () => {
+  const garden = scene.world.courtyard.garden;
+  const guide = scene.world.courtyard.guideBoards.find((board) => board.id === 'garden');
+  assert.equal(garden.model.src, '/models/garden/garden-entrance.glb');
+  assert.ok(existsSync(new URL(`../../../apps/web/public${garden.model.src}`, import.meta.url)));
+  assert.equal(garden.plots.length, 50);
+  assert.ok(garden.shop && garden.entrance && garden.barrel);
+  assert.ok(Math.hypot(guide.x - garden.shop.x, guide.z - garden.shop.z) > 4, 'bảng hướng dẫn và Store nằm riêng hai bên cổng');
+  const broken = structuredClone(scene);
+  broken.world.courtyard.garden.model.src = 'https://example.com/garden.glb';
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('garden.model')));
+});
+
 test('khu thú cưng có hàng rào, đồ chơi và mã thú khớp room rules', () => {
   const { petZone, animals } = scene.world.courtyard;
   assert.deepEqual(petZone.area, THIEN_RULES.world.petArea);
-  assert.ok(petZone.fence.length >= 5);
+  assert.ok(petZone.fence.length >= 6, 'có lối nối sang Nông trại');
   assert.deepEqual(petZone.props.map((item) => item.type), ['house', 'tunnel', 'seesaw', 'hoop', 'bowls', 'balls']);
   assert.deepEqual(animals.map((item) => item.id), THIEN_RULES.world.pets);
-  assert.ok(animals.every((item) => item.name && ['dog', 'cat'].includes(item.type)));
+  const yard = animals.filter((item) => !item.id.startsWith('farm-'));
+  assert.ok(yard.every((item) => item.name && ['dog', 'cat'].includes(item.type)));
   const broken = structuredClone(scene);
   broken.world.courtyard.animals[1].id = broken.world.courtyard.animals[0].id;
   assert.ok(validateWorld(broken).errors.some((error) => error.includes('thú cưng')));
   // Milo, Fox, Meomeo dùng mô hình nén trong /models/pets/ (file phải có thật).
   const models = animals.filter((item) => item.model);
-  assert.deepEqual(models.map((item) => item.name), ['Milo', 'Fox', 'Meomeo']);
+  assert.deepEqual(models.filter((item) => !item.id.startsWith('farm-')).map((item) => item.name), ['Milo', 'Fox', 'Meomeo']);
   for (const item of models) assert.ok(existsSync(new URL(`../../../apps/web/public${item.model}`, import.meta.url)), item.model);
   const badModel = structuredClone(scene);
   badModel.world.courtyard.animals.find((item) => item.model).model = 'https://example.com/x.glb';
   assert.ok(validateWorld(badModel).errors.some((error) => error.includes('mô hình')));
+});
+
+test('Nông trại nhỏ: vùng khớp room rules, có cổng nam và cổng nối khu thú cưng, đủ 6 loài mô hình Meshy, thú ở trong rào', () => {
+  const { farmZone, animals, petZone } = scene.world.courtyard;
+  assert.deepEqual(farmZone.area, THIEN_RULES.world.farmArea);
+  assert.deepEqual(farmZone.props.map((item) => item.type), ['barn', 'trough', 'hay', 'hay', 'hay', 'duckpond', 'duckhouse']);
+  const farm = animals.filter((item) => item.id.startsWith('farm-'));
+  assert.deepEqual([...new Set(farm.map((item) => item.type))].sort(), ['deer', 'duck', 'goat', 'pig', 'pony', 'rabbit']);
+  for (const item of farm) {
+    assert.ok(item.model === `/models/pets/farm-${item.type}.glb`, item.id);
+    assert.ok(existsSync(new URL(`../../../apps/web/public${item.model}`, import.meta.url)), item.model);
+    assert.ok(item.x > farmZone.area.x[0] && item.x < farmZone.area.x[1] && item.z > farmZone.area.z[0] && item.z < farmZone.area.z[1], `${item.id} trong rào`);
+    assert.ok(item.area.x[0] >= farmZone.area.x[0] && item.area.x[1] <= farmZone.area.x[1], `${item.id} chỉ đi trong nông trại`);
+  }
+  // Cổng nối: hàng rào đông của khu thú cưng và hàng rào tây của nông trại cùng chừa lối ở z = 88.
+  const gapAt = (fence, x, z) => !fence.some(([x0, z0, x1, z1]) => x0 === x && x1 === x && z >= Math.min(z0, z1) && z <= Math.max(z0, z1));
+  assert.ok(gapAt(petZone.fence, petZone.area.x[1], 88) && gapAt(farmZone.fence, farmZone.area.x[0], 88));
+  const broken = structuredClone(scene);
+  broken.world.courtyard.animals.find((item) => item.type === 'goat').model = undefined;
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('loại không hợp lệ')), 'thú nông trại phải có mô hình');
 });
 
 test('sáu công việc trong chùa khớp id, loại, vị trí kiểm tra của realtime', () => {

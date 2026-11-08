@@ -18,6 +18,7 @@ import { createPlayerSocial } from '/player-social.js';
 import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
 import { createMemorialUI } from '/memorial-ui.js';
+import { createPetUI } from '/pet-ui.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
 import { createZoneGuide } from '/zone-guide.js';
 import { guardWebGL } from '/webgl-guard.js';
@@ -601,6 +602,7 @@ async function setViewMode(mode) {
       // Trình duyệt thu hồi WebGL (thiếu bộ nhớ, chuyển app): cảnh đen và chạm không ăn → tải lại trang.
       guardWebGL(elements.scene3d, { onLost: (willReload) => showToast(t(willReload ? 'toast.webglLost' : 'toast.webglLostManual')) });
       explore.attach(renderer);
+      if (elements.gate.hidden) renderer.activateAssets?.();
       if (explore.active) elements.hint3d.textContent = t('explore.hint');
       showHint();
       watchSceneLoading(renderer);
@@ -960,6 +962,7 @@ function showHall(visible) {
 
 function enterHall(name) {
   showHall(true);
+  renderer?.activateAssets?.();
   zoneGuide.enter(currentPlace || 'hall');
   if (ARRIVED_FROM_MAP) {
     greeted = false;
@@ -1484,6 +1487,15 @@ const gems = createGemUI({
   text: () => Object.fromEntries(['title', 'balance', 'signIn', 'off', 'empty', 'shop', 'close', 'failed', 'note'].map((name) => [name, t(`gem.${name}`)])),
 });
 
+// Linh thú (menu ⚙): nhận nuôi bằng kim cương, nuôi bằng xu. Thiếu kim cương thì mở bảng nạp.
+const pets = createPetUI({
+  stage: elements.stage,
+  showToast,
+  openGems: () => gems.open(),
+  refreshGems: () => gems.refresh(),
+  coinsChanged: () => garden?.refreshCoins(),
+});
+
 // Hình đã mua: hiện ô chọn "Bé Mũ Đỏ" ở cổng. Chưa mua (hoặc chưa đăng nhập) thì tạm mặc Nữ nhưng vẫn nhớ lựa chọn
 // trên máy, để đăng nhập xong là mặc lại đúng hình đã mua.
 function pressSkin() {
@@ -1504,7 +1516,7 @@ function shopSkinButton(skin, name, thumb) {
     button.setAttribute('aria-pressed', String(skin === mySkin));
     const looks = document.createElement('span');
     looks.className = 'skin-looks';
-    const image = Object.assign(document.createElement('img'), { alt: '', src: `/thien/assets/c_${baseSkin(skin)}.png` });
+    const image = Object.assign(document.createElement('img'), { alt: '', src: `/thien/assets/c_${baseSkin(skin)}.webp` });
     image.dataset.look = 'robe';
     looks.append(image);
     const label = document.createElement('span');
@@ -1625,6 +1637,7 @@ createSettingsMenu({
     { element: elements.nextTrack, container: elements.tools, label: 'menu.music', keepOpen: true },
     { element: elements.mute, container: elements.tools, label: 'menu.sound', keepOpen: true },
     { element: voiceTest, label: 'menu.voice', keepOpen: true },
+    { element: pets.menuButton },
     { element: shopButton, label: 'menu.shop' },
     { element: donateButton, label: 'menu.donate' },
     { element: supportButton, label: 'menu.support' },

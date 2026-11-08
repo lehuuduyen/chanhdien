@@ -252,7 +252,13 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   petActions.className = 'pet-actions';
   petActions.hidden = true;
   const petName = document.createElement('strong');
-  const petButtons = ['pet', 'feed', 'play'].map((action) => {
+  // Biểu tượng theo loài; nút có lời riêng từng loài (pet.<loài>.<hành động>), thiếu thì dùng lời chung.
+  const petIcons = { dog: '🐕', cat: '🐈', rabbit: '🐇', duck: '🦆', goat: '🐐', pig: '🐖', deer: '🦌', pony: '🐴' };
+  const petLabel = (type, action) => {
+    const own = t(`pet.${type}.${action}`);
+    return own === `pet.${type}.${action}` ? t(`pet.${action}`) : own;
+  };
+  const petButtons = ['pet', 'feed', 'play', 'trick'].map((action) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.petAction = action;
@@ -264,8 +270,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   function renderPet() {
     petActions.hidden = !nearbyPet;
     if (!nearbyPet) return;
-    petName.textContent = `${nearbyPet.type === 'dog' ? '🐕' : '🐈'} ${nearbyPet.name}`;
-    petButtons.forEach((button) => { button.textContent = t(`pet.${button.dataset.petAction}`); });
+    petName.textContent = `${petIcons[nearbyPet.type] || '🐾'} ${nearbyPet.name}`;
+    petButtons.forEach((button) => { button.textContent = petLabel(nearbyPet.type, button.dataset.petAction); });
   }
   petActions.addEventListener('click', (event) => {
     const button = event.target.closest('[data-pet-action]');
@@ -290,8 +296,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelPanel.setAttribute('role', 'menu');
   travelPanel.hidden = true;
   // exits: map khác (vd: rạp phim) — { id, icon, go() }; bấm vào thì trang tự chuyển, không gửi travel.go.
-  const travelIcons = { hall: '🛕', courtyard: '🌳', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
-  const travelButtons = ['hall', 'courtyard', 'park', 'flowers', 'garden', 'pets', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
+  const travelIcons = { hall: '🛕', courtyard: '🌳', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', farm: '🐐', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
+  const travelButtons = ['hall', 'courtyard', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.destination = destination;
@@ -411,6 +417,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
         status: statusOf(person.emote, person.sutra),
         handWith: person.handWith || null,
         handLead: Boolean(person.handLead),
+        // Linh thú đang dẫn theo: engine tự vẽ đi theo sau lưng.
+        pet: person.pet || null,
       };
     });
     // Vừa từ map khác về (vd: rạp phim → "Khu vườn"): xin server đặt mình ở khu đã chọn thay vì cửa chánh điện.
@@ -509,7 +517,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     },
     // Vào phòng xong thì đi thẳng tới khu này, dùng khi quay về từ map khác.
     arriveAt(destination) {
-      if (['hall', 'courtyard', 'park', 'flowers', 'garden', 'pets', 'memorial'].includes(destination)) arrival = destination;
+      if (['hall', 'courtyard', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial'].includes(destination)) arrival = destination;
     },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {
@@ -556,7 +564,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     onPetInteraction(message) {
       const pet = api?.petInteraction?.(message.petId, message.action);
       if (pet && message.participantId === session.participantId) {
-        showToast(t('pet.done', { action: t(`pet.${message.action}`), name: pet.name }));
+        showToast(t('pet.done', { action: petLabel(pet.type, message.action), name: pet.name }));
       }
     },
     // Dùng lại đi nhanh an toàn cho nút hướng dẫn nhiệm vụ; chỉ nhận các đích đã có trong menu.

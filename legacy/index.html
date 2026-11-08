@@ -6,7 +6,7 @@
 <meta name="description" content="Chánh điện online: nhập pháp danh, an tọa tụng kinh cùng mọi người, nghe nhạc thiền.">
 <meta name="theme-color" content="#0c0705">
 <meta property="og:title" content="Tịnh Tâm · Chánh Điện Online">
-<meta property="og:image" content="/assets/hall.jpg">
+<meta property="og:image" content="/assets/hall.webp">
 <title>Tịnh Tâm · Chánh Điện Online</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,600;1,400&family=Be+Vietnam+Pro:wght@400;500;600&display=swap">
 <style>
@@ -22,7 +22,7 @@ html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--body);overflow:hidden;
   padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
 #wrap{position:fixed;inset:0;display:grid;place-items:center;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
-#stage{position:relative;aspect-ratio:9/16;height:100%;max-width:100%;max-height:100%;overflow:hidden;background:#1a0d08 url(assets/hall.jpg) center/100% 100% no-repeat;box-shadow:0 0 80px rgba(0,0,0,.8)}
+#stage{position:relative;aspect-ratio:9/16;height:100%;max-width:100%;max-height:100%;overflow:hidden;background:#1a0d08 url(assets/hall.webp) center/100% 100% no-repeat;box-shadow:0 0 80px rgba(0,0,0,.8)}
 @media (max-aspect-ratio:9/16){#stage{width:100%;height:auto}}
 #stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
 /* HUD lives inside the stage so it matches the 9:16 stream frame */
@@ -132,10 +132,10 @@ const SW = 1080, SH = 1920;
 const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
 const A = {};   // loaded images
 const ASSETS = {
-  hall:'assets/hall.jpg',
-  monk:'assets/c_monk.png', nun:'assets/c_nun.png', granny:'assets/c_granny.png', man:'assets/c_man.png', woman:'assets/c_woman.png', child:'assets/c_child.png',
-  anim_man:'assets/anim_man.png', anim_woman:'assets/anim_woman.png', anim_granny:'assets/anim_granny.png',
-  lotus:'assets/fx_lotus.png', halo:'assets/fx_halo.png', bell:'assets/fx_bell.png', incense:'assets/fx_incense.png', petal:'assets/fx_petal.png', mo:'assets/fx_mo.png', banner:'assets/fx_banner.png', scroll:'assets/fx_scroll.png',
+  hall:'assets/hall.webp',
+  monk:'assets/c_monk.webp', nun:'assets/c_nun.webp', granny:'assets/c_granny.webp', man:'assets/c_man.webp', woman:'assets/c_woman.webp', child:'assets/c_child.webp',
+  anim_man:'assets/anim_man.webp', anim_woman:'assets/anim_woman.webp', anim_granny:'assets/anim_granny.webp',
+  lotus:'assets/fx_lotus.webp', halo:'assets/fx_halo.webp', bell:'assets/fx_bell.webp', incense:'assets/fx_incense.webp', petal:'assets/fx_petal.webp', mo:'assets/fx_mo.webp', banner:'assets/fx_banner.webp', scroll:'assets/fx_scroll.webp',
 };
 let loaded = 0; const total = Object.keys(ASSETS).length;
 for (const [k,src] of Object.entries(ASSETS)) { const im = new Image(); im.onload = ()=>{ loaded++; }; im.onerror = ()=>{ loaded++; console.warn('missing', src); }; im.src = src; A[k] = im; }

@@ -9,6 +9,10 @@ import { createGardenView } from './garden3d.mjs';
 import { createMemorialView } from './memorial3d.mjs';
 import { playPose, updateSwings } from './park3d.mjs';
 import { buildChibiWalker, DANCE_STYLES, danceStyleOf } from './chibi3d.mjs';
+import { createSpirit } from './spirit3d.mjs';
+
+// Linh thú cách camera xa hơn ngần này (m) thì ẩn.
+const SPIRIT_VIEW_DISTANCE = 30;
 
 const SEND_INTERVAL_MS = 200;
 const BOW_CYCLE_S = { bow3: 3.6, bow108: 3.0 };
@@ -217,6 +221,21 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       return walker;
     }
 
+    // Linh thú đi theo (pet = { species, level } hoặc null). Đổi loài / cấp thì dựng lại.
+    function setSpirit(walker, pet) {
+      const key = pet?.species ? `${pet.species}:${pet.level || 1}` : null;
+      if ((walker.spiritKey || null) === key) return;
+      if (walker.spirit) {
+        root.remove(walker.spirit.group);
+        walker.spirit.dispose();
+        walker.spirit = null;
+      }
+      walker.spiritKey = key;
+      if (!key) return;
+      walker.spirit = createSpirit(pet, { reduceMotion });
+      if (walker.spirit) root.add(walker.spirit.group);
+    }
+
     function removeWalker(id) {
       const walker = walkers.get(id);
       if (!walker) return;
@@ -226,6 +245,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (walker.bubble) disposeSprite(walker.bubble.sprite);
       if (walker.choreTool) walker.choreTool.userData.dispose?.();
       if (walker.choreEffect) walker.choreEffect.userData.dispose?.();
+      setSpirit(walker, null);
       walker.parts.shadow.material.dispose();
       walkers.delete(id);
     }
@@ -752,6 +772,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (hall && self.x >= -hall.halfWidth && self.x <= hall.halfWidth && self.z >= hall.back && self.z <= hall.front) return 'hall';
       const pets = world.courtyard?.petZone?.area;
       if (pets && self.x >= pets.x[0] && self.x <= pets.x[1] && self.z >= pets.z[0] && self.z <= pets.z[1]) return 'pets';
+      const farm = world.courtyard?.farmZone?.area;
+      if (farm && self.x >= farm.x[0] && self.x <= farm.x[1] && self.z >= farm.z[0] && self.z <= farm.z[1]) return 'farm';
       const park = world.courtyard?.park?.area;
       if (park && self.x >= park.x[0] - 2 && self.x <= park.x[1] && self.z >= park.z[0] && self.z <= park.z[1]) return 'park';
       const flowers = world.courtyard?.flowerGarden?.area;
@@ -877,6 +899,12 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const choreX = walker.choreOffset * Math.cos(walker.choreRy || 0);
         const choreZ = -walker.choreOffset * Math.sin(walker.choreRy || 0);
         walker.group.position.set(walker.x + choreX, 0, walker.z + choreZ);
+        if (walker.spirit) {
+          // Linh thú ở xa camera thì ẩn và không tính (phòng đông nhiều bot dẫn linh thú vẫn nhẹ trên điện thoại).
+          const near = Math.hypot(walker.x - camera.position.x, walker.z - camera.position.z) < SPIRIT_VIEW_DISTANCE;
+          walker.spirit.group.visible = walker.group.visible && near;
+          if (near) walker.spirit.update(dt, time / 1000, { x: walker.group.position.x, z: walker.group.position.z, ry: walker.ry });
+        }
         walker.parts.figure.rotation.y = walker.ry;
         // Đang chơi xích đu / cầu tuột: vị trí, độ cao, hướng mặt theo thời gian (park3d); gốc (walker.x/z) giữ ở chỗ
         // server cấp nên camera và va chạm không đổi.
@@ -922,7 +950,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (courtyard?.playRigs?.length) updateSwings(courtyard.playRigs, playOccupied, Date.now() / 1_000, dt);
       // Camera bám sau lưng nhân vật. Khoảng cách/cao độ là dữ liệu scene; thien-default khóa zoom để nhân vật
       // luôn có cùng kích thước trên màn hình, nhưng vẫn cho xoay góc nhìn quanh nhân vật.
-      if (self && !selfSeated) {
+      if (self && !selfSeated && !freeCamera) {
         // Đang chơi xích đu / cầu tuột: camera dời theo người (như khi đi bộ) để không bị thang / khung che.
         const followX = selfPlay ? selfPlay.x : self.x;
         const followZ = selfPlay ? selfPlay.z : self.z;
@@ -945,6 +973,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     }
 
     const savedLimits = { min: controls.minDistance, max: controls.maxDistance };
+    // Chỉ để chụp kiểm tra khi phát triển: tắt camera bám theo nhân vật (debugView của renderer đặt góc nhìn tự do).
+    let freeCamera = false;
 
     const api = {
       // Chỗ đã có người: { seats: [seatId], benches: { benchId: số người } } — chỗ đầy thì không sáng vòng.
@@ -1015,6 +1045,12 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         if (!self || selfSeated || self.benchId) return null;
         return { x: Math.round(self.x * 100) / 100, z: Math.round(self.z * 100) / 100, ry: Math.round(wrapAngle(self.ry) * 100) / 100 };
       },
+      debugFreeCamera(on) {
+        freeCamera = Boolean(on);
+        controls.minDistance = on ? 0.5 : savedLimits.min;
+        controls.maxDistance = on ? 300 : savedLimits.max;
+        if (!on) cameraReady = false;
+      },
       debugGarden() {
         return gardenView?.debug() || null;
       },
@@ -1052,6 +1088,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             walker = addWalker({ ...item, pos: keep });
           }
           if (!walker) walker = addWalker(item);
+          setSpirit(walker, item.pet || null);
           walker.benchId = item.benchId || null;
           walker.benchSpot = item.benchSpot || null;
           if ((item.handWith || null) !== (walker.handWith || null)) {

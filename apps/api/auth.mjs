@@ -343,7 +343,10 @@ export async function handleAuthRequest(req, res, pathname, options) {
       // friendLinks (friend-links.mjs): chỉ kèm online, không lộ phòng / vị trí; thêm trạng thái ẩn của chính mình.
       const friends = accounts.friends(account.id);
       const links = options.friendLinks;
-      json(req, res, 200, links ? { friends: links.decorate(account.id, friends), botFriends: links.botFriends(account.id), hidden: links.hidden(account.id) } : { friends });
+      // Bạn bot kèm tin cuối hôm nay (như bạn là người: danh sách hiện câu nhắn gần nhất, sắp theo tin mới).
+      const lastBot = options.botChats?.lastByBot(account.id) || new Map();
+      const botFriends = links?.botFriends(account.id).map((bot) => (lastBot.has(bot.name) ? { ...bot, last: lastBot.get(bot.name) } : bot));
+      json(req, res, 200, links ? { friends: links.decorate(account.id, friends), botFriends, hidden: links.hidden(account.id) } : { friends });
       return true;
     }
     const params = new URL(req.url, 'http://local').searchParams;
