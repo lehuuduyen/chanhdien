@@ -32,7 +32,7 @@ function merge(parts) {
 // Kích thước theo mét; đầu hướng +z, gốc ở mặt đất giữa thân.
 const SPECIES = {
   dog: {
-    walkSpeed: 1.2, runSpeed: 2.6, legLength: 0.3, wag: 14, radius: 0.35,
+    walkSpeed: 1.2, runSpeed: 2.6, legLength: 0.3, wag: 14, radius: 0.35, turnRate: 3, graze: 0.7, legTop: 0.38, neck: [0.5, 0.18],
     hips: [[-0.09, 0.32, 0.2], [0.09, 0.32, 0.2], [-0.09, 0.32, -0.2], [0.09, 0.32, -0.2]],
     tailBase: [0, 0.48, -0.3], tailTilt: 0.9,
     body: () => merge([
@@ -47,7 +47,7 @@ const SPECIES = {
     tail: () => merge([{ geometry: new THREE.CylinderGeometry(0.018, 0.03, 0.3, 6), at: [0, 0.15, 0] }]),
   },
   cat: {
-    walkSpeed: 0.7, runSpeed: 1.8, legLength: 0.2, wag: 2.5, radius: 0.25,
+    walkSpeed: 0.7, runSpeed: 1.8, legLength: 0.2, wag: 2.5, radius: 0.25, turnRate: 3.2, graze: 0.45, legTop: 0.3, neck: [0.5, 0.2],
     hips: [[-0.05, 0.2, 0.13], [0.05, 0.2, 0.13], [-0.05, 0.2, -0.13], [0.05, 0.2, -0.13]],
     tailBase: [0, 0.27, -0.2], tailTilt: 0.35,
     body: () => merge([
@@ -64,13 +64,16 @@ const SPECIES = {
 
 // Thú Nông trại nhỏ: chỉ có mô hình riêng (Meshy), nên chỉ cần thông số đi lại. gait: hop = nhảy cóc (thỏ),
 // waddle = lạch bạch (vịt), còn lại đi bằng bốn chân.
+// Thông số dáng cho mọi loài: turnRate = tốc độ quay tối đa (rad/s); graze = góc cúi đầu khi gặm cỏ / đánh hơi (0 = không);
+// legTop = độ cao hông theo tỉ lệ chiều cao mô hình (phần dưới là chân, bước theo dáng đi); neck = [cao, trước] của cổ
+// (tỉ lệ chiều cao / chiều dài, tính từ giữa thân): phần trước-trên cổ là đầu, cúi / ngoảnh quanh điểm đó.
 Object.assign(SPECIES, {
-  rabbit: { walkSpeed: 0.8, runSpeed: 2.3, legLength: 0.12, radius: 0.22, gait: 'hop' },
-  duck: { walkSpeed: 0.45, runSpeed: 1.1, legLength: 0.1, radius: 0.22, gait: 'waddle' },
-  goat: { walkSpeed: 0.9, runSpeed: 2.2, legLength: 0.32, radius: 0.35 },
-  pig: { walkSpeed: 0.7, runSpeed: 1.8, legLength: 0.18, radius: 0.32 },
-  deer: { walkSpeed: 1.0, runSpeed: 2.8, legLength: 0.45, radius: 0.42 },
-  pony: { walkSpeed: 1.1, runSpeed: 3.0, legLength: 0.55, radius: 0.55 },
+  rabbit: { walkSpeed: 0.8, runSpeed: 2.3, legLength: 0.12, radius: 0.22, gait: 'hop', turnRate: 4, graze: 0.35, legTop: 0.22, neck: [0.5, 0.05] },
+  duck: { walkSpeed: 0.45, runSpeed: 1.1, legLength: 0.1, radius: 0.22, gait: 'waddle', turnRate: 2.4, graze: 1.1, legTop: 0.13, neck: [0.45, 0.05] },
+  goat: { walkSpeed: 0.9, runSpeed: 2.2, legLength: 0.32, radius: 0.35, turnRate: 2.6, graze: 1, legTop: 0.42, neck: [0.5, 0.18] },
+  pig: { walkSpeed: 0.7, runSpeed: 1.8, legLength: 0.18, radius: 0.32, turnRate: 2.2, graze: 0.4, legTop: 0.3, neck: [0.45, 0.18] },
+  deer: { walkSpeed: 1.0, runSpeed: 2.8, legLength: 0.45, radius: 0.42, turnRate: 2.2, graze: 1.1, legTop: 0.48, neck: [0.5, 0.12] },
+  pony: { walkSpeed: 1.1, runSpeed: 3.0, legLength: 0.55, radius: 0.55, turnRate: 2, graze: 1.1, legTop: 0.42, neck: [0.5, 0.2] },
 });
 
 // Thức ăn hiện ra khi bấm Cho ăn: màu, hình (cone = cà rốt, grain = hạt, hay = nắm cỏ) và có bát hay không.
@@ -123,6 +126,112 @@ function loadAnimalModel(src) {
   return modelCache.get(src);
 }
 
+// Mô hình thú là file tĩnh (không khung xương). Để chân bước thật, hình được "nướng" về hệ tọa độ của con thú (đáy y = 0,
+// giữa thân ở gốc, đầu hướng +z) và mỗi đỉnh mang hai trọng số:
+//   aLeg  — phần chân: 0 ở hông, ±1 ở bàn chân; dấu = nhóm chân (bốn chân: chéo nhau như chó / ngựa đi nước kiệu,
+//           thỏ: trước / sau, vịt: trái / phải). Shader đưa chân tới lui theo pha bước, nhấc bàn chân lúc đưa về trước.
+//   aHead — phần đầu và cổ (trước-trên điểm cổ): cúi (gặm cỏ, đánh hơi) và ngoảnh (nhìn quanh) quanh điểm cổ.
+// Cùng file + loài dùng chung hình đã nướng (hai chú thỏ, hai chú vịt).
+const bakedCache = new Map();
+const smooth = (edge0, edge1, value) => {
+  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+};
+
+function bakeAnimal(gltf, item, spec) {
+  const key = `${item.model}|${item.modelRy || 0}|${item.type}`;
+  if (bakedCache.has(key)) return bakedCache.get(key);
+  const model = gltf.scene;
+  model.rotation.y = item.modelRy || 0;
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const offset = new THREE.Matrix4().makeTranslation(-center.x, -box.min.y, -center.z);
+  const legTop = size.y * spec.legTop;
+  const pivot = new THREE.Vector3(0, size.y * spec.neck[0], size.z * spec.neck[1]);
+  const parts = [];
+  model.traverse((node) => {
+    if (!node.isMesh) return;
+    const geometry = node.geometry.clone();
+    // Tọa độ nén meshopt là số nguyên chuẩn hóa: đổi sang số thực rồi mới gộp biến đổi (xem props3d.mjs).
+    for (const name of ['position', 'normal']) {
+      const attribute = geometry.getAttribute(name);
+      if (!attribute || (attribute.array instanceof Float32Array && !attribute.normalized)) continue;
+      const values = new Float32Array(attribute.count * 3);
+      for (let index = 0; index < attribute.count; index += 1) {
+        values[index * 3] = attribute.getX(index);
+        values[index * 3 + 1] = attribute.getY(index);
+        values[index * 3 + 2] = attribute.getZ(index);
+      }
+      geometry.setAttribute(name, new THREE.BufferAttribute(values, 3));
+    }
+    geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(offset, node.matrixWorld));
+    const positions = geometry.getAttribute('position');
+    const legs = new Float32Array(positions.count);
+    const heads = new Float32Array(positions.count);
+    for (let index = 0; index < positions.count; index += 1) {
+      const x = positions.getX(index);
+      const y = positions.getY(index);
+      const z = positions.getZ(index);
+      // Nhóm chân đổi dấu mượt qua giữa thân (không xé hình ở đường giữa).
+      const side = Math.max(-1, Math.min(1, x / (size.x * 0.1)));
+      const end = Math.max(-1, Math.min(1, z / (size.z * 0.1)));
+      const group = spec.gait === 'waddle' ? side : spec.gait === 'hop' ? end : side * end;
+      legs[index] = y < legTop ? ((legTop - y) / legTop) * group : 0;
+      // Trọng số tăng dần dọc cổ nên cổ cong xuống chứ không gãy ở một chỗ. Phần cao hẳn trên lưng (sừng, tai ngả ra
+      // sau) thuộc về đầu dù lùi sau điểm cổ, không thì bị kéo giãn khi cúi.
+      const back = smooth(pivot.y + size.y * 0.2, pivot.y + size.y * 0.35, y) * size.z * 0.25;
+      heads[index] = smooth(pivot.z - size.z * 0.05 - back, pivot.z + size.z * 0.16 - back, z) * smooth(pivot.y - size.y * 0.15, pivot.y + size.y * 0.08, y);
+    }
+    geometry.setAttribute('aLeg', new THREE.BufferAttribute(legs, 1));
+    geometry.setAttribute('aHead', new THREE.BufferAttribute(heads, 1));
+    // Chân / đầu xê dịch trong shader: nới khung bao để không bị cắt theo khung nhìn khi đang bước / cúi.
+    geometry.computeBoundingSphere();
+    geometry.boundingSphere.radius *= 1.4;
+    parts.push({ geometry, material: node.material });
+  });
+  const baked = { parts, size, legTop, pivot };
+  bakedCache.set(key, baked);
+  return baked;
+}
+
+// Uniform dáng của một con (chung cho vật liệu màu và vật liệu bóng): gait = pha bước, stride / lift = biên độ đưa chân /
+// nhấc chân, fold = gập chân khi nằm (0…0,8), pitch / yaw = cúi / ngoảnh đầu (rad). Đơn vị theo hình gốc (trước khi co giãn).
+function poseUniforms(baked) {
+  return {
+    uGait: { value: 0 }, uStride: { value: 0 }, uLift: { value: 0 }, uFold: { value: 0 },
+    uPitch: { value: 0 }, uYaw: { value: 0 },
+    uLegTop: { value: baked.legTop }, uPivot: { value: baked.pivot },
+  };
+}
+
+function withPose(material, uniforms) {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+uniform float uGait, uStride, uLift, uFold, uPitch, uYaw, uLegTop;
+uniform vec3 uPivot;
+attribute float aLeg;
+attribute float aHead;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+transformed.z -= uStride * aLeg * sin(uGait);
+transformed.y += uLift * abs(aLeg) * max(0.0, -sign(aLeg) * cos(uGait));
+if (aHead > 0.0) {
+  vec3 d = transformed - uPivot;
+  float cp = cos(uPitch), sp = sin(uPitch);
+  d = vec3(d.x, d.y * cp - d.z * sp, d.y * sp + d.z * cp);
+  float cy = cos(uYaw), sy = sin(uYaw);
+  d = vec3(d.x * cy + d.z * sy, d.y, -d.x * sy + d.z * cy);
+  transformed = mix(transformed, uPivot + d, aHead);
+}
+transformed.y = transformed.y < uLegTop ? transformed.y * (1.0 - uFold) : transformed.y - uFold * uLegTop;`);
+  };
+  material.customProgramCacheKey = () => 'animal-pose';
+  return material;
+}
+
 export function buildAnimals({ root, animals, walk }) {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   const herds = [];
@@ -132,11 +241,15 @@ export function buildAnimals({ root, animals, walk }) {
   const effects = [];
   const newAnimal = (item, index, type) => {
     let seed = Math.floor(Math.abs(item.x * 131 + item.z * 977)) + index * 7919 + 1;
+    const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     return {
       id: item.id, name: item.name, type,
       x: item.x, z: item.z, heading: index * 1.3, area: item.area, mode: 'idle', timer: 1 + index, target: null,
-      speed: SPECIES[type].walkSpeed, gait: 0, lower: 0, reaction: null,
-      random: () => ((seed = (seed * 16807) % 2147483647) / 2147483647),
+      // velocity: tốc độ hiện tại (tăng / giảm dần, không giật); pace: mỗi con nhanh chậm một chút.
+      speed: SPECIES[type].walkSpeed, velocity: 0, pace: 0.85 + random() * 0.3, gait: 0, lower: 0, reaction: null,
+      // Đầu: góc cúi / ngoảnh hiện tại và đích (đổi dần), nhịp nhai / nhìn quanh.
+      pitch: 0, yaw: 0, pitchTarget: 0, yawTarget: 0, glance: 0,
+      random,
     };
   };
   for (const [type, spec] of Object.entries(SPECIES)) {
@@ -189,24 +302,22 @@ export function buildAnimals({ root, animals, walk }) {
       if (solo.loadState !== 'idle') return;
       solo.loadState = 'loading';
       loadAnimalModel(item.model).then((gltf) => {
-        const model = gltf.scene.clone(true);
-        model.rotation.y = item.modelRy || 0;
-        model.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const scale = item.height / Math.max(1e-6, size.y);
+        const baked = bakeAnimal(gltf, item, solo.spec);
+        const scale = item.height / Math.max(1e-6, baked.size.y);
         const inner = new THREE.Group();
         inner.scale.setScalar(scale);
-        inner.add(model);
-        // Đặt chân chạm đất, tâm thân ở gốc nhóm.
-        const center = box.getCenter(new THREE.Vector3());
-        model.position.set(-center.x, -box.min.y, -center.z);
-        model.traverse((node) => {
-          if (!node.isMesh) return;
-          node.castShadow = true;
-          node.userData.petId = item.id;
-          pickables.push(node);
-        });
+        // Mỗi con một bộ uniform (vật liệu nhân bản, chương trình shader dùng chung); bóng đổ dùng vật liệu độ sâu cùng dáng.
+        solo.uniforms = poseUniforms(baked);
+        solo.scale = scale;
+        const depth = withPose(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), solo.uniforms);
+        for (const { geometry, material } of baked.parts) {
+          const mesh = new THREE.Mesh(geometry, withPose(material.clone(), solo.uniforms));
+          mesh.customDepthMaterial = depth;
+          mesh.castShadow = true;
+          mesh.userData.petId = item.id;
+          pickables.push(mesh);
+          inner.add(mesh);
+        }
         group.add(inner);
         group.visible = true;
         solo.loadState = 'loaded';
@@ -227,6 +338,13 @@ export function buildAnimals({ root, animals, walk }) {
   const position = new THREE.Vector3();
   const unit = new THREE.Vector3(1, 1, 1);
 
+  function startWalk(animal, spec, x, z, run, timer) {
+    animal.target = { x, z };
+    animal.mode = 'walk';
+    animal.speed = (run ? spec.runSpeed : spec.walkSpeed) * animal.pace;
+    animal.timer = timer;
+  }
+
   function playTarget(animal, spec) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const angle = animal.random() * Math.PI * 2;
@@ -234,14 +352,47 @@ export function buildAnimals({ root, animals, walk }) {
       const x = animal.x + Math.sin(angle) * reach;
       const z = animal.z + Math.cos(angle) * reach;
       if (!free(x, z, spec, animal.area)) continue;
-      animal.target = { x, z };
-      animal.mode = 'walk';
-      animal.speed = spec.runSpeed;
-      animal.timer = 5;
+      startWalk(animal, spec, x, z, true, 5);
       return true;
     }
     return false;
   }
+
+  // Chỗ tới mới: thú thật hay đi tiếp theo hướng đang đi (lệch trái / phải ít nhiều), ít khi quay ngoắt lại;
+  // không có chỗ phía trước thì thử mọi hướng.
+  function wander(animal, spec) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const angle = attempt < 6 ? animal.heading + (animal.random() - 0.5) * 2.2 : animal.random() * Math.PI * 2;
+      const reach = 1.5 + animal.random() * 6;
+      const x = animal.x + Math.sin(angle) * reach;
+      const z = animal.z + Math.cos(angle) * reach;
+      if (!free(x, z, spec, animal.area)) continue;
+      startWalk(animal, spec, x, z, animal.random() < 0.12, 14);
+      return true;
+    }
+    return false;
+  }
+
+  // Tới nơi thì dừng làm một việc: gặm cỏ / đánh hơi (cúi đầu), nhìn quanh, nằm nghỉ, hoặc đứng yên.
+  function settle(animal, spec) {
+    const roll = animal.random();
+    if (roll < 0.15) {
+      animal.mode = 'rest';
+      animal.timer = 10 + animal.random() * 14;
+    } else if (roll < 0.55 && spec.graze) {
+      animal.mode = 'graze';
+      animal.timer = 4 + animal.random() * 8;
+    } else if (roll < 0.8) {
+      animal.mode = 'look';
+      animal.timer = 2.5 + animal.random() * 4;
+    } else {
+      animal.mode = 'idle';
+      animal.timer = 1.5 + animal.random() * 3;
+    }
+    animal.glance = 0;
+  }
+
+  const ease = (value, target, rate, dt) => value + (target - value) * Math.min(1, dt * rate);
 
   function think(animal, spec, dt) {
     if (animal.reaction) {
@@ -250,6 +401,14 @@ export function buildAnimals({ root, animals, walk }) {
       else if (animal.reaction.action !== 'play') {
         animal.mode = 'idle';
         animal.timer = Math.max(animal.timer, 0.4);
+        animal.velocity = ease(animal.velocity, 0, 6, dt);
+        // Ăn: cúi xuống bát; được vuốt ve: ngẩng lên, nghiêng đầu; làm trò: đầu thẳng.
+        const action = animal.reaction.action;
+        animal.pitchTarget = action === 'feed' ? Math.max(0.35, spec.graze || 0.35) * (0.9 + Math.sin(animal.reaction.left * 9) * 0.1)
+          : action === 'pet' ? -0.18 : 0;
+        animal.yawTarget = action === 'pet' ? Math.sin(animal.reaction.left * 2.5) * 0.3 : 0;
+        animal.pitch = ease(animal.pitch, animal.pitchTarget, 5, dt);
+        animal.yaw = ease(animal.yaw, animal.yawTarget, 5, dt);
         return;
       } else if (animal.mode !== 'walk' && !playTarget(animal, spec)) return;
     }
@@ -258,45 +417,80 @@ export function buildAnimals({ root, animals, walk }) {
       const dx = animal.target.x - animal.x;
       const dz = animal.target.z - animal.z;
       const distance = Math.hypot(dx, dz);
-      if (distance < 0.3) {
-        animal.mode = animal.random() < 0.3 ? 'rest' : 'idle';
-        animal.timer = animal.mode === 'rest' ? 8 + animal.random() * 10 : 2 + animal.random() * 5;
+      if (distance < 0.25 || animal.timer <= 0) {
+        animal.velocity = 0;
+        settle(animal, spec);
         return;
       }
-      const wanted = Math.atan2(dx, dz);
-      let turn = wanted - animal.heading;
+      let turn = Math.atan2(dx, dz) - animal.heading;
       turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-      animal.heading += turn * Math.min(1, dt * 4);
-      const step = Math.min(distance, animal.speed * dt) * Math.max(0.2, Math.cos(turn));
+      // Quay có giới hạn tốc độ (rẽ thành đường cong, không xoay tại chỗ như kim la bàn).
+      const running = animal.speed > spec.walkSpeed * 1.3;
+      const maxTurn = spec.turnRate * (running ? 1.3 : 1) * dt;
+      animal.heading += Math.max(-maxTurn, Math.min(maxTurn, turn));
+      // Rẽ gắt thì đi chậm lại; gần tới thì giảm tốc rồi dừng hẳn; tăng / giảm tốc dần.
+      const facing = Math.max(0.15, Math.min(1, (Math.cos(turn) + 0.3) / 1.3));
+      const wanted = Math.min(animal.speed * facing, 0.15 + distance * 1.4);
+      const accel = running ? 3 : 1.6;
+      animal.velocity += Math.max(-3.5 * dt, Math.min(accel * dt, wanted - animal.velocity));
+      const step = Math.min(distance, animal.velocity * dt);
       const nextX = animal.x + Math.sin(animal.heading) * step;
       const nextZ = animal.z + Math.cos(animal.heading) * step;
       if (free(nextX, nextZ, spec, animal.area)) {
         animal.x = nextX;
         animal.z = nextZ;
-        animal.gait += step * (animal.speed > spec.walkSpeed ? 5 : 7) / spec.legLength * 0.3;
-      } else animal.timer = 0;
+        // Pha bước theo quãng đường: mỗi vòng bước = 2π × bán kính sải (sải dài hơn khi chạy), nên chân không trượt.
+        animal.gait += step / (spec.legLength * (running ? 0.75 : 0.5));
+      } else {
+        // Vướng: dừng, nhìn quanh một chút rồi chọn đường khác.
+        animal.velocity = 0;
+        animal.mode = 'look';
+        animal.timer = 0.8 + animal.random() * 1.2;
+        animal.glance = 0;
+      }
+      // Đi thì đầu hơi ngoảnh theo hướng rẽ; thỉnh thoảng cúi đánh hơi (chó) / mổ (vịt) khi đi chậm.
+      animal.yawTarget = Math.max(-0.45, Math.min(0.45, turn * 0.6));
+      animal.pitchTarget = !running && spec.graze && Math.sin(animal.gait * 0.13 + animal.pace * 20) > 0.92 ? spec.graze * 0.5 : 0;
+    } else {
+      animal.velocity = 0;
+      animal.glance -= dt;
+      if (animal.mode === 'graze') {
+        // Cúi gặm, nhai nhịp nhàng; mỗi lúc ngẩng lên nhìn một chút rồi cúi tiếp, có khi nhích vài bước.
+        if (animal.glance <= 0) {
+          const lookUp = animal.random() < 0.3;
+          animal.glance = lookUp ? 1 + animal.random() : 2 + animal.random() * 3;
+          animal.pitchTarget = lookUp ? 0 : spec.graze;
+          animal.yawTarget = (animal.random() - 0.5) * (lookUp ? 1.2 : 0.5);
+        }
+      } else if (animal.mode === 'look' || animal.mode === 'idle') {
+        // Nhìn quanh: ngoảnh đầu sang chỗ này chỗ kia, đôi khi xoay cả người.
+        if (animal.glance <= 0) {
+          animal.glance = 0.8 + animal.random() * 1.8;
+          animal.pitchTarget = (animal.random() - 0.6) * 0.25;
+          animal.yawTarget = animal.mode === 'look' ? (animal.random() - 0.5) * 1.5 : (animal.random() - 0.5) * 0.4;
+          if (animal.mode === 'look' && animal.random() < 0.3) animal.turnTo = animal.heading + (animal.random() - 0.5) * 2;
+        }
+        if (animal.turnTo !== undefined) {
+          let turn = animal.turnTo - animal.heading;
+          turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+          const maxTurn = spec.turnRate * 0.5 * dt;
+          animal.heading += Math.max(-maxTurn, Math.min(maxTurn, turn));
+          // Xoay tại chỗ thì vẫn bước chân nhẹ.
+          animal.gait += Math.abs(Math.max(-maxTurn, Math.min(maxTurn, turn))) * 1.2;
+          if (Math.abs(turn) < 0.02) animal.turnTo = undefined;
+        }
+      } else {
+        animal.pitchTarget = 0;
+        animal.yawTarget = 0;
+      }
       if (animal.timer <= 0) {
-        animal.mode = 'idle';
-        animal.timer = 0.5 + animal.random();
-      }
-      return;
-    }
-    if (animal.timer > 0) return;
-    // Chọn chỗ mới trong vùng: thử vài điểm ngẫu nhiên đi được, cách 2–9 m.
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const angle = animal.random() * Math.PI * 2;
-      const reach = 2 + animal.random() * 7;
-      const x = animal.x + Math.sin(angle) * reach;
-      const z = animal.z + Math.cos(angle) * reach;
-      if (free(x, z, spec, animal.area)) {
-        animal.target = { x, z };
-        animal.mode = 'walk';
-        animal.speed = animal.random() < 0.2 ? spec.runSpeed : spec.walkSpeed;
-        animal.timer = 12;
-        return;
+        animal.turnTo = undefined;
+        if (!wander(animal, spec)) animal.timer = 1;
       }
     }
-    animal.timer = 1;
+    // Đầu chuyển động mềm (cúi chậm, ngẩng nhanh hơn chút).
+    animal.pitch = ease(animal.pitch, animal.pitchTarget, animal.pitchTarget > animal.pitch ? 2.2 : 3.5, dt);
+    animal.yaw = ease(animal.yaw, animal.yawTarget, 2.8, dt);
   }
 
   function spawnEffect(animal, action) {
@@ -429,7 +623,7 @@ export function buildAnimals({ root, animals, walk }) {
     positions() {
       return [
         ...herds.flatMap(({ members }, herd) => members.map((animal) => ({ id: animal.id, name: animal.name, type: animal.type, herd, x: animal.x, z: animal.z, mode: animal.mode }))),
-        ...solos.map(({ animal, group }) => ({ id: animal.id, name: animal.name, type: animal.type, model: true, loaded: group.visible, heading: animal.heading, x: animal.x, z: animal.z, mode: animal.mode })),
+        ...solos.map(({ animal, group }) => ({ id: animal.id, name: animal.name, type: animal.type, model: true, loaded: group.visible, heading: animal.heading, pitch: animal.pitch, x: animal.x, z: animal.z, mode: animal.mode })),
       ];
     },
     update(dt, time, camera = null) {
@@ -437,19 +631,22 @@ export function buildAnimals({ root, animals, walk }) {
       for (const { spec, meshes, members } of herds) {
         members.forEach((animal, index) => {
           think(animal, spec, dt);
-          const walking = animal.mode === 'walk';
+          // Biên độ bước theo tốc độ thật (tăng / giảm dần cùng lúc khởi hành / dừng).
+          const stride = Math.min(1, animal.velocity / (spec.walkSpeed * 0.3));
+          const walking = stride > 0.01;
           // Nằm nghỉ: hạ thân xuống, chân gập (thu ngắn) dưới bụng.
           const lowerTarget = animal.mode === 'rest' ? spec.legLength * 0.75 : animal.reaction?.action === 'feed' ? spec.legLength * 0.32 : 0;
           animal.lower += (lowerTarget - animal.lower) * Math.min(1, dt * 3);
-          const bob = walking ? Math.abs(Math.sin(animal.gait)) * 0.02 : 0;
+          const bob = Math.abs(Math.sin(animal.gait)) * 0.02 * stride;
           const trick = animal.reaction?.action === 'trick' ? trickPose(animal.type, 1 - animal.reaction.left / TRICK_SECONDS) : null;
           position.set(animal.x, bob - animal.lower + (trick?.y || 0), animal.z);
-          quaternion.setFromEuler(euler.set(trick?.rx || 0, animal.heading + (trick?.ry || 0), trick?.rz || 0, 'YXZ'));
+          // Thú khối gộp đầu vào thân: cúi đầu (gặm, đánh hơi) thành chúi nhẹ cả người.
+          quaternion.setFromEuler(euler.set(animal.pitch * 0.3 + (trick?.rx || 0), animal.heading + animal.yaw * 0.25 + (trick?.ry || 0), trick?.rz || 0, 'YXZ'));
           base.compose(position, quaternion, unit);
           meshes.body.setMatrixAt(index, base);
           const fold = 1 - (animal.lower / spec.legLength) * 0.85;
           spec.hips.forEach((hip, leg) => {
-            const swing = walking ? Math.sin(animal.gait + (leg === 0 || leg === 3 ? 0 : Math.PI)) * 0.55 : 0;
+            const swing = Math.sin(animal.gait + (leg === 0 || leg === 3 ? 0 : Math.PI)) * 0.55 * stride;
             position.set(...hip);
             quaternion.setFromEuler(euler.set(swing, 0, 0));
             local.compose(position, quaternion, new THREE.Vector3(1, fold, 1));
@@ -475,21 +672,34 @@ export function buildAnimals({ root, animals, walk }) {
         const { spec, animal, group } = solo;
         if (solo.loadState === 'idle' && (!camera || Math.hypot(camera.position.x - animal.x, camera.position.z - animal.z) <= solo.loadDistance)) solo.load();
         think(animal, spec, dt);
-        const walking = animal.mode === 'walk';
-        const lowerTarget = animal.mode === 'rest' ? 0.3 : 0;
-        animal.lower += (lowerTarget - animal.lower) * Math.min(1, dt * 3);
+        if (!group.visible) return;
+        const running = animal.speed > spec.walkSpeed * 1.3;
+        // Biên độ bước theo tốc độ thật; xoay tại chỗ thì bước nhẹ.
+        const stride = Math.max(Math.min(1, animal.velocity / (spec.walkSpeed * 0.3)), animal.turnTo !== undefined ? 0.45 : 0);
+        animal.lower = ease(animal.lower, animal.mode === 'rest' ? 1 : 0, 1.6, dt);
         const happy = animal.reaction?.action === 'pet' || animal.reaction?.action === 'feed';
-        // Đi: nảy theo bước và lắc mình; vui (vuốt ve / cho ăn): lắc mông; ăn: cúi đầu; nằm: thân thấp và dẹp xuống.
-        const step = walking ? Math.sin(animal.gait) : 0;
-        // Thỏ nhảy cóc (nảy cao theo bước), vịt lạch bạch (lắc ngang nhiều), thú bốn chân nảy nhẹ.
-        const lift = spec.gait === 'hop' ? 0.9 : spec.gait === 'waddle' ? 0.2 : 0.14;
-        const sway = spec.gait === 'waddle' ? 0.18 : 0.05;
         const trick = animal.reaction?.action === 'trick' ? trickPose(animal.type, 1 - animal.reaction.left / TRICK_SECONDS) : null;
-        group.position.set(animal.x, (walking ? Math.abs(step) * spec.legLength * lift : 0) + (trick?.y || 0), animal.z);
+        if (solo.uniforms) {
+          // Chân: sải = bán kính bước (khớp với pha bước nên bàn chân không trượt trên cỏ), nhấc chân khi đưa về trước.
+          const reach = spec.legLength * (running ? 0.75 : 0.5);
+          const legScale = spec.gait === 'hop' ? 0.45 : 1;
+          solo.uniforms.uGait.value = animal.gait;
+          solo.uniforms.uStride.value = (reach * legScale * stride) / solo.scale;
+          solo.uniforms.uLift.value = (spec.legLength * (running ? 0.45 : 0.3) * legScale * stride) / solo.scale;
+          solo.uniforms.uFold.value = animal.lower * 0.75;
+          solo.uniforms.uPitch.value = animal.pitch;
+          solo.uniforms.uYaw.value = animal.yaw;
+        }
+        // Thân: thú bốn chân nhấp nhô hai lần mỗi vòng bước (mỗi cặp chân chạm đất), lắc nhẹ; thỏ nhảy cóc thành vòng
+        // cung (ngóc lên khi bật, chúi xuống khi đáp); vịt lạch bạch nghiêng trái phải. Đứng yên thì thở.
+        const step = Math.sin(animal.gait);
+        const bounce = spec.gait === 'hop' ? Math.abs(step) * spec.legLength * 1.1 : Math.abs(step) * spec.legLength * (running ? 0.12 : 0.05);
+        const breathe = 1 + Math.sin(seconds * (animal.mode === 'rest' ? 1.4 : 2.2) + index) * 0.012 * (1 - stride);
+        group.position.set(animal.x, bounce * stride + (trick?.y || 0), animal.z);
         group.rotation.y = animal.heading + (happy ? Math.sin(seconds * 10 + index) * 0.12 : 0) + (trick?.ry || 0);
-        group.rotation.x = (animal.reaction?.action === 'feed' ? 0.22 : walking ? Math.cos(animal.gait) * 0.03 : 0) + (trick?.rx || 0);
-        group.rotation.z = (walking ? step * sway : happy ? Math.sin(seconds * 14 + index) * 0.06 : 0) + (trick?.rz || 0);
-        group.scale.set(1, 1 - animal.lower, 1 + animal.lower * 0.15);
+        group.rotation.x = (spec.gait === 'hop' ? -Math.cos(animal.gait) * Math.sign(step) * 0.18 : Math.cos(animal.gait * 2) * 0.015) * stride + (trick?.rx || 0);
+        group.rotation.z = (spec.gait === 'waddle' ? step * 0.17 : step * 0.025) * stride + (happy ? Math.sin(seconds * 14 + index) * 0.06 : 0) + (trick?.rz || 0);
+        group.scale.set(1, breathe, 1);
       });
       updateEffects(dt);
     },
