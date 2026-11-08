@@ -253,6 +253,8 @@ export function createBotNav(world) {
     const [ax, az] = Array.isArray(bench.approach) ? bench.approach : [0, 0.95];
     add('bench', local(bench, ax * scale, az * scale), null, { bench: bench.id, ...(bench.kind ? { play: bench.kind } : {}) });
   }
+  // Vườn Hoa: điểm ngắm trên lối sỏi, nhìn vào luống.
+  for (const view of yard.flowerGarden?.views || []) add('flowers', { x: view.x, z: view.z }, view.face || null);
   if (yard.fountain) ring('fountain', yard.fountain, yard.fountain.radius + 1.6, yard.fountain.radius + 1.6, 10);
   if (yard.pond) ring('pond', yard.pond, yard.pond.radiusX + 1.3, yard.pond.radiusZ + 1.3, 16);
   if (yard.bodhi) ring('bodhi', yard.bodhi, 4.4, 4.4, 8);

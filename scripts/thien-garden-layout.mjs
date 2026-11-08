@@ -212,13 +212,103 @@ c.petZone = {
     { type: 'balls', x: 17.5, z: 80.2, ry: 0 },
   ],
 };
-c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 33.5, z: 54.5, size: 1.0 }, { x: -30, z: 40, size: 1.2 }, { x: 13, z: 93, size: 1.0 }];
+// Vườn Hoa (bãi cỏ phía tây sân trước, giữa chánh điện và Khu tưởng niệm): khu ngắm cảnh, hàng rào cây xén bao quanh,
+// cổng vòm hoa ở cạnh đông (lối đá từ lối giữa) và lối ra phía bắc tới Khu tưởng niệm. Bên trong: lối sỏi vòng quanh +
+// hai lối chữ thập, bốn luống lớn (tulip sọc cầu vồng, oải hương, hồng, cúc cánh bướm), quảng trường tròn có đình lục
+// giác ở giữa, bốn ghế đá (B-10…B-13) quay ra luống, đèn vườn, cây hoa anh đào và bướm bay (engine: flowers3d.mjs).
+const FLOWER = { x: [-50.4, -27], z: [27.5, 54] };
+const FLOWER_CENTER = { x: round3((FLOWER.x[0] + FLOWER.x[1]) / 2), z: round3((FLOWER.z[0] + FLOWER.z[1]) / 2) };
+const FLOWER_HEDGE = 0.6;
+const FLOWER_RING = 2.0; // lối sỏi giữa hàng rào và luống (đủ rộng cho bot đi)
+const FLOWER_CROSS = 1.2; // nửa bề rộng lối chữ thập
+const FLOWER_CUT = 5.8; // luống chừa góc tròn quanh quảng trường
+const FLOWER_EAST_GATE = { z: FLOWER_CENTER.z, width: 2.6 };
+const FLOWER_NORTH_GATE = { x: -33, width: 2.2 };
+{
+  const { x: cx, z: cz } = FLOWER_CENTER;
+  const inset = FLOWER_HEDGE + FLOWER_RING;
+  const xs = { w: [FLOWER.x[0] + inset, cx - FLOWER_CROSS], e: [cx + FLOWER_CROSS, FLOWER.x[1] - inset] };
+  const zs = { s: [FLOWER.z[0] + inset, cz - FLOWER_CROSS], n: [cz + FLOWER_CROSS, FLOWER.z[1] - inset] };
+  const bed = (theme, x, z) => ({ theme, x: x.map(round3), z: z.map(round3) });
+  const beds = [bed('tulips', xs.e, zs.n), bed('lavender', xs.w, zs.n), bed('roses', xs.w, zs.s), bed('cosmos', xs.e, zs.s)];
+  // Hàng rào: đường giữa lớp cây xén (lùi nửa bề dày vào trong), chừa cổng đông và lối ra bắc.
+  const h = FLOWER_HEDGE / 2;
+  const [x0, x1, z0, z1] = [FLOWER.x[0] + h, FLOWER.x[1] - h, FLOWER.z[0] + h, FLOWER.z[1] - h].map(round3);
+  const hedge = [
+    [x0, z0, x1, z0],
+    [x1, z0, x1, round3(FLOWER_EAST_GATE.z - FLOWER_EAST_GATE.width / 2)],
+    [x1, round3(FLOWER_EAST_GATE.z + FLOWER_EAST_GATE.width / 2), x1, z1],
+    [x1, z1, round3(FLOWER_NORTH_GATE.x + FLOWER_NORTH_GATE.width / 2), z1],
+    [round3(FLOWER_NORTH_GATE.x - FLOWER_NORTH_GATE.width / 2), z1, x0, z1],
+    [x0, z1, x0, z0],
+  ];
+  // Cây anh đào ở góc ngoài mỗi luống và hai cây đón hai bên cổng đông.
+  const trees = [
+    { x: round3(xs.e[1] - 1.1), z: round3(zs.n[1] - 1.1), size: 1.05, color: 'pink' },
+    { x: round3(xs.w[0] + 1.1), z: round3(zs.n[1] - 1.1), size: 1.0, color: 'white' },
+    { x: round3(xs.w[0] + 1.1), z: round3(zs.s[0] + 1.1), size: 1.05, color: 'pink' },
+    { x: round3(xs.e[1] - 1.1), z: round3(zs.s[0] + 1.1), size: 1.0, color: 'white' },
+    { x: round3(FLOWER.x[1] + 1.9), z: round3(cz - 4.8), size: 0.9, color: 'pink' },
+    { x: round3(FLOWER.x[1] + 1.9), z: round3(cz + 4.8), size: 0.9, color: 'pink' },
+  ];
+  // Ghế đá trên quảng trường, bốn hướng chéo, người ngồi nhìn ra góc luống (ry: hướng mặt người ngồi là (sin ry, cos ry)).
+  const benchRadius = 3.6;
+  const benches = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4].map((angle, index) => {
+    const ux = Math.cos(angle);
+    const uz = Math.sin(angle);
+    return { id: `B-${10 + index}`, x: round3(cx + ux * benchRadius), z: round3(cz + uz * benchRadius), ry: round3(Math.atan2(ux, uz)), scale: 0.72, seats: 2 };
+  });
+  // Đèn vườn dọc hai bên lối chữ thập, đứng trên mép luống (không chắn lối đi).
+  const lamps = [];
+  for (const [ax, az] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const side of [-1, 1]) lamps.push({ x: round3(cx + ax * 7.6 + (az ? side * 1.5 : 0)), z: round3(cz + az * 7.6 + (ax ? side * 1.5 : 0)) });
+  }
+  // Điểm ngắm (bot đi dạo dừng lại nhìn luống): trên lối sỏi, nhìn vào tâm luống gần nhất.
+  const views = [];
+  for (const item of beds) {
+    const mx = (item.x[0] + item.x[1]) / 2;
+    const mz = (item.z[0] + item.z[1]) / 2;
+    const outX = mx < cx ? FLOWER.x[0] + FLOWER_HEDGE + FLOWER_RING / 2 : FLOWER.x[1] - FLOWER_HEDGE - FLOWER_RING / 2;
+    const outZ = mz < cz ? FLOWER.z[0] + FLOWER_HEDGE + FLOWER_RING / 2 : FLOWER.z[1] - FLOWER_HEDGE - FLOWER_RING / 2;
+    views.push(
+      { x: round3(outX), z: round3(mz), face: { x: round3(mx), z: round3(mz) } },
+      { x: round3(mx), z: round3(outZ), face: { x: round3(mx), z: round3(mz) } },
+      { x: round3(mx), z: round3(cz + Math.sign(mz - cz) * 0.2), face: { x: round3(mx), z: round3(mz) } },
+      { x: round3(cx + Math.sign(mx - cx) * 0.2), z: round3(mz), face: { x: round3(mx), z: round3(mz) } },
+    );
+  }
+  c.flowerGarden = {
+    sign: 'VƯỜN HOA',
+    area: FLOWER,
+    center: FLOWER_CENTER,
+    hedge,
+    hedgeHeight: 0.85,
+    entrances: [
+      { x: x1, z: FLOWER_EAST_GATE.z, ry: 1.5708, width: FLOWER_EAST_GATE.width, arch: true },
+      { x: FLOWER_NORTH_GATE.x, z: z1, ry: 0, width: FLOWER_NORTH_GATE.width, arch: true },
+    ],
+    beds,
+    cut: FLOWER_CUT,
+    plaza: { radius: 5.2 },
+    pavilion: { radius: 2.3, height: 3.1 },
+    trees,
+    lamps,
+    butterflies: 26,
+    views,
+  };
+  c.benches.push(...benches);
+}
+c.paths.push(
+  { x: [FLOWER.x[1], -1.8], z: [FLOWER_EAST_GATE.z - 0.6, FLOWER_EAST_GATE.z + 0.6] }, // lối đá từ lối giữa vào Vườn Hoa
+  { x: [FLOWER_NORTH_GATE.x - 0.6, FLOWER_NORTH_GATE.x + 0.6], z: [FLOWER.z[1], THIEN_MEMORIAL.gate.z - 0.6] }, // Vườn Hoa → Khu tưởng niệm
+);
+c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 33.5, z: 54.5, size: 1.0 }, { x: -24, z: 22, size: 1.2 }, { x: 13, z: 93, size: 1.0 }];
 // Dải sân mới hai bên: tùng dọc tường, cây lớn và bụi cây trên bãi cỏ phía đông.
-c.trees.push({ x: -44, z: 30, size: 1.2 }, { x: 44, z: 34, size: 1.15 }, { x: 43, z: 66, size: 1.1 }, { x: 44, z: 90, size: 1.2 });
+c.trees.push({ x: -44, z: 21, size: 1.2 }, { x: 44, z: 34, size: 1.15 }, { x: 43, z: 66, size: 1.1 }, { x: 44, z: 90, size: 1.2 });
 c.pines = [[-8.6, 20], [-9, 27], [9, 28.5], [-31, 20], [31, 22], [-31, 59.5], [31, 40], [-15, 95], [21, 95], [-32, 94],
-  [-49, 22], [-49, 44], [-36, 46], [49, 22], [49, 50], [49, 78], [38, 97]];
+  [-49, 22], [49, 22], [49, 50], [49, 78], [38, 97]];
 c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [-24, 30], [33, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60],
-  [-40, 38], [40, 46], [38, 60], [40, 80], [47, 64]];
+  [40, 46], [38, 60], [40, 80], [47, 64]];
 c.animals = [
   { id: 'pet-dog-moc', name: 'Mộc', type: 'dog', color: '#c8893f', x: 15, z: 84, area: { x: [8, 33], z: [78, 96] } },
   { id: 'pet-dog-nau', name: 'Nâu', type: 'dog', color: '#2b2522', x: 24, z: 86, area: { x: [8, 33], z: [78, 96] } },
@@ -294,7 +384,7 @@ const obstacles = [
   circle(c.fountain.x, c.fountain.z, 3),
   { x: c.pond.x, z: c.pond.z, rx: c.pond.radiusX + 0.45, rz: c.pond.radiusZ + 0.45 },
   // Ghế dài 2,2 m: elip đúng chiều ghế, không để lọt qua hai đầu. Bụi cây cũng là vật thể đặc thay vì chỉ trang trí.
-  ...c.benches.filter((item) => !item.kind).map(benchObstacle),
+  ...c.benches.filter((item) => !item.kind && !/^B-1\d$/.test(item.id)).map(benchObstacle),
   // Khu vui chơi: vật cản lấy theo mô hình (xích đu / cầu tuột nằm trong các khối này).
   ...PARK_RECTS.map(([x0, x1, z0, z1]) => {
     const center = parkPoint((x0 + x1) / 2, (z0 + z1) / 2);
@@ -348,6 +438,40 @@ const obstacles = [
     if (item.type === 'seesaw') return [{ x: item.x, z: item.z, rx: 0.38, rz: 1.5 }];
     return [];
   }),
+  // Vườn Hoa: hàng rào cây xén (chuỗi vật cản), luống (lưới vòng tròn phủ kín, chừa góc quảng trường), cột đình, đèn,
+  // cây anh đào, ghế quảng trường (ghế xoay chéo: hai vòng nhỏ dọc thân ghế thay cho elip thẳng trục).
+  ...c.flowerGarden.hedge.flatMap(([x0, z0, x1, z1]) => {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const steps = Math.ceil(length / 0.55);
+    return Array.from({ length: steps + 1 }, (_, index) => circle(
+      Math.round((x0 + ((x1 - x0) * index) / steps) * 100) / 100,
+      Math.round((z0 + ((z1 - z0) * index) / steps) * 100) / 100,
+      0.34,
+    ));
+  }),
+  ...c.flowerGarden.beds.flatMap((item) => {
+    const points = [];
+    const lattice = ([a, b]) => {
+      const count = Math.max(1, Math.ceil((b - a - 1.0) / 1.15));
+      return Array.from({ length: count + 1 }, (_, index) => round3(a + 0.5 + ((b - a - 1.0) * index) / count));
+    };
+    const { x: cx, z: cz } = c.flowerGarden.center;
+    for (const x of lattice(item.x)) {
+      for (const z of lattice(item.z)) if (Math.hypot(x - cx, z - cz) > c.flowerGarden.cut + 0.4) points.push(circle(x, z, 0.62));
+    }
+    return points;
+  }),
+  ...Array.from({ length: 8 }, (_, index) => {
+    const angle = ((index + 0.5) / 8) * Math.PI * 2;
+    const { x, z } = c.flowerGarden.center;
+    return circle(round3(x + Math.cos(angle) * c.flowerGarden.pavilion.radius), round3(z + Math.sin(angle) * c.flowerGarden.pavilion.radius), 0.24);
+  }),
+  ...c.flowerGarden.lamps.map((lamp) => circle(lamp.x, lamp.z, 0.2)),
+  ...c.flowerGarden.trees.map((tree) => circle(tree.x, tree.z, 0.45)),
+  ...c.benches.filter((item) => /^B-1\d$/.test(item.id)).flatMap((item) => [-0.4, 0.4].map((lx) => {
+    const point = localPoint(item, lx, 0);
+    return circle(round3(point.x), round3(point.z), 0.42);
+  })),
 ];
 const gateWall = (x0, x1) => { for (let x = x0; x <= x1; x += 1.2) obstacles.push(circle(x, GATE, 0.6)); };
 gateWall(-HALF + 0.6, -3.4); gateWall(3.4, HALF - 0.6);

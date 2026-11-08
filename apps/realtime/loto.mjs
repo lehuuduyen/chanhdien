@@ -238,11 +238,13 @@ export class LottoTable {
     return this.round.tickets.size + this.round.botTickets.size;
   }
 
-  placeBotTicket(participant) {
+  // count: 1 hoặc 2 vé (như người thật, tối đa 2 vé mỗi người).
+  placeBotTicket(participant, count = 1) {
     const round = this.round;
     if (!participant?.bot || !round || round.phase !== 'buying' || this.now() >= round.endsAt) return false;
     if (round.botTickets.has(participant.id)) return true;
-    round.botTickets.set(participant.id, [{ no: 1, rows: createBotTicket() }]);
+    const tickets = count === 2 ? [1, 2] : [1];
+    round.botTickets.set(participant.id, tickets.map((no) => ({ no, rows: createBotTicket() })));
     this.scheduleState();
     return true;
   }

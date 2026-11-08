@@ -7,6 +7,7 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { StaticBatch } from './temple3d-models.mjs';
 import { buildAnimals } from './animals3d.mjs';
 import { addPlayground, loadParkModel, playgroundMaterials } from './park3d.mjs';
+import { addFlowerGarden } from './flowers3d.mjs';
 import { hallLayout } from './temple3d-models.mjs';
 
 const MAX_SMOKE = 12;
@@ -198,6 +199,8 @@ function bakedCourtyardShadows(data) {
     if (data.bodhi && !data.bodhi.projectId) pole(data.bodhi.x, data.bodhi.z, 7.5 * (data.bodhi.size || 1), 2.2 * (data.bodhi.size || 1), 0.42);
     if (data.guanyin) pole(data.guanyin.x, data.guanyin.z, 4.1 * (data.guanyin.scale || 1), 1.2 * (data.guanyin.scale || 1), 0.38);
     if (data.fountain) pole(data.fountain.x, data.fountain.z, 2.2, data.fountain.radius || 2.6, 0.18);
+    for (const tree of data.flowerGarden?.trees || []) pole(tree.x, tree.z, 3.2 * (tree.size || 1), 1.3 * (tree.size || 1), 0.3);
+    if (data.flowerGarden?.pavilion) pole(data.flowerGarden.center.x, data.flowerGarden.center.z, 3.6, data.flowerGarden.pavilion.radius + 0.9, 0.22);
     const wallX = ground.x[1] - 0.2;
     for (const side of [-1, 1]) segment(side * wallX, frontZ, side * wallX, ground.z[1], 1.5, 0.4, 0.18);
     if (data.gate) {
@@ -1499,6 +1502,14 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       root.add(board);
     }
   }
+  // Vườn Hoa: phần tĩnh vào batch chung; hoa và bướm là InstancedMesh riêng (flowers3d.mjs).
+  const flowerGarden = data.flowerGarden ? addFlowerGarden({ root, batch, m, data: data.flowerGarden, lanternGlows }) : null;
+  for (const sign of flowerGarden?.signs || []) {
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.height), new THREE.MeshStandardMaterial({ map: textBoard(sign.text, { background: '#b8456e', color: '#fff6dc', border: '#f0bd49' }), roughness: 0.6, side: THREE.DoubleSide }));
+    board.position.set(...sign.position);
+    board.rotation.y = sign.ry;
+    root.add(board);
+  }
   if (data.guanyin) {
     addGuanyinGarden(batch, m, data.guanyin, lanternGlows);
     addGuanyin(guanyinBatch, m, data.guanyin);
@@ -1757,6 +1768,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       }
       if (koiMesh) koiMesh.instanceMatrix.needsUpdate = true;
       animals?.update(dt, time);
+      flowerGarden?.update(dt, time, camera);
       for (const spray of sprays) {
         const k = ((time / 1_600) + spray.phase) % 1;
         const reach = 0.25 + k * 0.85;

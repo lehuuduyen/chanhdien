@@ -145,3 +145,19 @@ test('khu vui chơi: bot đi tới được xích đu / cầu tuột, mỗi món
   assert.ok(waited >= 19_000 && waited <= 61_000, 'bot chơi 20–60 giây');
   room.close();
 });
+
+test('vườn hoa: bot có điểm ngắm hoa và ghế quảng trường, đi tới được từ lối giữa', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { createBotNav } = await import('../bot-nav.mjs');
+  const scene = JSON.parse(readFileSync(new URL('../../../scenes/thien-default/scene.json', import.meta.url), 'utf8'));
+  const nav = createBotNav(scene.world);
+  const views = nav.spots.filter((spot) => spot.kind === 'flowers');
+  assert.equal(views.length, scene.world.courtyard.flowerGarden.views.length, 'mọi điểm ngắm đều đứng được');
+  for (const spot of views) {
+    assert.ok(spot.face, 'đứng ngắm quay mặt vào luống');
+    assert.ok(nav.route({ x: 0, z: 33 }, spot)?.length, `đi tới được (${spot.x}, ${spot.z})`);
+  }
+  const benches = nav.spots.filter((spot) => /^B-1\d$/.test(spot.bench || ''));
+  assert.deepEqual(benches.map((spot) => spot.bench), ['B-10', 'B-11', 'B-12', 'B-13']);
+  for (const spot of benches) assert.ok(nav.route({ x: 0, z: 33 }, spot)?.length, `đi tới được ${spot.bench}`);
+});
