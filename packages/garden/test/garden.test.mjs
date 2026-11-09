@@ -647,3 +647,19 @@ test('tiêu xu trong phòng (mở phim): trừ một lần theo khóa, thiếu x
   assert.equal(pay('video-key-0001').code, 'REFUNDED', 'khóa đã hoàn không trừ lại');
   assert.deepEqual(garden.history(an).slice(0, 2).map((row) => row.kind), ['room_refund', 'room_spend']);
 });
+
+test('thưởng trốn tìm: 10 xu mỗi lần thắng, tối đa 5 lần một ngày, gửi lại cùng khóa không trả hai lần', () => {
+  const { garden, user, tick } = setup();
+  const an = user('an_lac');
+  const coins = garden.me(an).coins;
+  const first = garden.rewardHideSeek({ accountId: an, key: 'hs-round-0001' });
+  assert.deepEqual([first.reward, first.coins, first.count, first.limit], [10, coins + 10, 1, 5]);
+  assert.equal(garden.rewardHideSeek({ accountId: an, key: 'hs-round-0001' }).replayed, true);
+  assert.equal(garden.me(an).coins, coins + 10);
+  for (let round = 2; round <= 5; round += 1) garden.rewardHideSeek({ accountId: an, key: `hs-round-000${round}` });
+  const capped = garden.rewardHideSeek({ accountId: an, key: 'hs-round-0006' });
+  assert.deepEqual([capped.reward, capped.limited, capped.coins], [0, true, coins + 50], 'đủ 5 lần: không cộng thêm');
+  tick(24 * 60 * 60 * 1_000);
+  assert.equal(garden.rewardHideSeek({ accountId: an, key: 'hs-round-0007' }).reward, 10, 'ngày mới nhận lại được');
+  assert.equal(garden.rewardHideSeek({ accountId: an, key: 'short' }).code, 'IDEMPOTENCY_KEY_REQUIRED');
+});

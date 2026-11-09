@@ -13,6 +13,10 @@ import { createSpirit } from './spirit3d.mjs';
 
 // Linh thú cách camera xa hơn ngần này (m) thì ẩn.
 const SPIRIT_VIEW_DISTANCE = 30;
+// Người ở xa camera nhìn rất nhỏ: ẩn bảng tên / trạng thái và bóng dưới chân để bớt lệnh vẽ (sân đông 40 người trong tầm
+// nhìn, mỗi người ~7 lệnh vẽ, điện thoại giật). Bóng chat vẫn hiện; nhân vật của mình luôn đủ.
+const LABEL_VIEW_DISTANCE = 22;
+const SHADOW_VIEW_DISTANCE = 25;
 
 const SEND_INTERVAL_MS = 200;
 const BOW_CYCLE_S = { bow3: 3.6, bow108: 3.0 };
@@ -895,9 +899,18 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             walker.x = next.x;
             walker.z = next.z;
           } else if (distance > 0.01) {
-            // Theo kịp cả khi người kia chạy; ở xa hơn bước chạy thì chạy theo.
-            walker.running = distance > ((walk.runSpeed || walk.speed * 2) * 0.4);
-            const step = Math.min(distance, Math.max((walk.runSpeed || walk.speed) * 1.15, distance * 4) * dt);
+            const runSpeed = walk.runSpeed || walk.speed * 2;
+            let speed;
+            if (walker.targetMoving && walker.chaseSpeed) {
+              // Đang đi: tốc độ đều theo nhịp gói vị trí; tụt lại quá 1,5 nhịp thì tăng tốc bắt kịp.
+              speed = Math.min(runSpeed * 1.3, Math.max(walker.chaseSpeed, distance / (walker.moveGap * 1.5)));
+              walker.running = speed > (walk.speed + runSpeed) / 2;
+            } else {
+              // Dừng lại / chưa có nhịp: tới nhanh chỗ đứng cuối. Ở xa hơn bước chạy thì chạy theo.
+              speed = Math.max((walk.runSpeed || walk.speed) * 1.15, distance * 4);
+              walker.running = distance > runSpeed * 0.4;
+            }
+            const step = Math.min(distance, speed * dt);
             const next = resolveMove(walk, walker, { x: walker.x + (dx / distance) * step, z: walker.z + (dz / distance) * step });
             walker.x = next.x;
             walker.z = next.z;
@@ -914,10 +927,17 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const choreX = walker.choreOffset * Math.cos(walker.choreRy || 0);
         const choreZ = -walker.choreOffset * Math.sin(walker.choreRy || 0);
         walker.group.position.set(walker.x + choreX, 0, walker.z + choreZ);
+        const cameraDistance = Math.hypot(walker.x - camera.position.x, walker.z - camera.position.z);
+        const detailed = walker.id === selfId;
+        const decorHidden = hiddenDecor.has(walker.id);
+        walker.label.visible = !decorHidden && (detailed || cameraDistance < LABEL_VIEW_DISTANCE);
+        if (walker.status) walker.status.visible = walker.label.visible;
+        if (walker.bubble) walker.bubble.sprite.visible = !decorHidden;
+        walker.parts.shadow.visible = detailed || cameraDistance < SHADOW_VIEW_DISTANCE;
         if (walker.spirit) {
           // Linh thú ở xa camera thì ẩn và không tính (phòng đông nhiều bot dẫn linh thú vẫn nhẹ trên điện thoại).
-          const near = Math.hypot(walker.x - camera.position.x, walker.z - camera.position.z) < SPIRIT_VIEW_DISTANCE;
-          walker.spirit.group.visible = walker.group.visible && near;
+          const near = cameraDistance < SPIRIT_VIEW_DISTANCE;
+          walker.spirit.group.visible = walker.group.visible && near && !decorHidden;
           if (near) walker.spirit.update(dt, time / 1000, { x: walker.group.position.x, z: walker.group.position.z, ry: walker.ry });
         }
         walker.parts.figure.rotation.y = walker.ry;
@@ -965,22 +985,26 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (courtyard?.playRigs?.length) updateSwings(courtyard.playRigs, playOccupied, Date.now() / 1_000, dt);
       // Camera bám sau lưng nhân vật. Khoảng cách/cao độ là dữ liệu scene; thien-default khóa zoom để nhân vật
       // luôn có cùng kích thước trên màn hình, nhưng vẫn cho xoay góc nhìn quanh nhân vật.
-      if (self && !selfSeated && !freeCamera) {
+      // Đang xem camera người khác (trốn tìm): bám theo người đó thay vì mình.
+      const watched = cameraFollowId && cameraFollowId !== selfId ? walkers.get(cameraFollowId) : null;
+      const followed = watched || self;
+      const selfPlayFollow = watched ? null : selfPlay;
+      if (followed && (watched || !selfSeated) && !freeCamera) {
         // Đang chơi xích đu / cầu tuột: camera dời theo người (như khi đi bộ) để không bị thang / khung che.
-        const followX = selfPlay ? selfPlay.x : self.x;
-        const followZ = selfPlay ? selfPlay.z : self.z;
-        if (selfPlay && lastPlayFollow && cameraReady) {
+        const followX = selfPlayFollow ? selfPlayFollow.x : followed.x;
+        const followZ = selfPlayFollow ? selfPlayFollow.z : followed.z;
+        if (selfPlayFollow && lastPlayFollow && cameraReady) {
           camera.position.x += followX - lastPlayFollow.x;
           camera.position.z += followZ - lastPlayFollow.z;
           controls.target.x += followX - lastPlayFollow.x;
           controls.target.z += followZ - lastPlayFollow.z;
         }
-        lastPlayFollow = selfPlay ? { x: followX, z: followZ } : null;
-        followTarget.set(followX, followTargetHeight + (selfPlay ? selfPlay.y * 0.5 : 0), followZ);
+        lastPlayFollow = selfPlayFollow ? { x: followX, z: followZ } : null;
+        followTarget.set(followX, followTargetHeight + (selfPlayFollow ? selfPlayFollow.y * 0.5 : 0), followZ);
         if (!cameraReady) {
           controls.target.copy(followTarget);
           // Cầu tuột: nhìn chéo từ phía bên (phía không có lối đi vòng) để thấy cả leo thang lẫn trượt xuống.
-          const angle = self.ry + (selfPlay ? 0.9 : 0);
+          const angle = followed.ry + (selfPlayFollow ? 0.9 : 0);
           camera.position.set(followX + Math.sin(angle) * followDistance, followHeight, followZ + Math.cos(angle) * followDistance);
           cameraReady = true;
         } else controls.target.lerp(followTarget, Math.min(1, dt * 8));
@@ -988,6 +1012,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     }
 
     const savedLimits = { min: controls.minDistance, max: controls.maxDistance };
+    // Trốn tìm: camera đang xem người nào (null = mình) và những người phải ẩn tên / bong bóng / linh thú.
+    let cameraFollowId = null;
+    let hiddenDecor = new Set();
     // Chỉ để chụp kiểm tra khi phát triển: tắt camera bám theo nhân vật (debugView của renderer đặt góc nhìn tự do).
     let freeCamera = false;
 
@@ -1174,6 +1201,13 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             }
             continue;
           }
+          // Nhịp nhận vị trí của người này (người thật ~5 lần/giây, bot ~4 lần/giây, mạng chập chờn thì thưa hơn):
+          // đi đều với tốc độ vừa đủ tới điểm mới đúng lúc gói kế tiếp đến, thay vì lao tới rồi đứng chờ (đi khựng).
+          const receivedAt = performance.now();
+          const gap = walker.moveAt ? Math.min(1.2, Math.max(0.1, (receivedAt - walker.moveAt) / 1_000)) : 0.25;
+          walker.moveAt = receivedAt;
+          walker.moveGap = walker.moveGap ? walker.moveGap * 0.6 + gap * 0.4 : gap;
+          walker.chaseSpeed = Math.hypot(move.x - walker.x, move.z - walker.z) / walker.moveGap;
           walker.target = { x: move.x, z: move.z, ry: move.ry };
           walker.targetMoving = move.m;
           if (move.m) walker.emote = null;
@@ -1245,6 +1279,21 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         if (magnitude < 0.15) joystickRunning = false;
         else if (magnitude >= RUN_JOYSTICK) joystickRunning = true;
         if (magnitude > 0.15) path = [];
+      },
+      // Trốn tìm: camera bám theo người id (null = về mình). Người đó phải đang trong danh sách mình thấy.
+      setCameraFollow(id) {
+        const next = id && id !== selfId && walkers.has(id) ? id : null;
+        if (next === cameraFollowId) return Boolean(next);
+        cameraFollowId = next;
+        cameraReady = false;
+        return Boolean(next);
+      },
+      get cameraFollow() {
+        return cameraFollowId;
+      },
+      // Trốn tìm: ẩn tên, trạng thái, bong bóng chat và linh thú của những người này (người trốn) để không lộ chỗ trốn.
+      setHiddenDecor(ids) {
+        hiddenDecor = new Set(ids || []);
       },
       setSpectator(on) {
         spectator = Boolean(on);

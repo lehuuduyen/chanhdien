@@ -283,5 +283,46 @@ export function createBotNav(world) {
     return at ? pointOf(at[1] * columns + at[0]) : null;
   })() : null;
 
-  return { cell: CELL, columns, rows, walkable, clear, route, randomPoint, spots, entry, openCount: open.length };
+  // Chỗ trốn cho bot chơi trốn tìm: ô đi được mà quanh nó (bán kính COVER_REACH ô) có nhiều ô bị chặn — sát bụi cây,
+  // hàng rào, gốc cây, tượng. Tính một lần khi cần (vài chục nghìn ô).
+  const COVER_REACH = 3;
+  let covered = null;
+  function coverCells() {
+    if (covered) return covered;
+    covered = [];
+    for (const index of open) {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      let blocked = 0;
+      for (let dr = -COVER_REACH; dr <= COVER_REACH; dr += 1) {
+        for (let dc = -COVER_REACH; dc <= COVER_REACH; dc += 1) {
+          const c = column + dc;
+          const r = row + dr;
+          if (c >= 0 && r >= 0 && c < columns && r < rows && mask[r * columns + c] === 0) blocked += 1;
+        }
+      }
+      // Kẹt giữa vật cản quá (≥ 70%) thường là khe hở bot khó tới; quá thoáng thì không phải chỗ trốn.
+      if (blocked >= 14 && blocked <= 34) covered.push({ ...pointOf(index), cover: blocked });
+    }
+    return covered;
+  }
+  // count chỗ trốn cách base trong [minDistance, maxDistance], cách nhau ≥ spacing; ưu tiên chỗ che chắn nhiều.
+  function hideSpots(base, count, { minDistance = 10, maxDistance = 45, spacing = 6, random = Math.random } = {}) {
+    const pool = coverCells()
+      .filter((spot) => {
+        const distance = Math.hypot(spot.x - base.x, spot.z - base.z);
+        return distance >= minDistance && distance <= maxDistance;
+      })
+      .map((spot) => ({ spot, key: spot.cover + random() * 12 }))
+      .sort((a, b) => b.key - a.key)
+      .map((item) => item.spot);
+    const picked = [];
+    for (const spot of pool) {
+      if (picked.length >= count) break;
+      if (picked.every((other) => Math.hypot(other.x - spot.x, other.z - spot.z) >= spacing)) picked.push({ x: spot.x, z: spot.z });
+    }
+    return picked;
+  }
+
+  return { cell: CELL, columns, rows, walkable, clear, route, randomPoint, spots, entry, openCount: open.length, hideSpots };
 }

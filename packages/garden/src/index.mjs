@@ -18,6 +18,9 @@ export const VISITOR_HARVEST_LIMIT = 2;
 export const STARTING_COINS = 50;
 export const CHORE_REWARD_COINS = 20;
 export const CHORE_REWARD_DAILY_LIMIT = 3;
+// Trốn tìm: bên thắng nhận HIDESEEK_REWARD_COINS xu, tối đa HIDESEEK_REWARD_DAILY_LIMIT lần mỗi ngày (theo ngày của vườn).
+export const HIDESEEK_REWARD_COINS = 10;
+export const HIDESEEK_REWARD_DAILY_LIMIT = 5;
 export const CHORE_REWARD_KINDS = Object.freeze(['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
 export const WATER_INTERVAL_MS = 8 * 60 * 60 * 1_000;
 export const WILT_AFTER_MS = 24 * 60 * 60 * 1_000;
@@ -664,6 +667,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     savePet: db.prepare(`UPDATE spirit_pets SET name = ?, fed_at = ?, fed_day = ?, fed_days = ?, streak = ?, bank = ?, accrued_at = ?
       WHERE account_id = ? AND species = ?`),
     saveRequest: db.prepare('INSERT INTO garden_requests (account_id, idem_key, action, response, at) VALUES (?, ?, ?, ?, ?)'),
+    requestsSince: db.prepare('SELECT response, at FROM garden_requests WHERE account_id = ? AND action = ? AND at >= ?'),
     lottoTicketsOf: db.prepare('SELECT ticket_no AS no, numbers FROM lotto_tickets WHERE round_id = ? AND account_id = ? ORDER BY ticket_no'),
     lottoRoundTickets: db.prepare('SELECT account_id AS accountId, ticket_no AS no, numbers, price FROM lotto_tickets WHERE round_id = ?'),
     lottoAddTicket: db.prepare('INSERT INTO lotto_tickets (round_id, account_id, ticket_no, numbers, price, at) VALUES (?, ?, ?, ?, ?, ?)'),
@@ -1111,6 +1115,31 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
 
     // Máy realtime gọi sau khi công việc thật sự hoàn thành. Mỗi loại việc được 20 xu, tối đa 3 lần theo ngày
     // của vườn. Cùng event key luôn trả lại đúng kết quả cũ và không cộng lần hai.
+    // Thưởng thắng trốn tìm (máy realtime gọi, khóa theo ván + tài khoản). Quá giới hạn ngày thì reward 0, vẫn ok.
+    rewardHideSeek({ accountId, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const previous = q.request.get(accountId, key);
+        if (previous) {
+          if (previous.action !== 'hideseek') return { ok: false, code: 'IDEMPOTENCY_KEY_REUSED' };
+          return { ...JSON.parse(previous.response), replayed: true };
+        }
+        const day = today();
+        // Lần thưởng trong ngày: lấy 30 giờ gần nhất rồi đổi ra ngày của vườn, chỉ đếm lần có xu.
+        const count = q.requestsSince.all(accountId, 'hideseek', now() - 30 * 60 * 60 * 1_000)
+          .filter((row) => gardenDay(row.at, timeZone) === day && JSON.parse(row.response).reward > 0).length;
+        const limited = count >= HIDESEEK_REWARD_DAILY_LIMIT;
+        const coins = limited ? ensureWallet(accountId) : changeCoins(accountId, HIDESEEK_REWARD_COINS, 'game_win', null, null);
+        const result = {
+          ok: true, reward: limited ? 0 : HIDESEEK_REWARD_COINS, coins, count: limited ? count : count + 1,
+          limit: HIDESEEK_REWARD_DAILY_LIMIT, limited,
+        };
+        q.saveRequest.run(accountId, key, 'hideseek', JSON.stringify(result), now());
+        return result;
+      });
+    },
+
     rewardChore({ accountId, chore, key }) {
       if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
       if (!CHORE_REWARD_KINDS.includes(chore)) return { ok: false, code: 'INVALID' };

@@ -14,7 +14,7 @@ import { handleThienRequest } from './thien.mjs';
 import { handleGardenBotRequest, handleGardenRequest, openGardenStore } from './garden.mjs';
 import { handleCommunityProjectRequest, openCommunityProjectStore } from './community-project.mjs';
 import { handleGameRequest } from './games.mjs';
-import { handleChoreRewardRequest } from './chores.mjs';
+import { handleChoreRewardRequest, handleHideSeekRewardRequest } from './chores.mjs';
 import { donateConfig, handleDonateRequest, handleTelegramDonateRequest, openDonateStore, realtimeBotController } from './donate.mjs';
 import { handleSupportRequest, openSupportStore } from './support.mjs';
 import { handleShopRequest, openShopStore, shopConfig } from './shop.mjs';
@@ -221,6 +221,7 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleMemorialRequest(req, res, pathname, options)) return;
   if (await handlePetsRequest(req, res, pathname, options)) return;
   if (await handleChoreRewardRequest(req, res, pathname, options)) return;
+  if (await handleHideSeekRewardRequest(req, res, pathname, options)) return;
   if (await handleGameRequest(req, res, pathname, options)) return;
   if (await handleTelegramDonateRequest(req, res, pathname, options)) return;
   if (handleDonateRequest(req, res, pathname, options)) return;

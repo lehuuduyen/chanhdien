@@ -216,6 +216,27 @@ export const THIEN_RULES = defineRoomRules({
       { id: 'make-tea', kind: 'tea', x: 8.5, z: 68, radius: 2.8, durationMs: 36_000 },
     ],
   },
+  // Trốn tìm trong sân (apps/realtime/hide-seek.mjs): ai muốn chơi bấm Tham gia; đủ minPlayers thì đếm lobbyMs rồi bắt
+  // đầu. Mọi người về điểm xuất phát (base), khoảng 1 người đi kiếm / seekersPer người chơi. Pha đi trốn (hideMs): người
+  // đi kiếm màn hình đen, không đi được và không nhận vị trí người trốn. Pha đi kiếm (seekMs): người trốn đứng yên, xem
+  // camera người khác; người đi kiếm chạm người trốn trong vòng catchDistance m để bắt. Bắt hết thì người đi kiếm thắng,
+  // hết giờ còn người trốn thì người trốn thắng. Trong ván, người chơi chỉ thấy người chơi (bot / người ngoài được ẩn),
+  // người ngoài không thấy người trốn.
+  hideSeek: {
+    minPlayers: 2,
+    maxPlayers: 40,
+    lobbyMs: 20_000,
+    hideMs: 60_000,
+    seekMs: 180_000,
+    resultMs: 10_000,
+    catchDistance: 3,
+    seekersPer: 6,
+    base: { x: 0, z: 33 },
+    // Ít người: kéo bot đang đi dạo vào làm người trốn cho đủ botFill người (một người cũng chơi được, làm người đi
+    // kiếm). Thưởng xu chỉ khi ván có ít nhất rewardMinHumans người thật (giá + giới hạn ngày ở @chanh-dien/garden).
+    botFill: 4,
+    rewardMinHumans: 2,
+  },
   // Bot ngồi sẵn cho chánh điện không vắng. Số người hiện trong phòng có tính bot; server vẫn giữ số bot riêng để
   // vận hành nhưng giao diện gộp vào tổng theo yêu cầu. Vote, sức chứa và sảnh chỉ đếm người thật. Bot không chào hỏi
   // riêng, không thỉnh chuông, và phải bị loại khỏi bảng công đức trước khi có ủng hộ bằng tiền thật. Đổi số lượng

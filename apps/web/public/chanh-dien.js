@@ -19,6 +19,7 @@ import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
 import { createMemorialUI } from '/memorial-ui.js';
 import { createPetUI } from '/pet-ui.js';
+import { createHideSeekUI } from '/hide-seek-ui.js';
 import { clearPendingCompanion, onCompanionRemembered, PENDING_COMPANION_MS, readPendingCompanion, rememberCompanion } from '/pet-companion-sync.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
 import { createZoneGuide } from '/zone-guide.js';
@@ -151,8 +152,12 @@ labelMala();
 onLangChange(labelMala);
 // Viết sớ cũng chuyển vào menu ▾ của thanh động tác (giữ nguyên nút và sự kiện).
 const zoneGuide = createZoneGuide({ stage: elements.stage });
+// Trốn tìm trong sân (tạo sau explore; các hàm gọi tới nó chỉ chạy khi người dùng bấm / có tin từ server).
+let hideSeek = null;
 const explore = createExploreUI({
-  stage: elements.stage, session, showToast, extraButtons: [malaButton, $('prayerOpen')], onWalkerTap: (id) => social?.open(id),
+  stage: elements.stage, session, showToast, extraButtons: [malaButton, $('prayerOpen')],
+  // Trốn tìm: người đi kiếm chạm vào người trốn là bắt; ngoài ra mở thẻ người chơi như thường.
+  onWalkerTap: (id) => { if (!hideSeek?.handleTap(id)) social?.open(id); },
   // Chạm linh thú: của mình thì mở bảng Linh thú (cho ăn, nhận rương…); của người khác thì cho biết loài, cấp, chủ.
   onSpiritTap: (target) => {
     if (target.mine) pets.open();
@@ -164,6 +169,7 @@ const explore = createExploreUI({
   onPlaceChange: (place) => setCurrentPlace(place), travelHost: elements.roomBar,
   exits: [{ id: 'cinema', icon: '🎬', go: goToCinema }, { id: 'games', icon: '🎲', go: goToGames }],
 });
+hideSeek = createHideSeekUI({ stage: elements.stage, host: elements.roomBar, session, explore, showToast, t, onLangChange, onCoins: () => garden?.refreshCoins() });
 // Quay về từ map khác (rạp phim gửi ?go=courtyard…): vào phòng xong thì tới thẳng khu đã chọn.
 explore.arriveAt(PARAMS.get('go'));
 
@@ -814,6 +820,7 @@ function handleMessage(message) {
   if (memorial?.onMessage(message)) return;
   if (communityProject?.onMessage(message)) return;
   if (message.type === 'welcome') {
+    hideSeek?.reset();
     // Kết nối mới thật sự: lệnh đổi hình gửi trước đó có thể đã rơi vào socket cũ — cho gửi lại ngay ở room.state.
     skinSentAt = 0;
     seatAttempts = 0;
@@ -865,7 +872,11 @@ function handleMessage(message) {
     renderer?.offer(message.participantId, message.kind, { big });
     const badges = badgesOf(message.participantId);
     say(name, `${act}${message.text ? ` · "${message.text}"` : ''}`, true, badges);
-    showToast(`${name} ${act}${message.text ? ` — ${message.text}` : ''}`, badges);
+    // Đang chơi trốn tìm: lễ của người khác không hiện thông báo (đè lên đồng hồ / tin bắt người).
+    if (mine || !hideSeek?.inRound()) showToast(`${name} ${act}${message.text ? ` — ${message.text}` : ''}`, badges);
+    // Ngoài chánh điện (sân, vườn, khu vui chơi…): lễ của người khác không phát tiếng (chuông, giọng đọc). Giọng đọc
+    // giành loa trên điện thoại làm nhạc nền bị ngắt / hạ nhỏ liên tục khi trong điện đông người dâng lễ.
+    if (!mine && currentPlace && currentPlace !== 'hall') return;
     // Chuông lớn của người khác: tối đa một tiếng mỗi 1,5 giây để nhiều người thỉnh liên tiếp không chồng tiếng.
     if (mine) audio.offering(message.kind, big);
     else if (big && Date.now() - lastBellAt > 1_500) {
@@ -898,7 +909,12 @@ function handleMessage(message) {
     if (social?.isBlocked(message.participantId)) return;
     say(nameOf(message.participantId, message.displayName), message.text, false, badgesOf(message.participantId));
     if (!renderer?.say(message.participantId, message.text)) explore.say(message.participantId, message.text);
+  } else if (message.type === 'hideseek.state') {
+    hideSeek?.onState(message);
+  } else if (message.type === 'hideseek.reward') {
+    hideSeek?.onReward(message);
   } else if (message.type === 'protocol.error') {
+    if (hideSeek?.onError(message)) return;
     // Hình shop chưa mua (hoặc vé cũ chưa ghi): mặc lại hình Nữ thường.
     if (message.code === 'SKIN_LOCKED') {
       onSkinLocked();
