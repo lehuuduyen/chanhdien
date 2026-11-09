@@ -25,10 +25,12 @@ const archSize = (gate) => {
   return { width, height: width / ARCH_ASPECT };
 };
 
-const TULIP_COLORS = ['#e8323c', '#f57b2a', '#f7d035', '#f06aa0', '#9b59d0', '#fbf6f0'];
-const COSMOS_COLORS = ['#f48fb1', '#e0457b', '#ffffff', '#f9a03f', '#ffd54f', '#ba68c8'];
-const HYDRANGEA_COLORS = ['#7fa8e8', '#a98be0', '#f2a7c6', '#ffffff', '#8fc0f0', '#c9a0e8'];
-const MUM_COLORS = ['#f7d035', '#ffffff', '#f0a030', '#d23a6a', '#f4a6c0', '#fff1a6'];
+// Bảng màu đậm, tươi (ít trắng / pastel để vườn không bị bạc màu dưới nắng).
+const TULIP_COLORS = ['#e8102a', '#ff5a00', '#ffc400', '#ff2e7e', '#8a1fd6', '#ff7aa8', '#c4002f', '#ff9a1f'];
+const COSMOS_COLORS = ['#ff3d8f', '#d6005f', '#ff86c0', '#ff7a12', '#ffc61a', '#a63fe0'];
+const HYDRANGEA_COLORS = ['#3d6ff0', '#7a46e6', '#ff5fa8', '#2f8ff0', '#a45cf0'];
+const MUM_COLORS = ['#ffc400', '#ff7a00', '#d40a48', '#ff4f96', '#ffe04a', '#b8126a'];
+const LILY_COLORS = ['#ff4f8b', '#ff8c1a', '#ffd23a', '#e8102a', '#fff4f7'];
 const BUTTERFLY_COLORS = ['#fff6e0', '#ffd34d', '#ff9a3c', '#7fc8ff', '#f7a8d8', '#ffffff'];
 
 // Cây trong luống: file ảnh, khoảng cách trồng (m), chiều cao (m), bảng màu nhuộm phần cánh trắng (không có = màu ảnh).
@@ -43,7 +45,7 @@ const PLANTS = {
   mum: { file: 'mum', spacing: 0.36, height: [0.34, 0.46], colors: MUM_COLORS },
   peony: { file: 'peony', spacing: 0.58, height: [0.7, 0.92] },
   hibiscus: { file: 'hibiscus', spacing: 0.75, height: [1.25, 1.65] },
-  lily: { file: 'lily', spacing: 0.4, height: [0.8, 1.05] },
+  lily: { file: 'lily', spacing: 0.4, height: [0.8, 1.05], colors: LILY_COLORS },
   delphinium: { file: 'delphinium', spacing: 0.48, height: [1.1, 1.45] },
   foliage: { file: 'foliage', spacing: 0.5, height: [0.3, 0.44] },
   grass: { file: 'grass', spacing: 0.62, height: [0.8, 1.05] },
@@ -51,7 +53,10 @@ const PLANTS = {
 // Lớp lá phủ nền dưới hoa (để luống không lộ đất): khoảng cách và chiều cao.
 const GROUND_COVER = { plant: 'foliage', spacing: 0.4, height: [0.24, 0.38] };
 // Trồng dày hơn khoảng cách ghi trong bảng (hệ số mật độ) để luống kín, ít lộ đất.
-const DENSITY = 1.3;
+const DENSITY = 1.9;
+// Chỗ hở giữa các cây (nhất là dưới gốc cây cao, thưa như cẩm tú cầu, hướng dương) trồng xen tulip thấp nhiều màu theo
+// mảng: khoảng cách trồng xen (m) và chiều cao. Phần còn hở nữa mới phủ lá.
+const FILLER = { plant: 'tulip', spacing: 0.3, height: [0.36, 0.5] };
 // Cây hoa: ảnh và chiều cao khi size = 1.
 const TREES = {
   cherry: { file: 'cherry', height: 3.8 },
@@ -65,10 +70,12 @@ const MID_DEPTH = 1.0;
 
 // Vật liệu billboard: quay quanh trục đứng về phía camera, ngọn đung đưa theo gió; màu instance chỉ nhuộm phần
 // sáng và ít màu (cánh hoa trắng), thân lá giữ nguyên. Lật ngang bằng dấu của cột x trong ma trận instance.
-export function spriteMaterial(map, uniforms) {
+// saturation: hệ số độ tươi màu (hoa 1,35; ảnh cây như Bồ Đề để 1 cho giữ màu lá tự nhiên).
+export function spriteMaterial(map, uniforms, { saturation = 1.35 } = {}) {
   const material = new THREE.MeshStandardMaterial({ map, alphaTest: 0.45, roughness: 0.85, metalness: 0 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uWindTime = uniforms.uWindTime;
+    shader.uniforms.uSaturation = { value: saturation };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uWindTime;')
       .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = vec3(0.0, 1.0, 0.0);\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(1.0, 0.0, 0.0);\n#endif')
@@ -81,15 +88,18 @@ float sway = sin(uWindTime * 1.7 + bbCenter.x * 0.8 + bbCenter.z * 1.1) * 0.05 *
 vec3 bbWorld = bbCenter.xyz + camRight * (position.x * bbW + sway) + vec3(0.0, position.y * bbH, 0.0);
 vec4 mvPosition = viewMatrix * vec4(bbWorld, 1.0);
 gl_Position = projectionMatrix * mvPosition;`);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uSaturation;').replace('#include <color_fragment>', `
 #if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
   float petalHigh = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
   float petalSat = petalHigh - min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
   float petalMask = smoothstep(0.5, 0.78, petalHigh) * (1.0 - smoothstep(0.1, 0.28, petalSat));
   diffuseColor.rgb *= mix(vec3(1.0), vColor, petalMask);
-#endif`);
+#endif
+  // Tăng độ tươi (bão hòa) của ảnh hoa: ảnh dựng từ mô hình hơi bạc màu sau tone mapping ngoài nắng.
+  float petalLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  diffuseColor.rgb = max(mix(vec3(petalLuma), diffuseColor.rgb, uSaturation), 0.0);`);
   };
-  material.customProgramCacheKey = () => 'flower-sprite-v1';
+  material.customProgramCacheKey = () => 'flower-sprite-v2';
   return material;
 }
 
@@ -116,6 +126,8 @@ export function planFlowers(data) {
   const layout = flowerLayout(data);
   const random = seeded(20261108);
   const plantings = Object.fromEntries(Object.keys(PLANTS).map((name) => [name, []]));
+  // Tulip trồng xen để riêng: máy yếu (renderer tự hạ chất lượng) ẩn được lớp này mà vẫn giữ hoa chính.
+  plantings.fill = [];
   const cover = [];
   const step = 0.2;
   layout.beds.forEach((bed, index) => {
@@ -132,7 +144,12 @@ export function planFlowers(data) {
     const seeds = Object.fromEntries(Object.entries(tiers).map(([tier, names]) => [tier, Array.from({ length: Math.max(2, Math.round(area / 7)) }, () => {
       const name = names[Math.floor(random() * names.length)];
       const colors = PLANTS[name]?.colors;
-      return { x: box.x[0] + random() * (box.x[1] - box.x[0]), z: box.z[0] + random() * (box.z[1] - box.z[0]), name, color: colors ? colors[Math.floor(random() * colors.length)] : '#ffffff' };
+      return {
+        x: box.x[0] + random() * (box.x[1] - box.x[0]), z: box.z[0] + random() * (box.z[1] - box.z[0]), name,
+        color: colors ? colors[Math.floor(random() * colors.length)] : '#ffffff',
+        // Màu tulip trồng xen của mảng này.
+        fill: TULIP_COLORS[Math.floor(random() * TULIP_COLORS.length)],
+      };
     })]));
     // Luống trước chồng lên luống này thì phần chồng thuộc luống trước (chỉ xét luống có khung giao nhau).
     const earlier = layout.beds.slice(0, index).filter((other) => {
@@ -162,10 +179,14 @@ export function planFlowers(data) {
         }
         const plant = PLANTS[seed.name];
         if (!plant) continue;
-        const chance = Math.min(0.9, DENSITY * (step / plant.spacing) ** 2);
+        const chance = Math.min(0.95, DENSITY * (step / plant.spacing) ** 2);
+        const extra = random();
+        const fillChance = seed.name === FILLER.plant || seed.name === 'grass' ? 0 : Math.min(1, (step / FILLER.spacing) ** 2 / (1 - chance));
         if (roll < chance) {
           const color = plant.mixed ? plant.colors[Math.floor(random() * plant.colors.length)] : seed.color;
           plantings[seed.name].push({ x, z, height: plant.height[0] + random() * (plant.height[1] - plant.height[0]), flip: random() < 0.5, color });
+        } else if (extra < fillChance) {
+          plantings.fill.push({ x, z, height: FILLER.height[0] + random() * (FILLER.height[1] - FILLER.height[0]), flip: random() < 0.5, color: seed.fill });
         } else if (seed.name !== GROUND_COVER.plant && random() < (step / GROUND_COVER.spacing) ** 2 / (1 - chance)) {
           cover.push({ x, z, height: GROUND_COVER.height[0] + random() * (GROUND_COVER.height[1] - GROUND_COVER.height[0]), flip: random() < 0.5, color: '#ffffff' });
         }
@@ -446,6 +467,8 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     root.add(group);
     queueLoad(() => Promise.all(load()).then((placed) => { if (placed.length && placed.every(Boolean)) group.visible = false; }));
   };
+  let fillMesh = null;
+  let lowDetail = false;
   const textures = new THREE.TextureLoader();
   const loadTexture = (file) => new Promise((resolve) => {
     if (typeof document === 'undefined') return resolve(null);
@@ -509,8 +532,13 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     queueLoad(() => {
       const { plantings } = planFlowers(data);
       const names = Object.keys(plantings).filter((name) => plantings[name].length);
-      return Promise.all(names.map((name) => loadTexture(PLANTS[name].file).then((texture) => {
-        if (texture) billboards(`flower-sprites-${name}`, texture, plantings[name]);
+      return Promise.all(names.map((name) => loadTexture(PLANTS[name === 'fill' ? FILLER.plant : name].file).then((texture) => {
+        if (!texture) return;
+        const mesh = billboards(`flower-sprites-${name}`, texture, plantings[name]);
+        if (name === 'fill') {
+          fillMesh = mesh;
+          mesh.visible = !lowDetail;
+        }
       })));
     });
   }
@@ -570,6 +598,11 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     signs,
     activate() {
       assetsActive = true;
+    },
+    // Máy yếu: bỏ lớp tulip trồng xen (giảm số ảnh hoa phải vẽ chồng lên nhau).
+    setLowDetail(on) {
+      lowDetail = Boolean(on);
+      if (fillMesh) fillMesh.visible = !lowDetail;
     },
     update(dt, time, camera) {
       wind.uWindTime.value = time / 1_000;

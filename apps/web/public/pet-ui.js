@@ -51,19 +51,24 @@ export function createPetUI({
     return own === `spirit.err.${code}` ? t('spirit.err.other') : own;
   };
   const nameOf = (pet) => pet.name || t(`spirit.species.${pet.species}`);
-  const syncCompanion = () => {
+  const syncCompanion = (saved = false) => {
     const pet = data?.pets?.find((item) => item.species === data.companion);
-    onCompanionChange(pet ? { species: pet.species, level: pet.level } : null);
+    onCompanionChange(pet ? { species: pet.species, level: pet.level } : null, { saved });
   };
 
   async function load() {
+    let loaded = false;
     try {
       const response = await fetch('/api/v1/pets', { credentials: 'same-origin' });
-      data = response.ok ? await response.json() : { species: [], pets: [], signedIn: false };
+      if (response.ok) {
+        data = await response.json();
+        loaded = true;
+      } else data = { species: [], pets: [], signedIn: false };
     } catch {
       data = data || { species: [], pets: [], signedIn: false };
     }
-    syncCompanion();
+    // Không cho lỗi mạng tạm thời xóa linh thú đang hiện trong cảnh.
+    if (loaded) syncCompanion();
     render();
   }
 
@@ -113,7 +118,8 @@ export function createPetUI({
       else if (action === 'collect') showToast(t('spirit.got', { n: result.gained, name: nameOf(result.pet) }));
       else if (action === 'rename') showToast(t('spirit.renamed', { name: nameOf(result.pet) }));
       if (action !== 'rename') coinsChanged();
-      if (action === 'adopt' || (action === 'feed' && data.companion === result.pet?.species)) syncCompanion();
+      if (action === 'adopt') syncCompanion(true);
+      else if (action === 'feed' && data.companion === result.pet?.species) syncCompanion();
     }
     // Đã nuôi rồi (bấm ở tab khác) hoặc lỗi mạng: tải lại cho đúng.
     if (!result || result.code === 'ALREADY_OWNED') load();
@@ -135,7 +141,7 @@ export function createPetUI({
     busy = false;
     if (result?.ok) {
       data.companion = result.companion;
-      syncCompanion();
+      syncCompanion(true);
       showToast(t(species ? 'spirit.followOn' : 'spirit.followOff', { name: nameOf(pet) }));
     } else showToast(errorText(result?.code));
     render();

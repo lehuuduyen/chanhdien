@@ -181,9 +181,15 @@ test('shop hiện linh thú thành khu riêng và nhận nuôi qua API an toàn'
 test('chọn linh thú cập nhật ngay cảnh hiện tại, không phải chờ broadcast realtime', () => {
   const petUi = readFileSync(resolveWebFile('/pet-ui.js'), 'utf8');
   const temple = readFileSync(resolveWebFile('/chanh-dien.js'), 'utf8');
-  assert.match(petUi, /onCompanionChange\(pet \? \{ species: pet\.species, level: pet\.level \} : null\)/);
-  assert.match(petUi, /data\.companion = result\.companion;\s*syncCompanion\(\)/);
-  assert.match(temple, /onCompanionChange:\s*\(pet\) => \{[\s\S]*explore\.onState\(\[\.\.\.participants\.values\(\)\]\)/);
+  const shop = readFileSync(resolveWebFile('/shop.html'), 'utf8');
+  assert.match(petUi, /onCompanionChange\(pet \? \{ species: pet\.species, level: pet\.level \} : null, \{ saved \}\)/);
+  assert.match(petUi, /data\.companion = result\.companion;\s*syncCompanion\(true\)/);
+  assert.match(temple, /onCompanionChange:\s*\(pet, \{ saved = false \} = \{\}\) => \{\s*showCompanionNow\(pet\)/);
+  assert.match(temple, /const stateParticipants = withPendingCompanion\(message\.participants\)/);
+  assert.match(temple, /session\.refreshTicket\(\)\.catch/);
+  assert.match(readFileSync(resolveWebFile('/realtime-session.js'), 'utf8'), /async refreshTicket\(\)[\s\S]*const resumeToken = session\.resumeToken[\s\S]*connect\(\)/);
+  assert.match(shop, /rememberCompanion\(pet \? \{ species: pet\.species, level: pet\.level \} : null\)/);
+  assert.match(shop, /setTimeout\(returnToRoom, 300\)/);
 });
 
 test('chat nổi của người và bot hiện ở mọi khu; thông báo nghi lễ chỉ hiện trong chánh điện', () => {

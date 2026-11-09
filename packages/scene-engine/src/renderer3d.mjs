@@ -390,6 +390,8 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
         material.emissive.set(material === materials.bronze ? '#2a1a08' : '#5a3a0c');
         material.emissiveIntensity = 0.6;
       }
+      // Vườn Hoa: bỏ lớp tulip trồng xen.
+      courtyard?.setLowDetail?.(true);
       quality.level = 2;
     }
   }

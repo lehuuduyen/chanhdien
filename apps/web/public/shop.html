@@ -178,6 +178,7 @@
 
   <script type="module">
     import { currentCinemaHref } from '/region-cinema.js';
+    import { rememberCompanion } from '/pet-companion-sync.js';
 
     const $ = (id) => document.getElementById(id);
     // Tên/mô tả hiển thị của từng món (danh mục và giá do server trả).
@@ -471,6 +472,7 @@
       if (result?.status === 200) {
         petShop.pets.push(result.body.pet);
         if (!petShop.companion) petShop.companion = result.body.pet.species;
+        if (petShop.companion === result.body.pet.species) rememberCompanion({ species: result.body.pet.species, level: result.body.pet.level });
         petShop.diamonds = result.body.diamonds;
         shop.me.diamonds = result.body.diamonds;
         render();
@@ -496,8 +498,12 @@
       const result = await api('/api/v1/pets/companion', { species }).catch(() => null);
       if (result?.status === 200) {
         petShop.companion = result.body.companion;
+        const pet = species ? petShop.pets.find((item) => item.species === species) : null;
+        rememberCompanion(pet ? { species: pet.species, level: pet.level } : null);
         renderPets();
         toast(species ? `${PET_TEXT[species]?.name || species} sẽ đi theo bạn ngoài sân` : 'Linh thú đang nghỉ ở nhà');
+        // Shop không có cảnh 3D để xem kết quả; trở về phòng ngay như khi chọn hình nhân vật.
+        setTimeout(returnToRoom, 300);
         return;
       }
       element.disabled = false;
