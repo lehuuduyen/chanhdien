@@ -4,7 +4,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { createDirectoryFromEnv } from '@chanh-dien/room-directory';
-import { getRoomRules, isPrivateRoomId, parseThienRoomId, ROOM_CATALOG, thienRoomName } from '@chanh-dien/room-rules';
+import {
+  cinemaRoomName, getRoomRules, isPrivateRoomId, parseCinemaRoomId, parseThienRoomId, ROOM_CATALOG, roomTypeOf, thienRoomName,
+} from '@chanh-dien/room-rules';
 import { createJoinTicket, DEFAULT_LOCAL_SECRET, verifyRoomInvite } from '@chanh-dien/session-token';
 import { corsHeaders, json, readJson } from './http.mjs';
 import { currentAccount, handleAuthRequest, loginRewardView, openAccountStore } from './auth.mjs';
@@ -26,6 +28,7 @@ import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
 import { openThienEventStore } from './thien-event.mjs';
 import { openPrayerSlipStore } from './prayer-slips.mjs';
 import { handleCinemaPlaylistRequest, openCinemaPlaylistStore } from './cinema-playlist.mjs';
+import { handleCinemaPayRequest } from './cinema-pay.mjs';
 
 
 export const ROOMS = Object.freeze(ROOM_CATALOG.map((room) => Object.freeze({ ...room, status: 'open', participantCount: 0 })));
@@ -79,7 +82,8 @@ export async function locateRoom(roomId, options = {}) {
 const FRESH_ACCOUNT_MS = 24 * 60 * 60_000;
 const findOpenRoom = (roomId) => ROOMS.find((candidate) => candidate.id === roomId && candidate.status === 'open')
   || (parseThienRoomId(roomId) ? { id: roomId, type: 'thien', name: thienRoomName(roomId), status: 'open' } : null)
-  || (isPrivateRoomId(roomId) ? { id: roomId, type: 'loto-private', name: 'Lô Tô riêng', status: 'open' } : null);
+  || (parseCinemaRoomId(roomId) ? { id: roomId, type: 'cinema', name: cinemaRoomName(roomId), status: 'open' } : null)
+  || (isPrivateRoomId(roomId) ? { id: roomId, type: roomTypeOf(roomId), name: roomTypeOf(roomId) === 'cinema-private' ? 'Rạp phim riêng' : 'Lô Tô riêng', status: 'open' } : null);
 
 export function createJoinResponse(input, options = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { status: 400, body: { error: 'invalid_body' } };
@@ -223,6 +227,8 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleSupportRequest(req, res, pathname, options)) return;
   if (await handleShopRequest(req, res, pathname, options)) return;
   if (await handleCinemaPlaylistRequest(req, res, pathname, options)) return;
+  // Giá mở phim ở rạp (xu / kim cương do admin chọn), trừ / hoàn khi máy realtime gọi.
+  if (await handleCinemaPayRequest(req, res, pathname, options)) return;
   if (await handleThienRequest(req, res, pathname, options, roomSeatCounts)) return;
   if (await handleModerationRequest(req, res, pathname, options)) return;
   if (await handleBotChatRequest(req, res, pathname, options)) return;

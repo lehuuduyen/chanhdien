@@ -48,8 +48,8 @@
     .balance small { color: var(--muted); font-weight: 500; font-size: 10px; }
 
     /* Chọn trò trong phòng game. */
-    .games { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
-    .games a { display: grid; place-items: center; height: 32px; color: var(--muted); border-radius: 999px; font-weight: 700; font-size: 13px; text-decoration: none; }
+    .games { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+    .games a { display: grid; place-items: center; height: 32px; color: var(--muted); border-radius: 999px; font-weight: 700; font-size: 12px; white-space: nowrap; text-decoration: none; }
     .games a[aria-current="page"] { color: #10261c; background: var(--gold); }
 
     .phase { display: grid; gap: 6px; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
@@ -166,6 +166,7 @@
       <a href="/game.html">🦀 Bầu Cua</a>
       <a href="/tai-xiu.html" aria-current="page">🎲 Tài Xỉu</a>
       <a href="/loto.html">🔢 Lô Tô</a>
+      <a href="/oan-tu-ti.html">✊ Oẳn Tù Tì</a>
     </nav>
 
     <section class="phase" aria-live="polite">
@@ -210,6 +211,8 @@
   </main>
 
   <script type="module">
+    import { currentCinemaHref } from '/region-cinema.js';
+
     // ---- Dữ liệu ----
     const PROTOCOL_VERSION = 3;
     const ROOM_ID = 'taixiu-1';
@@ -647,7 +650,7 @@
     });
     function travelTo(destination) {
       if (destination === 'cinema') {
-        location.href = '/room.html?room=cinema-1';
+        location.href = currentCinemaHref();
         return;
       }
       let back = '/chanh-dien.html';

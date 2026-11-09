@@ -11,7 +11,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { getRoomRules, ROOM_CATALOG, roomTypeOf } from '@chanh-dien/room-rules';
+import { cinemaRoomName, getRoomRules, ROOM_CATALOG, roomTypeOf } from '@chanh-dien/room-rules';
 import { internalKey } from '@chanh-dien/session-token';
 import { json, readJson } from './http.mjs';
 import { botChatTelegramCommand } from './bot-chat.mjs';
@@ -155,7 +155,7 @@ export function botAllocation(total, random = Math.random) {
   const capacity = (room) => Math.max(0, room.rules.bots.max ?? room.rules.seats ?? 0);
   let remaining = total;
   // Mỗi bàn game cần ít nhất hai bot để nhìn có người chơi; Lô Tô cũng cần hai vé mới mở ván.
-  const games = rooms.filter((room) => ['game', 'taixiu', 'loto'].includes(room.type));
+  const games = rooms.filter((room) => ['game', 'taixiu', 'loto', 'rps'].includes(room.type));
   for (let pass = 0; pass < 2 && remaining > 0; pass += 1) {
     for (const room of games) {
       if (remaining <= 0 || allocations.get(room.id) >= capacity(room)) continue;
@@ -175,10 +175,11 @@ export function botAllocation(total, random = Math.random) {
 
 const BOT_ROOM_ALIASES = Object.freeze({
   thien: 'thien-1', chanhdien: 'thien-1', 'chanh-dien': 'thien-1',
-  cinema: 'cinema-1', rap: 'cinema-1', phim: 'cinema-1', rapphim: 'cinema-1', 'rap-phim': 'cinema-1',
+  cinema: 'cinema-vn', rap: 'cinema-vn', phim: 'cinema-vn', rapphim: 'cinema-vn', 'rap-phim': 'cinema-vn',
   game: 'game-1', baucua: 'game-1', 'bau-cua': 'game-1',
   taixiu: 'taixiu-1', 'tai-xiu': 'taixiu-1',
   loto: 'loto-1', 'lo-to': 'loto-1',
+  oantuti: 'oantuti-1', 'oan-tu-ti': 'oantuti-1', rps: 'oantuti-1', keobuabao: 'oantuti-1',
 });
 
 export function botRoomId(value) {
@@ -187,7 +188,9 @@ export function botRoomId(value) {
   return BOT_ROOM_ALIASES[normalized] || (roomTypeOf(normalized) ? normalized : null);
 }
 
-const botRoomName = (roomId) => ROOM_CATALOG.find((room) => room.id === roomId)?.name?.replace(/ #1$/, '') || roomId;
+const botRoomName = (roomId) => cinemaRoomName(roomId)
+  || ROOM_CATALOG.find((room) => room.id === roomId)?.name?.replace(/ #1$/, '')
+  || roomId;
 
 export function realtimeBotController(realtimeInternalUrls, secret, fetcher = fetch) {
   const urls = (Array.isArray(realtimeInternalUrls) ? realtimeInternalUrls : String(realtimeInternalUrls || '').split(','))
@@ -284,7 +287,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
     if (!roomId) {
       json(req, res, 200, {
         method: 'sendMessage', chat_id: message.chat.id,
-        text: 'Không nhận ra phòng. Dùng: chanhdien, cinema, baucua, taixiu, loto hoặc mã phòng.',
+        text: 'Không nhận ra phòng. Dùng: chanhdien, cinema, baucua, taixiu, loto, oantuti hoặc mã phòng.',
       });
       return true;
     }
@@ -368,7 +371,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
   if (!match) {
     json(req, res, 200, {
       method: 'sendMessage', chat_id: message.chat.id,
-      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\naddbot baucua 20\naddbot taixiu 20\naddbot loto 20\naddbot cinema 20\naddbot chanhdien 20\n/tl <mã> <nội dung> (trả lời thay bot)\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
+      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\naddbot baucua 20\naddbot taixiu 20\naddbot loto 20\naddbot oantuti 20\naddbot cinema 20\naddbot chanhdien 20\n/tl <mã> <nội dung> (trả lời thay bot)\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
     });
     return true;
   }

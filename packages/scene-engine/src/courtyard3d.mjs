@@ -7,7 +7,7 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { StaticBatch } from './temple3d-models.mjs';
 import { buildAnimals } from './animals3d.mjs';
 import { addPlayground, loadParkModel, loadStaticModel, playgroundMaterials } from './park3d.mjs';
-import { addFlowerGarden } from './flowers3d.mjs';
+import { addFlowerGarden, spriteMaterial } from './flowers3d.mjs';
 import { createWaterMaterial } from './water3d.mjs';
 import { instanceProp, placeProp } from './props3d.mjs';
 
@@ -901,14 +901,61 @@ function addBodhi(treeBatch, batch, m, item, { foundation = true, ribbons = true
   }
 }
 
-// Năm nhóm mesh tĩnh riêng vẫn ít draw call nhưng có thể bật/tắt tức thì theo snapshot công trình.
-// Tọa độ và tỉ lệ từng giai đoạn lấy từ scene JSON; engine không chứa vị trí riêng của chánh điện.
+// Bệ đá tròn quanh gốc Bồ Đề (mở khi công trình hoàn thành): nền bậc thấp, vòng tường đá có gờ ngồi, cánh sen chạm nổi
+// quanh mặt ngoài, đất trong lòng bệ.
+function addBodhiPlatform(batch, m, item, radius) {
+  const r = radius;
+  batch.add(new THREE.CylinderGeometry(r + 0.42, r + 0.5, 0.08, 40), m.darkStone, { position: [item.x, 0.04, item.z] });
+  batch.add(lathe([[r - 0.4, 0], [r, 0], [r + 0.05, 0.06], [r, 0.4], [r + 0.09, 0.45], [r + 0.07, 0.52], [r - 0.45, 0.52], [r - 0.48, 0.46], [r - 0.4, 0.42], [r - 0.4, 0]], 48), m.whiteStone, {
+    position: [item.x, 0.06, item.z],
+  });
+  batch.add(new THREE.CylinderGeometry(r - 0.41, r - 0.41, 0.06, 40), m.earth || m.soil, { position: [item.x, 0.42, item.z] });
+  const petals = Math.round(r * 9);
+  for (let index = 0; index < petals; index += 1) {
+    const angle = (index / petals) * Math.PI * 2;
+    batch.add(new THREE.SphereGeometry(1, 10, 8), m.stone, {
+      position: [item.x + Math.cos(angle) * (r + 0.02), 0.25, item.z + Math.sin(angle) * (r + 0.02)],
+      rotation: [0, -angle + Math.PI / 2, 0],
+      scale: [0.13, 0.17, 0.05],
+    });
+  }
+}
+
+// Bóng mềm dưới tán (cây công trình là ảnh billboard, không đổ bóng thật): đĩa mờ dần ra mép.
+function softShadowTexture() {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(0,0,0,0.55)');
+  gradient.addColorStop(0.6, 'rgba(0,0,0,0.32)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
+}
+
+// Cây Bồ Đề công trình chung: năm giai đoạn bật / tắt tức thì theo snapshot công trình. Tọa độ và tỉ lệ từng giai đoạn
+// lấy từ scene JSON; engine không chứa vị trí riêng của chánh điện.
+//   0 Chuẩn bị đất: ụ đất + cọc biển gỗ.        1 Nảy mầm: cây non nhỏ (ảnh Meshy sapling) trong vòng đất.
+//   2 Cây non: cây non cao hơn.                  3 Tỏa bóng: Bồ Đề cổ thụ (ảnh Meshy bodhi) cỡ 0,72.
+//   4 Hoàn thành: cổ thụ đủ lớn + bệ đá chạm sen + dải vải cầu nguyện.
+// Cây là billboard quay về camera, đung đưa theo gió (/models/scene/bodhi.webp, sapling.webp); chưa tải / tải lỗi thì
+// hiện cây dựng bằng khối như trước. Đất, bệ đá, dải vải là khối tĩnh (bóng thật).
+const BODHI_SPRITES = [null, { file: 'sapling', height: 1.1 }, { file: 'sapling', height: 3.0 }, { file: 'bodhi', height: 6.3 }, { file: 'bodhi', height: 6.3 }];
+const BODHI_SHADOW = [0, 0.7, 1.5, 4.2, 5.6];
 function buildCommunityBodhi({ root, casters, materials, item }) {
   const defaults = [0, 0.18, 0.42, 0.72, 1];
   const scales = Array.isArray(item.stageScales) && item.stageScales.length === 5 ? item.stageScales : defaults;
-  const groups = scales.map((scale, stageIndex) => {
-    const group = new THREE.Group();
-    group.name = `community-bodhi-stage-${stageIndex}`;
+  const size = item.size || 1;
+  // Đất quanh gốc cây non / trong lòng bệ: màu đất trơn (texture luống cày nhìn như mặt gỗ ở vòng tròn nhỏ).
+  const earth = new THREE.MeshStandardMaterial({ color: '#4b3523', roughness: 1 });
+  const stages = scales.map((scale, stageIndex) => {
+    const decorGroup = new THREE.Group();
+    decorGroup.name = `community-bodhi-stage-${stageIndex}`;
+    const treeGroup = new THREE.Group();
+    treeGroup.name = `community-bodhi-tree-${stageIndex}`;
     const decoration = new StaticBatch();
     const trees = new StaticBatch();
     if (stageIndex === 0) {
@@ -916,23 +963,90 @@ function buildCommunityBodhi({ root, casters, materials, item }) {
       decoration.add(new THREE.CylinderGeometry(0.07, 0.09, 0.8, 6), materials.bark, { position: [item.x + 0.65, 0.4, item.z + 0.25], rotation: [0, 0, -0.08] });
       decoration.add(new THREE.BoxGeometry(0.72, 0.42, 0.06), materials.wood, { position: [item.x + 0.68, 0.82, item.z + 0.25], rotation: [0, -0.3, 0] });
     } else {
-      addBodhi(trees, decoration, materials, { ...item, size: (item.size || 1) * scale }, {
-        foundation: stageIndex === 4,
-        ribbons: stageIndex === 4,
-      });
+      addBodhi(trees, decoration, materials, { ...item, size: size * scale }, { foundation: false, ribbons: stageIndex === 4 });
+      if (stageIndex < 3) {
+        // Cây non: vòng đất xới quanh gốc.
+        decoration.add(new THREE.CylinderGeometry(0.75 + stageIndex * 0.3, 0.9 + stageIndex * 0.3, 0.12, 24), earth, { position: [item.x, 0.06, item.z] });
+      }
+      if (stageIndex === 4) addBodhiPlatform(decoration, { ...materials, earth }, item, 1.57 * size);
     }
-    trees.build(group, { castShadow: true });
-    decoration.build(group, { castShadow: true, receiveShadow: true });
-    group.visible = stageIndex === 0;
-    group.traverse((child) => { if (child.isMesh) casters.push(child); });
-    root.add(group);
-    return group;
+    trees.build(treeGroup, { castShadow: true });
+    decoration.build(decorGroup, { castShadow: true, receiveShadow: true });
+    for (const group of [decorGroup, treeGroup]) {
+      group.visible = stageIndex === 0;
+      group.traverse((child) => { if (child.isMesh) casters.push(child); });
+      root.add(group);
+    }
+    return { decorGroup, treeGroup };
   });
+  // Ảnh cây: mỗi giai đoạn có cây một InstancedMesh (1 bản) dùng vật liệu billboard của Vườn Hoa.
+  const wind = { uWindTime: { value: 0 } };
+  const sprites = new Array(stages.length).fill(null);
+  const shadowMap = softShadowTexture();
+  const shadow = shadowMap ? new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: shadowMap, transparent: true, depthWrite: false })) : null;
+  if (shadow) {
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.set(item.x, 0.03, item.z);
+    shadow.visible = false;
+    root.add(shadow);
+  }
+  let active = 0;
+  const apply = () => {
+    stages.forEach((stage, index) => {
+      const sprite = sprites[index];
+      stage.decorGroup.visible = index === active;
+      stage.treeGroup.visible = index === active && !sprite;
+      if (sprite) sprite.visible = index === active;
+    });
+    if (shadow) {
+      shadow.visible = Boolean(sprites[active]) && BODHI_SHADOW[active] > 0;
+      shadow.scale.setScalar(BODHI_SHADOW[active] * size);
+    }
+  };
+  if (typeof document !== 'undefined') {
+    const loader = new THREE.TextureLoader();
+    const textures = new Map();
+    const load = (file) => {
+      if (!textures.has(file)) {
+        textures.set(file, new Promise((resolve) => loader.load(`${SCENE_MODELS}/${file}.webp`, (texture) => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.anisotropy = 4;
+          resolve(texture);
+        }, undefined, () => resolve(null))));
+      }
+      return textures.get(file);
+    };
+    BODHI_SPRITES.forEach((spec, index) => {
+      if (!spec) return;
+      load(spec.file).then((texture) => {
+        if (!texture) return;
+        const height = spec.height * size * (spec.file === 'bodhi' ? scales[index] : 1);
+        const material = spriteMaterial(texture, wind);
+        // Ảnh Meshy hơi xanh nõn: dịu màu tán Bồ Đề cho hợp cây cổ thụ.
+        if (spec.file === 'bodhi') material.color.set('#c4d4b4');
+        const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), material, 1);
+        const dummy = new THREE.Object3D();
+        dummy.position.set(item.x, 0, item.z);
+        dummy.scale.set(height * (texture.image.width / texture.image.height), height, 1);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(0, dummy.matrix);
+        mesh.setColorAt(0, new THREE.Color('#ffffff'));
+        mesh.computeBoundingSphere();
+        mesh.name = `community-bodhi-sprite-${index}`;
+        root.add(mesh);
+        sprites[index] = mesh;
+        apply();
+      });
+    });
+  }
   return {
     set(project) {
       const requested = Number.isSafeInteger(project?.stageIndex) ? project.stageIndex : 0;
-      const active = Math.max(0, Math.min(groups.length - 1, requested));
-      groups.forEach((group, index) => { group.visible = index === active; });
+      active = Math.max(0, Math.min(stages.length - 1, requested));
+      apply();
+    },
+    tick(seconds) {
+      wind.uWindTime.value = seconds;
     },
   };
 }
@@ -1363,6 +1477,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   const koi = [];
   let koiMesh = null;
   let communityLotus = null;
+  let lotusFloats = null;
   if (bigPond) {
     const stagedPond = Boolean(pond.projectId);
     const rockBatch = stagedPond ? new StaticBatch() : batch;
@@ -1444,9 +1559,53 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       placeProp(root, `${SCENE_MODELS}/lantern.glb`, { x: lantern.x, z: lantern.z, ry: lantern.ry || 0, height: 1.35 });
       lanternGlows.push(new THREE.Vector3(lantern.x, 0.95, lantern.z));
     }
-    // Lau sậy từng cụm quanh bờ (luôn hiện, kể cả khi công trình hồ sen chưa lên giai đoạn có đá / sen).
-    addReeds(batch, m, { x: pond.x, z: pond.z, rx: pond.radiusX + 0.3, rz: pond.radiusZ + 0.3, angles: [0.5, 1.2, 2.6, 3.0, 3.5, 4.0, 5.1, 5.8], y: -0.14 });
+    // Lau sậy từng cụm quanh bờ: hồ công trình thì mọc từ giai đoạn "Dẫn nước", hồ thường thì luôn có.
+    const reedBatch = stagedPond ? new StaticBatch() : batch;
+    addReeds(reedBatch, m, { x: pond.x, z: pond.z, rx: pond.radiusX + 0.3, rz: pond.radiusZ + 0.3, angles: [0.5, 1.2, 2.6, 3.0, 3.5, 4.0, 5.1, 5.8], y: -0.14 });
     if (stagedPond) {
+      const reedGroup = new THREE.Group();
+      reedGroup.name = 'community-lotus-reeds';
+      reedBatch.build(reedGroup, { castShadow: true, receiveShadow: true });
+      reedGroup.visible = false;
+      root.add(reedGroup);
+      // Hoàn thành: đèn hoa đăng (đài sen giấy hồng, ngọn nến) trôi chậm trên mặt hồ, phía chừa trống của lá sen.
+      const floatCount = 12;
+      const cup = lathe([[0, 0], [0.1, 0.01], [0.16, 0.06], [0.2, 0.15], [0.14, 0.12], [0.1, 0.06], [0, 0.05]], 8);
+      const paper = new THREE.InstancedMesh(cup, new THREE.MeshStandardMaterial({ color: '#ffb7cb', emissive: '#ff6f98', emissiveIntensity: 0.55, roughness: 0.8, side: THREE.DoubleSide }), floatCount);
+      const flame = new THREE.InstancedMesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffd76a', toneMapped: false }), floatCount);
+      for (const mesh of [paper, flame]) {
+        mesh.frustumCulled = false;
+        mesh.visible = false;
+        root.add(mesh);
+      }
+      const floats = Array.from({ length: floatCount }, (_, index) => ({
+        a: 0.25 + ((index * 37) % 10) / 20,
+        speed: (0.03 + ((index * 13) % 5) * 0.008) * (index % 2 ? 1 : -1),
+        phase: index * 2.1,
+        size: 0.9 + ((index * 7) % 4) * 0.12,
+      }));
+      const floatDummy = new THREE.Object3D();
+      lotusFloats = (seconds) => {
+        if (!paper.visible) return;
+        floats.forEach((item, index) => {
+          const t = seconds * item.speed + item.phase;
+          // Chỉ trôi ở nửa hồ phía đông (nửa tây là lá sen).
+          const x = pond.x + Math.abs(Math.cos(t)) * item.a * pond.radiusX * 0.85;
+          const z = pond.z + Math.sin(t) * item.a * pond.radiusZ * 0.85;
+          floatDummy.position.set(x, -0.15 + Math.sin(seconds * 1.3 + item.phase) * 0.01, z);
+          floatDummy.rotation.set(0, t, 0);
+          floatDummy.scale.setScalar(item.size);
+          floatDummy.updateMatrix();
+          paper.setMatrixAt(index, floatDummy.matrix);
+          floatDummy.position.y += 0.14 * item.size;
+          floatDummy.scale.setScalar(item.size * (0.9 + Math.sin(seconds * 9 + index) * 0.12));
+          floatDummy.updateMatrix();
+          flame.setMatrixAt(index, floatDummy.matrix);
+        });
+        paper.instanceMatrix.needsUpdate = true;
+        flame.instanceMatrix.needsUpdate = true;
+      };
+      const fullKoi = koiMesh.count;
       const rocksGroup = new THREE.Group();
       const lotusGroup = new THREE.Group();
       rocksGroup.name = 'community-lotus-rocks';
@@ -1463,14 +1622,19 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       root.add(rocksGroup, lotusGroup);
       rocksGroup.traverse((child) => { if (child.isMesh) casters.push(child); });
       lotusGroup.traverse((child) => { if (child.isMesh) casters.push(child); });
-      const visibility = { water: 0, rocks: 2, lotus: 3, fish: 0, ...pond.stageVisibility };
+      // Giai đoạn mở từng phần (scene có thể ghi đè): reeds lau sậy, rocks bờ đá, lotus sen, floats đèn hoa đăng +
+      // đủ đàn cá (trước đó chỉ nửa đàn).
+      const visibility = { water: 0, reeds: 1, rocks: 2, lotus: 3, fish: 0, floats: 4, ...pond.stageVisibility };
       communityLotus = {
         set(project) {
           const stageIndex = Number.isSafeInteger(project?.stageIndex) ? Math.max(0, Math.min(4, project.stageIndex)) : 0;
           water.visible = stageIndex >= visibility.water;
+          reedGroup.visible = stageIndex >= visibility.reeds;
           rocksGroup.visible = stageIndex >= visibility.rocks;
           lotusGroup.visible = stageIndex >= visibility.lotus;
           koiMesh.visible = stageIndex >= visibility.fish;
+          koiMesh.count = stageIndex >= visibility.floats ? fullKoi : Math.ceil(fullKoi / 2);
+          paper.visible = flame.visible = stageIndex >= visibility.floats;
         },
       };
     }
@@ -1857,8 +2021,11 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       return sun.castShadow && renderer.shadowMap.enabled && !shadowsCleared;
     },
     update(dt, time) {
-      // Ra sân thì nắng dần lên, vào điện thì tắt (cửa giữa là ranh giới).
-      const target = camera.position.z > frontZ - 0.5 ? 1 : 0;
+      // Ra sân thì nắng dần lên, vào điện thì tắt (cửa giữa là ranh giới). "Trong điện" = sau mặt tiền VÀ trong bề ngang
+      // của điện: camera sau lưng người đứng sát mặt tiền ở hai bên (Vườn Hoa, sân trước) lùi qua mốc z nhưng vẫn ở
+      // ngoài trời, không được tắt nắng (trước đây cảnh tối sầm từng lúc).
+      const inHall = camera.position.z < frontZ - 0.5 && Math.abs(camera.position.x) < hw + 0.5;
+      const target = inHall ? 0 : 1;
       outside += (target - outside) * Math.min(1, dt * 3);
       sun.intensity = 2.1 * outside;
       skyFill.intensity = 0.9 * outside;
@@ -1882,6 +2049,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       for (const asset of lazyAssets) asset.update(camera.position);
       animals?.update(dt, time, camera);
       lakeWater.tick(time / 1000);
+      communityBodhi?.tick(time / 1000);
+      lotusFloats?.(time / 1000);
       flowerGarden?.update(dt, time, camera);
       for (const spray of sprays) {
         const k = ((time / 1_600) + spray.phase) % 1;

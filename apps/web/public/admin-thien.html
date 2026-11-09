@@ -75,15 +75,24 @@
       <section class="content-head cinema-head" id="cinemaPlaylistPanel">
         <div>
           <p class="step">03 · RẠP PHIM</p>
-          <h2>Danh sách phát dự phòng</h2>
-          <p>Mỗi dòng một link YouTube hoặc Video ID. Khi hàng chờ của người dùng trống, rạp tự phát lần lượt rồi lặp lại từ đầu.</p>
+          <h2>Danh sách phát cho cụm rạp</h2>
+          <p>Nhập danh sách một lần rồi chọn các rạp cần áp dụng. Khi phim hiện tại và hàng chờ trống, rạp tự lấy danh sách admin, phát lần lượt rồi lặp lại.</p>
         </div>
         <div class="cinema-playlist-actions">
-          <button type="button" class="secondary" id="loadCinemaPlaylist">Tải danh sách</button>
+          <button type="button" class="secondary" id="loadCinemaPlaylist">Tải từ rạp đầu</button>
           <button type="button" class="primary" id="saveCinemaPlaylist">Lưu danh sách</button>
         </div>
       </section>
       <div class="cinema-playlist-editor" id="cinemaPlaylistEditor">
+        <label for="cinemaRoom"><span>Chọn các rạp nhận danh sách</span></label>
+        <div class="cinema-room-shortcuts" aria-label="Chọn nhanh cụm rạp">
+          <button type="button" class="secondary" id="selectAllCinemas">Tất cả</button>
+          <button type="button" class="secondary" id="selectVietnamCinema">Việt Nam</button>
+          <button type="button" class="secondary" id="selectUsCinemas">Toàn bộ Hoa Kỳ</button>
+          <button type="button" class="secondary" id="clearCinemaSelection">Bỏ chọn</button>
+        </div>
+        <select id="cinemaRoom" multiple size="9" aria-describedby="cinemaRoomHint"></select>
+        <small id="cinemaRoomHint">Có thể chọn nhiều rạp. “Tải từ rạp đầu” chỉ dùng rạp đầu tiên làm danh sách mẫu; “Lưu danh sách” áp dụng cho toàn bộ rạp đã chọn.</small>
         <label for="cinemaPlaylist"><span>Link YouTube · tối đa 50 video</span></label>
         <textarea id="cinemaPlaylist" rows="8" spellcheck="false" placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
         <p class="model-status" id="cinemaPlaylistStatus" role="status" aria-live="polite">Nhập khóa quản trị rồi tải danh sách.</p>
@@ -184,9 +193,27 @@
       </div>
       <div class="prayer-admin-list" id="petPriceEmpty"><p class="empty">Nhập khóa quản trị rồi tải giá linh thú.</p></div>
 
+      <section class="content-head prayer-head">
+        <div>
+          <p class="step">10 · GIÁ MỞ PHIM</p>
+          <h2>Mở phim ở rạp: xu hay kim cương</h2>
+          <p>Áp dụng cho rạp chung và rạp riêng. Mặc định trả bằng xu (ví Vườn Công Đức); bật công tắc để chuyển sang kim cương. Đổi giá / loại tiền chỉ áp dụng cho lần mở phim sau; video đã trả vẫn được hoàn đúng loại tiền lúc trả khi người mở hủy (còn chờ), video lỗi không phát được, hoặc rạp đóng khi video còn chờ.</p>
+        </div>
+        <button type="button" class="secondary" id="loadVideoPrice">Tải giá mở phim</button>
+      </section>
+      <div class="pack-admin video-price-admin" id="videoPriceAdmin" hidden>
+        <label class="video-price-switch"><input type="checkbox" id="videoPriceDiamonds"> <span>Thu bằng kim cương 💎 (tắt = thu bằng xu 🪙)</span></label>
+        <label>Giá khi thu bằng xu <input type="number" id="videoPriceCoins" min="1" max="100000" step="1"> xu</label>
+        <label>Giá khi thu bằng kim cương <input type="number" id="videoPriceGems" min="1" max="100000" step="1"> 💎</label>
+        <div class="pack-actions">
+          <button type="button" class="primary" id="saveVideoPrice">Lưu giá mở phim</button>
+        </div>
+      </div>
+      <div class="prayer-admin-list" id="videoPriceEmpty"><p class="empty">Nhập khóa quản trị rồi tải giá mở phim.</p></div>
+
       <section class="panel access">
         <div>
-          <p class="step">10 · XÁC NHẬN</p>
+          <p class="step">11 · XÁC NHẬN</p>
           <h2>Khóa quản trị</h2>
           <p>Khóa được gửi khi lưu và chỉ được giữ trong tab hiện tại.</p>
         </div>

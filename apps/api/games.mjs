@@ -7,6 +7,9 @@
 // Lô Tô (vé do server tạo, chia quỹ sau phế):
 //   POST /internal/games/loto/buy    { accountId, roundId, count, autoMark, key } → trừ xu, tạo vé
 //   POST /internal/games/loto/settle { roundId, called, claims }                  → kiểm tra kinh, chia quỹ (hoặc hoàn tiền)
+// Oẳn Tù Tì cược (đấu 1–1, mã trận rp-…):
+//   POST /internal/games/rps/stake  { accountId, matchId, amount, key } → trừ cọc khi vào bàn
+//   POST /internal/games/rps/settle { matchId, winner, bot }            → trả người thắng (trừ phế) / hoàn cọc khi hòa, hủy
 // Trình duyệt không gọi trực tiếp được (không có khóa nội bộ).
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
 import { timingSafeEqual } from 'node:crypto';
@@ -22,7 +25,7 @@ function internalAllowed(req, options) {
 }
 
 export async function handleGameRequest(req, res, pathname, options) {
-  const match = pathname.match(/^\/internal\/games\/(bau-cua|loto)\/(stake|unstake|settle|buy)$/);
+  const match = pathname.match(/^\/internal\/games\/(bau-cua|loto|rps)\/(stake|unstake|settle|buy)$/);
   if (!match && !pathname.startsWith('/api/v1/games')) return false;
   if (!match || req.method !== 'POST') {
     json(req, res, 404, { error: 'not_found' });
@@ -39,7 +42,11 @@ export async function handleGameRequest(req, res, pathname, options) {
   const input = await body(req, res);
   if (!input) return true;
   const [, game, action] = match;
-  const result = game === 'loto'
+  const result = game === 'rps'
+    ? action === 'stake'
+      ? options.garden.stakeRps({ accountId: input.accountId, matchId: input.matchId, amount: input.amount, key: input.key })
+      : action === 'settle' ? options.garden.settleRps({ matchId: input.matchId, winner: input.winner, bot: input.bot }) : { ok: false, code: 'INVALID' }
+    : game === 'loto'
     ? action === 'buy'
       ? options.garden.buyLotto({ accountId: input.accountId, roundId: input.roundId, count: input.count, autoMark: input.autoMark, key: input.key })
       : action === 'settle' ? options.garden.settleLottoRound({ roundId: input.roundId, called: input.called, claims: input.claims, botWinners: input.botWinners, botTickets: input.botTickets }) : { ok: false, code: 'INVALID' }

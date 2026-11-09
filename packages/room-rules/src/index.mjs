@@ -86,8 +86,9 @@ export const CINEMA_RULES = defineRoomRules({
   seats: 100,
   lang: 'vi',
   moderation: 'standard',
-  // Mở phim (thêm video vào hàng chờ) tốn videoPrice kim cương 💎: chỉ thành viên đã đăng nhập, trừ qua sổ API trước khi
-  // video vào hàng chờ, không thêm được thì hoàn.
+  // Mở phim (thêm video vào hàng chờ) tốn tiền, chỉ thành viên đã đăng nhập. videoPrice ở đây chỉ bật tính năng (và là
+  // giá kim cương khởi tạo); loại tiền (xu / 💎) + giá thật do admin đặt ở API (apps/api/cinema-pay.mjs), trừ trước khi
+  // video vào hàng chờ, hoàn khi không thêm được / người mở hủy / video lỗi / rạp đóng khi video còn chờ.
   content: { source: 'youtube', videoPrice: 20 },
   interaction: { queue: 'everyone', skipVotePercent: 35 },
   // Rạp luôn có khán giả: số bot ngẫu nhiên trong range (10–30), realtime cho dao động trong khoảng đó như người ra
@@ -193,7 +194,7 @@ export const THIEN_RULES = defineRoomRules({
       pets: { x: 10.5, z: 87.5, ry: -1.5708 },
       memorial: { x: -35.8, z: 63.5, ry: 1.5708 },
       park: { x: 13.2, z: 28.6, ry: -1.5708 },
-      flowers: { x: -25.4, z: 40.75, ry: 1.5708 },
+      flowers: { x: -13.9, z: 40.75, ry: 1.5708 },
       farm: { x: 43.4, z: 64.6, ry: 3.1416 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
@@ -405,6 +406,52 @@ export const TAI_XIU_RULES = defineRoomRules({
   },
 });
 
+// Oẳn Tù Tì cược (đấu 1–1): mở bàn hoặc bấm "Tìm trận" với một mức cược cố định (stakes, khớp RPS_STAKES ở API),
+// cọc trừ ngay khi vào bàn; mỗi lượt pickMs để chọn Kéo / Búa / Bao, server giữ kín tới khi lật. Thắng ăn cả cọc trừ
+// phế houseCutPercent; hòa thì đấu lượt mới, hòa maxRounds lượt liền thì hoàn cọc. Không chọn kịp thì thua lượt đó
+// (cả hai không chọn: hủy, hoàn cọc). Không có người nhận bàn sau botJoinMs thì một người chơi ảo trong phòng vào đấu
+// (chọn ngẫu nhiên đều, chốt trước khi thấy tay người — không gian lận); bot cũng mở sẵn vài bàn (botTables) và đấu
+// với nhau cho sảnh có người chơi (trận bot với bot không đụng tới xu).
+export const RPS_RULES = defineRoomRules({
+  id: 'rps',
+  activity: 'play-together',
+  maxParticipants: 500,
+  lang: 'vi',
+  moderation: 'standard',
+  bots: {
+    count: 14,
+    alwaysOn: true,
+    max: 100,
+    initial: 8,
+    arrivalMs: [3_000, 9_000],
+    actionMs: [2_000, 6_000],
+    churnMs: [180_000, 420_000],
+    play: 'rps',
+    skins: ['man', 'woman', 'child', 'pilgrim', 'lotusgirl', 'granny', 'monk', 'nun'],
+    names: uniqueNames(['Tuấn Kiệt', 'Minh Khang', 'Bảo Ngọc', 'Hoàng Long', 'Thu Trang', 'Quốc Bảo', 'Phương Vy', 'Gia Huy',
+      'Khánh Vy', 'Đức Anh', 'Trâm Anh', 'Nhật Nam', 'Thảo Nhi', 'Tiến Đạt', 'Mai Anh', 'Văn Hậu', 'Hồng Nhung', 'Anh Thư'],
+    familyFirstNames(['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Võ', 'Huỳnh', 'Đặng', 'Bùi'], ['Hùng', 'Linh', 'Phúc', 'Nhi', 'Tài', 'Vy', 'Khoa', 'Hà'])),
+  },
+  interaction: {
+    game: 'rps',
+    stakes: [10, 20, 50, 100, 200],
+    readyMs: 2_000,
+    pickMs: 5_000,
+    revealMs: 2_500,
+    rematchMs: 12_000,
+    maxRounds: 3,
+    houseCutPercent: 5,
+    // Bàn của người thật không ai nhận: bot vào trong khoảng này (như có người vừa bấm Tìm trận).
+    botJoinMs: [3_000, 9_000],
+    // Bàn bot mở sẵn trong sảnh và trận bot với bot (chỉ để sảnh sinh động).
+    botTables: [1, 3],
+    botTableMs: [20_000, 60_000],
+    botMatchMs: [8_000, 20_000],
+    // Bàn chờ quá lâu thì tự đóng, hoàn cọc.
+    waitMs: 90_000,
+  },
+});
+
 // Shop nhân vật: mua bằng kim cương (💎, chỉ có khi nạp tiền qua Stripe). Người thật không bao giờ được chia ngẫu
 // nhiên hình trong PREMIUM_SKINS; máy realtime chỉ nhận avatar.set khi vé vào phòng ghi đã sở hữu. Bot được phép lấy
 // danh mục shop đang bật từ API để cảnh có nhiều nhân vật hơn, nhưng không mang quyền sở hữu của tài khoản.
@@ -495,8 +542,14 @@ export const LOTO_RULES = defineRoomRules({
 // PRIVATE_LOTO.maxGuests bạn đã lưu (người hoặc bot); không có bot tự vào, chỉ người / bot được mời mới vào được. Phòng
 // sống tới khi chủ phòng rời phòng. Danh sách mời do API giữ (apps/api/private-rooms.mjs).
 export const PRIVATE_LOTO = deepFreeze({ price: 50, maxGuests: 20 });
-const PRIVATE_ROOM = /^loto-p-[a-z0-9]{8}$/;
+// Rạp phim riêng (mã cinema-p-<8 ký tự>): cùng cách mở / mời / đuổi / đóng như Lô Tô riêng, xem chung YouTube với nhóm
+// bạn. Mở phim vẫn tốn content.videoPrice 💎 như rạp chung; hàng chờ trống thì chiếu danh sách phát mặc định.
+export const PRIVATE_CINEMA = deepFreeze({ price: 50, maxGuests: 20 });
+export const PRIVATE_GAMES = deepFreeze({ loto: PRIVATE_LOTO, cinema: PRIVATE_CINEMA });
+const PRIVATE_ROOM = /^(loto|cinema)-p-[a-z0-9]{8}$/;
 export const isPrivateRoomId = (roomId) => typeof roomId === 'string' && PRIVATE_ROOM.test(roomId);
+// loto-p-… → 'loto', cinema-p-… → 'cinema', mã khác → null.
+export const privateRoomGame = (roomId) => (isPrivateRoomId(roomId) ? roomId.slice(0, roomId.indexOf('-p-')) : null);
 const { bots: _publicLotoBots, ...LOTO_BASE } = LOTO_RULES;
 export const LOTO_PRIVATE_RULES = defineRoomRules({
   ...LOTO_BASE,
@@ -504,16 +557,27 @@ export const LOTO_PRIVATE_RULES = defineRoomRules({
   maxParticipants: PRIVATE_LOTO.maxGuests + 1,
   private: { game: 'loto', ...PRIVATE_LOTO, botSkins: LOTO_RULES.bots.skins },
 });
+// Rạp riêng: như rạp chung nhưng không có bot tự vào (chỉ bạn bot được chủ phòng mời, ngồi ghế trống).
+const { bots: _publicCinemaBots, ...CINEMA_BASE } = CINEMA_RULES;
+export const CINEMA_PRIVATE_RULES = defineRoomRules({
+  ...CINEMA_BASE,
+  id: 'cinema-private',
+  // Sức chứa kỹ thuật bằng số ghế của cảnh rạp (rules bắt buộc seats ≤ maxParticipants); số khách thật (maxGuests)
+  // do API giữ lúc cấp vé.
+  maxParticipants: CINEMA_RULES.seats,
+  private: { game: 'cinema', ...PRIVATE_CINEMA, botSkins: CINEMA_RULES.bots.skins },
+});
 
-export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES, 'loto-private': LOTO_PRIVATE_RULES });
+export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES, 'loto-private': LOTO_PRIVATE_RULES, 'cinema-private': CINEMA_PRIVATE_RULES, rps: RPS_RULES });
 
 // Danh mục phòng công khai. API và máy realtime cùng đọc để biết phòng nào thuộc loại nào.
 export const ROOM_CATALOG = deepFreeze([
   { id: 'thien-1', type: 'thien', name: 'Chánh điện' },
-  { id: 'cinema-1', type: 'cinema', name: 'Cinema #1' },
+  { id: 'cinema-vn', type: 'cinema', name: 'Rạp phim · Việt Nam' },
   { id: 'game-1', type: 'game', name: 'Bầu Cua #1' },
   { id: 'taixiu-1', type: 'taixiu', name: 'Tài Xỉu #1' },
   { id: 'loto-1', type: 'loto', name: 'Lô Tô #1' },
+  { id: 'oantuti-1', type: 'rps', name: 'Oẳn Tù Tì #1' },
 ]);
 
 export function getRoomRules(type) {
@@ -567,6 +631,7 @@ export const THIEN_EVENT = deepFreeze({
 });
 
 const THIEN_ROOM = /^thien-([a-z]{2})-(vi|en|zh|es)-([1-9][0-9]{0,2})$/;
+const CINEMA_ROOM = /^cinema-([a-z]{2})$/;
 export const THIEN_MAX_SHARDS = 999;
 
 export function thienRoomId(state, lang, shard) {
@@ -578,6 +643,24 @@ export function parseThienRoomId(roomId) {
   const match = typeof roomId === 'string' && THIEN_ROOM.exec(roomId);
   if (!match || !US_STATES.some((state) => state.code === match[1])) return null;
   return { state: match[1], lang: match[2], shard: Number(match[3]) };
+}
+
+export function cinemaRoomId(state) {
+  return `cinema-${state}`;
+}
+
+// Mỗi quốc gia / tiểu bang có đúng một rạp. `cinema-1` chỉ là bí danh tương thích link cũ và quy về Việt Nam.
+export function parseCinemaRoomId(roomId) {
+  if (roomId === 'cinema-1') return { state: 'vn' };
+  const match = typeof roomId === 'string' && CINEMA_ROOM.exec(roomId);
+  if (!match || !US_STATES.some((state) => state.code === match[1])) return null;
+  return { state: match[1] };
+}
+
+export function cinemaRoomName(roomId) {
+  const info = parseCinemaRoomId(roomId);
+  const state = info && US_STATES.find((item) => item.code === info.state);
+  return state ? `Rạp phim · ${state.name}` : null;
 }
 
 // Tên hiển thị ngắn kiểu "Arizona · PV2".
@@ -595,7 +678,8 @@ export function roomLangOf(roomId) {
 
 export function roomTypeOf(roomId) {
   if (parseThienRoomId(roomId)) return 'thien';
-  if (isPrivateRoomId(roomId)) return 'loto-private';
+  if (parseCinemaRoomId(roomId)) return 'cinema';
+  if (isPrivateRoomId(roomId)) return `${privateRoomGame(roomId)}-private`;
   return ROOM_CATALOG.find((room) => room.id === roomId)?.type || null;
 }
 

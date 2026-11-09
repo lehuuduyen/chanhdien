@@ -35,6 +35,12 @@ textarea { resize: vertical; min-height: 170px; line-height: 1.6; }
 .cinema-head { align-items: center; }
 .cinema-playlist-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .cinema-playlist-editor { display: grid; gap: 8px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: #18110d; }
+.cinema-playlist-editor select { padding: 8px; color: var(--cream); background: #0e0b09; border: 1px solid #5a4127; border-radius: 9px; }
+.cinema-playlist-editor select option { padding: 7px 9px; border-radius: 6px; }
+.cinema-playlist-editor select option:checked { color: #1a1008; background: var(--gold); }
+.cinema-room-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; }
+.cinema-room-shortcuts button { padding: 8px 12px; font-size: 13px; }
+.cinema-playlist-editor small { color: var(--muted); }
 .cinema-playlist-editor .model-status { margin: 0; }
 .access { margin-top: 48px; }
 .prayer-head { align-items: center; }
@@ -101,3 +107,13 @@ button:disabled { opacity: .5; cursor: wait; }
 .moderation-words { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
 .moderation-words label { flex: 1 1 220px; }
 .moderation-custom { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+
+/* Mục 10: giá mở phim. */
+.video-price-admin { display: grid; gap: 10px; }
+.video-price-admin[hidden], #videoPriceEmpty[hidden] { display: none; }
+.video-price-admin input { margin-top: 0; }
+.video-price-switch input[type="checkbox"] { flex: none; width: 22px; height: 22px; accent-color: var(--gold); }
+.video-price-admin label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.video-price-admin input[type="number"] { width: 110px; }
+.video-price-switch { flex-wrap: nowrap !important; font-weight: 700; }
+.video-price-switch span { flex: 1; min-width: 0; }

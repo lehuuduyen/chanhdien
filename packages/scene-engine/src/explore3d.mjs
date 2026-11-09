@@ -776,8 +776,10 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (farm && self.x >= farm.x[0] && self.x <= farm.x[1] && self.z >= farm.z[0] && self.z <= farm.z[1]) return 'farm';
       const park = world.courtyard?.park?.area;
       if (park && self.x >= park.x[0] - 2 && self.x <= park.x[1] && self.z >= park.z[0] && self.z <= park.z[1]) return 'park';
-      const flowers = world.courtyard?.flowerGarden?.area;
-      if (flowers && self.x >= flowers.x[0] && self.x <= flowers.x[1] + 2 && self.z >= flowers.z[0] && self.z <= flowers.z[1]) return 'flowers';
+      // Vườn Hoa hình chữ L: xét từng khối (areas), thiếu thì dùng khung bao (area); nới 2 m ra phía cổng đông.
+      const garden = world.courtyard?.flowerGarden;
+      const flowerAreas = garden?.areas || (garden?.area ? [garden.area] : []);
+      if (flowerAreas.some((item) => self.x >= item.x[0] && self.x <= item.x[1] + 2 && self.z >= item.z[0] && self.z <= item.z[1])) return 'flowers';
       if (gardenBounds && self.x >= gardenBounds.x[0] && self.x <= gardenBounds.x[1]
         && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
       if (memorialBounds && self.x >= memorialBounds.x[0] && self.x <= memorialBounds.x[1]
@@ -1277,6 +1279,10 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             id: item.id, name: item.name, x: item.x, z: item.z, ry: item.ry,
             moving: item.moving, running: Boolean(item.running), benchId: item.benchId, benchSpot: item.benchSpot,
             emote: item.emote, visible: item.group.visible,
+            spirit: item.spirit ? {
+              key: item.spiritKey, visible: item.spirit.group.visible,
+              x: item.spirit.group.position.x, z: item.spirit.group.position.z,
+            } : null,
             // Nhún nhảy: 'clip' (điệu trong file .glb) hoặc kiểu nhún bằng code; lift/tilt để kiểm tra chuyển động.
             dance: item.emote === 'dance' ? (item.parts.rig?.hasDance ? 'clip' : item.danceStyle) : null,
             act: item.emote === 'act' && item.actChoice !== undefined

@@ -435,3 +435,24 @@ test('memorial.grave: ô mộ trống hoặc có mộ hợp lệ; từ chối ô
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'travel.go', requestId: 'r1', destination: 'park' }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'travel.go', requestId: 'r2', destination: 'flowers' }).ok, true);
 });
+
+test('oẳn tù tì cược: thao tác chỉ cho thành viên, mức cược cố định, trận chỉ lộ tay đối thủ qua last', () => {
+  const base = { v: PROTOCOL_VERSION, requestId: 'r-1' };
+  assert.equal(parseClientMessage({ ...base, type: 'rps.find', stake: 50 }, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage({ ...base, type: 'rps.find', stake: 50 }, { role: 'guest' }).error, 'FORBIDDEN');
+  assert.equal(parseClientMessage({ ...base, type: 'rps.open', stake: 30 }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'rps.join', tableId: 'bc-not-rps' }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'rps.pick', matchId: 'rp-oantuti-1-1-1-abcd', choice: 'rock' }, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage({ ...base, type: 'rps.pick', matchId: 'rp-oantuti-1-1-1-abcd', choice: 'lizard' }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'rps.leave' }, { role: 'member' }).ok, true);
+  const match = { v: PROTOCOL_VERSION, type: 'rps.match', epoch: 1, matchId: 'rp-oantuti-1-1-1-abcd', stake: 50, phase: 'pick', round: 1, prize: 95,
+    opponent: { displayName: 'Bảo Ngọc', skin: 'woman' }, deadline: 10, picked: { me: false, opponent: true } };
+  assert.equal(parseServerMessage(match).ok, true);
+  assert.equal(parseServerMessage({ ...match, opponent: { displayName: 'Bảo Ngọc', bot: true } }).ok, false, 'trận không mang cờ bot');
+  assert.equal(parseServerMessage({ ...match, phase: 'reveal', last: { mine: 'rock', opponent: null, result: 'win' } }).ok, true);
+  assert.equal(parseServerMessage({ ...match, picked: { me: false, opponent: 'rock' } }).ok, false, 'picked không mang lựa chọn');
+  const lobby = { v: PROTOCOL_VERSION, type: 'rps.lobby', epoch: 1, tables: [{ id: 'rp-oantuti-1-1-2-abcd', displayName: 'An', stake: 20 }], playing: 2,
+    feed: [{ a: 'An', b: 'Bình', stake: 20, winner: 'b' }] };
+  assert.equal(parseServerMessage(lobby).ok, true);
+  assert.equal(parseServerMessage({ ...lobby, feed: [{ a: 'An', b: 'Bình', stake: 20, winner: 'an' }] }).ok, false);
+});

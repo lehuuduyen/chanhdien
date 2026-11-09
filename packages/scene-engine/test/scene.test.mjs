@@ -192,3 +192,9 @@ test('chánh điện: lấp kín bề ngang trên màn dài/thấp, cắt trần
   assert.ok(wide.scale > 500 / 1920);
   for (const offset of [stageToView({ x: 0, y: focus.y0 }, wide).y, 500 - stageToView({ x: 0, y: focus.y1 }, wide).y]) assert.ok(offset >= -0.5);
 });
+
+test('tượng Phật ngồi chính giữa không bị tượng GLB tải trễ thay thế', () => {
+  const shrine = loadScene('thien-default').world?.statues?.shrine ?? [];
+  assert.equal(shrine.some((item) => item.replaces === 'buddha'), false);
+  assert.deepEqual(shrine.map((item) => item.id), ['dia-tang', 'quan-am']);
+});

@@ -32,8 +32,11 @@ function button(className, text, onClick) {
 }
 
 // stage: khung cảnh để gắn bảng; openGems(): mở bảng nạp kim cương; refreshGems(): đọc lại số kim cương trên header;
-// coinsChanged(): ví xu vừa đổi (header vườn đọc lại).
-export function createPetUI({ stage, showToast, openGems = () => {}, refreshGems = () => {}, coinsChanged = () => {} }) {
+// coinsChanged(): ví xu vừa đổi (header vườn đọc lại); onCompanionChange(): cập nhật ngay linh thú trong cảnh hiện tại,
+// không phụ thuộc API có báo được tới máy realtime hay chưa.
+export function createPetUI({
+  stage, showToast, openGems = () => {}, refreshGems = () => {}, coinsChanged = () => {}, onCompanionChange = () => {},
+}) {
   const sheet = el('section', 'garden-sheet spirit-sheet');
   sheet.hidden = true;
   sheet.setAttribute('role', 'dialog');
@@ -48,6 +51,10 @@ export function createPetUI({ stage, showToast, openGems = () => {}, refreshGems
     return own === `spirit.err.${code}` ? t('spirit.err.other') : own;
   };
   const nameOf = (pet) => pet.name || t(`spirit.species.${pet.species}`);
+  const syncCompanion = () => {
+    const pet = data?.pets?.find((item) => item.species === data.companion);
+    onCompanionChange(pet ? { species: pet.species, level: pet.level } : null);
+  };
 
   async function load() {
     try {
@@ -56,6 +63,7 @@ export function createPetUI({ stage, showToast, openGems = () => {}, refreshGems
     } catch {
       data = data || { species: [], pets: [], signedIn: false };
     }
+    syncCompanion();
     render();
   }
 
@@ -105,6 +113,7 @@ export function createPetUI({ stage, showToast, openGems = () => {}, refreshGems
       else if (action === 'collect') showToast(t('spirit.got', { n: result.gained, name: nameOf(result.pet) }));
       else if (action === 'rename') showToast(t('spirit.renamed', { name: nameOf(result.pet) }));
       if (action !== 'rename') coinsChanged();
+      if (action === 'adopt' || (action === 'feed' && data.companion === result.pet?.species)) syncCompanion();
     }
     // Đã nuôi rồi (bấm ở tab khác) hoặc lỗi mạng: tải lại cho đúng.
     if (!result || result.code === 'ALREADY_OWNED') load();
@@ -126,6 +135,7 @@ export function createPetUI({ stage, showToast, openGems = () => {}, refreshGems
     busy = false;
     if (result?.ok) {
       data.companion = result.companion;
+      syncCompanion();
       showToast(t(species ? 'spirit.followOn' : 'spirit.followOff', { name: nameOf(pet) }));
     } else showToast(errorText(result?.code));
     render();

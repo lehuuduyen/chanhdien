@@ -1,19 +1,19 @@
-// Phòng Lô Tô riêng cho nhóm bạn. Chủ phòng (thành viên đã đăng nhập) bỏ PRIVATE_LOTO.price xu để mở phòng mã
-// loto-p-<8 ký tự>. Tối đa PRIVATE_LOTO.maxGuests khách: chủ phòng mời bạn đã lưu (người: accounts.areFriends, bạn bot:
+// Phòng riêng cho nhóm bạn: Lô Tô (loto-p-<8 ký tự>) hoặc Rạp phim xem chung (cinema-p-<8 ký tự>). Chủ phòng (thành viên
+// đã đăng nhập) bỏ PRIVATE_GAMES[game].price xu để mở phòng, mỗi loại một phòng đang mở. Tối đa maxGuests khách: chủ phòng mời bạn đã lưu (người: accounts.areFriends, bạn bot:
 // bảng bot_friends), hoặc gửi link phòng — thành viên đã đăng nhập mở link là tự thành khách (mã phòng ngẫu nhiên là
 // "chìa khóa"). Chỉ chủ phòng và khách nhận được vé vào phòng; bot được mời do máy realtime đưa vào bàn.
 // Chủ phòng đuổi được người / bot; người bị đuổi không vào lại bằng link được, trừ khi chủ phòng mời lại.
 // Phòng sống tới khi chủ phòng rời phòng (máy realtime báo /internal/private-rooms/closed).
 //
-//   POST /api/v1/private-rooms                      { game: 'loto' } → { room } (đang có phòng mở thì trả phòng đó, không trừ xu)
-//   GET  /api/v1/private-rooms/mine                 → { room | null }
+//   POST /api/v1/private-rooms                      { game: 'loto' | 'cinema' } → { room } (đang có phòng loại đó thì trả phòng đó, không trừ xu)
+//   GET  /api/v1/private-rooms/mine?game=<loại>     → { room | null }
 //   GET  /api/v1/private-rooms/<mã>                 → { room } (chủ phòng / khách; người mở link thành khách)
 //   POST /api/v1/private-rooms/<mã>/invite          { accountId } | { botName }
 //   POST /api/v1/private-rooms/<mã>/kick            { accountId } | { botName }
 //   POST /internal/private-rooms/info               { roomId } → { ok, owner, bots }   (máy realtime, khóa nội bộ)
 //   POST /internal/private-rooms/closed             { roomId }
 import { randomInt, timingSafeEqual } from 'node:crypto';
-import { isPrivateRoomId, PRIVATE_LOTO } from '@chanh-dien/room-rules';
+import { isPrivateRoomId, PRIVATE_GAMES, privateRoomGame } from '@chanh-dien/room-rules';
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
 import { currentAccount, sameOrigin } from './auth.mjs';
 import { json, readJson } from './http.mjs';
@@ -49,7 +49,7 @@ export function createPrivateRooms({ db, accounts, garden, friendLinks = null, n
     );`);
   const q = {
     room: db.prepare('SELECT id, owner_account AS owner, game, status, created_at AS createdAt FROM private_rooms WHERE id = ?'),
-    openOf: db.prepare("SELECT id FROM private_rooms WHERE owner_account = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1"),
+    openOf: db.prepare("SELECT id FROM private_rooms WHERE owner_account = ? AND game = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1"),
     add: db.prepare("INSERT INTO private_rooms (id, owner_account, game, status, created_at) VALUES (?, ?, ?, 'open', ?)"),
     close: db.prepare("UPDATE private_rooms SET status = 'closed', closed_at = ? WHERE id = ? AND status = 'open'"),
     members: db.prepare('SELECT kind, member FROM private_room_members WHERE room_id = ? ORDER BY invited_at'),
@@ -62,7 +62,8 @@ export function createPrivateRooms({ db, accounts, garden, friendLinks = null, n
     banned: db.prepare('SELECT 1 FROM private_room_kicked WHERE room_id = ? AND account_id = ?'),
     name: db.prepare('SELECT display_name AS name, avatar_url AS avatarUrl FROM accounts WHERE id = ?'),
   };
-  const newId = () => `loto-p-${Array.from({ length: 8 }, () => '0123456789abcdefghijklmnopqrstuvwxyz'[randomInt(36)]).join('')}`;
+  const limits = (roomId) => PRIVATE_GAMES[privateRoomGame(roomId)] || PRIVATE_GAMES.loto;
+  const newId = (game) => `${game}-p-${Array.from({ length: 8 }, () => '0123456789abcdefghijklmnopqrstuvwxyz'[randomInt(36)]).join('')}`;
   const person = (accountId) => {
     const row = q.name.get(accountId);
     return { kind: 'account', accountId, displayName: row?.name || 'Người chơi', ...(row?.avatarUrl ? { avatarUrl: row.avatarUrl } : {}) };
@@ -71,14 +72,14 @@ export function createPrivateRooms({ db, accounts, garden, friendLinks = null, n
     roomId: room.id, game: room.game, open: room.status === 'open', isOwner: room.owner === viewerId,
     owner: person(room.owner),
     members: q.members.all(room.id).map((row) => (row.kind === 'bot' ? { kind: 'bot', name: row.member } : person(row.member))),
-    maxGuests: PRIVATE_LOTO.maxGuests, price: PRIVATE_LOTO.price,
+    maxGuests: limits(room.id).maxGuests, price: limits(room.id).price,
   });
   // Chủ phòng / khách thì cho qua; thành viên khác mở link thì thành khách (chưa bị đuổi, phòng còn chỗ).
   const admit = (room, accountId) => {
     if (room.owner === accountId || q.member.get(room.id, 'account', accountId)) return { ok: true };
     if (room.status !== 'open') return { ok: false, error: 'closed' };
     if (q.banned.get(room.id, accountId)) return { ok: false, error: 'kicked' };
-    if (q.count.get(room.id).n >= PRIVATE_LOTO.maxGuests) return { ok: false, error: 'full' };
+    if (q.count.get(room.id).n >= limits(room.id).maxGuests) return { ok: false, error: 'full' };
     q.invite.run(room.id, 'account', accountId, now());
     return { ok: true };
   };
@@ -98,19 +99,20 @@ export function createPrivateRooms({ db, accounts, garden, friendLinks = null, n
 
   return {
     create(ownerId, game = 'loto') {
-      if (game !== 'loto') return { ok: false, error: 'invalid' };
+      if (!Object.hasOwn(PRIVATE_GAMES, game)) return { ok: false, error: 'invalid' };
       if (!garden) return { ok: false, error: 'garden_disabled' };
-      const existing = q.openOf.get(ownerId);
+      const existing = q.openOf.get(ownerId, game);
       if (existing) return { ok: true, existing: true, room: view(q.room.get(existing.id), ownerId) };
-      const roomId = newId();
+      const roomId = newId(game);
       // Trừ xu trước (ghi sổ, khóa theo mã phòng), tạo phòng sau.
-      const paid = garden.payPrivateRoom({ accountId: ownerId, amount: PRIVATE_LOTO.price, key: `private-${roomId}` });
+      const paid = garden.payPrivateRoom({ accountId: ownerId, amount: PRIVATE_GAMES[game].price, key: `private-${roomId}` });
       if (!paid.ok) return { ok: false, error: paid.code === 'INSUFFICIENT_COINS' ? 'insufficient_coins' : 'invalid', coins: paid.coins };
       q.add.run(roomId, ownerId, game, now());
       return { ok: true, coins: paid.coins, room: view(q.room.get(roomId), ownerId) };
     },
-    mine(ownerId) {
-      const existing = q.openOf.get(ownerId);
+    mine(ownerId, game = 'loto') {
+      if (!Object.hasOwn(PRIVATE_GAMES, game)) return null;
+      const existing = q.openOf.get(ownerId, game);
       return existing ? view(q.room.get(existing.id), ownerId) : null;
     },
     view(roomId, viewerId) {
@@ -137,7 +139,7 @@ export function createPrivateRooms({ db, accounts, garden, friendLinks = null, n
         ? accounts.areFriends(ownerId, who.member)
         : Boolean(friendLinks?.botFriends(ownerId).some((bot) => bot.name === who.member));
       if (!friend) return { ok: false, error: 'not_friends' };
-      if (q.count.get(room.id).n >= PRIVATE_LOTO.maxGuests) return { ok: false, error: 'full' };
+      if (q.count.get(room.id).n >= limits(room.id).maxGuests) return { ok: false, error: 'full' };
       q.invite.run(room.id, who.kind, who.member, now());
       if (who.kind === 'account') q.unban.run(room.id, who.member);
       if (who.kind === 'account') friendLinks?.inviteToRoom?.(ownerId, who.member, room.id);
@@ -208,7 +210,10 @@ export async function handlePrivateRoomRequest(req, res, pathname, options) {
 
   const account = currentAccount(req, options);
   if (!account) return json(req, res, 401, { error: 'not_signed_in' }), true;
-  if (pathname === '/api/v1/private-rooms/mine' && req.method === 'GET') return json(req, res, 200, { room: rooms.mine(account.id) }), true;
+  if (pathname === '/api/v1/private-rooms/mine' && req.method === 'GET') {
+    const game = new URL(req.url, 'http://local').searchParams.get('game') || 'loto';
+    return json(req, res, 200, { room: rooms.mine(account.id, game) }), true;
+  }
   const match = /^\/api\/v1\/private-rooms(?:\/([a-z0-9-]{1,40}))?(?:\/(invite|kick))?$/.exec(pathname);
   if (!match) return json(req, res, 404, { error: 'not_found' }), true;
   const [, roomId, action] = match;

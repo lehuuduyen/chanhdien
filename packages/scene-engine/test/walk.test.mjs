@@ -4,6 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { THIEN_RULES } from '@chanh-dien/room-rules';
 import { findPath, isWalkable, resolveMove, validateWalk } from '../src/walk.mjs';
+import { flowerLayout } from '../src/flower-layout.mjs';
 
 const scene = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../scenes/thien-default/scene.json'), 'utf8'));
 const walk = scene.world.walk;
@@ -49,7 +50,7 @@ test('ghế đá ngoài sân có đúng mã realtime, nhỏ vừa nhân vật v�
   }
 });
 
-test('Vườn Hoa: vào được qua hai cổng, đi tới ghế và điểm ngắm, không giẫm lên luống', () => {
+test('Vườn Hoa: vào được qua ba cổng, đi tới ghế và điểm ngắm, không giẫm lên luống', () => {
   const garden = scene.world.courtyard.flowerGarden;
   const benches = scene.world.courtyard.benches.filter((item) => /^B-1\d$/.test(item.id));
   assert.equal(benches.length, 4);
@@ -69,14 +70,21 @@ test('Vườn Hoa: vào được qua hai cổng, đi tới ghế và điểm ng�
   reach(garden.center, 'giữa đình');
   // Lối ra bắc nối tới Khu tưởng niệm.
   reach({ x: garden.entrances[1].x, z: garden.entrances[1].z + 3 }, 'lối ra phía bắc');
-  for (const bed of garden.beds) {
-    const x = (bed.x[0] + bed.x[1]) / 2;
-    const z = (bed.z[0] + bed.z[1]) / 2;
-    assert.equal(isWalkable(walk, x, z), false, `luống ${bed.theme} là vật cản`);
-    assert.equal(isWalkable(walk, bed.x[0] + 0.5, bed.z[0] + 0.5) && isWalkable(walk, bed.x[1] - 0.5, bed.z[1] - 0.5), false, `góc luống ${bed.theme}`);
+  // Luống là vật cản (đo ở tâm phần trồng được của mỗi luống), lối sỏi và bãi cỏ đi được.
+  for (const [index, center] of garden.bedCenters.entries()) {
+    if (center) assert.equal(isWalkable(walk, center.x, center.z), false, `luống ${index + 1} là vật cản`);
   }
-  // Hàng rào kín ngoài hai cổng.
-  assert.equal(isWalkable(walk, garden.area.x[1] - 0.3, garden.center.z + 5), false, 'không chui qua rào');
+  const layout = flowerLayout(garden);
+  for (const pathItem of layout.paths) {
+    for (const [x, z] of pathItem.points.filter((_, index) => index % 6 === 0)) {
+      if (Math.hypot(x - garden.center.x, z - garden.center.z) < garden.plaza.radius) continue;
+      assert.equal(isWalkable(walk, x, z), true, `lối sỏi (${x.toFixed(1)}, ${z.toFixed(1)}) đi được`);
+    }
+  }
+  // Ba cổng: đi từ cổng đông nam và cổng đông vào giữa đình được.
+  reach({ x: garden.entrances[2].x + 1.5, z: garden.entrances[2].z }, 'trước cổng đông nam');
+  // Hàng rào kín ngoài các cổng.
+  assert.equal(isWalkable(walk, garden.area.x[1] - 0.3, 33), false, 'không chui qua rào');
 });
 
 test('toàn bộ tuyến tuần tra của bot ngoài sân không xuyên vật thể', () => {

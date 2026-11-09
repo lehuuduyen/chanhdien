@@ -1,3 +1,5 @@
+import { cinemaRoomId, US_STATES } from '/shared/room-rules.mjs';
+
 const LANGS = ['vi', 'en', 'zh', 'es'];
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const $ = (selector) => document.querySelector(selector);
@@ -8,8 +10,28 @@ const message = $('#message');
 const state = $('#saveState');
 const save = $('#save');
 const prayerSlips = $('#prayerSlips');
+const cinemaRoom = $('#cinemaRoom');
 const cinemaPlaylist = $('#cinemaPlaylist');
 const cinemaPlaylistStatus = $('#cinemaPlaylistStatus');
+
+let rememberedCinemaState = 'vn';
+try {
+  const saved = localStorage.getItem('thien-state');
+  if (US_STATES.some((state) => state.code === saved)) rememberedCinemaState = saved;
+} catch {}
+cinemaRoom.replaceChildren(...US_STATES.map((state) => new Option(
+  `Rạp phim · ${state.name}`, cinemaRoomId(state.code), false, state.code === rememberedCinemaState,
+)));
+
+function selectedCinemaRoomIds() {
+  return [...cinemaRoom.selectedOptions].map((option) => option.value);
+}
+
+function selectCinemaCluster(test) {
+  for (const option of cinemaRoom.options) option.selected = test(option.value);
+  const count = selectedCinemaRoomIds().length;
+  cinemaMessage(count ? `Đã chọn ${count} rạp. Nhập danh sách rồi bấm “Lưu danh sách”.` : 'Chưa chọn rạp nào.', !count);
+}
 
 function videoId(value) {
   const text = value.trim();
@@ -131,11 +153,15 @@ function readCinemaPlaylist() {
 
 async function cinemaRequest(method, body) {
   if (!key.value) throw new Error('Nhập khóa quản trị (mục 09) trước.');
+  const roomIds = selectedCinemaRoomIds();
+  if (!roomIds.length) throw new Error('Chọn ít nhất một rạp cần áp dụng.');
   sessionStorage.setItem('thien-admin-key', key.value);
-  const response = await fetch('/api/v1/admin/cinema/playlist', {
+  const path = `/api/v1/admin/cinema/playlist?roomId=${encodeURIComponent(roomIds[0])}`;
+  const requestBody = method === 'PUT' ? { ...body, roomIds } : body;
+  const response = await fetch(path, {
     method,
-    headers: { 'x-admin-key': key.value, ...(body ? { 'content-type': 'application/json' } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
+    headers: { 'x-admin-key': key.value, ...(requestBody ? { 'content-type': 'application/json' } : {}) },
+    ...(requestBody ? { body: JSON.stringify(requestBody) } : {}),
   });
   const result = await response.json().catch(() => ({}));
   if (response.status === 403) throw new Error('Khóa quản trị không đúng.');
@@ -145,7 +171,9 @@ async function cinemaRequest(method, body) {
 
 function fillCinemaPlaylist(result) {
   cinemaPlaylist.value = (result.videos || []).map((item) => `https://www.youtube.com/watch?v=${item.videoId}`).join('\n');
-  cinemaMessage(result.videos?.length ? `Đã tải ${result.videos.length} video.` : 'Danh sách đang trống. Rạp sẽ dừng khi không còn video người dùng thêm.');
+  const selected = selectedCinemaRoomIds();
+  const label = cinemaRoom.selectedOptions[0]?.textContent || selected[0];
+  cinemaMessage(result.videos?.length ? `${label}: đã tải ${result.videos.length} video.` : `${label}: danh sách đang trống. Rạp sẽ dừng khi không còn video người dùng thêm.`);
 }
 
 async function loadCinemaPlaylist() {
@@ -158,6 +186,14 @@ async function loadCinemaPlaylist() {
 }
 
 $('#loadCinemaPlaylist').addEventListener('click', loadCinemaPlaylist);
+cinemaRoom.addEventListener('change', () => {
+  const count = selectedCinemaRoomIds().length;
+  cinemaMessage(count ? `Đã chọn ${count} rạp. Danh sách hiện tại sẽ được áp dụng cho toàn bộ rạp đã chọn.` : 'Chọn ít nhất một rạp.', !count);
+});
+$('#selectAllCinemas').addEventListener('click', () => selectCinemaCluster(() => true));
+$('#selectVietnamCinema').addEventListener('click', () => selectCinemaCluster((roomId) => roomId === 'cinema-vn'));
+$('#selectUsCinemas').addEventListener('click', () => selectCinemaCluster((roomId) => roomId !== 'cinema-vn'));
+$('#clearCinemaSelection').addEventListener('click', () => selectCinemaCluster(() => false));
 $('#saveCinemaPlaylist').addEventListener('click', async () => {
   const button = $('#saveCinemaPlaylist');
   button.disabled = true;
@@ -165,7 +201,7 @@ $('#saveCinemaPlaylist').addEventListener('click', async () => {
   try {
     const result = await cinemaRequest('PUT', readCinemaPlaylist());
     fillCinemaPlaylist(result);
-    cinemaMessage(`Đã lưu ${result.videos.length} video. Rạp đang mở sẽ nhận danh sách mới trong tối đa 15 giây.`);
+    cinemaMessage(`Đã lưu ${result.videos.length} video cho ${result.roomIds?.length || selectedCinemaRoomIds().length} rạp. Rạp đang mở sẽ nhận danh sách mới trong tối đa 15 giây.`);
   } catch (error) {
     cinemaMessage(error.message, true);
   } finally {
@@ -479,6 +515,41 @@ $('#savePetPrices').addEventListener('click', async () => {
     }));
     showPetPrices((await petPriceRequest('PUT', { pets })).pets);
     setMessage('Đã lưu giá linh thú.');
+  } catch (error) { setMessage(error.message, true); }
+});
+// Mục 10: giá mở phim (xu / kim cương) cho cả rạp chung và rạp riêng.
+async function videoPriceRequest(method, body) {
+  if (!key.value) throw new Error('Nhập khóa quản trị trước khi tải giá mở phim.');
+  sessionStorage.setItem('thien-admin-key', key.value);
+  const response = await fetch('/api/v1/admin/cinema/video-price', {
+    method,
+    headers: { 'x-admin-key': key.value, ...(body ? { 'content-type': 'application/json' } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (response.status === 403) throw new Error('Khóa quản trị không đúng.');
+  if (response.status === 400) throw new Error('Giá không hợp lệ: số nguyên từ 1 đến 100.000.');
+  if (!response.ok) throw new Error('Không tải / lưu được giá mở phim.');
+  return response.json();
+}
+function showVideoPrice(config) {
+  $('#videoPriceDiamonds').checked = config.currency === 'diamonds';
+  $('#videoPriceCoins').value = config.coins;
+  $('#videoPriceGems').value = config.diamonds;
+  $('#videoPriceAdmin').hidden = false;
+  $('#videoPriceEmpty').hidden = true;
+}
+$('#loadVideoPrice').addEventListener('click', async () => {
+  try { showVideoPrice(await videoPriceRequest('GET')); } catch (error) { setMessage(error.message, true); }
+});
+$('#saveVideoPrice').addEventListener('click', async () => {
+  try {
+    const saved = await videoPriceRequest('PUT', {
+      currency: $('#videoPriceDiamonds').checked ? 'diamonds' : 'coins',
+      coins: Number($('#videoPriceCoins').value),
+      diamonds: Number($('#videoPriceGems').value),
+    });
+    showVideoPrice(saved);
+    setMessage(`Đã lưu: mở phim ${saved.currency === 'coins' ? `${saved.coins} xu` : `${saved.diamonds} 💎`}.`);
   } catch (error) { setMessage(error.message, true); }
 });
 $('#reset').addEventListener('click', async () => {

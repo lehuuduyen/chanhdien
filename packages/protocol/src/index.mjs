@@ -101,6 +101,16 @@ const lottoNumber = (value) => isInteger(value) && value >= 1 && value <= 90;
 const lottoRows = (rows) => Array.isArray(rows) && rows.length === 3 && rows.every((row) => Array.isArray(row) && row.length === 9
   && row.every((value) => value === 0 || lottoNumber(value)) && row.filter(Boolean).length === 5);
 const MAX_STAKE = 1_000;
+// Oẳn Tù Tì cược (phòng oantuti, đấu 1–1): mức cược cố định (khớp RPS_STAKES của @chanh-dien/garden), mã bàn = mã
+// trận "rp-…". Pha của một trận: waiting (bàn mình mở, chờ đối thủ) → ready (đếm ngược) → pick (5 giây chọn) → reveal
+// (lật tay; hòa thì sang lượt mới) → done (kết quả, chờ đấu lại) | closed (bàn đóng / đối thủ rời).
+export const RPS_STAKES = Object.freeze([10, 20, 50, 100, 200]);
+export const RPS_PHASES = Object.freeze(['waiting', 'ready', 'pick', 'reveal', 'done', 'closed']);
+export const RPS_RESULTS = Object.freeze(['win', 'lose', 'draw', 'void']);
+const RPS_MATCH_ID = /^rp-[a-z0-9-]{4,76}$/;
+const RPS_LOBBY_TABLES = 20;
+const RPS_FEED = 10;
+const rpsMatchId = (value) => typeof value === 'string' && RPS_MATCH_ID.test(value);
 export const WORLD_LIMIT = 1_000;
 export const MOVES_PER_BATCH = 500;
 
@@ -112,6 +122,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'room.command': { roles: ['moderator', 'host'], rate: '10/10 giây' },
   ping: { roles: ['guest', 'member', 'moderator', 'host'], rate: '1/10 giây' },
   'queue.add': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/60 giây, tối đa 3 video chờ mỗi người' },
+  'queue.remove': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây, chỉ video mình mở còn trong hàng chờ' },
   'vote.skip': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'playback.report': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/10 giây' },
   'avatar.set': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
@@ -127,6 +138,12 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'bet.cancel': { roles: ['member', 'moderator', 'host'], rate: '3/5 giây, chỉ trong pha đặt cược' },
   'lotto.buy': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, chỉ trong pha mua vé, tối đa 2 vé mỗi ván' },
   'lotto.claim': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây; kinh sai khóa nút 10 giây' },
+  'rps.open': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, mỗi người một bàn / trận một lúc' },
+  'rps.find': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
+  'rps.join': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
+  'rps.leave': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
+  'rps.pick': { roles: ['member', 'moderator', 'host'], rate: '10/10 giây, chỉ trong pha chọn, một lần mỗi lượt' },
+  'rps.rematch': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
   'prayer.announce': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'friend.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'friend.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
@@ -209,6 +226,12 @@ const clientSchemas = {
     return exactKeys(message, ['v', 'type', 'requestId', 'videoId'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && typeof message.videoId === 'string' && VIDEO_ID.test(message.videoId);
+  },
+  // Hủy video mình đã mở khi còn trong hàng chờ (chưa chiếu); đã trả tiền thì API hoàn đúng loại tiền.
+  'queue.remove'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'itemId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.itemId, LIMITS.itemId, ID_PATTERN);
   },
   'vote.skip'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'itemId'])
@@ -294,6 +317,38 @@ const clientSchemas = {
       && typeof message.roundId === 'string' && LOTTO_ROUND_ID.test(message.roundId)
       && isInteger(message.ticket) && message.ticket >= 1 && message.ticket <= LOTTO_MAX_TICKETS
       && isInteger(message.row) && message.row >= 0 && message.row <= 2;
+  },
+  // Oẳn Tù Tì cược: mở bàn với mức cược (trừ cọc ngay), tìm trận nhanh (vào bàn đang chờ cùng mức, không có thì mở
+  // bàn), nhận một bàn đang chờ, rời bàn / thôi chờ / thôi đấu lại (hoàn cọc nếu chưa đấu), ra tay, đấu lại.
+  'rps.open'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'stake'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && RPS_STAKES.includes(message.stake);
+  },
+  'rps.find'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'stake'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && RPS_STAKES.includes(message.stake);
+  },
+  'rps.join'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'tableId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && rpsMatchId(message.tableId);
+  },
+  'rps.leave'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'rps.pick'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'matchId', 'choice'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && rpsMatchId(message.matchId)
+      && RPS_CHOICES.includes(message.choice);
+  },
+  'rps.rematch'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'matchId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && rpsMatchId(message.matchId);
   },
   'bet.cancel'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'roundId'])
@@ -390,12 +445,18 @@ const clientSchemas = {
   },
 };
 
+// Mở phim trả bằng xu (coins) hoặc kim cương (diamonds), admin chọn ở API.
+export const VIDEO_CURRENCIES = Object.freeze(['coins', 'diamonds']);
+const paidInfo = (value) => isRecord(value) && exactKeys(value, ['currency', 'amount'])
+  && VIDEO_CURRENCIES.includes(value.currency) && isInteger(value.amount) && value.amount > 0;
+// paid: video này đã trả bao nhiêu (người mở hủy khi còn chờ thì được hoàn đúng số đó). Không mang id người mở.
 const queueItem = (value) => isRecord(value)
-  && exactKeys(value, ['itemId', 'videoId', 'title', 'addedBy'])
+  && exactKeys(value, ['itemId', 'videoId', 'title', 'addedBy'], ['paid'])
   && isString(value.itemId, LIMITS.itemId, ID_PATTERN)
   && typeof value.videoId === 'string' && VIDEO_ID.test(value.videoId)
   && typeof value.title === 'string' && value.title.length <= LIMITS.videoTitle
-  && isString(value.addedBy, LIMITS.displayName);
+  && isString(value.addedBy, LIMITS.displayName)
+  && (value.paid === undefined || paidInfo(value.paid));
 
 const participant = (value) => isRecord(value)
   && exactKeys(value, ['id', 'displayName'], ['seatId', 'benchId', 'benchSpot', 'connected', 'skin', 'merit', 'bot', 'level', 'avatarUrl', 'title', 'frame', 'pet', 'pos', 'emote', 'sutra', 'handWith', 'handLead'])
@@ -586,11 +647,60 @@ const serverSchemas = {
       && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
       && (message.requestId === undefined || isString(message.requestId, LIMITS.requestId, ID_PATTERN));
   },
+  // Sảnh Oẳn Tù Tì (cả phòng): bàn đang chờ đối thủ, số trận đang đấu, vài trận vừa xong (a / b là tên hai bên).
+  'rps.lobby'(message) {
+    const table = (item) => isRecord(item) && exactKeys(item, ['id', 'displayName', 'stake'], ['skin'])
+      && rpsMatchId(item.id) && isString(item.displayName, LIMITS.displayName) && RPS_STAKES.includes(item.stake)
+      && (item.skin === undefined || validSkin(item.skin));
+    const result = (item) => isRecord(item) && exactKeys(item, ['a', 'b', 'stake', 'winner'])
+      && isString(item.a, LIMITS.displayName) && isString(item.b, LIMITS.displayName) && RPS_STAKES.includes(item.stake)
+      && ['a', 'b', 'draw'].includes(item.winner);
+    return exactKeys(message, ['v', 'type', 'epoch', 'tables', 'playing', 'feed'])
+      && Array.isArray(message.tables) && message.tables.length <= RPS_LOBBY_TABLES && message.tables.every(table)
+      && isInteger(message.playing) && message.playing >= 0
+      && Array.isArray(message.feed) && message.feed.length <= RPS_FEED && message.feed.every(result);
+  },
+  // Trận của chính mình (chỉ gửi hai người trong trận, mỗi người một góc nhìn me / opponent). Tay đối thủ chỉ lộ ra ở
+  // `last` sau khi lượt đã lật; `picked` chỉ cho biết đã chọn hay chưa. deadline: giờ server (ms) hết pha hiện tại.
+  'rps.match'(message) {
+    const choice = (value) => value === null || RPS_CHOICES.includes(value);
+    const opponent = (value) => isRecord(value) && exactKeys(value, ['displayName'], ['skin', 'level'])
+      && isString(value.displayName, LIMITS.displayName)
+      && (value.skin === undefined || validSkin(value.skin))
+      && (value.level === undefined || (isInteger(value.level) && value.level >= 1 && value.level <= 99));
+    const pair = (value) => isRecord(value) && exactKeys(value, ['me', 'opponent']) && typeof value.me === 'boolean' && typeof value.opponent === 'boolean';
+    return exactKeys(message, ['v', 'type', 'epoch', 'matchId', 'stake', 'phase', 'round'],
+      ['opponent', 'deadline', 'picked', 'mine', 'last', 'result', 'net', 'coins', 'rematch', 'prize'])
+      && rpsMatchId(message.matchId)
+      && RPS_STAKES.includes(message.stake)
+      && RPS_PHASES.includes(message.phase)
+      && isInteger(message.round) && message.round >= 0 && message.round <= 10
+      && (message.opponent === undefined || opponent(message.opponent))
+      && (message.deadline === undefined || (isInteger(message.deadline) && message.deadline >= 0))
+      && (message.picked === undefined || pair(message.picked))
+      && (message.mine === undefined || RPS_CHOICES.includes(message.mine))
+      && (message.last === undefined || (isRecord(message.last) && exactKeys(message.last, ['mine', 'opponent', 'result'])
+        && choice(message.last.mine) && choice(message.last.opponent) && ['win', 'lose', 'draw'].includes(message.last.result)))
+      && (message.result === undefined || RPS_RESULTS.includes(message.result))
+      && (message.net === undefined || isInteger(message.net))
+      && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
+      && (message.prize === undefined || (isInteger(message.prize) && message.prize > 0))
+      && (message.rematch === undefined || pair(message.rematch));
+  },
   // Ví kim cương vừa đổi vì việc trong phòng (mở phim): chỉ gửi cho chủ ví để ô 💎 cập nhật ngay.
+  // spent: vừa trừ (mở phim), refunded: vừa hoàn (hủy phim, video lỗi, rạp đóng); đúng một trong hai. currency mặc định
+  // diamonds (client cũ); kèm số dư sau giao dịch của đúng ví đó (diamonds hoặc coins). itemId (chỉ gửi người mở): video
+  // vừa vào hàng chờ, để trang người đó hiện nút Hủy.
   'wallet.update'(message) {
-    return exactKeys(message, ['v', 'type', 'epoch', 'diamonds', 'spent'])
-      && isInteger(message.diamonds) && message.diamonds >= 0
-      && isInteger(message.spent) && message.spent > 0;
+    const currency = message.currency ?? 'diamonds';
+    return exactKeys(message, ['v', 'type', 'epoch'], ['diamonds', 'coins', 'spent', 'refunded', 'currency', 'itemId'])
+      && (message.itemId === undefined || (message.spent !== undefined && isString(message.itemId, LIMITS.itemId, ID_PATTERN)))
+      && VIDEO_CURRENCIES.includes(currency)
+      && (message.spent === undefined) !== (message.refunded === undefined)
+      && (message.spent === undefined || (isInteger(message.spent) && message.spent > 0))
+      && (message.refunded === undefined || (isInteger(message.refunded) && message.refunded > 0))
+      && (message.diamonds === undefined || (currency === 'diamonds' && isInteger(message.diamonds) && message.diamonds >= 0))
+      && (message.coins === undefined || (currency === 'coins' && isInteger(message.coins) && message.coins >= 0));
   },
   'game.payout'(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'roundId', 'staked', 'payout', 'net', 'coins'])

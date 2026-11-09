@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#05070a">
-  <title>Cinema #1 · Chánh Điện Online</title>
+  <title>Rạp phim · Chánh Điện Online</title>
   <link rel="stylesheet" href="/room.css">
   <script type="importmap">
     { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -38,14 +38,14 @@
 
         <div class="hud hud-top" id="hudTop">
           <div class="hud-bar">
-            <h1 class="room-chip"><span class="connection" id="connection" title="Chưa tham gia"><i></i><span class="sr-only">Chưa tham gia</span></span>Cinema #1</h1>
+            <h1 class="room-chip"><span class="connection" id="connection" title="Chưa tham gia"><i></i><span class="sr-only">Chưa tham gia</span></span><span id="roomName">Rạp phim</span></h1>
             <div class="quick-travel">
               <button type="button" class="quick-travel-toggle" id="travelToggle" aria-haspopup="menu" aria-expanded="false">📍 Đi nhanh ▾</button>
               <div class="quick-travel-panel" id="travelPanel" role="menu" hidden>
                 <button type="button" role="menuitem" data-destination="hall">🛕 Chánh điện</button>
                 <button type="button" role="menuitem" data-destination="courtyard">🌳 Ngoài sân</button>
                 <button type="button" role="menuitem" data-destination="garden">🌱 Khu vườn</button>
-                <button type="button" role="menuitem" data-destination="cinema" aria-current="true">🎬 Rạp phim</button>
+                <button type="button" role="menuitem" id="cinemaRoomLink" data-destination="cinema">🎬 Rạp phim</button>
                 <button type="button" role="menuitem" data-destination="games">🎲 Phòng game</button>
               </div>
             </div>
@@ -81,6 +81,7 @@
           <button type="button" data-tool="chat"><b>💬</b><span>Trò chuyện</span><i class="badge" id="chatBadge" hidden></i></button>
           <button type="button" data-tool="react"><b>✨</b><span>Tương tác</span></button>
           <button type="button" data-tool="people"><b>👥</b><span>Người xem</span></button>
+          <button type="button" data-tool="private"><b>🔒</b><span>Phòng riêng</span></button>
           <button type="button" data-tool="donate"><b>💝</b><span>Ủng hộ</span></button>
         </nav>
         <div class="reaction-picker" id="reactionPicker" role="menu" hidden>
@@ -151,6 +152,9 @@
               <button type="submit" disabled aria-label="Gửi tin nhắn">➤</button>
             </form>
           </section>
+          <section class="drawer-part private-part" data-part="private" hidden>
+            <div id="privateBody"></div>
+          </section>
           <section class="drawer-part" data-part="people" hidden>
             <p class="part-meta"><span id="participantCount">0 người</span> · <span id="seatLabel">Chạm ghế có vòng sáng để ngồi</span></p>
             <div class="people" id="people"><p class="empty">Chưa có ai trong phòng.</p></div>
@@ -162,7 +166,7 @@
 
   <div class="join-layer" id="joinLayer" hidden>
     <form class="join-card" id="joinForm">
-      <p class="kicker">Cinema #1</p>
+      <p class="kicker" id="joinRoomName">Rạp phim</p>
       <h2>Vào rạp</h2>
       <p>Nhập tên hiển thị rồi đi vào rạp, chọn ghế và cùng xem video YouTube với mọi người.</p>
       <label for="displayName">Tên hiển thị</label>

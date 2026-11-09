@@ -20,7 +20,7 @@ const ACCOUNT_ID = /^a-[a-zA-Z0-9-]{8,64}$/;
 const ROOM_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const PARTICIPANT_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,63}$/;
 // Trang của từng loại phòng không phải chánh điện (chánh điện vào bằng mã mời phòng).
-const ROOM_PAGES = { game: '/game.html', taixiu: '/tai-xiu.html', loto: '/loto.html' };
+const ROOM_PAGES = { game: '/game.html', taixiu: '/tai-xiu.html', loto: '/loto.html', rps: '/oan-tu-ti.html' };
 
 // Tên bot có thể kết bạn (mọi loại phòng, mọi ngôn ngữ). Bạn bot lưu theo tên: gặp lại bot cùng tên ở phòng nào cũng là bạn.
 const BOT_NAMES = new Set(Object.values(ROOM_TYPES).flatMap((rules) => [
@@ -59,6 +59,8 @@ export function roomView(roomId, secret) {
   const type = roomTypeOf(roomId);
   // Phòng Lô Tô riêng: chỉ người được mời vào được (API kiểm tra khi cấp vé), link đưa thẳng vào phòng đó.
   if (type === 'loto-private') return { roomId, type: 'loto', private: true, href: `/loto.html?room=${encodeURIComponent(roomId)}` };
+  // Rạp phim riêng: link đưa thẳng vào rạp đó (API kiểm tra quyền vào lúc cấp vé).
+  if (type === 'cinema-private') return { roomId, type: 'cinema', private: true, href: `/room.html?room=${encodeURIComponent(roomId)}` };
   if (type === 'thien') return { roomId, type, name: thienRoomName(roomId) || null, inviteCode: createRoomInvite(roomId, secret) };
   if (type === 'cinema') return { roomId, type, href: `/room.html?room=${encodeURIComponent(roomId)}` };
   return ROOM_PAGES[type] ? { roomId, type, href: ROOM_PAGES[type] } : null;

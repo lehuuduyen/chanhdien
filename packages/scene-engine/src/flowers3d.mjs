@@ -1,20 +1,22 @@
-// Vườn Hoa ngoài sân (world.courtyard.flowerGarden): khu ngắm cảnh, toàn bộ vị trí lấy từ scene.
-//   hedge: đoạn hàng rào cây xén [x0, z0, x1, z1] (đường giữa lớp cây), hedgeHeight.
+// Vườn Hoa ngoài sân (world.courtyard.flowerGarden): vườn kiểu tự nhiên, toàn bộ vị trí lấy từ scene.
+//   outline / hedge / hedgeHeight: đa giác hàng rào và các đoạn cây xén [x0, z0, x1, z1] (đường giữa lớp cây).
 //   entrances: [{ x, z, ry, width, arch }] — cổng vòm hoa có biển tên.
-//   beds: [{ theme: 'tulips' | 'lavender' | 'roses' | 'cosmos', x: [x0, x1], z: [z0, z1] }] — luống chữ nhật, góc gần
-//         tâm (center) khoét tròn bán kính cut để chừa quảng trường.
+//   paths: lối sỏi cong; beds: luống hình tự do, mỗi luống một bộ cây theo tầng { edge, mid, back } (xem flower-layout.mjs).
 //   plaza: { radius }, pavilion: { radius, height } — quảng trường đá và đình bát giác ở center.
-//   trees: [{ x, z, size, color: 'pink' | 'white' }] — cây hoa anh đào; lamps: [{ x, z }] — đèn vườn.
-//   butterflies: số bướm bay trên luống.
-// Phần tĩnh (rào, nền luống) gộp vào batch chung của sân. Đình, cổng vòm hoa hồng và cây anh đào là mô hình Meshy
-// (/models/flowers/*.glb); hoa trong luống vẽ bằng ảnh dựng từ mô hình Meshy (/models/flowers/<loài>.webp) đặt thành
-// billboard luôn quay về camera, đung đưa theo gió (mỗi loài một InstancedMesh, hàng nghìn cây vẫn nhẹ trên điện thoại).
-// Chưa tải xong / tải lỗi thì hiện bản dựng bằng khối (giữ làm dự phòng). Bướm cập nhật mỗi khung trong update().
+//   pond?: { x, z, rx, rz, lilies } — hồ súng; trees: [{ x, z, size, kind }] — cây hoa; lamps: [{ x, z }] — đèn vườn.
+//   bedCenters, butterflies: bướm bay quanh tâm các luống.
+// Nền (bãi cỏ cắt sọc, gốc luống phủ lá thấp, lối sỏi có viền) vẽ trên một texture canvas phủ cả vườn. Hoa / cây bụi / cây hoa
+// là ảnh dựng từ mô hình Meshy (/models/flowers/<tên>.webp) đặt thành billboard quay về camera, đung đưa theo gió: mỗi loài
+// một InstancedMesh, trồng theo mảng (mỗi mảng một loài, một màu) — thấp ở mép luống, cao vào trong. Đình là mô hình Meshy;
+// cổng vòm là ảnh. Chưa tải xong / tải lỗi thì đình, cổng, cây hiện bản dựng bằng khối; luống chỉ hiện nền.
+// Ảnh và việc tính chỗ trồng chỉ chạy khi camera tới gần (activate + lazyDistance).
 import * as THREE from 'three';
 import { StaticBatch } from './temple3d-models.mjs';
-import { placeProp } from './props3d.mjs';
+import { instanceProp, placeProp } from './props3d.mjs';
+import { flowerLayout, insidePolygon, polylineDistance } from './flower-layout.mjs';
 
 const MODELS = '/models/flowers';
+const SCENE_MODELS = '/models/scene';
 // Cổng vòm hoa hồng (ảnh /models/flowers/arch.webp): lối đi chiếm ARCH_OPENING bề ngang ảnh, ảnh rộng / cao = ARCH_ASPECT.
 const ARCH_OPENING = 0.54;
 const ARCH_ASPECT = 627 / 512;
@@ -22,17 +24,48 @@ const archSize = (gate) => {
   const width = (gate.width || 2.4) / ARCH_OPENING;
   return { width, height: width / ARCH_ASPECT };
 };
-// Hoa billboard theo chủ đề luống: file ảnh, khoảng cách trồng (m), chiều cao (m), màu nhuộm phần cánh trắng.
-const SPRITES = {
-  tulips: { file: 'tulip', spacing: 0.21, height: [0.48, 0.64] },
-  lavender: { file: 'lavender', spacing: 0.5, height: [0.5, 0.66] },
-  roses: { file: 'rosebush', spacing: 0.42, height: [0.7, 0.95] },
-  cosmos: { file: 'cosmos', spacing: 0.28, height: [0.46, 0.7] },
+
+const TULIP_COLORS = ['#e8323c', '#f57b2a', '#f7d035', '#f06aa0', '#9b59d0', '#fbf6f0'];
+const COSMOS_COLORS = ['#f48fb1', '#e0457b', '#ffffff', '#f9a03f', '#ffd54f', '#ba68c8'];
+const HYDRANGEA_COLORS = ['#7fa8e8', '#a98be0', '#f2a7c6', '#ffffff', '#8fc0f0', '#c9a0e8'];
+const MUM_COLORS = ['#f7d035', '#ffffff', '#f0a030', '#d23a6a', '#f4a6c0', '#fff1a6'];
+const BUTTERFLY_COLORS = ['#fff6e0', '#ffd34d', '#ff9a3c', '#7fc8ff', '#f7a8d8', '#ffffff'];
+
+// Cây trong luống: file ảnh, khoảng cách trồng (m), chiều cao (m), bảng màu nhuộm phần cánh trắng (không có = màu ảnh).
+const PLANTS = {
+  tulip: { file: 'tulip', spacing: 0.22, height: [0.48, 0.64], colors: TULIP_COLORS },
+  lavender: { file: 'lavender', spacing: 0.5, height: [0.5, 0.68] },
+  rose: { file: 'rosebush', spacing: 0.45, height: [0.7, 0.95] },
+  cosmos: { file: 'cosmos', spacing: 0.3, height: [0.5, 0.78], colors: COSMOS_COLORS, mixed: true },
+  sunflower: { file: 'sunflower', spacing: 0.62, height: [1.45, 1.9] },
+  hydrangea: { file: 'hydrangea', spacing: 0.78, height: [0.85, 1.15], colors: HYDRANGEA_COLORS },
+  marigold: { file: 'marigold', spacing: 0.32, height: [0.3, 0.42] },
+  mum: { file: 'mum', spacing: 0.36, height: [0.34, 0.46], colors: MUM_COLORS },
+  peony: { file: 'peony', spacing: 0.58, height: [0.7, 0.92] },
+  hibiscus: { file: 'hibiscus', spacing: 0.75, height: [1.25, 1.65] },
+  lily: { file: 'lily', spacing: 0.4, height: [0.8, 1.05] },
+  delphinium: { file: 'delphinium', spacing: 0.48, height: [1.1, 1.45] },
+  foliage: { file: 'foliage', spacing: 0.5, height: [0.3, 0.44] },
+  grass: { file: 'grass', spacing: 0.62, height: [0.8, 1.05] },
 };
+// Lớp lá phủ nền dưới hoa (để luống không lộ đất): khoảng cách và chiều cao.
+const GROUND_COVER = { plant: 'foliage', spacing: 0.4, height: [0.24, 0.38] };
+// Trồng dày hơn khoảng cách ghi trong bảng (hệ số mật độ) để luống kín, ít lộ đất.
+const DENSITY = 1.3;
+// Cây hoa: ảnh và chiều cao khi size = 1.
+const TREES = {
+  cherry: { file: 'cherry', height: 3.8 },
+  frangipani: { file: 'frangipani', height: 3.3 },
+  apricot: { file: 'apricot', height: 3.0 },
+  crape: { file: 'crape', height: 4.1 },
+};
+// Tầng theo độ sâu vào trong luống (m): mép < EDGE_DEPTH, giữa < MID_DEPTH, còn lại là trong cùng.
+const EDGE_DEPTH = 0.45;
+const MID_DEPTH = 1.0;
 
 // Vật liệu billboard: quay quanh trục đứng về phía camera, ngọn đung đưa theo gió; màu instance chỉ nhuộm phần
 // sáng và ít màu (cánh hoa trắng), thân lá giữ nguyên. Lật ngang bằng dấu của cột x trong ma trận instance.
-function spriteMaterial(map, uniforms) {
+export function spriteMaterial(map, uniforms) {
   const material = new THREE.MeshStandardMaterial({ map, alphaTest: 0.45, roughness: 0.85, metalness: 0 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uWindTime = uniforms.uWindTime;
@@ -60,9 +93,6 @@ gl_Position = projectionMatrix * mvPosition;`);
   return material;
 }
 
-const BED_HEIGHT = 0.15;
-const CURB = 0.14;
-
 // Số ngẫu nhiên cố định theo hạt giống: mọi máy thấy cùng một vườn.
 function seeded(seed) {
   let value = seed >>> 0;
@@ -75,76 +105,183 @@ function seeded(seed) {
   };
 }
 
-// Viền luống: chạy quanh chữ nhật mỗi 0,25 m, điểm nằm trong vòng tròn khoét (quanh tâm vườn) đẩy ra mép vòng tròn.
-function bedOutline(x, z, center, cut) {
-  const points = [];
-  const corners = [[x[0], z[0]], [x[1], z[0]], [x[1], z[1]], [x[0], z[1]]];
-  for (let side = 0; side < 4; side += 1) {
-    const [ax, az] = corners[side];
-    const [bx, bz] = corners[(side + 1) % 4];
-    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.25));
-    for (let step = 0; step < steps; step += 1) {
-      let px = ax + ((bx - ax) * step) / steps;
-      let pz = az + ((bz - az) * step) / steps;
-      const dx = px - center.x;
-      const dz = pz - center.z;
-      const distance = Math.hypot(dx, dz);
-      if (distance < cut) {
-        px = center.x + (dx / (distance || 1)) * cut;
-        pz = center.z + (dz / (distance || 1)) * cut;
-      }
-      points.push(new THREE.Vector2(px, -pz));
-    }
-  }
-  return points;
-}
-
-// Khối nền phẳng theo viền (shape trong mặt x, −z), cao `height` tính từ mặt cỏ; hole: viền khoét bên trong.
-function slab(outline, height, hole = null) {
-  const shape = new THREE.Shape(outline);
-  if (hole) shape.holes.push(new THREE.Path(hole));
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, curveSegments: 4 });
-  geometry.rotateX(-Math.PI / 2);
-  return geometry;
-}
-
 const at = (item, lx, y, lz) => {
   const ry = item.ry || 0;
   return [item.x + lx * Math.cos(ry) + lz * Math.sin(ry), y, item.z - lx * Math.sin(ry) + lz * Math.cos(ry)];
 };
 
-// Một InstancedMesh từ danh sách { p: [x, y, z], s: [sx, sy, sz] | số, r: [rx, ry, rz], c: màu }.
-function instanced(root, geometry, material, items) {
-  if (!items.length) return null;
-  const mesh = new THREE.InstancedMesh(geometry, material, items.length);
-  const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
-  items.forEach((item, index) => {
-    dummy.position.set(...item.p);
-    dummy.rotation.set(...(item.r || [0, 0, 0]));
-    if (Array.isArray(item.s)) dummy.scale.set(...item.s);
-    else dummy.scale.setScalar(item.s ?? 1);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(index, dummy.matrix);
-    mesh.setColorAt(index, color.set(item.c || '#ffffff'));
+// Chỗ trồng: lưới 0,2 m có xê dịch; mỗi luống chia thành mảng (Voronoi quanh vài hạt giống / tầng), mỗi mảng một loài và
+// một màu; điểm lưới được giữ theo mật độ của loài đó (khoảng cách trồng). Thêm lớp lá phủ nền thưa bên dưới.
+export function planFlowers(data) {
+  const layout = flowerLayout(data);
+  const random = seeded(20261108);
+  const plantings = Object.fromEntries(Object.keys(PLANTS).map((name) => [name, []]));
+  const cover = [];
+  const step = 0.2;
+  layout.beds.forEach((bed, index) => {
+    const mix = bed.mix || {};
+    const tiers = { edge: mix.edge || [], mid: mix.mid || [], back: mix.back || [] };
+    // Tầng trống thì mượn tầng kế bên.
+    if (!tiers.mid.length) tiers.mid = tiers.back.length ? tiers.back : tiers.edge;
+    if (!tiers.edge.length) tiers.edge = tiers.mid;
+    if (!tiers.back.length) tiers.back = tiers.mid;
+    const xs = bed.outline.map(([x]) => x);
+    const zs = bed.outline.map(([, z]) => z);
+    const box = { x: [Math.min(...xs), Math.max(...xs)], z: [Math.min(...zs), Math.max(...zs)] };
+    const area = (box.x[1] - box.x[0]) * (box.z[1] - box.z[0]);
+    const seeds = Object.fromEntries(Object.entries(tiers).map(([tier, names]) => [tier, Array.from({ length: Math.max(2, Math.round(area / 7)) }, () => {
+      const name = names[Math.floor(random() * names.length)];
+      const colors = PLANTS[name]?.colors;
+      return { x: box.x[0] + random() * (box.x[1] - box.x[0]), z: box.z[0] + random() * (box.z[1] - box.z[0]), name, color: colors ? colors[Math.floor(random() * colors.length)] : '#ffffff' };
+    })]));
+    // Luống trước chồng lên luống này thì phần chồng thuộc luống trước (chỉ xét luống có khung giao nhau).
+    const earlier = layout.beds.slice(0, index).filter((other) => {
+      const ox = other.outline.map(([px]) => px);
+      const oz = other.outline.map(([, pz]) => pz);
+      return Math.min(...ox) < box.x[1] && Math.max(...ox) > box.x[0] && Math.min(...oz) < box.z[1] && Math.max(...oz) > box.z[0];
+    });
+    const roomHere = layout.roomFn(box);
+    for (let gx = box.x[0]; gx <= box.x[1]; gx += step) {
+      for (let gz = box.z[0]; gz <= box.z[1]; gz += step) {
+        const x = gx + (random() - 0.5) * step;
+        const z = gz + (random() - 0.5) * step;
+        const roll = random();
+        if (!insidePolygon(x, z, bed.outline) || earlier.some((other) => insidePolygon(x, z, other.outline))) continue;
+        const room = roomHere(x, z);
+        if (room < 0) continue;
+        const depth = Math.min(polylineDistance(x, z, bed.outline, true), room);
+        const tier = depth < EDGE_DEPTH ? 'edge' : depth < MID_DEPTH ? 'mid' : 'back';
+        let seed = null;
+        let best = Infinity;
+        for (const candidate of seeds[tier]) {
+          const distance = (candidate.x - x) ** 2 + (candidate.z - z) ** 2;
+          if (distance < best) {
+            best = distance;
+            seed = candidate;
+          }
+        }
+        const plant = PLANTS[seed.name];
+        if (!plant) continue;
+        const chance = Math.min(0.9, DENSITY * (step / plant.spacing) ** 2);
+        if (roll < chance) {
+          const color = plant.mixed ? plant.colors[Math.floor(random() * plant.colors.length)] : seed.color;
+          plantings[seed.name].push({ x, z, height: plant.height[0] + random() * (plant.height[1] - plant.height[0]), flip: random() < 0.5, color });
+        } else if (seed.name !== GROUND_COVER.plant && random() < (step / GROUND_COVER.spacing) ** 2 / (1 - chance)) {
+          cover.push({ x, z, height: GROUND_COVER.height[0] + random() * (GROUND_COVER.height[1] - GROUND_COVER.height[0]), flip: random() < 0.5, color: '#ffffff' });
+        }
+      }
+    }
   });
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.computeBoundingSphere();
-  mesh.receiveShadow = true;
-  root.add(mesh);
-  return mesh;
+  plantings[GROUND_COVER.plant].push(...cover);
+  return { layout, plantings };
 }
 
-const TULIP_COLORS = ['#e8323c', '#f57b2a', '#f7d035', '#f06aa0', '#9b59d0', '#fbf6f0'];
-const ROSE_COLORS = ['#d61f3c', '#f27aa4', '#fff1f1', '#ff7f6e', '#ffd34d', '#c2185b'];
-const COSMOS_COLORS = ['#f48fb1', '#e0457b', '#ffffff', '#f9a03f', '#ffd54f', '#ba68c8'];
-const LAVENDER_COLORS = ['#8e6bd1', '#a07ee0', '#7b5bbf', '#9c7fd8'];
-const BUTTERFLY_COLORS = ['#fff6e0', '#ffd34d', '#ff9a3c', '#7fc8ff', '#f7a8d8', '#ffffff'];
+// Nền vườn trên canvas: bãi cỏ cắt sọc trong hàng rào, gốc luống phủ lá (khoét theo lối / quảng trường / hồ),
+// lối sỏi có viền đá. Trục: cột ↔ x, hàng ↔ z (hàng 0 = z nhỏ nhất, khớp với texture lật dọc mặc định).
+function paintGround(data, layout, gravelImage) {
+  const area = data.area;
+  const ppm = 24;
+  const width = Math.ceil((area.x[1] - area.x[0]) * ppm);
+  const height = Math.ceil((area.z[1] - area.z[0]) * ppm);
+  const make = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  };
+  const u = (x) => (x - area.x[0]) * ppm;
+  const v = (z) => (z - area.z[0]) * ppm;
+  const random = seeded(7331);
+  const trace = (ctx, points, closed = true) => {
+    ctx.beginPath();
+    points.forEach(([x, z], index) => (index ? ctx.lineTo(u(x), v(z)) : ctx.moveTo(u(x), v(z))));
+    if (closed) ctx.closePath();
+  };
+  const canvas = make();
+  const ctx = canvas.getContext('2d');
+  // Bãi cỏ: nền xanh, sọc cắt cỏ chéo, lốm đốm.
+  ctx.save();
+  trace(ctx, data.outline || []);
+  ctx.clip();
+  ctx.fillStyle = '#5b9a45';
+  ctx.fillRect(0, 0, width, height);
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.rotate(0.5);
+  for (let stripe = -40; stripe < 40; stripe += 2) {
+    ctx.fillStyle = 'rgba(160, 210, 110, 0.13)';
+    ctx.fillRect(stripe * 1.6 * ppm, -height * 2, 1.6 * ppm, height * 4);
+  }
+  ctx.restore();
+  for (let spot = 0; spot < 6000; spot += 1) {
+    ctx.fillStyle = random() < 0.5 ? 'rgba(40, 90, 30, 0.18)' : 'rgba(150, 200, 100, 0.16)';
+    ctx.fillRect(random() * width, random() * height, 2 + random() * 3, 2 + random() * 3);
+  }
+  ctx.restore();
+  // Luống: tô trên canvas riêng rồi khoét lối / quảng trường / hồ / sát rào, ghép lên bãi cỏ.
+  const beds = make();
+  const bctx = beds.getContext('2d');
+  // Gốc cây phủ lá thấp xanh sẫm, lấm tấm đất: nhìn từ xa luống kín như vườn thật, không thành mảng đất nâu.
+  bctx.fillStyle = '#34482a';
+  for (const bed of layout.beds) {
+    trace(bctx, bed.outline);
+    bctx.fill();
+  }
+  bctx.globalCompositeOperation = 'source-atop';
+  for (let chip = 0; chip < 26000; chip += 1) {
+    const kind = random();
+    const tone = Math.floor(random() * 40);
+    bctx.fillStyle = kind < 0.18 ? `rgb(${70 + tone}, ${48 + tone}, ${30 + tone / 2})` : kind < 0.6 ? `rgb(${40 + tone}, ${80 + tone}, ${36 + tone / 2})` : `rgb(${30 + tone / 2}, ${58 + tone}, ${28})`;
+    bctx.beginPath();
+    bctx.ellipse(random() * width, random() * height, 1.5 + random() * 3, 1 + random() * 2, random() * Math.PI, 0, Math.PI * 2);
+    bctx.fill();
+  }
+  bctx.globalCompositeOperation = 'destination-out';
+  bctx.lineCap = 'round';
+  bctx.lineJoin = 'round';
+  for (const path of layout.paths) {
+    bctx.lineWidth = (path.width + 0.5) * ppm;
+    trace(bctx, path.points, false);
+    bctx.stroke();
+  }
+  if (data.plaza) {
+    bctx.beginPath();
+    bctx.arc(u(data.center.x), v(data.center.z), (data.plaza.radius + 0.35) * ppm, 0, Math.PI * 2);
+    bctx.fill();
+  }
+  if (data.pond) {
+    bctx.beginPath();
+    bctx.ellipse(u(data.pond.x), v(data.pond.z), (data.pond.rx + 0.6) * ppm, (data.pond.rz + 0.6) * ppm, 0, 0, Math.PI * 2);
+    bctx.fill();
+  }
+  bctx.lineWidth = 1.2 * ppm;
+  trace(bctx, data.outline || []);
+  bctx.stroke();
+  ctx.drawImage(beds, 0, 0);
+  // Lối sỏi: viền đá xám sẫm rồi sỏi kem (họa tiết sỏi của sân).
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const path of layout.paths) {
+    ctx.strokeStyle = '#8f877a';
+    ctx.lineWidth = (path.width + 0.22) * ppm;
+    trace(ctx, path.points, false);
+    ctx.stroke();
+  }
+  const gravel = gravelImage ? ctx.createPattern(gravelImage, 'repeat') : null;
+  for (const path of layout.paths) {
+    ctx.strokeStyle = gravel || '#ddd0b0';
+    ctx.lineWidth = path.width * ppm;
+    trace(ctx, path.points, false);
+    ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
+}
 
 export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
   const center = data.center;
-  const cut = data.cut || 4.8;
   const random = seeded(20261107);
   const signs = [];
   const lazyLoads = [];
@@ -159,10 +296,6 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
   const mat = {
     hedge: new THREE.MeshStandardMaterial({ color: '#2f6b35', roughness: 0.95, flatShading: true }),
     hedgeTop: new THREE.MeshStandardMaterial({ color: '#3f8240', roughness: 0.95, flatShading: true }),
-    soil: new THREE.MeshStandardMaterial({ color: '#4a2f1c', roughness: 1 }),
-    meadow: new THREE.MeshStandardMaterial({ color: '#4f8a3a', roughness: 1 }),
-    mulch: new THREE.MeshStandardMaterial({ color: '#6b4428', roughness: 1 }),
-    curb: new THREE.MeshStandardMaterial({ color: '#efe8da', roughness: 0.8 }),
     plaza: new THREE.MeshStandardMaterial({ color: '#d9cfbd', roughness: 0.85 }),
     blossomPink: new THREE.MeshStandardMaterial({ color: '#f6b3c8', roughness: 0.85, flatShading: true }),
     blossomDeep: new THREE.MeshStandardMaterial({ color: '#ee92b0', roughness: 0.85, flatShading: true }),
@@ -170,28 +303,30 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     roseRed: new THREE.MeshStandardMaterial({ color: '#d61f3c', roughness: 0.8 }),
     white: new THREE.MeshStandardMaterial({ color: '#f6f2ea', roughness: 0.7 }),
   };
-
-  // ---- Nền: sỏi kem trong hàng rào, quảng trường đá tròn có viền ----
   const area = data.area;
-  const inner = { x: [area.x[0] + 0.6, area.x[1] - 0.6], z: [area.z[0] + 0.6, area.z[1] - 0.6] };
-  const gravelMap = m.gravel.map.clone();
-  gravelMap.repeat.set((inner.x[1] - inner.x[0]) / 2, (inner.z[1] - inner.z[0]) / 2);
-  gravelMap.needsUpdate = true;
-  const gravel = new THREE.Mesh(new THREE.PlaneGeometry(inner.x[1] - inner.x[0], inner.z[1] - inner.z[0]), new THREE.MeshStandardMaterial({ map: gravelMap, roughness: 1 }));
-  gravel.rotation.x = -Math.PI / 2;
-  gravel.position.set((inner.x[0] + inner.x[1]) / 2, 0.008, (inner.z[0] + inner.z[1]) / 2);
-  gravel.receiveShadow = true;
-  root.add(gravel);
+  const layout = flowerLayout(data);
+
+  // ---- Nền: bãi cỏ + luống + lối sỏi trên một texture (chỉ khi có trình duyệt) ----
+  if (typeof document !== 'undefined' && data.outline?.length) {
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(area.x[1] - area.x[0], area.z[1] - area.z[0]),
+      new THREE.MeshStandardMaterial({ map: paintGround(data, layout, m.gravel?.map?.image), alphaTest: 0.5, roughness: 1 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set((area.x[0] + area.x[1]) / 2, 0.01, (area.z[0] + area.z[1]) / 2);
+    ground.receiveShadow = true;
+    root.add(ground);
+  }
   const plazaRadius = data.plaza?.radius || 4.4;
   const plaza = new THREE.Mesh(new THREE.CircleGeometry(plazaRadius, 48), mat.plaza);
   plaza.rotation.x = -Math.PI / 2;
-  plaza.position.set(center.x, 0.013, center.z);
+  plaza.position.set(center.x, 0.016, center.z);
   plaza.receiveShadow = true;
   root.add(plaza);
-  batch.add(new THREE.TorusGeometry(plazaRadius, 0.09, 4, 64), m.stone, { position: [center.x, 0.016, center.z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.3] });
-  batch.add(new THREE.TorusGeometry(plazaRadius * 0.62, 0.05, 4, 48), m.stone, { position: [center.x, 0.016, center.z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.3] });
+  batch.add(new THREE.TorusGeometry(plazaRadius, 0.09, 4, 64), m.stone, { position: [center.x, 0.018, center.z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.3] });
+  batch.add(new THREE.TorusGeometry(plazaRadius * 0.62, 0.05, 4, 48), m.stone, { position: [center.x, 0.018, center.z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.3] });
 
-  // ---- Hàng rào cây xén: khối thấp hai tông, bo đầu ở hai bên cổng ----
+  // ---- Hàng rào cây xén: khối hai tông ----
   const hedgeHeight = data.hedgeHeight || 0.85;
   for (const [x0, z0, x1, z1] of data.hedge || []) {
     const length = Math.hypot(x1 - x0, z1 - z0);
@@ -201,7 +336,35 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     batch.add(new THREE.BoxGeometry(0.5, 0.12, length + 0.5), mat.hedgeTop, { position: [position[0], hedgeHeight + 0.04, position[2]], rotation: [0, ry, 0] });
   }
 
-  // Cổng vòm, đình, cây anh đào: bản dựng bằng khối nằm trong nhóm riêng, tải mô hình Meshy xong thì ẩn nhóm đó.
+  // ---- Hồ súng: mặt nước chung vật liệu hồ sen, bờ đá Meshy, sen / lá súng ----
+  if (data.pond && m.lakeWater) {
+    const pond = data.pond;
+    const water = new THREE.Mesh(new THREE.CircleGeometry(1, 48), m.lakeWater);
+    water.rotation.x = -Math.PI / 2;
+    water.scale.set(pond.rx, pond.rz, 1);
+    water.position.set(pond.x, 0.04, pond.z);
+    root.add(water);
+    const rocks = [];
+    const ring = Math.round((pond.rx + pond.rz) * 4);
+    for (let index = 0; index < ring; index += 1) {
+      const angle = (index / ring) * Math.PI * 2 + random() * 0.15;
+      rocks.push({ x: pond.x + Math.cos(angle) * (pond.rx + 0.12), y: -0.04, z: pond.z + Math.sin(angle) * (pond.rz + 0.12), ry: index * 1.9, s: 0.7 + random() * 0.6 });
+    }
+    const pads = Array.from({ length: pond.lilies || 8 }, (_, index) => {
+      const angle = index * 2.39 + 0.4;
+      const reach = 0.35 + (index % 3) * 0.22;
+      return { x: pond.x + Math.cos(angle) * pond.rx * reach, y: 0.03, z: pond.z + Math.sin(angle) * pond.rz * reach, ry: index * 1.3, s: 0.8 + random() * 0.4 };
+    });
+    for (const pad of pads) {
+      batch.add(new THREE.CircleGeometry(0.22 * pad.s, 12, 0.4, Math.PI * 2 - 0.4), m.lilyPad, { position: [pad.x + 0.25, 0.05, pad.z - 0.15], rotation: [-Math.PI / 2, 0, pad.ry] });
+    }
+    queueLoad(() => Promise.all([
+      instanceProp(root, `${SCENE_MODELS}/rock.glb`, rocks, { size: 0.5 }, { brighten: 0.35 }),
+      instanceProp(root, `${SCENE_MODELS}/lotus.glb`, pads.filter((_, index) => index % 2 === 0), { size: 0.55 }),
+    ]));
+  }
+
+  // Cổng vòm, đình, cây hoa: bản dựng bằng khối nằm trong nhóm riêng, tải ảnh / mô hình Meshy xong thì ẩn nhóm đó.
   const archBatch = new StaticBatch();
   const pavilionBatch = new StaticBatch();
   const treeBatch = new StaticBatch();
@@ -215,7 +378,6 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     }
     if (gate.arch !== false) {
       archBatch.add(new THREE.TorusGeometry(half, 0.07, 6, 20, Math.PI), mat.white, { position: at(gate, 0, 2.3, 0), rotation: [0, ry, 0] });
-      // Hoa hồng leo: lá và bông rải theo vòm và hai cột.
       const climb = [];
       for (let step = 0; step <= 14; step += 1) {
         const angle = (step / 14) * Math.PI;
@@ -229,11 +391,10 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
         archBatch.add(new THREE.IcosahedronGeometry(0.075, 0), bloom, { position: at(gate, lx - jitter * 0.1, y + 0.07, 0.12 * (index % 2 ? 1 : -1)) });
       });
     }
-    // Biển tên trên đỉnh vòm ảnh hoa hồng (cổng không vòm thì thấp hơn).
     if (data.sign) signs.push({ text: data.sign, width: Math.max(2.2, half * 2 - 0.1), height: 0.5, position: at(gate, 0, gate.arch === false ? 2.6 : archSize(gate).height + 0.3, 0), ry });
   }
 
-  // ---- Đình bát giác giữa quảng trường: 8 cột son, xà, mái ngói hai tầng, đỉnh vàng, đèn lồng treo ----
+  // ---- Đình bát giác giữa quảng trường (dự phòng bằng khối; bản đẹp là mô hình Meshy) ----
   if (data.pavilion) {
     const radius = data.pavilion.radius || 2.3;
     const height = data.pavilion.height || 2.7;
@@ -244,32 +405,18 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     });
     pillars.forEach(([x, z], index) => {
       pavilionBatch.add(new THREE.CylinderGeometry(0.11, 0.13, height, 8), m.pillar, { position: [x, height / 2, z] });
-      pavilionBatch.add(new THREE.CylinderGeometry(0.2, 0.22, 0.16, 8), m.darkStone, { position: [x, 0.08, z] });
       const [nx, nz] = pillars[(index + 1) % 8];
       const length = Math.hypot(nx - x, nz - z);
       pavilionBatch.add(new THREE.BoxGeometry(0.14, 0.2, length + 0.1), m.pillar, { position: [(x + nx) / 2, height - 0.05, (z + nz) / 2], rotation: [0, Math.atan2(nx - x, nz - z), 0] });
-      pavilionBatch.add(new THREE.BoxGeometry(0.06, 0.06, length), m.gold, { position: [(x + nx) / 2, height - 0.2, (z + nz) / 2], rotation: [0, Math.atan2(nx - x, nz - z), 0] });
     });
-    // Mái: tầng dưới rộng (đỉnh tám góc trùng cột), tầng trên nhỏ; đầu đao vàng ở tám góc.
     pavilionBatch.add(new THREE.ConeGeometry(radius + 1.05, 1.0, 8), m.roof, { position: [center.x, height + 0.5, center.z], rotation: [0, Math.PI / 8, 0] });
     pavilionBatch.add(new THREE.ConeGeometry(radius * 0.55, 0.9, 8), m.roof, { position: [center.x, height + 1.25, center.z], rotation: [0, Math.PI / 8, 0] });
-    pavilionBatch.add(new THREE.CylinderGeometry(radius * 0.55, radius * 0.6, 0.12, 8), m.pillar, { position: [center.x, height + 0.82, center.z], rotation: [0, Math.PI / 8, 0] });
-    for (let index = 0; index < 8; index += 1) {
-      const angle = ((index + 0.5) / 8) * Math.PI * 2;
-      const reach = radius + 1.0;
-      pavilionBatch.add(new THREE.ConeGeometry(0.07, 0.32, 5), m.gold, {
-        position: [center.x + Math.cos(angle) * reach, height + 0.12, center.z + Math.sin(angle) * reach],
-        rotation: [Math.sin(angle) * 0.7, 0, -Math.cos(angle) * 0.7],
-      });
-    }
     pavilionBatch.add(new THREE.SphereGeometry(0.16, 10, 8), m.gold, { position: [center.x, height + 1.78, center.z] });
-    pavilionBatch.add(new THREE.ConeGeometry(0.07, 0.4, 8), m.gold, { position: [center.x, height + 2.05, center.z] });
-    pavilionBatch.add(new THREE.CylinderGeometry(0.01, 0.01, 0.5, 4), m.darkStone, { position: [center.x, height - 0.25, center.z] });
     pavilionBatch.add(new THREE.SphereGeometry(0.22, 12, 10), m.lantern, { position: [center.x, height - 0.65, center.z], scale: [1, 1.25, 1] });
     lanternGlows?.push(new THREE.Vector3(center.x, height - 0.65, center.z));
   }
 
-  // ---- Đèn vườn (đứng trên mép luống, hoa chừa chỗ chân đèn) ----
+  // ---- Đèn vườn dọc lối ----
   for (const lamp of data.lamps || []) {
     batch.add(new THREE.CylinderGeometry(0.05, 0.07, 1.35, 6), m.darkStone, { position: [lamp.x, 0.675, lamp.z] });
     batch.add(new THREE.BoxGeometry(0.2, 0.24, 0.2), m.paper, { position: [lamp.x, 1.47, lamp.z] });
@@ -277,25 +424,16 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     lanternGlows?.push(new THREE.Vector3(lamp.x, 1.47, lamp.z));
   }
 
-  // ---- Cây hoa anh đào: thân cong nhẹ, tán nhiều cụm hoa hồng / trắng ----
+  // ---- Cây hoa dự phòng: thân + tán khối màu theo loài ----
+  const treeColor = { cherry: mat.blossomPink, frangipani: mat.blossomWhite, apricot: m.gold, crape: mat.blossomDeep };
   for (const tree of data.trees || []) {
     const size = tree.size || 1;
-    const blossom = tree.color === 'white' ? mat.blossomWhite : mat.blossomPink;
-    // Cây đứng trong luống thì gốc ở mặt đất luống.
-    const base = (data.beds || []).some((bed) => tree.x > bed.x[0] && tree.x < bed.x[1] && tree.z > bed.z[0] && tree.z < bed.z[1]) ? BED_HEIGHT : 0;
-    treeBatch.add(new THREE.CylinderGeometry(0.12 * size, 0.2 * size, 1.9 * size, 7), m.bark, { position: [tree.x, base + 0.95 * size, tree.z], rotation: [0.06, 0, 0.05] });
-    for (let branch = 0; branch < 3; branch += 1) {
-      const angle = branch * 2.1 + tree.x;
-      treeBatch.add(new THREE.CylinderGeometry(0.04 * size, 0.08 * size, 1.1 * size, 5), m.bark, {
-        position: [tree.x + Math.cos(angle) * 0.35 * size, base + 2.0 * size, tree.z + Math.sin(angle) * 0.35 * size],
-        rotation: [Math.sin(angle) * 0.7, 0, -Math.cos(angle) * 0.7],
-      });
-    }
-    for (let blob = 0; blob < 8; blob += 1) {
-      const angle = blob * 0.8 + tree.z;
-      const reach = blob === 7 ? 0 : (0.85 + (blob % 3) * 0.2) * size;
-      treeBatch.add(new THREE.IcosahedronGeometry((0.7 + (blob % 3) * 0.18) * size, 1), blob % 3 === 2 ? mat.blossomDeep : blossom, {
-        position: [tree.x + Math.cos(angle) * reach, base + (2.45 + (blob % 2) * 0.45 + (blob === 7 ? 0.5 : 0)) * size, tree.z + Math.sin(angle) * reach],
+    treeBatch.add(new THREE.CylinderGeometry(0.12 * size, 0.2 * size, 1.9 * size, 7), m.bark, { position: [tree.x, 0.95 * size, tree.z], rotation: [0.06, 0, 0.05] });
+    for (let blob = 0; blob < 6; blob += 1) {
+      const angle = blob * 1.1 + tree.z;
+      const reach = blob === 5 ? 0 : 0.85 * size;
+      treeBatch.add(new THREE.IcosahedronGeometry((0.75 + (blob % 3) * 0.15) * size, 1), treeColor[tree.kind] || mat.blossomPink, {
+        position: [tree.x + Math.cos(angle) * reach, (2.5 + (blob % 2) * 0.4) * size, tree.z + Math.sin(angle) * reach],
         scale: [1, 0.78, 1],
       });
     }
@@ -308,7 +446,6 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     root.add(group);
     queueLoad(() => Promise.all(load()).then((placed) => { if (placed.length && placed.every(Boolean)) group.visible = false; }));
   };
-  // Cổng vòm: hai tấm ảnh hoa hồng cố định (lệch nhau 0,2 m cho có bề dày), quay theo hướng cổng.
   const textures = new THREE.TextureLoader();
   const loadTexture = (file) => new Promise((resolve) => {
     if (typeof document === 'undefined') return resolve(null);
@@ -318,6 +455,7 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
       resolve(texture);
     }, undefined, () => resolve(null));
   });
+  // Cổng vòm: hai tấm ảnh hoa hồng cố định (lệch nhau 0,2 m cho có bề dày), quay theo hướng cổng.
   const archFallback = new THREE.Group();
   archBatch.build(archFallback, { castShadow: true, receiveShadow: true });
   root.add(archFallback);
@@ -343,219 +481,59 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     const radius = data.pavilion.radius || 2.3;
     swap(pavilionBatch, 'pavilion', () => [placeProp(root, `${MODELS}/pavilion.glb`, { x: center.x, z: center.z, ry: Math.PI / 8, width: (radius + 1.0) * 2 }, { receiveShadow: false })]);
   }
-  // Cây anh đào: billboard ảnh dựng từ mô hình Meshy (quay về camera, tán đung đưa nhẹ).
+
+  // ---- Billboard: hoa trong luống (tính chỗ trồng lúc tải) và cây hoa ----
+  const wind = { uWindTime: { value: 0 } };
+  const quad = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+  const billboards = (name, texture, items) => {
+    const aspect = texture.image.width / texture.image.height;
+    const mesh = new THREE.InstancedMesh(quad, spriteMaterial(texture, wind), items.length);
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+    items.forEach((item, index) => {
+      dummy.position.set(item.x, 0, item.z);
+      dummy.rotation.set(0, item.flip ? Math.PI : 0, 0);
+      dummy.scale.set(item.height * aspect, item.height, 1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(index, dummy.matrix);
+      mesh.setColorAt(index, color.set(item.color || '#ffffff'));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    mesh.name = name;
+    root.add(mesh);
+    return mesh;
+  };
+  if (data.beds?.length) {
+    queueLoad(() => {
+      const { plantings } = planFlowers(data);
+      const names = Object.keys(plantings).filter((name) => plantings[name].length);
+      return Promise.all(names.map((name) => loadTexture(PLANTS[name].file).then((texture) => {
+        if (texture) billboards(`flower-sprites-${name}`, texture, plantings[name]);
+      })));
+    });
+  }
   const treeFallback = new THREE.Group();
   treeBatch.build(treeFallback, { castShadow: true, receiveShadow: true });
   root.add(treeFallback);
-  const treeList = data.trees || [];
-
-  // ---- Luống: viền đá trắng, nền đất / cỏ, rồi hoa theo chủ đề ----
-  const stems = [];
-  const leaves = [];
-  const tulips = [];
-  const blooms = [];
-  const bushes = [];
-  const spikes = [];
-  const discs = [];
-  const hearts = [];
-  const trees = data.trees || [];
-  const lamps = data.lamps || [];
-  const nearTree = (x, z) => trees.some((tree) => Math.hypot(tree.x - x, tree.z - z) < 0.75 * (tree.size || 1))
-    || lamps.some((lamp) => Math.hypot(lamp.x - x, lamp.z - z) < 0.3);
-  // Điểm trồng được: trong luống (chừa mép 0,15 m) và ngoài vòng khoét quanh quảng trường.
-  const plantable = (bed, x, z) => x > bed.x[0] + 0.15 && x < bed.x[1] - 0.15 && z > bed.z[0] + 0.15 && z < bed.z[1] - 0.15
-    && Math.hypot(x - center.x, z - center.z) > cut + 0.2 && !nearTree(x, z);
-  const y0 = BED_HEIGHT;
-  for (const bed of data.beds || []) {
-    const outline = bedOutline(bed.x, bed.z, center, cut);
-    const outer = bedOutline([bed.x[0] - CURB, bed.x[1] + CURB], [bed.z[0] - CURB, bed.z[1] + CURB], center, cut - CURB);
-    batch.add(slab(outer, BED_HEIGHT + 0.06, outline), mat.curb, {});
-    const ground = bed.theme === 'cosmos' ? mat.meadow : bed.theme === 'roses' ? mat.mulch : mat.soil;
-    batch.add(slab(outline, BED_HEIGHT), ground, {});
-    const width = bed.x[1] - bed.x[0];
-    const depth = bed.z[1] - bed.z[0];
-    if (bed.theme === 'tulips') {
-      // Sọc cầu vồng: mỗi màu ba hàng, hàng chạy dọc trục dài của luống.
-      const along = depth >= width ? 'z' : 'x';
-      const rows = Math.floor((along === 'z' ? width : depth) / 0.3);
-      const per = Math.floor((along === 'z' ? depth : width) / 0.3);
-      for (let row = 0; row < rows; row += 1) {
-        const color = TULIP_COLORS[Math.floor(row / 3) % TULIP_COLORS.length];
-        for (let index = 0; index < per; index += 1) {
-          const a = (row + 0.5) * 0.3 + (random() - 0.5) * 0.06;
-          const b = (index + 0.5) * 0.3 + (random() - 0.5) * 0.06;
-          const x = along === 'z' ? bed.x[0] + a : bed.x[0] + b;
-          const z = along === 'z' ? bed.z[0] + b : bed.z[0] + a;
-          if (!plantable(bed, x, z)) continue;
-          const height = 0.32 + random() * 0.12;
-          const lean = [(random() - 0.5) * 0.12, 0, (random() - 0.5) * 0.12];
-          stems.push({ p: [x, y0, z], s: [1, height, 1], r: lean, c: '#4c8a3c' });
-          tulips.push({ p: [x - lean[2] * height, y0 + height - 0.02, z + lean[0] * height], s: 1 + random() * 0.2, r: [0, random() * 6, 0], c: color });
-          if (index % 2 === 0) leaves.push({ p: [x, y0, z], s: [1, 0.9 + random() * 0.4, 1], r: [(random() - 0.5) * 0.6, random() * 6, (random() - 0.5) * 0.6], c: '#3f7d36' });
-        }
-      }
-    } else if (bed.theme === 'lavender') {
-      // Hàng oải hương: bụi xám xanh, nhiều bông tím xòe ra.
-      for (let lx = 0.4; lx < width - 0.2; lx += 0.72) {
-        for (let lz = 0.35; lz < depth - 0.2; lz += 0.55) {
-          const x = bed.x[0] + lx + (random() - 0.5) * 0.08;
-          const z = bed.z[0] + lz + (random() - 0.5) * 0.08;
-          if (!plantable(bed, x, z)) continue;
-          bushes.push({ p: [x, y0 + 0.08, z], s: [0.27, 0.17, 0.27], r: [0, random() * 6, 0], c: '#6f8f6a' });
-          for (let spike = 0; spike < 6; spike += 1) {
-            const angle = (spike / 6) * Math.PI * 2 + random();
-            const tilt = 0.18 + random() * 0.18;
-            spikes.push({
-              p: [x + Math.cos(angle) * 0.07, y0 + 0.12, z + Math.sin(angle) * 0.07],
-              s: [1, 0.3 + random() * 0.14, 1],
-              r: [Math.sin(angle) * tilt, 0, -Math.cos(angle) * tilt],
-              c: LAVENDER_COLORS[Math.floor(random() * LAVENDER_COLORS.length)],
-            });
-          }
-        }
-      }
-    } else if (bed.theme === 'roses') {
-      // Hồng bụi: mỗi bụi một màu, bông nằm rải trên mặt bụi.
-      for (let lx = 0.5; lx < width - 0.3; lx += 0.92) {
-        for (let lz = 0.5; lz < depth - 0.3; lz += 0.92) {
-          const x = bed.x[0] + lx + (random() - 0.5) * 0.18;
-          const z = bed.z[0] + lz + (random() - 0.5) * 0.18;
-          if (!plantable(bed, x, z)) continue;
-          const size = 0.34 + random() * 0.1;
-          bushes.push({ p: [x, y0 + size * 0.75, z], s: [size, size * 0.85, size], r: [0, random() * 6, 0], c: random() < 0.5 ? '#2f6a32' : '#3a7a3a' });
-          const color = ROSE_COLORS[Math.floor(random() * ROSE_COLORS.length)];
-          for (let bloom = 0; bloom < 7; bloom += 1) {
-            const angle = bloom * 0.9 + random() * 0.5;
-            const up = 0.35 + random() * 0.55;
-            const reach = Math.sqrt(1 - up * up) * size;
-            blooms.push({
-              p: [x + Math.cos(angle) * reach, y0 + size * 0.75 + up * size * 0.85, z + Math.sin(angle) * reach],
-              s: 0.075 + random() * 0.025, r: [random() * 3, random() * 3, 0], c: color,
-            });
-          }
-        }
-      }
-    } else {
-      // Cúc cánh bướm: bông đĩa nhiều màu cao thấp xen nhau trên nền cỏ.
-      for (let lx = 0.2; lx < width - 0.1; lx += 0.3) {
-        for (let lz = 0.2; lz < depth - 0.1; lz += 0.3) {
-          const x = bed.x[0] + lx + (random() - 0.5) * 0.2;
-          const z = bed.z[0] + lz + (random() - 0.5) * 0.2;
-          if (!plantable(bed, x, z)) continue;
-          const height = 0.28 + random() * 0.32;
-          const lean = [(random() - 0.5) * 0.25, 0, (random() - 0.5) * 0.25];
-          const top = [x - lean[2] * height, y0 + height, z + lean[0] * height];
-          stems.push({ p: [x, y0, z], s: [1, height, 1], r: lean, c: '#5a9a44' });
-          discs.push({ p: top, s: 0.9 + random() * 0.5, r: [-Math.PI / 2 + (random() - 0.5) * 0.7, 0, (random() - 0.5) * 0.7], c: COSMOS_COLORS[Math.floor(random() * COSMOS_COLORS.length)] });
-          hearts.push({ p: [top[0], top[1] + 0.012, top[2]], s: 0.028, c: '#f2b51d' });
-        }
-      }
-    }
-  }
-  const flowerMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.75 });
-  const petalMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7, side: THREE.DoubleSide });
-  const stemGeometry = new THREE.CylinderGeometry(0.011, 0.015, 1, 4, 1, true).translate(0, 0.5, 0);
-  const tulipGeometry = new THREE.LatheGeometry([[0.001, 0], [0.05, 0.015], [0.068, 0.06], [0.062, 0.12], [0.045, 0.15]].map(([x, y]) => new THREE.Vector2(x, y)), 6);
-  const leafGeometry = new THREE.ConeGeometry(0.035, 0.26, 3).translate(0, 0.13, 0).scale(1, 1, 0.35);
-  const spikeGeometry = new THREE.ConeGeometry(0.03, 1, 5).translate(0, 0.5, 0);
-  const blobGeometry = new THREE.IcosahedronGeometry(1, 1);
-  const bloomGeometry = new THREE.IcosahedronGeometry(1, 0);
-  const discGeometry = new THREE.CircleGeometry(0.075, 7);
-  const heartGeometry = new THREE.OctahedronGeometry(1, 0);
-  const flowerGroup = new THREE.Group();
-  flowerGroup.name = 'flower-garden';
-  root.add(flowerGroup);
-  instanced(flowerGroup, stemGeometry, flowerMaterial, stems);
-  instanced(flowerGroup, leafGeometry, flowerMaterial, leaves);
-  instanced(flowerGroup, tulipGeometry, petalMaterial, tulips);
-  instanced(flowerGroup, blobGeometry, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, flatShading: true }), bushes);
-  instanced(flowerGroup, bloomGeometry, flowerMaterial, blooms);
-  instanced(flowerGroup, spikeGeometry, flowerMaterial, spikes);
-  instanced(flowerGroup, discGeometry, petalMaterial, discs);
-  instanced(flowerGroup, heartGeometry, flowerMaterial, hearts);
-
-  // ---- Hoa billboard (ảnh dựng từ mô hình Meshy): đủ 4 ảnh thì thay toàn bộ hoa dựng bằng khối ----
-  const wind = { uWindTime: { value: 0 } };
-  const spriteRandom = seeded(20261108);
-  const plantings = Object.fromEntries(Object.keys(SPRITES).map((theme) => [theme, []]));
-  for (const bed of data.beds || []) {
-    const sprite = SPRITES[bed.theme];
-    if (!sprite) continue;
-    const width = bed.x[1] - bed.x[0];
-    const depth = bed.z[1] - bed.z[0];
-    const along = depth >= width ? 'z' : 'x';
-    for (let a = sprite.spacing / 2; a < (along === 'z' ? width : depth); a += sprite.spacing) {
-      const row = Math.floor(a / sprite.spacing);
-      for (let b = sprite.spacing / 2; b < (along === 'z' ? depth : width); b += sprite.spacing) {
-        const da = a + (spriteRandom() - 0.5) * sprite.spacing * 0.5;
-        const db = b + (spriteRandom() - 0.5) * sprite.spacing * 0.5;
-        const x = along === 'z' ? bed.x[0] + da : bed.x[0] + db;
-        const z = along === 'z' ? bed.z[0] + db : bed.z[0] + da;
-        if (!plantable(bed, x, z)) continue;
-        const height = sprite.height[0] + spriteRandom() * (sprite.height[1] - sprite.height[0]);
-        // Tulip: sọc cầu vồng ba hàng một màu như luống cũ; cúc: màu ngẫu nhiên; oải hương, hồng: màu ảnh gốc.
-        const color = bed.theme === 'tulips' ? TULIP_COLORS[Math.floor(row / 3) % TULIP_COLORS.length]
-          : bed.theme === 'cosmos' ? COSMOS_COLORS[Math.floor(spriteRandom() * COSMOS_COLORS.length)] : '#ffffff';
-        plantings[bed.theme].push({ x, z, height, flip: spriteRandom() < 0.5, color });
-      }
-    }
-  }
-  const themes = Object.keys(SPRITES).filter((theme) => plantings[theme].length);
-  queueLoad(() => Promise.all(themes.map((theme) => loadTexture(SPRITES[theme].file))).then((textures) => {
-    if (!textures.length || textures.some((texture) => !texture)) return;
-    const quad = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    themes.forEach((theme, index) => {
-      const texture = textures[index];
-      const aspect = texture.image.width / texture.image.height;
-      const items = plantings[theme];
-      const mesh = new THREE.InstancedMesh(quad, spriteMaterial(texture, wind), items.length);
-      items.forEach((item, at) => {
-        dummy.position.set(item.x, BED_HEIGHT, item.z);
-        dummy.rotation.set(0, item.flip ? Math.PI : 0, 0);
-        dummy.scale.set(item.height * aspect, item.height, 1);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(at, dummy.matrix);
-        mesh.setColorAt(at, color.set(item.color));
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.instanceColor.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      mesh.name = `flower-sprites-${theme}`;
-      root.add(mesh);
-    });
-    flowerGroup.visible = false;
-  }));
-  if (treeList.length) {
-    queueLoad(() => loadTexture('cherry').then((texture) => {
-      if (!texture) return;
-      const aspect = texture.image.width / texture.image.height;
-      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), spriteMaterial(texture, wind), treeList.length);
-      const dummy = new THREE.Object3D();
-      treeList.forEach((tree, index) => {
-        const height = 3.8 * (tree.size || 1);
-        const base = (data.beds || []).some((bed) => tree.x > bed.x[0] && tree.x < bed.x[1] && tree.z > bed.z[0] && tree.z < bed.z[1]) ? BED_HEIGHT : 0;
-        dummy.position.set(tree.x, base, tree.z);
-        dummy.rotation.set(0, index % 2 ? Math.PI : 0, 0);
-        dummy.scale.set(height * aspect, height, 1);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(index, dummy.matrix);
-        mesh.setColorAt(index, new THREE.Color('#ffffff'));
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      mesh.name = 'flower-cherry-trees';
-      root.add(mesh);
-      treeFallback.visible = false;
-    }));
+  const treeKinds = [...new Set((data.trees || []).map((tree) => (TREES[tree.kind] ? tree.kind : 'cherry')))];
+  if (treeKinds.length) {
+    queueLoad(() => Promise.all(treeKinds.map((kind) => loadTexture(TREES[kind].file).then((texture) => {
+      if (!texture) return false;
+      const items = data.trees.filter((tree) => (TREES[tree.kind] ? tree.kind : 'cherry') === kind)
+        .map((tree, index) => ({ x: tree.x, z: tree.z, height: TREES[kind].height * (tree.size || 1), flip: index % 2 === 1 }));
+      billboards(`flower-trees-${kind}`, texture, items);
+      return true;
+    }))).then((loaded) => { if (loaded.every(Boolean)) treeFallback.visible = false; }));
   }
 
   // ---- Bướm: hai cánh trên một mặt phẳng, vỗ cánh bằng cách co giãn bề ngang; bay vòng lượn trên các luống ----
+  const centers = (data.bedCenters || []).filter(Boolean);
   const butterflyCount = Math.min(60, data.butterflies ?? 20);
   let butterflyMesh = null;
   const butterflies = [];
-  if (butterflyCount > 0 && data.beds?.length) {
+  if (butterflyCount > 0 && centers.length) {
     const wing = new THREE.BufferGeometry();
     wing.setAttribute('position', new THREE.Float32BufferAttribute([
       0, 0, -0.03, -0.11, 0, -0.07, -0.1, 0, 0.06, 0, 0, -0.03, -0.1, 0, 0.06, -0.02, 0, 0.05,
@@ -566,13 +544,13 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     butterflyMesh.frustumCulled = false;
     const color = new THREE.Color();
     for (let index = 0; index < butterflyCount; index += 1) {
-      const bed = data.beds[index % data.beds.length];
+      const spot = centers[index % centers.length];
       butterflies.push({
-        cx: bed.x[0] + random() * (bed.x[1] - bed.x[0]),
-        cz: bed.z[0] + random() * (bed.z[1] - bed.z[0]),
+        cx: spot.x + (random() - 0.5) * 2,
+        cz: spot.z + (random() - 0.5) * 2,
         ax: 0.8 + random() * 1.8,
         az: 0.8 + random() * 1.8,
-        y: 0.65 + random() * 0.7,
+        y: 0.8 + random() * 0.9,
         speed: (0.25 + random() * 0.35) * (random() < 0.5 ? 1 : -1),
         phase: random() * 10,
         flap: 11 + random() * 6,
@@ -586,6 +564,7 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
   // Chỉ cập nhật bướm khi vườn có thể nằm trong tầm nhìn (camera trong khoảng 60 m quanh vườn).
   const reach = Math.hypot(area.x[1] - area.x[0], area.z[1] - area.z[0]) / 2 + 60;
   const loadReach = Number(data.lazyDistance) || 36;
+  const middle = { x: (area.x[0] + area.x[1]) / 2, z: (area.z[0] + area.z[1]) / 2 };
 
   return {
     signs,
@@ -594,7 +573,7 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     },
     update(dt, time, camera) {
       wind.uWindTime.value = time / 1_000;
-      const distance = camera ? Math.hypot(camera.position.x - center.x, camera.position.z - center.z) : 0;
+      const distance = camera ? Math.hypot(camera.position.x - middle.x, camera.position.z - middle.z) : 0;
       if (assetsActive && distance < loadReach) startLoads();
       if (!butterflyMesh) return;
       const near = !camera || distance < reach;

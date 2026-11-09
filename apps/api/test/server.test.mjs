@@ -31,7 +31,7 @@ test('sảnh công bố chánh điện, Cinema và phòng game với sức chứ
     id: 'thien-1', type: 'thien', name: 'Chánh điện', status: 'open', participantCount: 0,
     maxParticipants: 500, seats: THIEN_RULES.seats, lang: 'vi',
   }, {
-    id: 'cinema-1', type: 'cinema', name: 'Cinema #1', status: 'open', participantCount: 0,
+    id: 'cinema-vn', type: 'cinema', name: 'Rạp phim · Việt Nam', status: 'open', participantCount: 0,
     maxParticipants: 500, seats: 100, lang: 'vi',
   }, {
     id: 'game-1', type: 'game', name: 'Bầu Cua #1', status: 'open', participantCount: 0,
@@ -41,6 +41,9 @@ test('sảnh công bố chánh điện, Cinema và phòng game với sức chứ
     maxParticipants: 500, seats: undefined, lang: 'vi',
   }, {
     id: 'loto-1', type: 'loto', name: 'Lô Tô #1', status: 'open', participantCount: 0,
+    maxParticipants: 500, seats: undefined, lang: 'vi',
+  }, {
+    id: 'oantuti-1', type: 'rps', name: 'Oẳn Tù Tì #1', status: 'open', participantCount: 0,
     maxParticipants: 500, seats: undefined, lang: 'vi',
   }]);
 });
@@ -56,6 +59,15 @@ test('tham gia phòng cấp vé ký số khớp người và phòng', () => {
   assert.equal(verified.ok, true);
   assert.equal(verified.value.participantId, result.body.participantId);
   assert.equal(verified.value.roomId, 'cinema-1');
+});
+
+test('mỗi quốc gia / tiểu bang có một rạp mở theo nhu cầu', () => {
+  for (const roomId of ['cinema-vn', 'cinema-az', 'cinema-ca']) {
+    const result = createJoinResponse({ roomId, displayName: 'Minh An' }, { secret: SECRET });
+    assert.equal(result.status, 200, roomId);
+    assert.equal(verifyJoinTicket(result.body.ticket, SECRET).value.roomId, roomId);
+  }
+  assert.equal(createJoinResponse({ roomId: 'cinema-xx', displayName: 'Minh An' }, { secret: SECRET }).status, 404);
 });
 
 test('tham gia từ chối phòng lạ và tên rỗng', () => {
@@ -97,10 +109,10 @@ test('API locate trả 404 cho phòng lạ và 503 khi không có máy realtime'
 
 test('sảnh cộng số người từ các máy realtime còn sống', async () => {
   const directory = createMemoryDirectory();
-  await directory.registerNode('rt-a', { url: 'ws://a/ws', roomCounts: { 'cinema-1': 12 } });
-  await directory.registerNode('rt-b', { url: 'ws://b/ws', roomCounts: { 'cinema-1': 3, 'cinema-9': -1 } });
+  await directory.registerNode('rt-a', { url: 'ws://a/ws', roomCounts: { 'cinema-vn': 12 } });
+  await directory.registerNode('rt-b', { url: 'ws://b/ws', roomCounts: { 'cinema-vn': 3, 'cinema-xx': -1 } });
   const response = await request('/api/v1/rooms', { directory });
-  const cinema = (body) => JSON.parse(body).rooms.find((room) => room.id === 'cinema-1');
+  const cinema = (body) => JSON.parse(body).rooms.find((room) => room.id === 'cinema-vn');
   assert.equal(cinema(response.body).participantCount, 15);
   assert.equal(cinema((await request('/api/v1/rooms')).body).participantCount, 0);
 });

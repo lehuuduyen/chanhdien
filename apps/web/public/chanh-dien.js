@@ -1,7 +1,7 @@
 import { createSceneRenderer } from '/engine/renderer.mjs';
 // Bộ vẽ 3D (Three.js) chỉ tải khi dùng chế độ 3D.
 import { createRoomSession } from '/realtime-session.js';
-import { parseThienRoomId, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, thienRoomName, US_STATES } from '/shared/room-rules.mjs';
+import { cinemaRoomId, parseThienRoomId, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, thienRoomName, US_STATES } from '/shared/room-rules.mjs';
 import { BELL_PERIOD_MS, createTempleAudio, MO_PERIOD_MS } from '/temple-audio.js';
 import { createAccountUI } from '/account-ui.js';
 import { createGemUI } from '/gem-ui.js';
@@ -167,14 +167,15 @@ function goToGames(game) {
   location.href = GAME_PAGES[game] || '/game.html';
 }
 
-// Sang map rạp phim (phòng cinema-1, trang riêng). Nhớ link phòng chùa đang ở để rạp có nút quay về đúng phòng.
+// Mỗi quốc gia / tiểu bang có một rạp riêng; bốn ngôn ngữ trong cùng khu vực cùng xem chung playlist.
 function goToCinema() {
   try {
     sessionStorage.setItem('thien-return', `${location.pathname}${location.search}`);
     // Tên dùng chung với rạp (cả tài khoản Google): sang rạp không phải nhập lại.
     if (session.displayName) localStorage.setItem('displayName', session.displayName);
   } catch {}
-  location.href = '/room.html?room=cinema-1&from=thien';
+  const state = parseThienRoomId(session.roomId)?.state || selectedState || 'vn';
+  location.href = `/room.html?room=${encodeURIComponent(cinemaRoomId(state))}&from=thien`;
 }
 // Vườn Công Đức (luống trồng chung, xu ảo). Tạo sau khi có tài khoản (bên dưới).
 let garden = null;
@@ -1494,6 +1495,17 @@ const pets = createPetUI({
   openGems: () => gems.open(),
   refreshGems: () => gems.refresh(),
   coinsChanged: () => garden?.refreshCoins(),
+  // API vẫn báo realtime để mọi người cùng thấy; đồng thời cập nhật máy này ngay để nút "Dẫn theo" không phải
+  // chờ vòng broadcast (hoặc mất hình khi một node realtime tạm thời không nhận được thông báo nội bộ).
+  onCompanionChange: (pet) => {
+    const mine = participants.get(session.participantId);
+    if (!mine) return;
+    const next = { ...mine };
+    if (pet) next.pet = { species: pet.species, level: pet.level };
+    else delete next.pet;
+    participants.set(next.id, next);
+    explore.onState([...participants.values()]);
+  },
 });
 
 // Hình đã mua: hiện ô chọn "Bé Mũ Đỏ" ở cổng. Chưa mua (hoặc chưa đăng nhập) thì tạm mặc Nữ nhưng vẫn nhớ lựa chọn

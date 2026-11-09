@@ -177,6 +177,8 @@
   <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
 
   <script type="module">
+    import { currentCinemaHref } from '/region-cinema.js';
+
     const $ = (id) => document.getElementById(id);
     // Tên/mô tả hiển thị của từng món (danh mục và giá do server trả).
     const ITEM_TEXT = {
@@ -586,7 +588,7 @@
       const destination = event.target.closest('[data-destination]')?.dataset.destination;
       openTravel(false);
       if (!destination) return;
-      if (destination === 'cinema') location.href = '/room.html?room=cinema-1';
+      if (destination === 'cinema') location.href = currentCinemaHref();
       else if (destination === 'games') location.href = '/game.html';
       else {
         let back = '/chanh-dien.html';
