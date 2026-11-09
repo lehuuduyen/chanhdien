@@ -539,6 +539,7 @@ const DICT = {
     'project.err.IDEMPOTENCY_KEY_REUSED': 'Yêu cầu này đã được xử lý',
     // Linh thú
     'spirit.menu': '🐾 Linh thú',
+    'spirit.tapOther': '🐾 {species} · cấp {level} · linh thú của {owner}',
     'spirit.title': 'Linh thú',
     'spirit.intro': 'Nhận nuôi linh thú bằng kim cương. Linh thú đào xu vào rương mỗi giờ; mỗi ngày cho ăn một bữa để lên cấp, cấp càng cao đào càng nhanh. Vắng lâu linh thú chỉ ngủ, không mất gì.',
     'spirit.signIn': 'Đăng nhập để nhận nuôi linh thú.',
@@ -1131,6 +1132,7 @@ const DICT = {
     'project.err.IDEMPOTENCY_KEY_REUSED': 'This request was already processed',
     // Linh thú
     'spirit.menu': '🐾 Spirit pets',
+    'spirit.tapOther': '🐾 {species} · level {level} · {owner}’s spirit pet',
     'spirit.title': 'Spirit pets',
     'spirit.intro': 'Adopt a spirit pet with diamonds. It digs coins into a chest every hour; feed it once a day to level up, and higher levels dig faster. If you are away it just sleeps — nothing is lost.',
     'spirit.signIn': 'Sign in to adopt a spirit pet.',
@@ -1723,6 +1725,7 @@ const DICT = {
     'project.err.IDEMPOTENCY_KEY_REUSED': '此請求已處理',
     // Linh thú
     'spirit.menu': '🐾 靈獸',
+    'spirit.tapOther': '🐾 {species} · {level} 級 · {owner} 的靈獸',
     'spirit.title': '靈獸',
     'spirit.intro': '用鑽石領養靈獸。靈獸每小時把金幣挖進寶箱；每天餵一餐即可升級，等級越高挖得越快。離開久了靈獸只會睡覺，不會損失任何東西。',
     'spirit.signIn': '登入即可領養靈獸。',
@@ -2315,6 +2318,7 @@ const DICT = {
     'project.err.IDEMPOTENCY_KEY_REUSED': 'Esta solicitud ya fue procesada',
     // Linh thú
     'spirit.menu': '🐾 Mascotas espirituales',
+    'spirit.tapOther': '🐾 {species} · nivel {level} · mascota espiritual de {owner}',
     'spirit.title': 'Mascotas espirituales',
     'spirit.intro': 'Adopta una mascota espiritual con diamantes. Cada hora excava monedas a un cofre; aliméntala una vez al día para subir de nivel, y a más nivel excava más rápido. Si te ausentas solo duerme: no pierdes nada.',
     'spirit.signIn': 'Inicia sesión para adoptar una mascota espiritual.',

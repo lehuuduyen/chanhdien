@@ -245,7 +245,13 @@ export function createSpirit(pet, { reduceMotion = false, loadModel = typeof win
     group.add(halo);
   }
 
-  const state = { x: null, z: null, ry: 0, moving: false, phase: Math.random() * 6 };
+  // Vùng chạm vô hình quanh thân (cá chép / hạc nhỏ, khó bấm trúng hình thật): người chơi chạm vào linh thú.
+  const pickable = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshBasicMaterial({ visible: false }));
+  pickable.position.y = built.fly || 0.32;
+  pickable.userData.spirit = true;
+  group.add(pickable);
+
+  const state = { x: null, z: null, ry: 0, moving: false, phase: Math.random() * 6, react: null };
 
   function update(dt, time, owner) {
     // Đi dưới đất: sau lưng chủ, lệch phải. Bay: ngang vai phải, hơi lên trước — camera ở sau lưng nên con bay đứng
@@ -277,6 +283,19 @@ export function createSpirit(pet, { reduceMotion = false, loadModel = typeof win
     state.ry += turn * Math.min(1, dt * 6);
     group.position.set(state.x, 0, state.z);
     holder.rotation.y = state.ry;
+    // Vừa được chạm: nhảy lên, xoay một vòng rồi đáp xuống (~1,1 giây).
+    if (state.react !== null) {
+      state.react += dt / 1.1;
+      const p = Math.min(1, state.react);
+      holder.position.y = Math.sin(p * Math.PI) * (built.fly ? 0.3 : 0.38);
+      holder.rotation.y = state.ry + (reduceMotion ? 0 : p * Math.PI * 2);
+      holder.scale.setScalar(1 + Math.sin(p * Math.PI) * 0.15);
+      if (p >= 1) {
+        state.react = null;
+        holder.position.y = 0;
+        holder.scale.setScalar(1);
+      }
+    }
 
     const t = reduceMotion ? 0 : time + state.phase;
     if (model) animateModel(t);
@@ -339,8 +358,15 @@ export function createSpirit(pet, { reduceMotion = false, loadModel = typeof win
     disposed = true;
     shadow.geometry.dispose();
     shadow.material.dispose();
+    pickable.geometry.dispose();
+    pickable.material.dispose();
     for (const material of tinted) material.dispose();
   }
 
-  return { group, species, level, update, dispose };
+  // Được chạm vào: làm động tác vui (chỉ trên máy người chạm).
+  function react() {
+    state.react = 0;
+  }
+
+  return { group, species, level, pickable, update, react, dispose, get reacting() { return state.react !== null; } };
 }

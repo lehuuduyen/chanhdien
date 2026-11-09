@@ -4,7 +4,8 @@
 //   paths: [{ points: [[x, z], …], width, closed? }] — lối sỏi, điểm điều khiển nối bằng đường cong Catmull-Rom.
 //   beds: [{ x, z, rx, rz, ry?, seed, mix: { edge: [], mid: [], back: [] } }] — luống hình tự do (elip méo lượn sóng);
 //         phần luống chồm lên lối đi, quảng trường, hồ, sát hàng rào tự bị khoét đi (không cần vẽ tay từng mép luống).
-//   plaza: { radius } quanh center; pond?: { x, z, rx, rz }; trees, lamps: [{ x, z, … }].
+//   plaza: { radius } quanh center; pond?: { x, z, rx, rz }; trees, lamps: [{ x, z, … }];
+//   benches?: [{ x, z, ry }] — ghế đặt ở mép luống: chừa chỗ quanh thân ghế (dài ~1,6 m theo trục ngang của ghế).
 
 // Đường cong Catmull-Rom qua các điểm điều khiển, lấy mẫu mỗi ~step mét.
 export function smoothPath(points, closed = false, step = 0.5) {
@@ -88,6 +89,10 @@ export function flowerLayout(garden) {
   const pond = garden.pond || null;
   const trees = garden.trees || [];
   const lamps = garden.lamps || [];
+  const benches = (garden.benches || []).map(({ x, z, ry = 0 }) => {
+    const half = 0.6;
+    return [x - Math.cos(ry) * half, z + Math.sin(ry) * half, x + Math.cos(ry) * half, z - Math.sin(ry) * half];
+  });
   // Lề: chừa lối đi 0,3 m mỗi bên, rào 0,7 m, quảng trường 0,4 m, bờ hồ 0,7 m.
   // near: chỉ xét các đoạn lối trong khung { x: [a, b], z: [a, b] } (nới thêm 3 m) — nhanh hơn nhiều khi hỏi dày trong
   // một luống (engine gọi hàng chục nghìn lần lúc trồng hoa).
@@ -122,6 +127,7 @@ export function flowerLayout(garden) {
       best = Math.min(best, (k - 1) * Math.min(pond.rx, pond.rz) - 0.7);
     }
     for (const lamp of lamps) best = Math.min(best, Math.hypot(x - lamp.x, z - lamp.z) - 0.3);
+    for (const [ax, az, bx, bz] of benches) best = Math.min(best, segmentDistance(x, z, [ax, az], [bx, bz]) - 0.7);
     for (const tree of trees) best = Math.min(best, Math.hypot(x - tree.x, z - tree.z) - 0.35 * (tree.size || 1));
     return best;
   }

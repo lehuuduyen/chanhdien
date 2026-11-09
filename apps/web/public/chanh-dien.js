@@ -19,6 +19,7 @@ import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
 import { createMemorialUI } from '/memorial-ui.js';
 import { createPetUI } from '/pet-ui.js';
+import { clearPendingCompanion, onCompanionRemembered, PENDING_COMPANION_MS, readPendingCompanion, rememberCompanion } from '/pet-companion-sync.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
 import { createZoneGuide } from '/zone-guide.js';
 import { guardWebGL } from '/webgl-guard.js';
@@ -103,6 +104,8 @@ const elements = {
 
 let renderer = null;
 let participants = new Map();
+let pendingCompanion = readPendingCompanion();
+let companionRefreshAt = 0;
 // Phòng đông: room.state chỉ có người máy này thấy; số người cả phòng và bảng công đức đến qua room.count.
 let roomCount = null;
 // Tương thích tiến trình realtime cũ: API vẫn biết số người thật của từng shard qua /internal/rooms.
@@ -150,6 +153,11 @@ onLangChange(labelMala);
 const zoneGuide = createZoneGuide({ stage: elements.stage });
 const explore = createExploreUI({
   stage: elements.stage, session, showToast, extraButtons: [malaButton, $('prayerOpen')], onWalkerTap: (id) => social?.open(id),
+  // Chạm linh thú: của mình thì mở bảng Linh thú (cho ăn, nhận rương…); của người khác thì cho biết loài, cấp, chủ.
+  onSpiritTap: (target) => {
+    if (target.mine) pets.open();
+    else showToast(t('spirit.tapOther', { species: t(`spirit.species.${target.species}`), level: target.level, owner: target.ownerName || '' }));
+  },
   onGardenTap: (target) => garden?.onTap(target), onMemorialTap: (target) => memorial?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
   onGuideTap: (place) => zoneGuide.open(place),
   onMeritBoardTap: openMeritLedger,
@@ -748,6 +756,56 @@ function showToast(text, badges = {}) {
   toastTimer = setTimeout(() => elements.toast.classList.remove('show'), 3_800);
 }
 
+const sameCompanion = (current, wanted) => (current?.species || null) === (wanted?.species || null);
+
+// Snapshot từ resume token có thể cũ hơn lựa chọn vừa lưu ở API. Chỉ giữ bản ghi tối đa 60 giây; khi realtime
+// phát đúng linh thú mới thì trả lại hoàn toàn quyền quyết định cho server.
+function withPendingCompanion(list) {
+  if (pendingCompanion && Date.now() - pendingCompanion.at > PENDING_COMPANION_MS) {
+    clearPendingCompanion(pendingCompanion);
+    pendingCompanion = null;
+  }
+  if (!pendingCompanion) pendingCompanion = readPendingCompanion();
+  if (!pendingCompanion) return list;
+  const index = list.findIndex((person) => person.id === session.participantId);
+  if (index < 0) return list;
+  if (sameCompanion(list[index].pet, pendingCompanion.pet)) {
+    clearPendingCompanion(pendingCompanion);
+    pendingCompanion = null;
+    companionRefreshAt = 0;
+    return list;
+  }
+  // Khi quay lại từ Shop, resume token có thể nối bằng vé cũ. Xin vé mới một lần để node realtime nhận linh thú
+  // đã lưu ở API; giữ resume token nên không mất ghế/vị trí.
+  if (Date.now() - companionRefreshAt > 3_000) {
+    companionRefreshAt = Date.now();
+    session.refreshTicket().catch(() => {});
+  }
+  const next = [...list];
+  const mine = { ...next[index] };
+  if (pendingCompanion.pet) mine.pet = { ...pendingCompanion.pet };
+  else delete mine.pet;
+  next[index] = mine;
+  return next;
+}
+
+function showCompanionNow(pet, remember = true) {
+  pendingCompanion = remember ? rememberCompanion(pet) : pendingCompanion;
+  const mine = participants.get(session.participantId);
+  if (!mine) return;
+  const next = { ...mine };
+  if (pet) next.pet = { species: pet.species, level: pet.level };
+  else delete next.pet;
+  participants.set(next.id, next);
+  renderer?.setParticipants(sceneParticipants());
+  explore.onState([...participants.values()]);
+}
+
+onCompanionRemembered((record) => {
+  pendingCompanion = record;
+  showCompanionNow(record.pet, false);
+});
+
 // ---- Message từ server ----
 function handleMessage(message) {
   chatCenter?.onMessage(message);
@@ -761,9 +819,10 @@ function handleMessage(message) {
     seatAttempts = 0;
     for (const button of elements.offerings.querySelectorAll('button')) button.disabled = false;
   } else if (message.type === 'room.state') {
+    const stateParticipants = withPendingCompanion(message.participants);
     const firstState = !participants.has(session.participantId);
     const previous = participants;
-    participants = new Map(message.participants.map((person) => [person.id, person]));
+    participants = new Map(stateParticipants.map((person) => [person.id, person]));
     if (!roomCount) roomRanks = new Map(rankedByMerit().slice(0, 3).map((person, index) => [person.id, index + 1]));
     // Lên cấp công đức: báo cho cả phòng như TikTok báo lên cấp.
     for (const person of participants.values()) {
@@ -774,7 +833,7 @@ function handleMessage(message) {
       }
     }
     renderer?.setParticipants(sceneParticipants());
-    explore.onState(message.participants);
+    explore.onState(stateParticipants);
     if (followFriendId && walkToFriend(followFriendId)) followFriendId = null;
     // Đứng dậy đi (server bỏ động tác) thì thôi tụng.
     if (!['chant', 'woodfish'].includes(me()?.emote)) audio.stopChant();
@@ -1497,14 +1556,12 @@ const pets = createPetUI({
   coinsChanged: () => garden?.refreshCoins(),
   // API vẫn báo realtime để mọi người cùng thấy; đồng thời cập nhật máy này ngay để nút "Dẫn theo" không phải
   // chờ vòng broadcast (hoặc mất hình khi một node realtime tạm thời không nhận được thông báo nội bộ).
-  onCompanionChange: (pet) => {
-    const mine = participants.get(session.participantId);
-    if (!mine) return;
-    const next = { ...mine };
-    if (pet) next.pet = { species: pet.species, level: pet.level };
-    else delete next.pet;
-    participants.set(next.id, next);
-    explore.onState([...participants.values()]);
+  onCompanionChange: (pet, { saved = false } = {}) => {
+    showCompanionNow(pet);
+    if (saved) {
+      companionRefreshAt = Date.now();
+      session.refreshTicket().catch(() => {});
+    }
   },
 });
 
@@ -1563,6 +1620,11 @@ function syncSkinChoice(immediate = true) {
 addEventListener('pageshow', (event) => {
   if (!event.persisted) return;
   syncSkinChoice(false);
+  const companion = readPendingCompanion();
+  if (companion) {
+    pendingCompanion = companion;
+    showCompanionNow(companion.pet, false);
+  }
   garden?.refreshCoins();
   if (accountUI.account) refreshOwnedSkins();
 });

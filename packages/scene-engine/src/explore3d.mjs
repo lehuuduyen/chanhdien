@@ -50,7 +50,7 @@ function actIndex(at = 0) {
   return (hash ^ (hash >>> 13)) >>> 0;
 }
 
-export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPetTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPetTap, onSpiritTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -302,10 +302,15 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (moved > 8) return;
       const rect = canvas.getBoundingClientRect();
       raycaster.setFromCamera(new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1), camera);
+      // Linh thú đi theo (của mình hoặc người khác): chọn khi trúng linh thú gần hơn người đứng cùng chỗ.
+      const spiritHit = onSpiritTap
+        ? raycaster.intersectObjects([...walkers.values()].filter((walker) => walker.spirit?.group.visible).map((walker) => walker.spirit.pickable), false)[0]
+        : null;
+      const spiritOwner = spiritHit && [...walkers.values()].find((walker) => walker.spirit?.pickable === spiritHit.object);
       if (onWalkerTap) {
         const others = [...walkers.values()].filter((walker) => walker.id !== selfId && walker.group.visible).map((walker) => walker.parts.figure);
         const hit = raycaster.intersectObjects(others, true)[0];
-        if (hit) {
+        if (hit && !(spiritOwner && spiritHit.distance <= hit.distance)) {
           let node = hit.object;
           while (node && node.userData.walkerId === undefined) node = node.parent;
           if (node) {
@@ -313,6 +318,14 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             return;
           }
         }
+      }
+      if (spiritOwner) {
+        spiritOwner.spirit.react();
+        onSpiritTap({
+          ownerId: spiritOwner.id, ownerName: spiritOwner.name, mine: spiritOwner.id === selfId,
+          species: spiritOwner.spirit.species, level: spiritOwner.spirit.level,
+        });
+        return;
       }
       // Chó mèo là InstancedMesh; thân mỗi con mang petId theo instanceId. Chạm từ xa thì đi lại gần, chạm khi
       // đã ở gần sẽ mở ngay ba hành động tương tác.
@@ -1261,6 +1274,14 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const rect = canvas.getBoundingClientRect();
         return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
       },
+      // Toạ độ màn hình (px) vùng chạm linh thú của một người — để kiểm tra bấm vào linh thú.
+      debugSpiritScreenOf(id) {
+        const spirit = walkers.get(id)?.spirit;
+        if (!spirit?.group.visible) return null;
+        const point = spirit.pickable.getWorldPosition(new THREE.Vector3()).project(camera);
+        const rect = canvas.getBoundingClientRect();
+        return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
+      },
       debugScreenOfBench(id) {
         const bench = world.courtyard?.benches?.find((item) => item.id === id);
         if (!bench) return null;
@@ -1280,7 +1301,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             moving: item.moving, running: Boolean(item.running), benchId: item.benchId, benchSpot: item.benchSpot,
             emote: item.emote, visible: item.group.visible,
             spirit: item.spirit ? {
-              key: item.spiritKey, visible: item.spirit.group.visible,
+              key: item.spiritKey, reacting: item.spirit.reacting, visible: item.spirit.group.visible,
               x: item.spirit.group.position.x, z: item.spirit.group.position.z,
             } : null,
             // Nhún nhảy: 'clip' (điệu trong file .glb) hoặc kiểu nhún bằng code; lift/tilt để kiểm tra chuyển động.

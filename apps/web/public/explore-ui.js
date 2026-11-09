@@ -5,7 +5,7 @@ import { lang, onLangChange, t } from '/thien-i18n.js';
 import { SUTRAS, sutraById, sutraTitle } from '/sutras.js';
 
 
-export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
+export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onSpiritTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
   // Luống vườn mới nhất (đưa lại cho bộ vẽ khi bộ vẽ được tạo sau).
   const gardenPlots = new Map();
   const memorialGraves = new Map();
@@ -458,6 +458,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       // Người đi theo tự điều khiển nhân vật: buông tay (server báo hand.state cho cả hai).
       onHandBreak: () => session.send({ type: 'hand.release', requestId: `social-${crypto.randomUUID()}` }),
       onWalkerTap: (id) => onWalkerTap?.(id),
+      onSpiritTap: (target) => onSpiritTap?.(target),
       // Chó mèo đã có bảng hành động riêng khi lại gần nên không thêm chữ.
       hintText: (kind) => (kind === 'pet' ? '' : t({ plot: 'garden.hintPlot', shop: 'garden.hintShop', grave: 'memorial.hint', guide: 'explore.hintGuide', merit: 'explore.hintMerit', swing: 'park.hintSwing', slide: 'park.hintSlide' }[kind] || 'explore.tapToSit')),
       onGardenTap: (target) => onGardenTap?.(target),

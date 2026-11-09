@@ -1021,7 +1021,7 @@ function buildCommunityBodhi({ root, casters, materials, item }) {
       load(spec.file).then((texture) => {
         if (!texture) return;
         const height = spec.height * size * (spec.file === 'bodhi' ? scales[index] : 1);
-        const material = spriteMaterial(texture, wind);
+        const material = spriteMaterial(texture, wind, { saturation: 1 });
         // Ảnh Meshy hơi xanh nõn: dịu màu tán Bồ Đề cho hợp cây cổ thụ.
         if (spec.file === 'bodhi') material.color.set('#c4d4b4');
         const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), material, 1);
@@ -2000,6 +2000,10 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     },
     // Bật bóng đổ (thử trên điện thoại), hoặc tắt khi máy yếu. Tắt không đổi số đèn đổ bóng (đổi là mọi vật liệu
     // biên dịch lại shader, đứng hình vài giây): thu khung chụp bóng về rỗng, vẽ một lần cho sạch bóng rồi thôi vẽ.
+    // Máy yếu (renderer tự hạ chất lượng): bớt chi tiết không quan trọng.
+    setLowDetail(on) {
+      flowerGarden?.setLowDetail?.(on);
+    },
     setShadows(on, mapSize = touch ? 512 : 1024) {
       const camera = sun.shadow.camera;
       if (on) {

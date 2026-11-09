@@ -62,9 +62,16 @@ test('Vườn Hoa: vào được qua ba cổng, đi tới ghế và điểm ng�
     assert.ok(Math.hypot(last.x - point.x, last.z - point.z) < 0.6, `${label}: tới đúng chỗ`);
   };
   for (const bench of benches) {
-    const front = { x: bench.x + Math.sin(bench.ry) * 0.95 * bench.scale, z: bench.z + Math.cos(bench.ry) * 0.95 * bench.scale };
-    assert.equal(isWalkable(walk, front.x, front.z), true, `trước ghế ${bench.id} đứng được`);
+    // Ghế quay mặt vào luống: điểm tiếp cận (approach, toạ độ trong khung ghế) nằm sau lưng ghế, trên lối đi.
+    const [ax, az] = bench.approach || [0, 0.95];
+    const cos = Math.cos(bench.ry);
+    const sin = Math.sin(bench.ry);
+    const front = { x: bench.x + (ax * cos + az * sin) * bench.scale, z: bench.z + (-ax * sin + az * cos) * bench.scale };
+    assert.equal(isWalkable(walk, front.x, front.z), true, `điểm tiếp cận ghế ${bench.id} đứng được`);
     reach(front, `ghế ${bench.id}`);
+    // Phía trước mặt người ngồi là luống hoa (không phải lối đi).
+    const ahead = { x: bench.x + sin * 1.6, z: bench.z + cos * 1.6 };
+    assert.equal(isWalkable(walk, ahead.x, ahead.z), false, `ghế ${bench.id} nhìn vào luống hoa`);
   }
   for (const view of garden.views) assert.equal(isWalkable(walk, view.x, view.z), true, `điểm ngắm (${view.x}, ${view.z})`);
   reach(garden.center, 'giữa đình');

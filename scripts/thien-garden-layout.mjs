@@ -279,21 +279,21 @@ const FLOWER_HEDGE = 0.6;
   // Luống: mỗi vùng một bộ cây (edge = mép thấp, mid = giữa, back = trong cùng / sát rào); viền được khoét theo lối đi.
   const bed = (x, z, rx, rz, ry, seed, mix) => ({ x, z, rx, rz, ry, seed, mix });
   const beds = [
-    bed(-27, 36.5, 7, 5, 0.4, 1, { edge: ['mum'], mid: ['tulip'], back: ['tulip', 'lily'] }),
-    bed(-40, 37, 7.5, 5, -0.4, 2, { edge: ['lavender'], mid: ['rose', 'lavender'], back: ['peony', 'rose'] }),
-    bed(-40, 26, 7.5, 5, 0.4, 3, { edge: ['mum', 'foliage'], mid: ['hydrangea', 'lily'], back: ['hydrangea'] }),
-    bed(-26.5, 26, 7.5, 5, -0.4, 4, { edge: ['marigold'], mid: ['cosmos'], back: ['sunflower', 'cosmos'] }),
-    bed(-33, 19.8, 17, 2.4, 0, 5, { edge: ['marigold', 'cosmos'], mid: ['delphinium', 'cosmos', 'sunflower'], back: ['sunflower', 'delphinium'] }),
-    bed(-49.3, 31, 2, 12, 0, 6, { edge: ['lavender'], mid: ['grass', 'delphinium'], back: ['grass'] }),
-    bed(-18, 32, 3.6, 11, 0, 7, { edge: ['marigold'], mid: ['hibiscus', 'grass'], back: ['hibiscus', 'grass'] }),
-    bed(-41, 43, 7, 2.2, 0, 8, { edge: ['foliage', 'mum'], mid: ['lily', 'hydrangea'], back: ['hydrangea'] }),
-    bed(-47.5, 50.5, 3, 3.5, 0.3, 9, { edge: ['foliage'], mid: ['grass', 'delphinium'], back: ['grass'] }),
-    bed(-29.8, 48.8, 2.8, 5, 0, 10, { edge: ['marigold'], mid: ['peony', 'hydrangea'], back: ['hydrangea'] }),
-    bed(-21.5, 42.6, 5, 1.3, 0, 11, { edge: ['mum'], mid: ['rose'], back: ['rose'] }),
-    bed(-36.5, 51.6, 2.6, 1.6, 0, 12, { edge: ['foliage'], mid: ['lily'], back: ['lily'] }),
-    bed(-46.5, 22, 4, 3, 0.5, 13, { edge: ['mum'], mid: ['grass', 'lavender'], back: ['grass'] }),
-    bed(-46.5, 42.5, 3.5, 2.5, -0.5, 14, { edge: ['foliage'], mid: ['delphinium', 'peony'], back: ['delphinium'] }),
-    bed(-20.5, 40.5, 4.5, 2.2, 0.3, 15, { edge: ['mum'], mid: ['peony', 'rose'], back: ['hibiscus'] }),
+    bed(-27, 36.5, 7, 5, 0.4, 1, { edge: ['tulip', 'mum'], mid: ['tulip'], back: ['tulip', 'lily'] }),
+    bed(-40, 37, 7.5, 5, -0.4, 2, { edge: ['tulip', 'lavender'], mid: ['rose', 'tulip', 'lavender'], back: ['peony', 'rose'] }),
+    bed(-40, 26, 7.5, 5, 0.4, 3, { edge: ['tulip', 'mum'], mid: ['hydrangea', 'tulip', 'lily'], back: ['hydrangea'] }),
+    bed(-26.5, 26, 7.5, 5, -0.4, 4, { edge: ['tulip', 'marigold'], mid: ['cosmos', 'tulip'], back: ['sunflower', 'cosmos'] }),
+    bed(-33, 19.8, 17, 2.4, 0, 5, { edge: ['tulip', 'marigold', 'cosmos'], mid: ['tulip', 'delphinium', 'cosmos'], back: ['sunflower', 'delphinium'] }),
+    bed(-49.3, 31, 2, 12, 0, 6, { edge: ['lavender', 'tulip'], mid: ['delphinium', 'grass'], back: ['grass', 'delphinium'] }),
+    bed(-18, 32, 3.6, 11, 0, 7, { edge: ['tulip', 'marigold'], mid: ['tulip', 'hibiscus'], back: ['hibiscus', 'grass'] }),
+    bed(-41, 43, 7, 2.2, 0, 8, { edge: ['tulip', 'mum'], mid: ['lily', 'tulip', 'hydrangea'], back: ['hydrangea'] }),
+    bed(-47.5, 50.5, 3, 3.5, 0.3, 9, { edge: ['tulip', 'mum'], mid: ['delphinium', 'tulip'], back: ['grass', 'delphinium'] }),
+    bed(-29.8, 48.8, 2.8, 5, 0, 10, { edge: ['tulip', 'marigold'], mid: ['peony', 'tulip', 'hydrangea'], back: ['hydrangea'] }),
+    bed(-21.5, 42.6, 5, 1.3, 0, 11, { edge: ['tulip', 'mum'], mid: ['rose', 'tulip'], back: ['rose'] }),
+    bed(-36.5, 51.6, 2.6, 1.6, 0, 12, { edge: ['tulip'], mid: ['lily', 'tulip'], back: ['lily'] }),
+    bed(-46.5, 22, 4, 3, 0.5, 13, { edge: ['tulip', 'mum'], mid: ['lavender', 'tulip'], back: ['grass', 'lavender'] }),
+    bed(-46.5, 42.5, 3.5, 2.5, -0.5, 14, { edge: ['tulip', 'mum'], mid: ['delphinium', 'peony', 'tulip'], back: ['delphinium'] }),
+    bed(-20.5, 40.5, 4.5, 2.2, 0.3, 15, { edge: ['tulip', 'mum'], mid: ['peony', 'rose', 'tulip'], back: ['hibiscus'] }),
   ];
   // Cây hoa: kind = cherry (anh đào), frangipani (hoa sứ), apricot (mai vàng), crape (bằng lăng).
   const trees = [
@@ -308,13 +308,6 @@ const FLOWER_HEDGE = 0.6;
     { x: -18.5, z: 42.6, size: 1.0, kind: 'crape' },
     { x: -29.4, z: 51.6, size: 0.95, kind: 'crape' },
   ];
-  // Ghế đá trên quảng trường, bốn hướng chéo, người ngồi nhìn ra luống (ry: hướng mặt người ngồi là (sin ry, cos ry)).
-  const benchRadius = 3.6;
-  const benches = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4].map((angle, index) => {
-    const ux = Math.cos(angle);
-    const uz = Math.sin(angle);
-    return { id: `B-${10 + index}`, x: round3(cx + ux * benchRadius), z: round3(cz + uz * benchRadius), ry: round3(Math.atan2(ux, uz)), scale: 0.72, seats: 2 };
-  });
   const garden = { outline, paths, beds, center: FLOWER_CENTER, plaza: { radius: 5.2 }, pond, trees, lamps: [] };
   const layout = flowerLayout(garden);
   // Đèn vườn dọc lối: mỗi ~7 m một cây, so le hai bên, đứng trên mép cỏ (không chắn lối, không đè lên hồ / cây).
@@ -340,6 +333,79 @@ const FLOWER_HEDGE = 0.6;
       if (clear) lamps.push(lamp);
     }
   }
+  // Ghế đá B-10…B-13: đặt ở mép luống ven lối, mặt nhìn vào luống (ry: hướng mặt người ngồi là (sin ry, cos ry)), lưng
+  // quay ra lối. Khi ngồi, camera đứng sau lưng BENCH_CAMERA m, cao ~2,7 m (scene camera.follow): chỗ đó phải thoáng
+  // (không vào đình, không vướng tán cây, còn trong vườn), không thì người ngồi chỉ thấy cột / mái đình. Dò mọi điểm dọc
+  // lối, chấm điểm theo lượng hoa + cây hoa trong tầm nhìn phía trước, chọn 4 chỗ tốt nhất cách xa nhau.
+  const BENCH_CAMERA = 3.8;
+  const benchCandidates = [];
+  const segmentDistance = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax;
+    const dz = bz - az;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)));
+    return Math.hypot(px - ax - dx * t, pz - az - dz * t);
+  };
+  for (const path of layout.paths) {
+    for (let index = 2; index < path.points.length - 2; index += 2) {
+      const [ax, az] = path.points[index - 1];
+      const [bx, bz] = path.points[index + 1];
+      const [px, pz] = path.points[index];
+      const length = Math.hypot(bx - ax, bz - az) || 1;
+      const normal = [-(bz - az) / length, (bx - ax) / length];
+      for (const side of [1, -1]) {
+        const fx = normal[0] * side;
+        const fz = normal[1] * side;
+        // Lưng ghế cách mép lối ~0,15 m.
+        const off = path.width / 2 + 0.6;
+        const x = px + fx * off;
+        const z = pz + fz * off;
+        const camX = x - fx * BENCH_CAMERA;
+        const camZ = z - fz * BENCH_CAMERA;
+        const lookX = x + fx * 5;
+        const lookZ = z + fz * 5;
+        const ok = insidePolygon(x, z, outline) && polylineDistance(x, z, outline, true) > 1.2
+          && layout.bedAt(x + fx * 1.2, z + fz * 1.2) >= 0 && layout.depth(x + fx * 1.6, z + fz * 1.6, layout.bedAt(x + fx * 1.2, z + fz * 1.2)) > 0.5
+          && layout.paths.every((other) => polylineDistance(x, z, other.points) > other.width / 2 + 0.4)
+          && Math.hypot(x - cx, z - cz) > 6.5
+          && entrances.every((gate) => Math.hypot(gate.x - x, gate.z - z) > 4.5)
+          && Math.hypot((x - pond.x) / (pond.rx + 1), (z - pond.z) / (pond.rz + 1)) > 1
+          && trees.every((tree) => Math.hypot(tree.x - x, tree.z - z) > 1.6)
+          // Camera sau lưng: trong vườn, xa đình, không vướng tán cây trên đường nhìn tới hoa.
+          && insidePolygon(camX, camZ, outline) && polylineDistance(camX, camZ, outline, true) > 0.5
+          && segmentDistance(cx, cz, camX, camZ, lookX, lookZ) > 4.2
+          && trees.every((tree) => segmentDistance(tree.x, tree.z, camX, camZ, lookX, lookZ) > 1.7 * (tree.size || 1));
+        if (!ok) continue;
+        // Điểm nhìn: hoa trong hình quạt ±40° phía trước (2–10 m), cây hoa nở trong tầm mắt cộng thêm.
+        let score = 0;
+        for (let distance = 1.5; distance <= 10; distance += 0.5) {
+          for (let angle = -0.7; angle <= 0.7; angle += 0.1) {
+            const dirX = fx * Math.cos(angle) - fz * Math.sin(angle);
+            const dirZ = fx * Math.sin(angle) + fz * Math.cos(angle);
+            if (layout.bedAt(x + dirX * distance, z + dirZ * distance) >= 0) score += distance < 5 ? 1.5 : 1;
+          }
+        }
+        for (const tree of trees) {
+          const dx = tree.x - x;
+          const dz = tree.z - z;
+          const along = dx * fx + dz * fz;
+          if (along > 3 && along < 11 && Math.abs(dx * fz - dz * fx) < along * 0.7) score += 25;
+        }
+        benchCandidates.push({ x, z, ry: Math.atan2(fx, fz), score });
+      }
+    }
+  }
+  benchCandidates.sort((a, b) => b.score - a.score);
+  const benches = [];
+  for (const spot of benchCandidates) {
+    if (benches.length === 4) break;
+    if (benches.some((other) => Math.hypot(other.x - spot.x, other.z - spot.z) < 9)) continue;
+    benches.push(spot);
+  }
+  if (benches.length < 4) throw new Error(`Vườn Hoa: chỉ tìm được ${benches.length} chỗ đặt ghế nhìn ra hoa`);
+  // Bot đi tới điểm sau lưng ghế (trên lối) rồi mới ngồi; luống tự chừa chỗ quanh ghế (flower-layout.mjs: benches).
+  benches.splice(0, 4, ...benches.map((spot, index) => ({
+    id: `B-${10 + index}`, x: round3(spot.x), z: round3(spot.z), ry: round3(spot.ry), scale: 0.72, seats: 2, approach: [0, -1.1],
+  })));
   for (const tree of trees) {
     const near = layout.paths.find((path) => polylineDistance(tree.x, tree.z, path.points) < path.width / 2 + 0.8);
     if (near) throw new Error(`Cây ${tree.kind} (${tree.x}, ${tree.z}) đứng quá sát lối đi`);
@@ -389,6 +455,8 @@ const FLOWER_HEDGE = 0.6;
     pond,
     trees,
     lamps,
+    // Ghế trong vườn (chép từ c.benches B-10…B-13): luống chừa chỗ quanh ghế, không trồng hoa đè lên.
+    benches: benches.map(({ x, z, ry }) => ({ x, z, ry })),
     butterflies: 40,
     lazyDistance: 42,
     views,

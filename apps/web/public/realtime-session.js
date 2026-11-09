@@ -191,6 +191,17 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
       save();
       connect();
     },
+    // Hồ sơ gắn với vé (hình, danh hiệu, linh thú) vừa đổi ở API: xin vé mới nhưng giữ resume token để server
+    // cập nhật đúng người đang đứng trong phòng, không làm mất ghế hay vị trí hiện tại.
+    async refreshTicket() {
+      if (!session) return false;
+      const resumeToken = session.resumeToken;
+      const fresh = await requestTicket(session.displayName);
+      session = { ...fresh, ...(resumeToken ? { resumeToken } : {}) };
+      save();
+      connect();
+      return true;
+    },
     // Phiên còn lưu trong tab (tải lại trang): nối lại ngay, giữ người và ghế.
     restore() {
       try {
