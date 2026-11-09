@@ -15,6 +15,10 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   let api = null;
   let lastState = [];
   let spawnSentFor = null;
+  // Khóa đi lại: phòng đủ người đi lại (xem như khán giả) hoặc đang chơi trốn tìm (đứng yên theo pha).
+  let walkersFull = false;
+  let gameLock = false;
+  let hiddenDecor = [];
 
   const benchPoint = (bench, localX, localZ) => {
     const scale = bench.scale || 1;
@@ -501,6 +505,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       if (gardenPlots.size) api?.setGarden?.([...gardenPlots.values()]);
       api?.setMemorial?.([...memorialGraves.values()], { full: true });
       if (choreStates.size) api?.setChores?.([...choreStates.values()]);
+      api?.setSpectator(walkersFull || gameLock);
+      api?.setHiddenDecor?.(hiddenDecor);
     },
     detach() {
       renderer = null;
@@ -597,12 +603,30 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
         return true;
       }
       if (message.code !== 'WALKERS_FULL') return false;
+      walkersFull = true;
       api?.setSpectator(true);
       showToast(t('explore.full'));
       return true;
     },
     say(participantId, text) {
       return api?.say(participantId, text) || false;
+    },
+    // ---- Trốn tìm (hide-seek-ui.js) ----
+    setGameLock(on) {
+      gameLock = Boolean(on);
+      api?.setSpectator(walkersFull || gameLock);
+    },
+    // Camera xem người id (null = về mình); trả false nếu người đó không có trong cảnh.
+    setCameraFollow(id) {
+      return api?.setCameraFollow?.(id) || false;
+    },
+    setHiddenDecor(ids) {
+      hiddenDecor = [...ids];
+      api?.setHiddenDecor?.(hiddenDecor);
+    },
+    // Những người đang có trong cảnh của mình (server đã lọc theo vai).
+    visibleIds() {
+      return lastState.map((person) => person.id);
     },
     // Chạm bồ đoàn: đi tới bồ đoàn rồi mới ngồi.
     sitAt(seat, sit) {

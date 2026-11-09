@@ -16,6 +16,28 @@ function internalAllowed(req, options) {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+// Thưởng thắng trốn tìm: POST /internal/hideseek/reward { accountId, key } (máy realtime, khóa nội bộ).
+export async function handleHideSeekRewardRequest(req, res, pathname, options) {
+  if (pathname !== '/internal/hideseek/reward') return false;
+  if (req.method !== 'POST' || !internalAllowed(req, options)) {
+    json(req, res, req.method !== 'POST' ? 404 : 403, { error: req.method !== 'POST' ? 'not_found' : 'forbidden' });
+    return true;
+  }
+  if (!options.garden) {
+    json(req, res, 503, { error: 'garden_disabled' });
+    return true;
+  }
+  const input = await body(req, res);
+  if (!input) return true;
+  if (typeof input !== 'object' || Array.isArray(input) || !ACCOUNT_ID.test(input.accountId || '') || !EVENT_KEY.test(input.key || '')) {
+    json(req, res, 400, { ok: false, code: 'INVALID' });
+    return true;
+  }
+  const result = options.garden.rewardHideSeek({ accountId: input.accountId, key: input.key });
+  json(req, res, result.ok ? 200 : STATUS[result.code] || 400, result);
+  return true;
+}
+
 export async function handleChoreRewardRequest(req, res, pathname, options) {
   if (pathname !== '/internal/chores/reward') return false;
   if (req.method !== 'POST') {

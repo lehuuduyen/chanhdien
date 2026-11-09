@@ -456,3 +456,19 @@ test('oẳn tù tì cược: thao tác chỉ cho thành viên, mức cược c�
   assert.equal(parseServerMessage(lobby).ok, true);
   assert.equal(parseServerMessage({ ...lobby, feed: [{ a: 'An', b: 'Bình', stake: 20, winner: 'an' }] }).ok, false);
 });
+
+test('trốn tìm: xin chơi / rời / bắt; trạng thái không mang vị trí và vai hợp lệ', () => {
+  const base = { v: PROTOCOL_VERSION, requestId: 'r-1' };
+  assert.equal(parseClientMessage({ ...base, type: 'hideseek.join' }, { role: 'guest' }).ok, true, 'khách cũng chơi được');
+  assert.equal(parseClientMessage({ ...base, type: 'hideseek.leave' }, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage({ ...base, type: 'hideseek.catch', targetId: 'u-binh' }, { role: 'guest' }).ok, true);
+  assert.equal(parseClientMessage({ ...base, type: 'hideseek.catch' }, { role: 'guest' }).error, 'INVALID_MESSAGE');
+  const state = { v: PROTOCOL_VERSION, type: 'hideseek.state', epoch: 1, phase: 'seeking', round: 2, minPlayers: 2, endsAt: 100,
+    lobby: [{ id: 'u-d', displayName: 'Dũng' }],
+    players: [{ id: 'u-a', displayName: 'An', role: 'seeker', caught: false }, { id: 'u-b', displayName: 'Bình', role: 'hider', caught: true }],
+    lastCatch: { seekerId: 'u-a', hiderId: 'u-b', at: 90 } };
+  assert.equal(parseServerMessage(state).ok, true);
+  assert.equal(parseServerMessage({ ...state, phase: 'playing' }).ok, false);
+  assert.equal(parseServerMessage({ ...state, players: [{ id: 'u-a', displayName: 'An', role: 'seeker', caught: false, x: 1 }] }).ok, false, 'không mang vị trí');
+  assert.equal(parseServerMessage({ ...state, winner: 'hiders', phase: 'result' }).ok, true);
+});

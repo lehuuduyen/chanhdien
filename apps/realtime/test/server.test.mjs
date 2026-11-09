@@ -2616,10 +2616,13 @@ test('bot đi dạo không đứng chồng lên nhau (dừng lệch, tránh ch�
   const ticks = 900;
   try {
     for (let tick = 0; tick < ticks; tick += 1) {
-      now += 1_000;
-      // Thời gian giả: bỏ kiểm tra tốc độ / tần suất theo đồng hồ thật của server.
+      // Thời gian giả: bỏ kiểm tra tốc độ / tần suất theo đồng hồ thật của server. Bot bước theo nhịp riêng 250 ms.
       for (const participant of room.participants.values()) if (participant.bot) participant.movedAt = 0;
       room.rates.clear();
+      for (let sub = 0; sub < 4; sub += 1) {
+        now += 250;
+        room.botWalkTick(now);
+      }
       room.botTick();
       // Bot ngồi ghế đá được vẽ ở chỗ ngồi của ghế, không tính.
       const walkers = [...room.participants.values()].filter((participant) => participant.bot && participant.pos && !participant.benchId);
@@ -2650,9 +2653,12 @@ test('bot đi khắp sân theo bản đồ scene: không đi xuyên vật cản,
   let benchSits = 0;
   try {
     for (let tick = 0; tick < 900; tick += 1) {
-      now += 1_000;
       for (const participant of room.participants.values()) if (participant.bot) participant.movedAt = 0;
       room.rates.clear();
+      for (let sub = 0; sub < 4; sub += 1) {
+        now += 250;
+        room.botWalkTick(now);
+      }
       room.botTick();
       for (const bot of room.participants.values()) {
         if (!bot.bot || !bot.pos || bot.benchId) continue;

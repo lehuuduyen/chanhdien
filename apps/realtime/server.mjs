@@ -28,6 +28,7 @@ import {
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
 import { rpsBank, RpsTable } from './rps.mjs';
+import { HideSeekGame } from './hide-seek.mjs';
 import { BOT_AI_MODEL, createBotAi, guessLang } from './bot-ai.mjs';
 import { botNavFor } from './bot-nav.mjs';
 import { LottoTable, lottoBank } from './loto.mjs';
@@ -57,6 +58,10 @@ const MOVE_BATCH_MS = 200;
 // Phòng đông (room rules có world.view): mỗi máy chỉ nhận người gần mình trong cùng vùng. Danh sách "ai thấy ai"
 // tính lại mỗi VIEW_MS; phòng nhỏ (≤ VIEW_INSTANT_LIMIT người) tính lại ngay khi có người vào/đổi vùng để không trễ.
 const VIEW_MS = 500;
+// Nhịp bước đi của bot (ms): 4 lần/giây, khớp nhịp gom vị trí 200 ms gửi người xem.
+const BOT_WALK_MS = 250;
+// Sau khi dời chỗ một người: bỏ vị trí máy họ gửi lên trong khoảng này (gói cũ còn trên đường đi).
+const TELEPORT_GRACE_MS = 700;
 const VIEW_INSTANT_LIMIT = 80;
 // Người đang thấy được ưu tiên giữ (khoảng cách nhân hệ số này) để danh sách không nhảy qua lại ở mép.
 const VIEW_KEEP = 0.8;
@@ -325,6 +330,8 @@ export class Room {
     this.onOffering = options.onOffering || (() => {});
     // Trả xu công việc qua API. Chỉ thành viên có accountId được ghi ví; khách vẫn cùng làm bình thường.
     this.onChoreReward = options.onChoreReward || null;
+    // Trả xu thưởng trốn tìm qua API ({ accountId, key } → { ok, reward, coins, count, limit }).
+    this.onHideSeekReward = options.onHideSeekReward || null;
     // Hỏi / ghi bạn bè giữa hai thành viên (API); không có thì kết bạn chỉ trong phiên.
     this.onFriend = options.onFriend || null;
     // Chuyển báo cáo người chơi tới API để lưu.
@@ -348,6 +355,8 @@ export class Room {
       : game === 'loto' ? new LottoTable({ room: this, rules: this.rules.interaction, ...(options.lotto || {}) })
         // Oẳn Tù Tì cược (đấu 1–1): options.rps { stake, settle } gọi API giữ cọc / chốt trận.
         : game === 'rps' ? new RpsTable({ room: this, rules: this.rules.interaction, ...(options.rps || {}) }) : null;
+    // Trốn tìm trong sân (rules.hideSeek, phòng có thế giới 3D): ván do máy giữ phòng điều khiển.
+    this.hideSeek = this.rules.hideSeek && this.rules.world ? new HideSeekGame({ room: this, rules: this.rules.hideSeek }) : null;
     // Phòng game công cộng cấu hình alwaysOn tự tạo đủ bot ngay khi room actor mở, giữ bàn chạy khi chưa có người
     // thật và dùng cùng cơ chế dao động của addbot. Giá trị botCount truyền vào (env / Telegram) vẫn được ưu tiên.
     if (this.rules.bots?.alwaysOn && this.botCount > 0) {
@@ -623,12 +632,14 @@ export class Room {
       link(to, from);
     }
     for (const participant of this.participants.values()) if (participant.handWith) link(participant.id, participant.handWith);
+    // Đang có ván trốn tìm: lọc theo vai (hide-seek.mjs visible) trước khi chọn người gần nhất.
+    const game = this.hideSeek?.active ? this.hideSeek : null;
     for (const viewer of this.participants.values()) {
       if (!viewer.socket) continue;
       const door = this.rules.world.zones?.hall?.z[1] ?? 0;
       const center = viewer.pos || { x: 0, z: door };
       const zone = viewer.seatId ? 'hall' : viewer.benchId || !viewer.pos ? 'yard' : this.zoneOf(center);
-      const list = zones[zone];
+      const list = game ? zones[zone].filter((participant) => game.visible(viewer.id, participant.id)) : zones[zone];
       const limit = this.view[zone] || 40;
       let near;
       if (list.length <= limit) near = list.map((participant) => participant.id);
@@ -641,7 +652,15 @@ export class Room {
         near = nearestIds(list, distances, limit);
       }
       viewer.view = new Set([viewer.id, ...fixed, ...(links.get(viewer.id) || []), ...near]);
+      if (game) for (const id of viewer.view) if (!game.visible(viewer.id, id)) viewer.view.delete(id);
     }
+  }
+
+  // Trốn tìm đổi pha / có người bị bắt: tính lại ai thấy ai ngay và gửi room.state mới (người vừa hiện ra kèm vị trí).
+  refreshGameViews() {
+    if (!this.view) return;
+    this.refreshViews();
+    this.broadcastViews();
   }
 
   // Gửi room.state riêng cho từng người theo danh sách mình thấy; chỉ gửi khi phần đó đổi (bỏ qua vị trí, vị trí
@@ -736,6 +755,10 @@ export class Room {
     if (!world) return { ok: false, error: 'NOT_ALLOWED' };
     if (!participant.pos && this.walkers >= world.maxWalkers) return { ok: false, error: 'WALKERS_FULL' };
     if (!this.allow(`${participantId}:move`, 8, 1_000)) return { ok: false, error: 'RATE_LIMITED' };
+    // Trốn tìm: người đi kiếm đứng yên lúc đi trốn, người trốn đứng yên lúc đi kiếm.
+    if (this.hideSeek && !this.hideSeek.canMove(participantId)) return { ok: false, error: 'MOVE_LOCKED' };
+    // Vừa bị đặt sang chỗ khác (đi nhanh, về điểm xuất phát): bỏ các vị trí cũ máy người đó gửi trước khi nhận lệnh dời.
+    if (participant.teleportedAt && Date.now() - participant.teleportedAt < TELEPORT_GRACE_MS) return { ok: false, error: 'MOVE_LOCKED' };
     const now = Date.now();
     let next = { x, z };
     if (participant.pos && participant.movedAt) {
@@ -787,12 +810,21 @@ export class Room {
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     if (!target) return { ok: false, error: 'NOT_ALLOWED' };
     if (!participant.pos && this.walkers >= world.maxWalkers) return { ok: false, error: 'WALKERS_FULL' };
+    if (this.hideSeek?.inRound(participantId)) return { ok: false, error: 'IN_GAME' };
     if (!this.allow(`${participantId}:travel`, 3, 10_000)) return { ok: false, error: 'RATE_LIMITED' };
+    return this.teleport(participantId, target);
+  }
 
+  // Đặt một người tới vị trí cho trước (đi nhanh, trốn tìm về điểm xuất phát): rời bồ đoàn / ghế, thôi động tác, phát
+  // vị trí mới qua room.moves như đi bộ.
+  teleport(participantId, target) {
+    const participant = this.participants.get(participantId);
+    if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     const zoneBefore = participant.pos ? this.zoneOf(participant.pos) : null;
     const hadState = Boolean(participant.seatId || participant.benchId || participant.emote);
     participant.pos = { x: target.x, z: target.z, ry: target.ry };
     participant.movedAt = Date.now();
+    participant.teleportedAt = participant.movedAt;
     participant.moving = false;
     participant.seatId = null;
     participant.benchId = null;
@@ -1249,6 +1281,7 @@ export class Room {
   dropSocial(participantId) {
     this.stopChore(participantId);
     this.table?.participantAway?.(participantId);
+    this.hideSeek?.participantAway(participantId);
     for (const key of this.friendRequests.keys()) if (key.split('>').includes(participantId)) this.friendRequests.delete(key);
     for (const key of this.handRequests.keys()) if (key.split('>').includes(participantId)) this.handRequests.delete(key);
     // Người rời phòng (đã xóa khỏi danh sách): người còn lại thôi nắm tay.
@@ -1280,6 +1313,8 @@ export class Room {
         })),
       // Ván Lô Tô / Bầu Cua / Tài Xỉu đang chơi: máy mới chơi tiếp đúng ván đó.
       ...(this.table?.toRecord?.() ? { table: this.table.toRecord() } : {}),
+      // Trốn tìm: hàng chờ (và người đang chơi) được xếp lại vào ván sau trên máy mới.
+      ...(this.hideSeek?.toRecord() ? { hideSeek: this.hideSeek.toRecord() } : {}),
     };
   }
 
@@ -1335,6 +1370,10 @@ export class Room {
       this.scheduleExpiry(participant);
     }
     this.revision = (Number.isSafeInteger(record?.revision) ? record.revision : 0) + 1;
+    // Trốn tìm: chỉ xếp lại người còn trong phòng (đã dựng lại ở trên) vào hàng chờ.
+    if (record?.hideSeek && this.hideSeek) {
+      this.hideSeek.restoreRecord({ ...record.hideSeek, lobby: (record.hideSeek.lobby || []).filter((id) => this.participants.has(id)) });
+    }
     for (const item of Array.isArray(record?.chores) ? record.chores : []) {
       const chore = this.chores.get(item?.id);
       if (!chore || !Number.isSafeInteger(item.progress) || item.progress < 0 || item.progress > 1_000) continue;
@@ -1688,6 +1727,17 @@ export class Room {
     if (!this.botTimer) {
       this.botTimer = setInterval(() => this.botTick(), 1_000);
       this.botTimer.unref?.();
+      // Bước đi của bot có nhịp riêng dày hơn (BOT_WALK_MS): một bước mỗi giây thì trên máy người xem bot lao tới
+      // điểm mới rồi đứng chờ, cả đám đông đi khựng khựng. Quyết định (đi đâu, nói gì) vẫn theo nhịp 1 giây.
+      this.botWalkTimer = setInterval(() => this.botWalkTick(), BOT_WALK_MS);
+      this.botWalkTimer.unref?.();
+    }
+  }
+
+  botWalkTick(now = Date.now()) {
+    if ((!this.connectedCount && !this.keepBotsAlive) || !this.botState) return;
+    for (const participant of [...this.participants.values()]) {
+      if (participant.bot && this.participants.has(participant.id)) this.advanceBotWalk(participant, now);
     }
   }
 
@@ -1773,6 +1823,16 @@ export class Room {
   advanceBotWalk(bot, now = Date.now()) {
     const config = this.rules.bots?.walk;
     if (!bot.pos || !bot.walk || !config?.waypoints?.length) return false;
+    // Trốn tìm: bot trong ván chạy tới chỗ trốn rồi đứng yên; hết ván thì đi dạo tiếp từ chỗ đang đứng.
+    const hidePlan = this.hideSeek?.botPlan(bot.id);
+    if (hidePlan) return this.advanceBotHide(bot, hidePlan, now, config);
+    if (bot.walk.hiding) {
+      bot.walk.hiding = false;
+      bot.walk.route = [];
+      bot.walk.dest = null;
+      bot.walk.waitUntil = now + randomBetween([1_500, 4_000]);
+      return false;
+    }
     if (bot.handWith) {
       // Được người chơi nắm tay dắt đi: bỏ việc vườn dở / đích đang tới, thả ra thì chọn chỗ đi tiếp từ chỗ đứng.
       bot.errand = null;
@@ -1813,6 +1873,61 @@ export class Room {
     }
     this.botArrive(bot, now);
     return true;
+  }
+
+  // Bot chơi trốn tìm: pha đi trốn chạy (nhanh hơn đi dạo) theo đường tìm được tới chỗ trốn; tới nơi hoặc sang pha đi
+  // kiếm thì đứng yên (server cũng chặn người trốn đi trong pha đi kiếm).
+  advanceBotHide(bot, plan, now, config) {
+    const walk = bot.walk;
+    if (!walk.hiding) {
+      walk.hiding = true;
+      walk.dest = null;
+      walk.waitUntil = 0;
+      walk.route = plan.spot && this.nav ? this.nav.route(bot.pos, plan.spot) : [];
+      walk.lastAt = now;
+    }
+    if (plan.phase !== 'hiding' || !walk.route.length) {
+      walk.lastAt = now;
+      if (bot.moving) this.move(bot.id, { x: bot.pos.x, z: bot.pos.z, ry: bot.pos.ry, moving: false });
+      return false;
+    }
+    if (!this.stepBot(bot, walk.route[0], (walk.speed || config.speed) * 1.8, now)) return true;
+    walk.route.shift();
+    return true;
+  }
+
+  // Bot rảnh có thể kéo vào làm người trốn: đang đi dạo ngoài sân, không ngồi, không làm vườn / nắm tay / đấu / nói.
+  availableGameBots(now = Date.now()) {
+    const bots = [];
+    for (const participant of this.participants.values()) {
+      if (!participant.bot || !participant.pos || participant.seatId || participant.benchId || participant.handWith || participant.errand) continue;
+      if ((participant.talkUntil || 0) > now || this.activeChallengeOf(participant.id) || this.hideSeek?.players.has(participant.id)) continue;
+      if (this.zoneOf(participant.pos) !== 'yard') continue;
+      bots.push(participant);
+    }
+    return bots;
+  }
+
+  // Thưởng xu trốn tìm cho người thắng (API giữ giá và giới hạn mỗi ngày; khóa theo ván + tài khoản, gửi lại không trả hai lần).
+  rewardHideSeek(participantIds, roundKey) {
+    if (!this.onHideSeekReward) return;
+    for (const participantId of participantIds) {
+      const participant = this.participants.get(participantId);
+      if (!participant?.accountId) continue;
+      const key = createHash('sha256').update(`${roundKey}:${participant.accountId}`).digest('base64url').slice(0, 40);
+      Promise.resolve(this.onHideSeekReward({ accountId: participant.accountId, key }))
+        .then((result) => {
+          if (!result?.ok) return;
+          const message = {
+            v: PROTOCOL_VERSION, type: 'hideseek.reward', epoch: this.epoch,
+            reward: result.reward, coins: result.coins, count: result.count, limit: result.limit,
+          };
+          for (const current of this.participants.values()) {
+            if (current.accountId === participant.accountId && current.socket && parseServerMessage(message).ok) send(current.socket, message);
+          }
+        })
+        .catch((error) => console.warn(`Không trả được xu trốn tìm: ${error.message}`));
+    }
   }
 
   // Đi vòng theo waypoints (phòng không có bản đồ scene).
@@ -2151,6 +2266,8 @@ export class Room {
 
   removeBots() {
     clearInterval(this.botTimer);
+    clearInterval(this.botWalkTimer);
+    this.botWalkTimer = null;
     this.botTimer = null;
     this.botState = null;
     for (const [id, participant] of this.participants) {
@@ -2244,13 +2361,14 @@ export class Room {
 
   botTick(now = Date.now(), random = Math.random) {
     if ((!this.connectedCount && !this.keepBotsAlive) || !this.botState) return;
+    this.hideSeek?.recheckLobby();
     const config = this.rules.bots;
     const state = this.botState;
     const bots = [...this.participants.values()].filter((participant) => participant.bot);
     this.driftBotCount(now, random);
     const target = this.botTargetCount;
     let changed = false;
-    const busyBot = (bot) => this.activeChallengeOf(bot.id) || this.activeChoreOf(bot.id)
+    const busyBot = (bot) => this.hideSeek?.inRound(bot.id) || this.activeChallengeOf(bot.id) || this.activeChoreOf(bot.id)
       || this.table?.hasBotBet?.(bot.id) || this.table?.hasBotTicket?.(bot.id)
       || bot.handWith || (bot.talkUntil || 0) > now;
     const idle = bots.length > target ? [...bots].reverse().find((bot) => !busyBot(bot)) : null;
@@ -2284,9 +2402,10 @@ export class Room {
       this.broadcastState();
     }
     for (const bot of bots) {
-      if (this.participants.has(bot.id)) this.advanceBotWalk(bot, now);
-      // Bot đang đối đáp / chờ trả lời thì không chen câu khác vào giữa.
-      if (!this.participants.has(bot.id) || now < bot.nextActionAt || (bot.talkUntil || 0) > now) continue;
+      // Bước đi chạy ở botWalkTick (nhịp BOT_WALK_MS); test gọi botTick trực tiếp thì vẫn đi.
+      if (!this.botWalkTimer && this.participants.has(bot.id)) this.advanceBotWalk(bot, now);
+      // Bot đang đối đáp / chờ trả lời thì không chen câu khác vào giữa; bot đang trốn tìm thì im lặng.
+      if (!this.participants.has(bot.id) || now < bot.nextActionAt || (bot.talkUntil || 0) > now || this.hideSeek?.inRound(bot.id)) continue;
       bot.nextActionAt = now + randomBetween(config.actionMs) * bot.pace;
       this.botAct(bot);
     }
@@ -2306,6 +2425,8 @@ export class Room {
     const bots = [];
     for (const participant of this.participants.values()) {
       if (!participant.pos) continue;
+      // Người / bot đang chơi trốn tìm: không bắt chuyện (bot đứng yên ở chỗ trốn, người chơi không thấy bot ngoài ván).
+      if (this.hideSeek?.inRound(participant.id)) continue;
       if (participant.bot) {
         if (!participant.handWith && (participant.talkUntil || 0) <= now && !this.activeChallengeOf(participant.id)) bots.push(participant);
       } else if (participant.connected && !participant.botQuiet && !participant.seatId && !participant.benchId && !participant.handWith
@@ -2864,6 +2985,7 @@ export class Room {
   // Ghế đá ngoài sân: server chọn chỗ trống 1/2 để hai người bấm cùng lúc vẫn không ngồi chồng lên nhau.
   selectBench(participantId, benchId) {
     if (!this.benchIds.has(benchId)) return { ok: false, error: 'INVALID_BENCH' };
+    if (this.hideSeek?.inRound(participantId)) return { ok: false, error: 'IN_GAME' };
     const participant = this.participants.get(participantId);
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     if (participant.benchId === benchId && participant.benchSpot) return { ok: true, spot: participant.benchSpot };
@@ -2888,9 +3010,12 @@ export class Room {
     if (this.closed) return;
     this.closed = true;
     this.table?.stop();
+    this.hideSeek?.stop();
     clearTimeout(this.playback.timer);
     clearTimeout(this.moveTimer);
     clearInterval(this.botTimer);
+    clearInterval(this.botWalkTimer);
+    this.botWalkTimer = null;
     clearInterval(this.choreTimer);
     this.stopViews();
     for (const challenge of this.challenges.values()) clearTimeout(challenge.timer);
@@ -2981,6 +3106,7 @@ export class RoomRegistry {
     this.cinemaPlaylistPending = new Map();
     this.onOffering = options.onOffering;
     this.onChoreReward = options.onChoreReward;
+    this.onHideSeekReward = options.onHideSeekReward;
     this.onFriend = options.onFriend;
     this.onReport = options.onReport;
     this.onBotChat = options.onBotChat;
@@ -3157,6 +3283,7 @@ export class RoomRegistry {
       onEmpty: () => this.removeIfEmpty(roomId),
       onOffering: this.onOffering,
       onChoreReward: this.onChoreReward,
+      onHideSeekReward: this.onHideSeekReward,
       onFriend: this.onFriend,
       onReport: this.onReport,
       onBotChat: this.onBotChat,
@@ -3387,6 +3514,8 @@ function handleRoomMessage(socket, context, raw) {
     send(socket, room.playbackState());
     if (room.chatLog.length) send(socket, room.chatHistoryMessage());
     if (room.chores.size) room.broadcastChores(socket);
+    // Trốn tìm đang có người chờ / đang chơi: người mới vào (hoặc nối lại) thấy ngay.
+    if (room.hideSeek && room.hideSeek.phase !== 'idle') send(socket, room.hideSeek.stateMessage());
     // Phòng game: trạng thái bàn Bầu Cua và cược của mình trong ván đang chạy (vào lại giữa ván).
     if (room.table) {
       const state = room.table.stateMessage();
@@ -3432,6 +3561,25 @@ function handleRoomMessage(socket, context, raw) {
     room.table.cancelBets(room.participants.get(context.participantId), message).then((result) => {
       if (!result.ok) protocolError(socket, room.epoch, result.code, result.message, message.requestId);
     });
+    return;
+  }
+  if (message.type.startsWith('hideseek.')) {
+    if (!room.hideSeek) {
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có trò trốn tìm', message.requestId);
+      return;
+    }
+    const catching = message.type === 'hideseek.catch';
+    if (!room.allow(`${context.participantId}:${catching ? 'hideseek-catch' : 'hideseek'}`, catching ? 10 : 5, 10_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn bấm quá nhanh', message.requestId);
+      return;
+    }
+    const result = message.type === 'hideseek.join' ? room.hideSeek.join(context.participantId)
+      : message.type === 'hideseek.leave' ? room.hideSeek.leave(context.participantId)
+        : room.hideSeek.catch(context.participantId, message.targetId);
+    if (!result.ok) {
+      const text = { GAME_FULL: 'Ván trốn tìm đã đủ người', TOO_FAR: 'Lại gần hơn để bắt (trong 3 m)', NOT_SEEKING: 'Chưa tới lúc đi kiếm', NOT_SEEKER: 'Bạn không phải người đi kiếm', NOT_HIDER: 'Người này không phải người trốn' }[result.error];
+      protocolError(socket, room.epoch, result.error, text || 'Chưa làm được, thử lại sau', message.requestId);
+    }
     return;
   }
   if (message.type.startsWith('rps.')) {
@@ -3533,7 +3681,8 @@ function handleRoomMessage(socket, context, raw) {
     if (!result.ok) {
       const detail = result.error === 'RATE_LIMITED' ? 'Bạn đang đổi khu quá nhanh'
         : result.error === 'WALKERS_FULL' ? 'Chánh điện đã đủ người đi lại'
-          : 'Không thể đi nhanh tới khu này';
+          : result.error === 'IN_GAME' ? 'Đang chơi trốn tìm, không đi nhanh được'
+            : 'Không thể đi nhanh tới khu này';
       protocolError(socket, room.epoch, result.error, detail, message.requestId);
     }
     return;
@@ -4049,6 +4198,20 @@ export function choreRewardRecorder(apiInternalUrl, secret) {
   });
 }
 
+export function hideSeekRewardRecorder(apiInternalUrl, secret) {
+  const key = internalKey(secret);
+  const url = new URL('/internal/hideseek/reward', apiInternalUrl);
+  return (event) => fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: JSON.stringify(event),
+    signal: AbortSignal.timeout(5_000),
+  }).then((response) => (response.ok ? response.json() : null)).catch((error) => {
+    console.warn(`Không trả được xu trốn tìm: ${error.message}`);
+    return null;
+  });
+}
+
 // Báo API danh sách thành viên đang online trên máy này (cả danh sách mỗi lần, để người đã rời tự mất khỏi danh sách).
 export function presenceReporter(apiInternalUrl, secret, registry) {
   const key = internalKey(secret);
@@ -4212,6 +4375,7 @@ export function createRealtimeServer(options = {}) {
     issueResumeToken: (claims) => createResumeToken(claims, secret),
     onOffering: options.recordOffering || (options.apiInternalUrl ? offeringRecorder(options.apiInternalUrl, secret) : undefined),
     onChoreReward: options.recordChoreReward || (options.apiInternalUrl ? choreRewardRecorder(options.apiInternalUrl, secret) : undefined),
+    onHideSeekReward: options.recordHideSeekReward || (options.apiInternalUrl ? hideSeekRewardRecorder(options.apiInternalUrl, secret) : undefined),
     onFriend: options.recordFriend || (options.apiInternalUrl ? friendRecorder(options.apiInternalUrl, secret) : undefined),
     onReport: options.recordReport || (options.apiInternalUrl ? reportRecorder(options.apiInternalUrl, secret) : undefined),
     onBotChat: options.recordBotChat || (options.apiInternalUrl ? botChatRecorder(options.apiInternalUrl, secret) : undefined),

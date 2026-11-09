@@ -246,7 +246,8 @@ export function createSpirit(pet, { reduceMotion = false, loadModel = typeof win
   }
 
   // Vùng chạm vô hình quanh thân (cá chép / hạc nhỏ, khó bấm trúng hình thật): người chơi chạm vào linh thú.
-  const pickable = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshBasicMaterial({ visible: false }));
+  // Con bay (cá chép, hạc) nhỏ và hay dịch theo chủ: vùng chạm rộng hơn.
+  const pickable = new THREE.Mesh(new THREE.SphereGeometry(built.fly ? 0.65 : 0.5, 10, 8), new THREE.MeshBasicMaterial({ visible: false }));
   pickable.position.y = built.fly || 0.32;
   pickable.userData.spirit = true;
   group.add(pickable);

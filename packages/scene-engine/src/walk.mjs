@@ -41,13 +41,76 @@ export function validateWalk(walk) {
 const inRect = (rect, x, z) => x >= rect.x[0] && x <= rect.x[1] && z >= rect.z[0] && z <= rect.z[1];
 const inAreas = (walk, x, z) => inRect(walk.bounds, x, z) && (!walk.areas?.length || walk.areas.some((area) => inRect(area, x, z)));
 
+// Chỉ mục ô lưới cho vật cản (dùng cho va chạm từng bước đi và isWalkable): sân có gần 2.000 vật cản, mỗi bước đi của
+// mỗi nhân vật mà quét hết thì phòng đông (40 người trong tầm nhìn) làm điện thoại giật cả hình lẫn tiếng. Mỗi vật cản
+// nằm trong các ô mà khung bao của nó phủ; một điểm chỉ cần xét vật cản trong các ô quanh nó (± bán kính thân người).
+// Giữ đúng thứ tự vật cản như mảng gốc (va chạm xử lý tuần tự nên thứ tự đổi thì kết quả trượt có thể khác chút).
+// Tạo lại khi mảng vật cản đổi (khác mảng hoặc khác độ dài).
+const GRID_CELL = 2;
+const gridCache = new WeakMap();
+function obstacleGrid(obstacles) {
+  const cached = gridCache.get(obstacles);
+  if (cached && cached.count === obstacles.length) return cached;
+  const cells = new Map();
+  obstacles.forEach((item, index) => {
+    const rx = item.rx ?? item.r;
+    const rz = item.rz ?? item.r;
+    const x0 = Math.floor((item.x - rx) / GRID_CELL);
+    const x1 = Math.floor((item.x + rx) / GRID_CELL);
+    const z0 = Math.floor((item.z - rz) / GRID_CELL);
+    const z1 = Math.floor((item.z + rz) / GRID_CELL);
+    for (let cx = x0; cx <= x1; cx += 1) {
+      for (let cz = z0; cz <= z1; cz += 1) {
+        const key = cx * 65_536 + cz;
+        let list = cells.get(key);
+        if (!list) cells.set(key, (list = []));
+        list.push(index);
+      }
+    }
+  });
+  const grid = { count: obstacles.length, cells, scratch: [] };
+  gridCache.set(obstacles, grid);
+  return grid;
+}
+// Chỉ số các vật cản có thể chạm điểm (x, z) với bán kính pad, tăng dần. Mảng trả về dùng lại giữa các lần gọi.
+function nearbyObstacles(obstacles, x, z, pad) {
+  const grid = obstacleGrid(obstacles);
+  const out = grid.scratch;
+  out.length = 0;
+  const x0 = Math.floor((x - pad) / GRID_CELL);
+  const x1 = Math.floor((x + pad) / GRID_CELL);
+  const z0 = Math.floor((z - pad) / GRID_CELL);
+  const z1 = Math.floor((z + pad) / GRID_CELL);
+  let cellsHit = 0;
+  for (let cx = x0; cx <= x1; cx += 1) {
+    for (let cz = z0; cz <= z1; cz += 1) {
+      const list = grid.cells.get(cx * 65_536 + cz);
+      if (!list) continue;
+      cellsHit += 1;
+      for (const index of list) out.push(index);
+    }
+  }
+  if (cellsHit > 1) {
+    out.sort((a, b) => a - b);
+    let write = 0;
+    for (let read = 0; read < out.length; read += 1) if (read === 0 || out[read] !== out[read - 1]) out[write++] = out[read];
+    out.length = write;
+  }
+  return out;
+}
+
 // Vật cản elip nới thêm bán kính thân người; trả "độ sâu" k (< 1 là đang ở trong).
 const ellipseDepth = (item, radius, x, z) => Math.hypot((x - item.x) / (item.rx + radius), (z - item.z) / (item.rz + radius));
 
 export function isWalkable(walk, x, z) {
   const radius = walk.radius ?? 0.25;
   if (!inAreas(walk, x, z)) return false;
-  return (walk.obstacles || []).every((item) => (item.rx ? ellipseDepth(item, radius, x, z) >= 1 : Math.hypot(x - item.x, z - item.z) >= item.r + radius));
+  const obstacles = walk.obstacles || [];
+  for (const index of nearbyObstacles(obstacles, x, z, radius)) {
+    const item = obstacles[index];
+    if (item.rx ? ellipseDepth(item, radius, x, z) < 1 : Math.hypot(x - item.x, z - item.z) < item.r + radius) return false;
+  }
+  return true;
 }
 
 // Giải một bước ngắn: giữ trong vùng, trượt dọc theo vật cản thay vì đứng khựng.
@@ -55,7 +118,12 @@ function resolveStep(walk, from, to) {
   const radius = walk.radius ?? 0.25;
   let x = Math.min(Math.max(to.x, walk.bounds.x[0]), walk.bounds.x[1]);
   let z = Math.min(Math.max(to.z, walk.bounds.z[0]), walk.bounds.z[1]);
-  for (const item of walk.obstacles || []) {
+  const obstacles = walk.obstacles || [];
+  // Bước ngắn (≤ MAX_SWEEP_STEP) từ chỗ an toàn: vật cản có thể chạm đều nằm trong các ô quanh điểm đích; nới thêm
+  // 0,6 m cho phần bị đẩy / trượt dọc vật cản xét trước trong cùng bước. Chép mảng vì mảng chỉ mục được dùng lại.
+  const candidates = nearbyObstacles(obstacles, x, z, radius + 0.6).slice();
+  for (const index of candidates) {
+    const item = obstacles[index];
     if (item.rx) {
       // Elip (bờ hồ): đẩy ra mép theo hướng từ tâm, nhờ vậy tự trượt dọc bờ.
       const depth = ellipseDepth(item, radius, x, z);

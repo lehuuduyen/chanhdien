@@ -105,6 +105,10 @@ const MAX_STAKE = 1_000;
 // trận "rp-…". Pha của một trận: waiting (bàn mình mở, chờ đối thủ) → ready (đếm ngược) → pick (5 giây chọn) → reveal
 // (lật tay; hòa thì sang lượt mới) → done (kết quả, chờ đấu lại) | closed (bàn đóng / đối thủ rời).
 export const RPS_STAKES = Object.freeze([10, 20, 50, 100, 200]);
+// Trốn tìm: idle (chưa ai chờ) → lobby (chờ đủ người, đếm ngược) → hiding (đi trốn) → seeking (đi kiếm) → result.
+export const HIDESEEK_PHASES = Object.freeze(['idle', 'lobby', 'hiding', 'seeking', 'result']);
+export const HIDESEEK_ROLES = Object.freeze(['seeker', 'hider']);
+const HIDESEEK_MAX = 60;
 export const RPS_PHASES = Object.freeze(['waiting', 'ready', 'pick', 'reveal', 'done', 'closed']);
 export const RPS_RESULTS = Object.freeze(['win', 'lose', 'draw', 'void']);
 const RPS_MATCH_ID = /^rp-[a-z0-9-]{4,76}$/;
@@ -138,6 +142,9 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'bet.cancel': { roles: ['member', 'moderator', 'host'], rate: '3/5 giây, chỉ trong pha đặt cược' },
   'lotto.buy': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, chỉ trong pha mua vé, tối đa 2 vé mỗi ván' },
   'lotto.claim': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây; kinh sai khóa nút 10 giây' },
+  'hideseek.join': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
+  'hideseek.leave': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
+  'hideseek.catch': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/10 giây, chỉ người đi kiếm trong pha đi kiếm' },
   'rps.open': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, mỗi người một bàn / trận một lúc' },
   'rps.find': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
   'rps.join': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
@@ -320,6 +327,18 @@ const clientSchemas = {
   },
   // Oẳn Tù Tì cược: mở bàn với mức cược (trừ cọc ngay), tìm trận nhanh (vào bàn đang chờ cùng mức, không có thì mở
   // bàn), nhận một bàn đang chờ, rời bàn / thôi chờ / thôi đấu lại (hoàn cọc nếu chưa đấu), ra tay, đấu lại.
+  // Trốn tìm (phòng chánh điện): xin vào ván kế tiếp, rời (đang chơi thì bỏ cuộc), người đi kiếm bắt một người trốn.
+  'hideseek.join'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId']) && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'hideseek.leave'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId']) && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'hideseek.catch'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'targetId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.targetId, LIMITS.participantId, ID_PATTERN);
+  },
   'rps.open'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'stake'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
@@ -646,6 +665,34 @@ const serverSchemas = {
       && typeof message.autoMark === 'boolean'
       && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
       && (message.requestId === undefined || isString(message.requestId, LIMITS.requestId, ID_PATTERN));
+  },
+  // Trốn tìm (cả phòng): pha, giờ hết pha (giờ server), người chờ ván sau, người trong ván (vai, đã bị bắt chưa), bên
+  // thắng, lần bắt gần nhất. Không mang vị trí: vị trí đi qua room.state / room.moves và server lọc theo vai.
+  'hideseek.state'(message) {
+    const person = (value) => isRecord(value) && exactKeys(value, ['id', 'displayName'])
+      && isString(value.id, LIMITS.participantId, ID_PATTERN) && isString(value.displayName, LIMITS.displayName);
+    const player = (value) => isRecord(value) && exactKeys(value, ['id', 'displayName', 'role', 'caught'])
+      && isString(value.id, LIMITS.participantId, ID_PATTERN) && isString(value.displayName, LIMITS.displayName)
+      && HIDESEEK_ROLES.includes(value.role) && typeof value.caught === 'boolean';
+    return exactKeys(message, ['v', 'type', 'epoch', 'phase', 'round', 'lobby', 'players', 'minPlayers'], ['endsAt', 'winner', 'lastCatch'])
+      && HIDESEEK_PHASES.includes(message.phase)
+      && isInteger(message.round) && message.round >= 0
+      && Array.isArray(message.lobby) && message.lobby.length <= HIDESEEK_MAX && message.lobby.every(person)
+      && Array.isArray(message.players) && message.players.length <= HIDESEEK_MAX && message.players.every(player)
+      && isInteger(message.minPlayers) && message.minPlayers >= 2
+      && (message.endsAt === undefined || (isInteger(message.endsAt) && message.endsAt >= 0))
+      && (message.winner === undefined || ['seekers', 'hiders', 'none'].includes(message.winner))
+      && (message.lastCatch === undefined || (isRecord(message.lastCatch) && exactKeys(message.lastCatch, ['seekerId', 'hiderId', 'at'])
+        && isString(message.lastCatch.seekerId, LIMITS.participantId, ID_PATTERN) && isString(message.lastCatch.hiderId, LIMITS.participantId, ID_PATTERN)
+        && isInteger(message.lastCatch.at)));
+  },
+  // Thưởng thắng trốn tìm (chỉ gửi người thắng có tài khoản): reward 0 khi đã đủ lần trong ngày.
+  'hideseek.reward'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'reward', 'coins', 'count', 'limit'])
+      && isInteger(message.reward) && message.reward >= 0 && message.reward <= 1_000
+      && isInteger(message.coins) && message.coins >= 0
+      && isInteger(message.limit) && message.limit >= 1 && message.limit <= 100
+      && isInteger(message.count) && message.count >= 0 && message.count <= message.limit;
   },
   // Sảnh Oẳn Tù Tì (cả phòng): bàn đang chờ đối thủ, số trận đang đấu, vài trận vừa xong (a / b là tên hai bên).
   'rps.lobby'(message) {

@@ -202,6 +202,28 @@ export function createTempleAudio({ serverNow, onTrack, onVoice, onSpeaking }) {
     }, wait));
   }
 
+  // Nhịp đều (mõ nền): hẹn trước các tiếng trong BEAT_AHEAD_MS tới bằng đồng hồ của AudioContext (chạy riêng, không
+  // phụ thuộc luồng chính). Hẹn bằng setTimeout rồi gõ "ngay lúc đó" thì khi trang bận (phòng đông, đang vẽ nhiều
+  // nhân vật) tiếng mõ trễ lệch nhịp, nghe như nhạc bị giật. Vẫn canh theo giờ server để mọi máy gõ cùng nhịp.
+  const BEAT_TICK_MS = 200;
+  const BEAT_AHEAD_MS = 800;
+  function scheduleBeats(periodMs, play, setTimer) {
+    let next = Math.ceil(serverNow() / periodMs) * periodMs;
+    const tick = () => {
+      if (!context) return;
+      const now = serverNow();
+      // Trang bị treo lâu (tab ẩn, máy ngủ): bỏ các nhịp đã lỡ, không gõ dồn.
+      if (next < now - periodMs) next = Math.ceil(now / periodMs) * periodMs;
+      while (next <= now + BEAT_AHEAD_MS) {
+        const delay = (next - now) / 1000;
+        if (delay > -0.03) play(context.currentTime + Math.max(0, delay));
+        next += periodMs;
+      }
+    };
+    tick();
+    setTimer(setInterval(tick, BEAT_TICK_MS));
+  }
+
   // ---- Hàng chờ giọng đọc: tự đọc từng câu một thay vì dồn vào hàng chờ của trình duyệt ----
   // iPhone / Chrome Android hay kẹt: một câu nằm chờ mãi không bắt đầu, các câu sau không bao giờ phát. Mỗi câu có
   // 2,5 giây để bắt đầu; quá hạn thì xóa hàng của trình duyệt và đọc lại câu đó một lần.
@@ -354,11 +376,11 @@ export function createTempleAudio({ serverNow, onTrack, onVoice, onSpeaking }) {
       musicGain.connect(master);
       playTrack(Math.floor(Math.random() * TRACKS.length));
       bell();
-      scheduleAligned(MO_PERIOD_MS, () => { if (!muted && !lectureOn && !document.hidden) knock(context.currentTime, 880); }, (timer) => { moTimer = timer; });
+      scheduleBeats(MO_PERIOD_MS, (at) => { if (!muted && !lectureOn && !document.hidden) knock(at, 880); }, (timer) => { moTimer = timer; });
       scheduleAligned(BELL_PERIOD_MS, () => bell(), (timer) => { bellTimer = timer; });
     },
     stop() {
-      clearTimeout(moTimer);
+      clearInterval(moTimer);
       clearTimeout(bellTimer);
       for (const item of musicEls) item.el.pause();
       musicEls = [];
