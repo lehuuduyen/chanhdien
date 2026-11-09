@@ -1,5 +1,6 @@
 import http from 'node:http';
-import { createReadStream, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -78,6 +79,83 @@ export function resolveWebFile(pathname) {
   return resolvePublicFile(pathname);
 }
 
+// Phiên bản file theo nội dung. Cloudflare cho trình duyệt giữ file JS tới 4 giờ nên sau deploy máy người chơi vẫn
+// chạy module cũ (hoặc trộn cũ với mới). Trang HTML (no-cache) gắn ?v=<hash> vào script / stylesheet và khai báo mọi
+// module trong import map, nên cả import tĩnh, import() lẫn import tương đối giữa các module đều đi tới bản mới.
+const VERSION_TTL_MS = 2000;
+const fileHashes = new Map();
+let moduleMapCache = { at: -Infinity, imports: null };
+
+export function fileVersion(file) {
+  let stat;
+  try {
+    stat = statSync(file);
+  } catch {
+    return null;
+  }
+  const cached = fileHashes.get(file);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.hash;
+  const hash = createHash('sha256').update(readFileSync(file)).digest('hex').slice(0, 10);
+  fileHashes.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, hash });
+  return hash;
+}
+
+function versionedPath(pathname) {
+  const file = resolveWebFile(pathname);
+  const hash = file && fileVersion(file);
+  return hash ? `${pathname}?v=${hash}` : null;
+}
+
+// Mọi module trình duyệt tải từ server: /<file>.js, /engine/<file>.mjs, /shared/*.mjs (Three.js đã ghim phiên bản).
+export function moduleImportMap(now = Date.now()) {
+  if (moduleMapCache.imports && now - moduleMapCache.at < VERSION_TTL_MS) return moduleMapCache.imports;
+  const list = (dir, prefix, pattern) => {
+    try {
+      return readdirSync(dir).filter((name) => pattern.test(name)).map((name) => `${prefix}${name}`);
+    } catch {
+      return [];
+    }
+  };
+  const paths = [
+    ...list(PUBLIC_DIR, '/', /\.m?js$/),
+    ...list(ENGINE_DIR, '/engine/', /\.mjs$/),
+    '/shared/room-rules.mjs',
+    '/shared/prayer-slip.mjs',
+  ];
+  const imports = {};
+  for (const pathname of paths) {
+    const versioned = versionedPath(pathname);
+    if (versioned) imports[pathname] = versioned;
+  }
+  moduleMapCache = { at: now, imports };
+  return imports;
+}
+
+export function versionHtml(html, imports = moduleImportMap()) {
+  let out = html.replace(/(<(?:script|link)\b[^>]*?\b(?:src|href)=")(\/[^"?#]+\.(?:m?js|css))(")/g, (all, before, pathname, after) => {
+    const versioned = imports[pathname] || versionedPath(pathname);
+    return versioned ? `${before}${versioned}${after}` : all;
+  });
+  const existing = /<script type="importmap">([\s\S]*?)<\/script>/.exec(out);
+  let declared = {};
+  if (existing) {
+    try {
+      declared = JSON.parse(existing[1]);
+    } catch {
+      return out;
+    }
+  }
+  const map = JSON.stringify({ ...declared, imports: { ...imports, ...declared.imports } });
+  const tag = `<script type="importmap">${map}</script>`;
+  if (existing) return out.replace(existing[0], () => tag);
+  // Import map phải đứng trước mọi script module.
+  const at = [out.search(/<script\b/), out.indexOf('</head>')].filter((index) => index >= 0);
+  if (!at.length) return out;
+  const index = Math.min(...at);
+  out = `${out.slice(0, index)}${tag}\n  ${out.slice(index)}`;
+  return out;
+}
+
 // Web server cũng là cổng vào chung: /api/* → API, /ws → máy realtime. Nhờ vậy client chỉ cần một origin
 // (chạy sau tunnel hoặc load balancer với https/wss mà không phải mở thêm cổng).
 function proxyHeaders(req, upstream) {
@@ -148,7 +226,8 @@ export function createWebServer(options = {}) {
   const apiUpstream = new URL(options.apiUpstream || 'http://127.0.0.1:4000');
   const realtimeUpstream = new URL(options.realtimeUpstream || 'http://127.0.0.1:4001');
   const server = http.createServer((req, res) => {
-    const pathname = new URL(req.url, 'http://local').pathname;
+    const requestUrl = new URL(req.url, 'http://local');
+    const pathname = requestUrl.pathname;
     if (pathname.startsWith('/api/')) {
       proxyHttp(req, res, apiUpstream);
       return;
@@ -166,10 +245,26 @@ export function createWebServer(options = {}) {
       res.writeHead(404).end('not found');
       return;
     }
+    const extension = path.extname(file).toLowerCase();
+    if (extension === '.html' && file.startsWith(`${PUBLIC_DIR}${path.sep}`)) {
+      const body = Buffer.from(versionHtml(readFileSync(file, 'utf8')));
+      res.writeHead(200, {
+        'Content-Type': CONTENT_TYPES['.html'],
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Length': body.length,
+      });
+      res.end(req.method === 'HEAD' ? undefined : body);
+      return;
+    }
     const size = statSync(file).size;
+    // Đúng phiên bản trang đang trỏ tới thì nội dung URL này không bao giờ đổi; ?v cũ (trang mở từ trước deploy)
+    // nhận bản hiện tại nhưng không được giữ lâu.
+    const version = requestUrl.searchParams.get('v');
+    const immutable = Boolean(version) && version === fileVersion(file);
     const headers = {
-      'Content-Type': CONTENT_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': 'no-cache',
+      'Content-Type': CONTENT_TYPES[extension] || 'application/octet-stream',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
       'X-Content-Type-Options': 'nosniff',
       'Accept-Ranges': 'bytes',
     };
