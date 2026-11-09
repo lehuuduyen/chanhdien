@@ -758,9 +758,10 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   const plugin = pluginFactory?.({
     THREE, canvas, scene3d, root, camera, controls, materials, buildPerson, world, sceneData, seatsWorld, courtyard,
     pickSeatAt, onSeatClick, reduceMotion,
-    makeLabel: (text, me) => textSprite(text.length > 18 ? `${text.slice(0, 17)}…` : text, {
-      background: me ? 'rgba(138, 42, 30, 0.9)' : 'rgba(12, 10, 8, 0.66)', color: '#f6ead2', height: 0.15, bold: me,
-    }),
+    // tone 'seeker': người đi tìm trong trò trốn tìm (đỏ tươi, chữ đậm) để ai cũng nhận ra.
+    makeLabel: (text, me, tone = null) => textSprite(text.length > 18 ? `${text.slice(0, 17)}…` : text, tone === 'seeker'
+      ? { background: 'rgba(214, 38, 38, 0.96)', color: '#ffffff', height: 0.17, bold: true }
+      : { background: me ? 'rgba(138, 42, 30, 0.9)' : 'rgba(12, 10, 8, 0.66)', color: '#f6ead2', height: 0.15, bold: me }),
     makeBubble: (text, me) => textSprite(text, { background: me ? '#f3c969' : 'rgba(250, 250, 248, 0.95)', color: '#1b140c', height: 0.14, tail: true }),
     disposeSprite,
   }) || null;

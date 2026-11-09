@@ -1,5 +1,7 @@
 // Trốn tìm trong sân chánh điện (rules.hideSeek). Máy giữ phòng điều khiển ván; không có tiền, không gọi API.
 //   idle → lobby (có người xin chơi; đủ minPlayers thì đếm lobbyMs) → hiding → seeking → result → lobby …
+// - Phòng chờ chung: bấm tham gia (khi chưa có ván) là được đưa ra vòng tập trung quanh điểm xuất phát; hết ván người
+//   vừa chơi cũng về lại đó.
 // - Bắt đầu ván: người trong hàng chờ thành người chơi, ~1 người đi kiếm / seekersPer người (tránh lặp người đi kiếm
 //   ván trước), mọi người về điểm xuất phát (base).
 // - Đi trốn (hideMs): người đi kiếm không được đi và KHÔNG nhận vị trí người trốn (server lọc ở danh sách thấy), nên sửa
@@ -51,9 +53,23 @@ export class HideSeekGame {
     if (this.lobby.size >= this.rules.maxPlayers) return { ok: false, error: 'GAME_FULL' };
     this.lobby.add(participantId);
     if (this.phase === 'idle') this.phase = 'lobby';
+    // Phòng chờ chung: người vừa tham gia ra điểm tập trung giữa sân, thấy nhau trước khi chia vai. Đang có ván thì
+    // chờ ván sau tại chỗ (không kéo vào giữa ván).
+    if (!this.active) this.gather(participantId);
     this.armLobby();
     this.broadcast();
     return { ok: true };
+  }
+
+  // Đưa một người ra vòng tập trung quanh điểm xuất phát (chỉ người đang đi lại trong sân; người xem thì để lúc bắt đầu).
+  gather(participantId) {
+    const participant = this.room.participants.get(participantId);
+    if (!participant?.pos || participant.bot) return;
+    const { base } = this.rules;
+    const angle = this.random() * Math.PI * 2;
+    const radius = 3 + this.random() * 1.5;
+    this.room.releaseHand?.(participantId);
+    this.room.teleport(participantId, { x: base.x + Math.cos(angle) * radius, z: base.z + Math.sin(angle) * radius, ry: Math.atan2(-Math.cos(angle), -Math.sin(angle)) });
   }
 
   // Rời hàng chờ; đang trong ván thì bỏ cuộc (người trốn chưa bị bắt coi như thua lượt của mình).
@@ -258,6 +274,8 @@ export class HideSeekGame {
     for (const [id, player] of this.players) {
       if (!player.bot && this.room.participants.get(id)?.connected && this.lobby.size < this.rules.maxPlayers) this.lobby.add(id);
     }
+    // Về lại phòng chờ chung giữa sân.
+    for (const id of this.lobby) this.gather(id);
     this.players = new Map();
     this.winner = null;
     this.lastCatch = null;

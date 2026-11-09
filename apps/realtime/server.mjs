@@ -287,6 +287,8 @@ export class Room {
     // Ví kim cương ({ spend, refund } qua API): mở phim tốn kim cương.
     // Trả / hoàn tiền mở phim qua API (xu hoặc kim cương, admin chọn): { pay, refund }. Không có thì không mở phim tốn tiền được.
     this.videoPay = options.videoPay || null;
+    // Kiểm duyệt video trước khi lên rạp (API hỏi AI, lưu kết quả theo video): (input) → { ok, decision, reason }.
+    this.videoReview = options.videoReview || null;
     // Bot làm vườn ({ task, act } qua API): bot đi dạo rẽ vào Vườn Công Đức gieo / tưới / hái luống của bot.
     this.gardenBots = options.gardenBots || null;
     // Phòng Lô Tô riêng: tài khoản chủ phòng (chủ rời phòng thì đóng phòng) và báo API khi đóng. Bot chỉ có khi được mời.
@@ -1491,6 +1493,56 @@ export class Room {
     return { ok: true };
   }
 
+  // Video người chơi mở: kiểm tra hàng chờ, hỏi kiểm duyệt (AI ở API, vài giây) rồi mới trừ tiền. Bị chặn / chờ quản trị
+  // duyệt / chưa duyệt được thì không trừ, trả lý do cho người mở.
+  async addUserVideo(participantId, videoId, title, requestId) {
+    const participant = this.participants.get(participantId);
+    if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
+    if (this.rules.content?.videoPrice && !participant.accountId) return { ok: false, error: 'SIGN_IN_REQUIRED' };
+    const check = this.canAddVideo(participantId, videoId);
+    if (!check.ok) return check;
+    if (this.videoReview) {
+      const verdict = await Promise.resolve(this.videoReview({
+        videoId, roomId: this.id, accountId: participant.accountId || null, displayName: participant.displayName,
+      })).catch(() => null);
+      if (this.closed) return { ok: false, error: 'NOT_IN_ROOM' };
+      if (verdict?.ok && (verdict.decision === 'block' || verdict.decision === 'hold')) {
+        const reason = typeof verdict.reason === 'string' ? verdict.reason.slice(0, 150) : '';
+        return { ok: false, error: verdict.decision === 'block' ? 'VIDEO_BLOCKED' : 'VIDEO_HELD', reason };
+      }
+      if (!verdict?.ok || verdict.decision !== 'allow') return { ok: false, error: 'VIDEO_REVIEW_FAILED' };
+    }
+    return this.addPaidVideo(participantId, videoId, title, requestId);
+  }
+
+  // Quản trị chặn video (Telegram /chanvideo): bỏ khỏi hàng chờ và hoàn tiền; đang chiếu thì chuyển sang video kế
+  // (đã chiếu nên không hoàn). Người mở được báo lý do.
+  dropBlockedVideo(videoId, reason) {
+    if (!isCinemaType(this.type) || this.closed) return 0;
+    const playback = this.playback;
+    const queued = playback.queue.filter((item) => item.videoId === videoId);
+    const current = playback.current?.videoId === videoId ? playback.current : null;
+    if (!queued.length && !current) return 0;
+    const tell = (item, refunded) => {
+      const text = `Video «${String(item.title || item.videoId).slice(0, 60)}» bị quản trị gỡ khỏi rạp: ${reason}${refunded ? ' · đã hoàn tiền' : ''}`;
+      const message = { v: PROTOCOL_VERSION, type: 'protocol.error', epoch: this.epoch, code: 'VIDEO_REMOVED', message: text.slice(0, 200) };
+      for (const participant of this.participants.values()) {
+        const owner = participant.id === item.addedById || Boolean(participant.accountId && participant.accountId === item.paid?.accountId);
+        if (owner) this.sendTo(participant.id, message);
+      }
+    };
+    playback.queue = playback.queue.filter((item) => item.videoId !== videoId);
+    for (const item of queued) {
+      this.refundPayment(item.paid);
+      tell(item, Boolean(item.paid));
+    }
+    if (current) {
+      tell(current, false);
+      this.advance();
+    } else this.broadcastPlayback();
+    return queued.length + (current ? 1 : 0);
+  }
+
   // Mở phim tốn tiền (rules.content.videoPrice bật tính năng; loại tiền + giá do admin đặt ở API): kiểm tra hàng chờ trước,
   // trả qua API (khóa theo requestId nên gửi lại không trừ hai lần), rồi mới thêm video kèm thông tin đã trả; thêm không
   // được (vừa có người thêm trùng…) thì hoàn ngay.
@@ -1588,7 +1640,10 @@ export class Room {
     // Video người chơi thêm luôn được ưu tiên; chỉ lấy danh sách admin khi hàng chờ đã hết.
     const next = playback.queue.shift() || this.nextFallbackItem();
     playback.current = next
-      ? { itemId: next.itemId, videoId: next.videoId, title: next.title, addedBy: next.addedBy, startedAt: Date.now() + START_DELAY_MS, ...(next.paid ? { paid: next.paid } : {}) }
+      ? {
+        itemId: next.itemId, videoId: next.videoId, title: next.title, addedBy: next.addedBy, startedAt: Date.now() + START_DELAY_MS,
+        ...(next.addedById ? { addedById: next.addedById } : {}), ...(next.paid ? { paid: next.paid } : {}),
+      }
       : null;
     if (options.broadcast !== false) this.broadcastPlayback();
   }
@@ -3116,6 +3171,7 @@ export class RoomRegistry {
     this.rps = options.rps;
     this.lotto = options.lotto;
     this.videoPay = options.videoPay;
+    this.videoReview = options.videoReview;
     this.gardenBots = options.gardenBots;
     this.privateRooms = options.privateRooms;
     this.ticker = null;
@@ -3293,6 +3349,7 @@ export class RoomRegistry {
       lotto: this.lotto,
       rps: this.rps,
       videoPay: this.videoPay,
+      videoReview: this.videoReview,
       gardenBots: this.gardenBots,
       ...(privateInfo ? { privateOwner: privateInfo.owner, onPrivateClosed: (id) => this.privateRooms?.closed(id) } : {}),
     });
@@ -3784,7 +3841,7 @@ function handleRoomMessage(socket, context, raw) {
         protocolError(socket, room.epoch, info.error, text, message.requestId);
         return;
       }
-      return room.addPaidVideo(context.participantId, message.videoId, info.title, message.requestId).then((result) => {
+      return room.addUserVideo(context.participantId, message.videoId, info.title, message.requestId).then((result) => {
         if (!result.ok) protocolError(socket, room.epoch, result.error, queueErrorText(result), message.requestId);
       });
     }).catch(() => protocolError(socket, room.epoch, 'VIDEO_CHECK_FAILED', 'Chưa kiểm tra được video, thử lại sau', message.requestId));
@@ -3887,11 +3944,15 @@ const QUEUE_ERRORS = {
   WALLET_UNAVAILABLE: 'Chưa trừ được tiền mở phim, thử lại sau',
   NOT_QUEUED: 'Video không còn trong hàng chờ (có thể đã bắt đầu chiếu)',
   NOT_OWNER: 'Chỉ người mở phim mới hủy được video này',
+  VIDEO_REVIEW_FAILED: 'Chưa kiểm duyệt được video, thử lại sau ít phút (không bị trừ tiền)',
 };
 // Thiếu tiền: kèm giá đang áp dụng (API trả về) để người chơi biết cần bao nhiêu.
 const queueErrorText = (result) => (result.error === 'INSUFFICIENT_COINS' && result.price ? `Không đủ xu để mở phim (cần ${result.price} xu)`
   : result.error === 'INSUFFICIENT_DIAMONDS' && result.price ? `Không đủ kim cương để mở phim (cần ${result.price} 💎)`
-    : QUEUE_ERRORS[result.error] || 'Không thêm được video');
+    // Kiểm duyệt: lý do AI / quản trị đưa ra (≤ 150 ký tự), người mở không bị trừ tiền.
+    : result.error === 'VIDEO_BLOCKED' ? `Video không được chiếu: ${result.reason || 'nội dung không phù hợp'} · không bị trừ tiền`.slice(0, 200)
+      : result.error === 'VIDEO_HELD' ? `Video cần quản trị xem lại: ${result.reason || 'có dấu hiệu không phù hợp'} · không bị trừ tiền`.slice(0, 200)
+        : QUEUE_ERRORS[result.error] || 'Không thêm được video');
 
 // Nhận localhost, cùng origin với Host (khi đi qua web gateway/tunnel, Host được giữ nguyên)
 // và các host khai báo trong ALLOWED_ORIGIN_HOSTS (phân tách bằng dấu phẩy).
@@ -4096,6 +4157,28 @@ export function handleRealtimeRequest(req, res, registry = new RoomRegistry(), o
       try { input = JSON.parse(raw); } catch {}
       const sent = registry.broadcastGarden(input);
       res.writeHead(sent === null ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(sent === null ? { error: 'invalid_garden' } : { rooms: sent }));
+    });
+    return;
+  }
+  // Quản trị chặn video (Telegram /chanvideo, qua API): gỡ khỏi mọi rạp đang mở trên máy này.
+  if (req.method === 'POST' && req.url === '/internal/cinema/video/blocked') {
+    if (!options.secret || req.headers?.['x-internal-key'] !== internalKey(options.secret)) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' }).end('{"error":"forbidden"}');
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 2_048) req.destroy();
+    });
+    req.on('end', () => {
+      let input = null;
+      try { input = JSON.parse(raw); } catch {}
+      const valid = /^[A-Za-z0-9_-]{11}$/.test(input?.videoId || '') && typeof input?.reason === 'string';
+      let removed = 0;
+      if (valid) for (const room of registry.rooms.values()) removed += room.dropBlockedVideo(input.videoId, input.reason.slice(0, 150));
+      res.writeHead(valid ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+        .end(JSON.stringify(valid ? { ok: true, removed } : { error: 'invalid' }));
     });
     return;
   }
@@ -4306,6 +4389,17 @@ export function cinemaVideoPay(apiInternalUrl, key, fetcher = fetch) {
   return { pay: call('/internal/cinema/video/pay'), refund: call('/internal/cinema/video/refund') };
 }
 
+// Hỏi API kiểm duyệt một video (AI xem tên, kênh, khung hình; có thể mất vài giây). Lỗi mạng ném lỗi.
+export function cinemaVideoReview(apiInternalUrl, key, fetcher = fetch) {
+  const url = new URL('/internal/cinema/video/review', apiInternalUrl);
+  return (body) => fetcher(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  }).then((response) => response.json());
+}
+
 export function shopBotSkinProvider(apiInternalUrl, fetcher = fetch) {
   const url = new URL('/api/v1/shop', apiInternalUrl);
   let cached = [];
@@ -4385,6 +4479,8 @@ export function createRealtimeServer(options = {}) {
     rps: options.rps || (options.apiInternalUrl ? rpsBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Ví kim cương (mở phim): trừ / hoàn qua API.
     videoPay: options.videoPay || (options.apiInternalUrl ? cinemaVideoPay(options.apiInternalUrl, internalKey(secret)) : undefined),
+    // Kiểm duyệt video người chơi mở (AI ở API) trước khi trừ tiền.
+    videoReview: options.videoReview || (options.apiInternalUrl ? cinemaVideoReview(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Phòng Lô Tô riêng: hỏi API chủ phòng + bot được mời, báo API khi phòng đóng.
     privateRooms: options.privateRooms || (options.apiInternalUrl ? privateRoomApi(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Bot làm vườn: hỏi API việc cần làm, báo API khi bot đã tới luống.

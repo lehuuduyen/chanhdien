@@ -611,7 +611,11 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
     },
     refund: async () => ({ ok: true }),
   };
-  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, fetchVideoInfo, videoPay });
+  // Kiểm duyệt (AI ở API): video "badvideo001" bị chặn, còn lại cho phép.
+  const videoReview = async ({ videoId }) => (videoId === 'badvideo001'
+    ? { ok: true, decision: 'block', category: 'sexual', reason: 'Ảnh bìa và khung hình giữa video có cảnh khỏa thân' }
+    : { ok: true, decision: 'allow' });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, fetchVideoInfo, videoPay, videoReview });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const port = server.address().port;
@@ -633,6 +637,16 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
   const blocked = waitForMessage(an.socket, (message) => message.type === 'protocol.error');
   an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q1', videoId: 'blockedvid1' }));
   assert.equal((await blocked).code, 'VIDEO_NOT_EMBEDDABLE');
+  // Người khác (mỗi người 3 lần thêm video / phút) mở video bị AI chặn: nhận lý do, không bị trừ tiền.
+  const dung = await connectClient(port, 'u-dung', 'Dũng', {
+    ticket: createJoinTicket({ participantId: 'u-dung', roomId: 'cinema-1', displayName: 'Dũng', accountId: 'a-dung-0000001' }, SECRET),
+  });
+  sockets.push(dung.socket);
+  const rejected = waitForMessage(dung.socket, (message) => message.type === 'protocol.error');
+  dung.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q1b', videoId: 'badvideo001' }));
+  const rejection = await rejected;
+  assert.deepEqual([rejection.code, rejection.requestId, parseServerMessage(rejection).ok], ['VIDEO_BLOCKED', 'q1b', true]);
+  assert.equal(rejection.message, 'Video không được chiếu: Ảnh bìa và khung hình giữa video có cảnh khỏa thân · không bị trừ tiền');
 
   const playing = waitForMessage(binh.socket, (message) => message.type === 'playback.state' && message.current);
   const paid = waitForMessage(an.socket, (message) => message.type === 'wallet.update');
@@ -641,7 +655,7 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
   const update = await paid;
   assert.deepEqual([update.currency, update.coins, update.spent, parseServerMessage(update).ok], ['coins', 10, 20, true]);
   assert.deepEqual(spends.map(({ accountId, ref }) => [accountId, ref]), [['a-an-00000001', 'dQw4w9WgXcQ']],
-    'video cấm nhúng không bị trừ tiền');
+    'video cấm nhúng / bị chặn không bị trừ tiền');
   const poor = waitForMessage(an.socket, (message) => message.type === 'protocol.error');
   an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q3', videoId: 'aaaaaaaaaaa' }));
   const poorError = await poor;
@@ -649,7 +663,7 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
   assert.equal(state.current.videoId, 'dQw4w9WgXcQ');
   assert.equal(state.current.title, 'Video dQw4w9WgXcQ');
   assert.equal(state.current.addedBy, 'An');
-  assert.equal(state.votesNeeded, 1);
+  assert.equal(state.votesNeeded, 2, '3 người trong rạp (An, Bình, Dũng) cần 2 phiếu bỏ qua');
 
   const late = await connectClient(port, 'u-chi', 'Chi', { waitPlayback: true });
   sockets.push(late.socket);
@@ -672,6 +686,54 @@ test('mở phim: đã trừ tiền mà video không vào được hàng chờ th
   assert.deepEqual(calls.map(([kind]) => kind), ['pay', 'refund']);
   assert.equal(calls[0][1], calls[1][1], 'hoàn đúng lần trừ');
   assert.equal(calls[1][2], 'diamonds', 'hoàn đúng loại tiền đã trả');
+  room.close();
+});
+
+test('kiểm duyệt video: bị chặn / chờ duyệt / chưa duyệt được thì không trừ tiền; quản trị chặn thì gỡ khỏi rạp và hoàn', async () => {
+  const calls = [];
+  const verdicts = new Map([
+    ['bbbbbbbbbbb', { ok: true, decision: 'block', category: 'sexual', reason: 'Tiêu đề và ảnh bìa gợi dục' }],
+    ['hhhhhhhhhhh', { ok: true, decision: 'hold', category: 'extremism', reason: 'Tiêu đề mập mờ về bạo lực' }],
+    ['eeeeeeeeeee', { ok: false, error: 'REVIEW_UNAVAILABLE' }],
+  ]);
+  const videoReview = async (input) => { calls.push(['review', input.videoId, input.roomId, input.accountId, input.displayName]); return verdicts.get(input.videoId) || { ok: true, decision: 'allow' }; };
+  let paid = 0;
+  const videoPay = {
+    pay: async (input) => { calls.push(['pay', input.ref]); paid += 1; return { ok: true, currency: 'coins', amount: 20, balance: 100 - 20 * paid }; },
+    refund: async (input) => { calls.push(['refund', input.key]); return { ok: true, balance: 100 }; },
+  };
+  const room = new Room('cinema-1', { botCount: 0, videoPay, videoReview });
+  const sent = [];
+  room.join({ readyState: WebSocket.OPEN, send: (raw) => sent.push(JSON.parse(raw)), close() {} }, { participantId: 'u-1', displayName: 'An', accountId: 'a-1-00000001' });
+
+  assert.deepEqual(await room.addUserVideo('u-1', 'bbbbbbbbbbb', 'X', 'q-1'), { ok: false, error: 'VIDEO_BLOCKED', reason: 'Tiêu đề và ảnh bìa gợi dục' });
+  assert.deepEqual(await room.addUserVideo('u-1', 'hhhhhhhhhhh', 'X', 'q-2'), { ok: false, error: 'VIDEO_HELD', reason: 'Tiêu đề mập mờ về bạo lực' });
+  assert.deepEqual(await room.addUserVideo('u-1', 'eeeeeeeeeee', 'X', 'q-3'), { ok: false, error: 'VIDEO_REVIEW_FAILED' }, 'AI lỗi thì không cho qua');
+  assert.equal(calls.filter(([kind]) => kind === 'pay').length, 0, 'chưa trừ tiền lần nào');
+  assert.deepEqual(calls[0], ['review', 'bbbbbbbbbbb', 'cinema-1', 'a-1-00000001', 'An'], 'API biết người mở và phòng để báo Telegram');
+
+  // Video được phép: mới trừ tiền rồi chiếu; video thứ hai vào hàng chờ.
+  assert.deepEqual(await room.addUserVideo('u-1', 'aaaaaaaaaaa', 'Phim A', 'q-4'), { ok: true });
+  assert.deepEqual(await room.addUserVideo('u-1', 'ccccccccccc', 'Phim C', 'q-5'), { ok: true });
+  assert.deepEqual(calls.filter(([kind]) => kind === 'pay').map(([, ref]) => ref), ['aaaaaaaaaaa', 'ccccccccccc']);
+  assert.equal(room.playback.current.videoId, 'aaaaaaaaaaa');
+  assert.equal(room.playback.current.addedById, 'u-1');
+
+  // Quản trị chặn video còn chờ: bỏ khỏi hàng chờ, hoàn tiền, báo người mở.
+  sent.length = 0;
+  assert.equal(room.dropBlockedVideo('ccccccccccc', 'Có cảnh khỏa thân ở giữa video'), 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(room.playback.queue.length, 0);
+  assert.equal(calls.filter(([kind]) => kind === 'refund').length, 1);
+  const notice = sent.find((message) => message.type === 'protocol.error' && message.code === 'VIDEO_REMOVED');
+  assert.match(notice.message, /Phim C.*Có cảnh khỏa thân ở giữa video · đã hoàn tiền/);
+  // Đang chiếu: chuyển video kế (không hoàn vì đã chiếu).
+  sent.length = 0;
+  assert.equal(room.dropBlockedVideo('aaaaaaaaaaa', 'Cực đoan'), 1);
+  assert.notEqual(room.playback.current?.videoId, 'aaaaaaaaaaa');
+  assert.equal(calls.filter(([kind]) => kind === 'refund').length, 1);
+  assert.match(sent.find((message) => message.code === 'VIDEO_REMOVED').message, /Phim A.*Cực đoan$/);
+  assert.equal(room.dropBlockedVideo('zzzzzzzzzzz', 'x'), 0, 'video không có trong rạp thì không làm gì');
   room.close();
 });
 
@@ -2129,6 +2191,33 @@ test('bạn bè: máy realtime liệt kê thành viên đang kết nối (báo A
   req.emit('end');
   assert.deepEqual(JSON.parse(res.body), { ok: true, sent: 1 });
   room.close();
+});
+
+test('quản trị chặn video qua API: máy realtime gỡ video khỏi mọi rạp nó giữ, cần khóa nội bộ', () => {
+  const registry = new RoomRegistry({ nodeId: 'rt-video' });
+  const cinema = new Room('cinema-1', { botCount: 0 });
+  const thien = new Room('thien-1', { botCount: 0 });
+  registry.rooms.set('cinema-1', cinema);
+  registry.rooms.set('thien-1', thien);
+  cinema.join({ readyState: WebSocket.OPEN, send() {}, close() {} }, { participantId: 'u-1', displayName: 'An' });
+  cinema.addVideo('u-1', 'aaaaaaaaaaa', 'Phim A');
+  cinema.addVideo('u-1', 'bbbbbbbbbbb', 'Phim B');
+  const call = (headers, body) => {
+    const res = response();
+    const req = Object.assign(new EventEmitter(), { method: 'POST', url: '/internal/cinema/video/blocked', headers });
+    handleRealtimeRequest(req, res, registry, { secret: SECRET });
+    req.emit('data', JSON.stringify(body));
+    req.emit('end');
+    return res;
+  };
+  assert.equal(call({}, { videoId: 'bbbbbbbbbbb', reason: 'x' }).status, 403);
+  assert.equal(call({ 'x-internal-key': internalKey(SECRET) }, { videoId: '../x', reason: 'x' }).status, 400);
+  const res = call({ 'x-internal-key': internalKey(SECRET) }, { videoId: 'bbbbbbbbbbb', reason: 'Cực đoan' });
+  assert.deepEqual(JSON.parse(res.body), { ok: true, removed: 1 });
+  assert.deepEqual(cinema.playback.queue.map((item) => item.videoId), []);
+  assert.equal(cinema.playback.current.videoId, 'aaaaaaaaaaa');
+  cinema.close();
+  thien.close();
 });
 
 test('nhún nhảy: chỉ ngoài sân chùa (trong chánh điện / đang ngồi thì YARD_ONLY); ngoài sân phát emote cho cả phòng', () => {

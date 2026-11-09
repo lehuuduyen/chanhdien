@@ -17,6 +17,7 @@ import { json, readJson } from './http.mjs';
 import { botChatTelegramCommand } from './bot-chat.mjs';
 import { MODERATION_HELP, moderationTelegramCommand } from './moderation.mjs';
 import { memorialTelegramCommand } from './memorial.mjs';
+import { videoReviewOf, videoReviewTelegramCommand } from './video-review.mjs';
 
 const text = (value, max) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null);
 const amount = (value) => (/^\d{1,7}$/.test(String(value ?? '')) ? Number(value) : null);
@@ -260,6 +261,13 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
     json(req, res, 200, { ok: true });
     return true;
   }
+  const by = message.from?.username ? `@${message.from.username}` : String(message.from?.first_name || 'Telegram').slice(0, 40);
+  // Kiểm duyệt video ở rạp: /duyetvideo, /chanvideo, /dsvideo, hoặc Reply tin báo video "duyet" / "chan <lý do>".
+  const videoReply = videoReviewTelegramCommand(message, videoReviewOf(options), `Telegram ${by}`);
+  if (videoReply) {
+    json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: videoReply });
+    return true;
+  }
   // Trả lời thay bot: /tl <mã> <nội dung>, hoặc Reply vào tin "Nhắn bot" rồi gõ.
   const botReply = await botChatTelegramCommand(message, options);
   if (botReply) {
@@ -273,7 +281,6 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
     return true;
   }
   // Lệnh kiểm duyệt: /blockchattu dm, /unban k-…, /ban, /dsban…
-  const by = message.from?.username ? `@${message.from.username}` : String(message.from?.first_name || 'Telegram').slice(0, 40);
   const moderationReply = moderationTelegramCommand(message.text, options.moderation, `Telegram ${by}`);
   if (moderationReply) {
     json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: moderationReply });

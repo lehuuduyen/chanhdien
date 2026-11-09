@@ -167,10 +167,10 @@ function send(message) {
 
 // Thông báo trong khán phòng (lỗi chọn ghế, chat quá nhanh, video bị từ chối…).
 let noticeTimer = null;
-function notify(text) {
+function notify(text, ms = 4_000) {
   elements.notice.textContent = text;
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => { elements.notice.textContent = ''; }, 4_000);
+  noticeTimer = setTimeout(() => { elements.notice.textContent = ''; }, ms);
 }
 
 function setConnection(state, label) {
@@ -709,6 +709,10 @@ function handleMessage(event) {
       // Mở phim tốn kim cương: thiếu thì mở luôn bảng nạp.
       notify(message.message);
       gems.open();
+    } else if (['VIDEO_BLOCKED', 'VIDEO_HELD', 'VIDEO_REMOVED', 'VIDEO_REVIEW_FAILED'].includes(message.code)) {
+      // Kiểm duyệt video: hiện lâu hơn và ghi vào khung chat (chỉ mình thấy) để đọc lại được lý do.
+      notify(message.message, 12_000);
+      addMessage(null, `🛡️ ${message.message}`, 'message system');
     } else if (message.code === 'INSUFFICIENT_COINS') {
       notify(`${message.message} · ra Khu vườn bán trái cây để có thêm xu`);
     } else if (message.code === 'WALKERS_FULL') notify('Rạp đông, bạn đang xem như khán giả (vẫn chọn ghế được)');
@@ -884,7 +888,7 @@ elements.queueForm.addEventListener('submit', (event) => {
   }
   if (send({ type: 'queue.add', requestId: requestId('queue'), videoId })) {
     elements.queueInput.value = '';
-    notify(videoPrice ? `Đang kiểm tra video… (mở phim ${priceLabel()})` : 'Đang kiểm tra video…');
+    notify(videoPrice ? `Đang kiểm duyệt video… (mở phim ${priceLabel()})` : 'Đang kiểm duyệt video…', 15_000);
   }
 });
 
