@@ -87,7 +87,7 @@ Trốn tìm trong sân chánh điện (`rules.hideSeek` trong `THIEN_RULES`; má
 
 Hiệu năng sân đông: va chạm khi đi (`resolveMove` / `isWalkable` trong `walk.mjs`) dùng chỉ mục ô lưới 2 m cho ~1.700 vật cản (giữ đúng thứ tự xét như cũ; nhanh ~28 lần); người cách camera > 22 m ẩn bảng tên / trạng thái, > 25 m ẩn bóng dưới chân. Âm thanh: ngoài chánh điện, lễ dâng của người khác không phát chuông / giọng đọc (giọng đọc giành loa điện thoại làm nhạc nền ngắt quãng); mõ nền hẹn trước trên đồng hồ AudioContext (`scheduleBeats` trong `temple-audio.js`) nên trang bận không làm lệch nhịp.
 
-Web server là cổng vào chung: `/api/*` chuyển tới API, `/ws` chuyển tới realtime; client dùng cùng origin với trang.
+Web server là cổng vào chung: `/api/*` chuyển tới API, `/ws` chuyển tới realtime; client dùng cùng origin với trang. Trang HTML trong `apps/web/public` được gắn phiên bản lúc phục vụ (`versionHtml` trong `apps/web/server.mjs`): script / stylesheet thêm `?v=<hash nội dung>` và import map khai báo mọi module (`/*.js`, `/engine/*.mjs`, `/shared/*.mjs`) nên deploy xong trình duyệt lấy ngay bản mới dù Cloudflare giữ JS tới 4 giờ, không trộn module cũ / mới. Import module luôn dùng đường dẫn tuyệt đối hoặc tương đối như cũ, đừng tự thêm `?v=`.
 
 Thử cảnh 2.5D và đặt ghế (khi `npm run dev` đang chạy):
 

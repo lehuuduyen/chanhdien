@@ -142,6 +142,38 @@ test('web trả đúng đoạn file khi được hỏi Range (Safari cần để
   assert.equal((await fetch(url, { headers: { range: 'bytes=999999999-' } })).status, 416);
 });
 
+test('trang gắn phiên bản cho mọi module để deploy mới có hiệu lực ngay dù CDN giữ JS lâu', async (t) => {
+  const { once } = await import('node:events');
+  const { createWebServer, versionHtml } = await import('../server.mjs');
+  const web = createWebServer().listen(0, '127.0.0.1');
+  await once(web, 'listening');
+  t.after(() => new Promise((resolve) => web.close(resolve)));
+  const base = `http://127.0.0.1:${web.address().port}`;
+  const page = await fetch(`${base}/chanh-dien.html`);
+  assert.equal(page.headers.get('cache-control'), 'no-cache');
+  const html = await page.text();
+  const entry = /<script type="module" src="\/chanh-dien\.js\?v=([0-9a-f]{10})">/.exec(html);
+  assert.ok(entry, 'script chính có ?v=<hash>');
+  assert.match(html, /href="\/chanh-dien\.css\?v=[0-9a-f]{10}"/);
+  const maps = html.match(/<script type="importmap">([\s\S]*?)<\/script>/g);
+  assert.equal(maps.length, 1, 'chỉ một import map');
+  const { imports } = JSON.parse(/<script type="importmap">([\s\S]*?)<\/script>/.exec(html)[1]);
+  assert.equal(imports.three, '/vendor/three/build/three.module.js', 'giữ khai báo sẵn có');
+  assert.equal(imports['/chanh-dien.js'], `/chanh-dien.js?v=${entry[1]}`, 'script trong trang và import map cùng một URL');
+  assert.match(imports['/hide-seek-ui.js'], /^\/hide-seek-ui\.js\?v=[0-9a-f]{10}$/);
+  assert.match(imports['/engine/explore3d.mjs'], /^\/engine\/explore3d\.mjs\?v=[0-9a-f]{10}$/);
+  assert.match(imports['/shared/room-rules.mjs'], /^\/shared\/room-rules\.mjs\?v=/);
+
+  // Đúng phiên bản: giữ lâu; phiên bản cũ hoặc không có: luôn hỏi lại.
+  assert.equal((await fetch(`${base}/chanh-dien.js?v=${entry[1]}`)).headers.get('cache-control'), 'public, max-age=31536000, immutable');
+  assert.equal((await fetch(`${base}/chanh-dien.js?v=0000000000`)).headers.get('cache-control'), 'no-cache');
+  assert.equal((await fetch(`${base}/chanh-dien.js`)).headers.get('cache-control'), 'no-cache');
+
+  // Trang chưa có import map: chèn trước script đầu tiên.
+  const plain = versionHtml('<head><title>x</title><script type="module">import "/a.js";</script></head>', { '/a.js': '/a.js?v=1' });
+  assert.equal(plain, '<head><title>x</title><script type="importmap">{"imports":{"/a.js":"/a.js?v=1"}}</script>\n  <script type="module">import "/a.js";</script></head>');
+});
+
 test('nhận link YouTube các dạng phổ biến, từ chối link lạ', async () => {
   const { parseYouTubeId } = await import('../public/youtube.js');
   for (const input of [

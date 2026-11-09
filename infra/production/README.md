@@ -33,6 +33,12 @@ Cloudflare mặc định cache các loại file tĩnh quen thuộc. Nginx đặt
 cho JS, CSS, ảnh, model GLB và audio; `/api/*` không cache. Không dùng Cache Everything cho toàn site vì có tài
 khoản và nội dung động.
 
+Lưu ý: "Browser Cache TTL" mặc định của Cloudflare (4 giờ) ghi đè 5 phút của Nginx, nên trình duyệt có thể giữ
+`chanh-dien.js` cũ tới 4 giờ sau deploy. Web server đã gắn `?v=<hash>` cho mọi script / stylesheet / module trong
+trang HTML (trang HTML luôn `no-cache`), nên bản mới có hiệu lực ngay khi người dùng tải lại trang. Giữ
+**Caching → Configuration → Cache Level** ở Standard (cache theo cả query string). Muốn ảnh / model đổi cũng có hiệu
+lực ngay thì đặt Browser Cache TTL = "Respect Existing Headers".
+
 ## 2. Chuẩn bị VPS lần đầu
 
 Yêu cầu Ubuntu, Node.js ≥ 22.13, Redis, Nginx, Certbot, `sqlite3`, `curl` và `tar`. Tạo hai user riêng:
