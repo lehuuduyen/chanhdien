@@ -167,7 +167,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .inline-form :disabled { opacity: .45; cursor: not-allowed; }
 
 .queue-list { flex: 1; overflow-y: auto; margin: 0; padding: 0; list-style: none; display: grid; align-content: start; gap: 6px; counter-reset: queue; }
-.queue-list li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; padding: 7px 8px; background: rgba(255,255,255,.03); border-radius: 9px; font-size: 12px; counter-increment: queue; }
+.queue-list li { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: start; padding: 7px 8px; background: rgba(255,255,255,.03); border-radius: 9px; font-size: 12px; counter-increment: queue; }
 .queue-list li::before { content: counter(queue); color: var(--muted); font-size: 11px; text-align: right; }
 .queue-list b { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .queue-list small { color: var(--muted); font-size: 10px; }
@@ -250,3 +250,26 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .room-notice { bottom: 160px; }
   .drawer { left: 0; right: 0; top: auto; bottom: 0; width: auto; height: 48%; border-radius: 18px 18px 0 0; }
 }
+
+/* Rạp riêng (ngăn kéo "🔒 Phòng riêng", cinema-private.js). */
+.private-part { overflow-x: hidden; overflow-y: auto; }
+/* Một cột co được (minmax 0): link mời dài không đẩy ngăn kéo rộng ra ngoài màn. */
+#privateBody { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding-bottom: 8px; }
+.private-head { margin: 4px 0 0; font-weight: 700; font-size: 14px; }
+.private-title { margin: 6px 0 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.private-note { margin: 0; color: #cfd8e3; font-size: 13px; line-height: 1.45; }
+.private-note.small { color: var(--muted); font-size: 11px; }
+.private-note.warn { color: #ffb4a4; font-weight: 700; }
+.private-row { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; background: rgba(255, 255, 255, .04); border-radius: 10px; }
+.private-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.private-link { display: flex; align-items: center; gap: 8px; }
+.private-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8px 10px; background: #080c12; border: 1px solid var(--line); border-radius: 10px; font-size: 11px; user-select: all; }
+.private-btn { min-height: 36px; padding: 0 14px; color: #e7edf5; background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 999px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.private-btn.primary { color: #17202b; background: var(--accent); border-color: var(--accent); }
+.private-btn.danger { margin-top: 6px; color: #ffb4a4; border-color: rgba(255, 140, 120, .4); }
+.private-btn:disabled { opacity: .5; cursor: default; }
+#privateBody > .private-btn { justify-self: stretch; min-height: 44px; }
+
+/* Hủy video mình mở khi còn chờ (hoàn tiền). */
+.queue-cancel { align-self: center; min-height: 30px; padding: 0 10px; color: #ffb4a4; background: transparent; border: 1px solid rgba(255, 140, 120, .4); border-radius: 999px; font: inherit; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.queue-cancel:disabled { opacity: .5; cursor: default; }

@@ -145,6 +145,8 @@
   <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
 
   <script type="module">
+    import { currentCinemaHref } from '/region-cinema.js';
+
     const $ = (id) => document.getElementById(id);
     const usd = (value) => `$${value.toLocaleString('en-US')}`;
     let info = null;
@@ -225,7 +227,7 @@
       const destination = event.target.closest('[data-destination]')?.dataset.destination;
       openTravel(false);
       if (!destination) return;
-      if (destination === 'cinema') location.href = '/room.html?room=cinema-1';
+      if (destination === 'cinema') location.href = currentCinemaHref();
       else if (destination === 'games') location.href = '/game.html';
       else {
         let back = '/chanh-dien.html';

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { createAccountStore } from '@chanh-dien/accounts';
 import { createCommunityProjectStore } from '@chanh-dien/community-project';
 import {
+  RPS_STALE_MS, rpsPrize,
   BOT_PLOT_LIMIT, botAccountId, CHORE_REWARD_COINS, cleanGraveName, GRAVE_COUNT, GRAVE_PRICE, GRAVE_TTL_MS, CHORE_REWARD_DAILY_LIMIT, createGardenStore, FRUITS_PER_CROP,
   gardenDay, PLANTS, PLOT_COUNT, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS,
 } from '../src/index.mjs';
@@ -511,8 +512,8 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
     DROP TABLE garden_plots;
     ALTER TABLE garden_plots_old RENAME TO garden_plots;
     PRAGMA foreign_keys = ON;`);
-  // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm và hai bản Linh thú).
-  db.prepare("UPDATE garden_meta SET value = CAST(value - 4 AS TEXT) WHERE key = 'schema_version'").run();
+  // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm, hai bản Linh thú, bản Oẳn Tù Tì và bản tiêu xu trong phòng).
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 6 AS TEXT) WHERE key = 'schema_version'").run();
   assert.throws(() => db.prepare('INSERT INTO garden_plots (id, created_at) VALUES (11, 1)').run());
   const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
   assert.equal(upgraded.plot(3).crop.ownerName, 'an_lac');
@@ -558,4 +559,91 @@ test('khu tưởng niệm: đắp mộ trừ 100 xu, giữ 24 giờ rồi ô tr�
   assert.equal(garden.removeGrave(5).code, 'NOT_FOUND');
   assert.equal(cleanGraveName('x'.repeat(25)), '');
   assert.equal(cleanGraveName('🌸'.repeat(24)), '🌸'.repeat(24), 'đếm theo ký tự, không theo đơn vị UTF-16');
+});
+
+test('oẳn tù tì: hai người cùng cọc, người thắng nhận cả cọc trừ 5% phế; gửi lại cùng khóa / chốt lại không trừ, trả hai lần', () => {
+  const { garden, user } = setup();
+  const an = user('an_lac');
+  const binh = user('binh_an');
+  const coins = garden.me(an).coins;
+  const match = 'rp-oantuti-1-1-1-abcd';
+  assert.equal(rpsPrize(50), 95);
+  assert.equal(rpsPrize(10), 19);
+  assert.equal(garden.stakeRps({ accountId: an, matchId: match, amount: 30, key: 'rps-key-0001' }).code, 'INVALID', 'mức cược không có');
+  const staked = garden.stakeRps({ accountId: an, matchId: match, amount: 50, key: 'rps-key-0001' });
+  assert.deepEqual(staked, { ok: true, coins: coins - 50 });
+  assert.equal(garden.stakeRps({ accountId: an, matchId: match, amount: 50, key: 'rps-key-0001' }).replayed, true);
+  assert.equal(garden.me(an).coins, coins - 50, 'gửi lại không trừ hai lần');
+  assert.equal(garden.stakeRps({ accountId: an, matchId: match, amount: 50, key: 'rps-key-0002' }).code, 'STAKE_LIMIT', 'một cọc / người / trận');
+  assert.equal(garden.stakeRps({ accountId: binh, matchId: match, amount: 20, key: 'rps-key-0003' }).code, 'INVALID', 'hai cọc phải bằng nhau');
+  assert.equal(garden.stakeRps({ accountId: binh, matchId: match, amount: 50, key: 'rps-key-0004' }).ok, true);
+  const third = user('chi_mai');
+  assert.equal(garden.stakeRps({ accountId: third, matchId: match, amount: 50, key: 'rps-key-0005' }).code, 'INVALID', 'tối đa hai người');
+  assert.equal(garden.settleRps({ matchId: match, winner: third, bot: false }).code, 'INVALID', 'người thắng phải có cọc');
+  assert.equal(garden.settleRps({ matchId: match, winner: binh, bot: true }).code, 'INVALID', 'trận hai người không phải trận bot');
+  const settled = garden.settleRps({ matchId: match, winner: binh, bot: false });
+  assert.equal(settled.ok, true);
+  assert.deepEqual(settled.results.map(({ accountId, net }) => [accountId, net]), [[an, -50], [binh, 45]]);
+  assert.equal(garden.settleRps({ matchId: match, winner: binh, bot: false }).replayed, true);
+  assert.equal(garden.me(binh).coins, coins + 45);
+  assert.equal(garden.stakeRps({ accountId: third, matchId: match, amount: 50, key: 'rps-key-0006' }).code, 'ROUND_CLOSED');
+});
+
+test('oẳn tù tì với bot: thắng nhận cọc + phần của bot trừ phế, thua mất cọc; hòa / hủy và trận treo thì hoàn cọc', () => {
+  const { garden, user, tick } = setup();
+  const an = user('an_lac');
+  const coins = garden.me(an).coins;
+  garden.stakeRps({ accountId: an, matchId: 'rp-bot-win-1', amount: 20, key: 'rps-bot-0001' });
+  assert.equal(garden.settleRps({ matchId: 'rp-bot-win-1', winner: an, bot: false }).code, 'INVALID', 'một cọc mà không phải trận bot');
+  assert.equal(garden.settleRps({ matchId: 'rp-bot-win-1', winner: an, bot: true }).results[0].net, 18);
+  garden.stakeRps({ accountId: an, matchId: 'rp-bot-lose-1', amount: 20, key: 'rps-bot-0002' });
+  assert.equal(garden.settleRps({ matchId: 'rp-bot-lose-1', winner: 'bot', bot: true }).results[0].net, -20);
+  garden.stakeRps({ accountId: an, matchId: 'rp-bot-draw-1', amount: 20, key: 'rps-bot-0003' });
+  const refund = garden.settleRps({ matchId: 'rp-bot-draw-1', winner: null, bot: true });
+  assert.equal(refund.void, true);
+  assert.equal(refund.results[0].net, 0);
+  assert.equal(garden.me(an).coins, coins - 2);
+  garden.stakeRps({ accountId: an, matchId: 'rp-stale-1', amount: 10, key: 'rps-bot-0004' });
+  tick(RPS_STALE_MS + 1);
+  assert.equal(garden.refundStaleRps(), 1);
+  assert.equal(garden.me(an).coins, coins - 2);
+  assert.equal(garden.settleRps({ matchId: 'rp-stale-1', winner: an, bot: true }).void, true, 'trận đã hoàn không trả thưởng nữa');
+  assert.equal(garden.me(an).coins, coins - 2);
+  assert.deepEqual(garden.history(an).slice(0, 2).map((row) => row.kind), ['game_refund', 'game_bet']);
+});
+
+test('dọn ván treo theo từng khoảng thời gian: ván còn cược mới chưa bị hoàn, quá hạn kể từ lần cược cuối thì hoàn', () => {
+  const { garden, user, tick } = setup();
+  const an = user('an_lac');
+  const coins = garden.me(an).coins;
+  const round = 'bc-stale-window-1';
+  garden.stakeBauCua({ accountId: an, roundId: round, animal: 'ca', amount: 5, key: 'stale-win-0001' });
+  tick(2 * 60_000);
+  garden.stakeBauCua({ accountId: an, roundId: round, animal: 'tom', amount: 5, key: 'stale-win-0002' });
+  tick(2 * 60_000);
+  // Cược đầu đã quá 3 phút nhưng cược cuối mới 2 phút: ván chưa treo.
+  assert.equal(garden.refundStaleBauCua(), 0);
+  tick(2 * 60_000);
+  assert.equal(garden.refundStaleBauCua(), 1, 'cược cuối đã quá hạn: hoàn cả ván');
+  assert.equal(garden.me(an).coins, coins);
+  assert.equal(garden.refundStaleBauCua(), 0, 'không hoàn hai lần');
+});
+
+test('tiêu xu trong phòng (mở phim): trừ một lần theo khóa, thiếu xu không ghi gì, hoàn tối đa một lần', () => {
+  const { garden, user } = setup();
+  const an = user('an_lac');
+  const coins = garden.me(an).coins;
+  const pay = (key, amount = 20) => garden.spendCoins({ accountId: an, amount, reason: 'cinema_video', ref: 'dQw4w9WgXcQ', key });
+  assert.equal(garden.spendCoins({ accountId: an, amount: 20, reason: 'other', ref: 'x', key: 'video-key-0001' }).code, 'INVALID');
+  assert.deepEqual(pay('video-key-0001'), { ok: true, amount: 20, coins: coins - 20 });
+  assert.equal(pay('video-key-0001').replayed, true);
+  assert.equal(garden.me(an).coins, coins - 20, 'gửi lại không trừ hai lần');
+  assert.equal(pay('video-key-0002', coins).code, 'INSUFFICIENT_COINS');
+  assert.equal(garden.me(an).coins, coins - 20);
+  assert.equal(garden.refundCoins({ accountId: an, key: 'video-key-9999' }).code, 'UNKNOWN_SPEND');
+  assert.deepEqual(garden.refundCoins({ accountId: an, key: 'video-key-0001' }), { ok: true, amount: 20, coins });
+  assert.equal(garden.refundCoins({ accountId: an, key: 'video-key-0001' }).replayed, true);
+  assert.equal(garden.me(an).coins, coins, 'hoàn đúng một lần');
+  assert.equal(pay('video-key-0001').code, 'REFUNDED', 'khóa đã hoàn không trừ lại');
+  assert.deepEqual(garden.history(an).slice(0, 2).map((row) => row.kind), ['room_refund', 'room_spend']);
 });

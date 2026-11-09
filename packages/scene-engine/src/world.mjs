@@ -59,10 +59,12 @@ export function validateWorld(scene) {
       errors.push('world.courtyard.pond.projectId không hợp lệ');
     }
     const visibility = pond.stageVisibility;
+    // Bắt buộc water/rocks/lotus/fish; reeds (lau sậy) và floats (đèn hoa đăng + đủ đàn cá) là tùy chọn.
     const keys = ['water', 'rocks', 'lotus', 'fish'];
-    if (!visibility || Object.keys(visibility).length !== keys.length
-      || !keys.every((key) => Number.isSafeInteger(visibility[key]) && visibility[key] >= 0 && visibility[key] <= 4)) {
-      errors.push('world.courtyard.pond.stageVisibility cần đủ water/rocks/lotus/fish từ 0 đến 4');
+    const optional = ['reeds', 'floats'];
+    const valid = (key) => Number.isSafeInteger(visibility[key]) && visibility[key] >= 0 && visibility[key] <= 4;
+    if (!visibility || !keys.every(valid) || !Object.keys(visibility).every((key) => keys.includes(key) || (optional.includes(key) && valid(key)))) {
+      errors.push('world.courtyard.pond.stageVisibility cần đủ water/rocks/lotus/fish từ 0 đến 4 (reeds, floats tùy chọn)');
     }
   }
   const guideBoards = world.courtyard?.guideBoards;

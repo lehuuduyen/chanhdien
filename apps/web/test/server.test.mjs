@@ -32,6 +32,22 @@ test('web có client phòng Cinema realtime', () => {
   for (const type of ['seat.select', 'chat.send', 'queue.add', 'vote.skip', 'playback.report']) assert.ok(source.includes(`'${type}'`), type);
 });
 
+test('mỗi quốc gia / tiểu bang có rạp riêng; admin chọn playlist theo khu vực', () => {
+  const room = readFileSync(resolveWebFile('/room.html'), 'utf8');
+  const client = readFileSync(resolveWebFile('/room.js'), 'utf8');
+  const admin = readFileSync(resolveWebFile('/admin-thien.html'), 'utf8');
+  const adminClient = readFileSync(resolveWebFile('/admin-thien.js'), 'utf8');
+  const temple = readFileSync(resolveWebFile('/chanh-dien.js'), 'utf8');
+  assert.match(room, /id="cinemaRoomLink"/);
+  assert.match(admin, /<select id="cinemaRoom" multiple size="9"/);
+  assert.match(adminClient, /US_STATES\.map\(\(state\) => new Option\(/);
+  assert.match(client, /parseCinemaRoomId\(requestedRoomId\)/);
+  assert.match(temple, /cinemaRoomId\(state\)/);
+  assert.match(adminClient, /const roomIds = selectedCinemaRoomIds\(\)/);
+  assert.match(adminClient, /selectAllCinemas/);
+  assert.ok(resolveWebFile('/region-cinema.js'));
+});
+
 test('Cinema đặt ô nhập ngay dưới lịch sử trò chuyện và giữ tên người gửi từ máy khác', () => {
   const markup = readFileSync(resolveWebFile('/room.html'), 'utf8');
   const client = readFileSync(resolveWebFile('/room.js'), 'utf8');
@@ -160,6 +176,14 @@ test('shop hiện linh thú thành khu riêng và nhận nuôi qua API an toàn'
   assert.match(source, /api\('\/api\/v1\/pets\/adopt'[\s\S]*idempotency-key/);
   assert.match(source, /api\('\/api\/v1\/pets\/companion'/);
   assert.doesNotMatch(source, /innerHTML\s*=/);
+});
+
+test('chọn linh thú cập nhật ngay cảnh hiện tại, không phải chờ broadcast realtime', () => {
+  const petUi = readFileSync(resolveWebFile('/pet-ui.js'), 'utf8');
+  const temple = readFileSync(resolveWebFile('/chanh-dien.js'), 'utf8');
+  assert.match(petUi, /onCompanionChange\(pet \? \{ species: pet\.species, level: pet\.level \} : null\)/);
+  assert.match(petUi, /data\.companion = result\.companion;\s*syncCompanion\(\)/);
+  assert.match(temple, /onCompanionChange:\s*\(pet\) => \{[\s\S]*explore\.onState\(\[\.\.\.participants\.values\(\)\]\)/);
 });
 
 test('chat nổi của người và bot hiện ở mọi khu; thông báo nghi lễ chỉ hiện trong chánh điện', () => {

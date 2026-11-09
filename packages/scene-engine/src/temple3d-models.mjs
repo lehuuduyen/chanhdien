@@ -650,6 +650,8 @@ export function buildBuddha(root, m) {
   haloRing.position.set(0, headY + 0.02, -0.28);
   group.add(haloRing);
 
+  // Tượng chính phải luôn là Phật ngồi, kể cả trước và sau khi tượng GLB hai bên tải trễ.
+  group.scale.setScalar(1.7);
   group.position.set(0, 0.75, -2.0);
   root.add(group);
   return { group, aureole, haloDisc, haloRing };

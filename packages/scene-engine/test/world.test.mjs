@@ -56,7 +56,7 @@ test('cây Bồ Đề công trình có đủ năm tỉ lệ cảnh tăng dần',
 test('hồ sen công trình khai báo đủ mốc mở khóa cảnh', () => {
   const pond = scene.world.courtyard.pond;
   assert.equal(pond.projectId, 'lotus-global-1');
-  assert.deepEqual(pond.stageVisibility, { water: 0, rocks: 2, lotus: 3, fish: 0 }, 'hồ cá nền luôn còn; đá và sen mở dần');
+  assert.deepEqual(pond.stageVisibility, { water: 0, reeds: 1, rocks: 2, lotus: 3, fish: 0, floats: 4 }, 'hồ cá nền luôn còn; lau sậy, đá, sen, đèn hoa đăng mở dần');
   const broken = structuredClone(scene);
   delete broken.world.courtyard.pond.stageVisibility.fish;
   assert.ok(validateWorld(broken).errors.some((error) => error.includes('stageVisibility')));

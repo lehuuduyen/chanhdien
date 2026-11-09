@@ -91,6 +91,21 @@ export const TAI_XIU_TOTAL_ODDS = Object.freeze({ 4: 50, 5: 18, 6: 14, 7: 12, 8:
 export const TAI_XIU_SPOTS = Object.freeze(['xiu', 'tai', ...Object.keys(TAI_XIU_TOTAL_ODDS).map((sum) => `t${sum}`), ...[1, 2, 3, 4, 5, 6].map((face) => `f${face}`)]);
 const ROUND_ID = /^(bc|tx)-[a-z0-9-]{4,76}$/;
 
+// Oẳn Tù Tì cược (phòng oantuti, đấu 1–1): mỗi bên đặt cùng một mức cược RPS_STAKES vào cọc (trừ xu ngay khi vào
+// bàn), máy realtime làm trọng tài rồi chốt trận ở đây: người thắng nhận cả cọc trừ phế RPS_HOUSE_CUT_PERCENT; hòa /
+// hủy thì hoàn cọc, không phế. Đấu với bot: phía bot không có cọc thật — hệ thống là bên đối ứng (người thắng nhận
+// cọc mình + phần của bot trừ phế, thua thì mất cọc). Trận treo quá RPS_STALE_MS thì hoàn cọc.
+export const RPS_STAKES = Object.freeze([10, 20, 50, 100, 200]);
+export const RPS_HOUSE_CUT_PERCENT = 5;
+export const RPS_STALE_MS = 5 * 60_000;
+// Việc trong phòng được trả bằng xu (spendCoins).
+export const ROOM_SPEND_REASONS = Object.freeze(['cinema_video']);
+// Đặt cược / mua vé chỉ dọn ván treo tối đa mỗi 30 giây một lần (xem staleScanner).
+const STALE_SCAN_MS = 30_000;
+const RPS_MATCH_ID = /^rp-[a-z0-9-]{4,76}$/;
+// Tiền người thắng nhận từ cọc 2 × stake (phế làm tròn xuống, mức cược nào cũng chia hết).
+export const rpsPrize = (stake) => 2 * stake - Math.floor((2 * stake * RPS_HOUSE_CUT_PERCENT) / 100);
+
 // Lô Tô chơi chung: mua vé (lưới 3 × 9, mỗi hàng 5 số 1–90) bằng xu, máy realtime gọi số, ai kinh (đủ 5 số một
 // hàng) thì thắng và kết thúc ván. Tiền vé gom vào quỹ; người kinh nhận quỹ trừ phế, nhiều vé kinh cùng nhịp thì chia
 // đều (làm tròn xuống, phần lẻ vào phế). Tự động đánh dấu (VIP) là tiện ích, tiền vào phế, không vào quỹ. Vé do server
@@ -463,6 +478,47 @@ const MIGRATIONS = [
     account_id TEXT PRIMARY KEY REFERENCES accounts(id),
     species TEXT NOT NULL
   );`,
+  // Oẳn Tù Tì cược: cọc của từng người trong trận (một dòng / người / trận) và trận đã chốt.
+  `CREATE TABLE IF NOT EXISTS rps_stakes (
+    match_id TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (match_id, account_id)
+  );
+  CREATE INDEX IF NOT EXISTS rps_stakes_time ON rps_stakes(at);
+  CREATE TABLE IF NOT EXISTS rps_matches (
+    match_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('settled', 'void')),
+    results TEXT NOT NULL,
+    at INTEGER NOT NULL
+  );`,
+  // Tiêu xu trong phòng (mở phim ở rạp…): room_spend; hoàn khi phòng không làm được việc đã trả (hủy phim, rạp đóng):
+  // room_refund. coin_spends giữ khóa chống trừ hai lần cho cùng một lần bấm, hoàn tối đa một lần.
+  `CREATE TABLE coin_transactions_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('grant', 'buy_seed', 'sell_fruit', 'game_bet', 'game_win', 'game_refund', 'quest', 'chore', 'admin_adjustment', 'private_room', 'memorial', 'pet_food', 'pet_yield', 'room_spend', 'room_refund')),
+    plant_type TEXT,
+    quantity INTEGER,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO coin_transactions_new SELECT * FROM coin_transactions;
+  DROP TABLE coin_transactions;
+  ALTER TABLE coin_transactions_new RENAME TO coin_transactions;
+  CREATE INDEX IF NOT EXISTS coin_transactions_account ON coin_transactions(account_id, id DESC);
+  CREATE TABLE IF NOT EXISTS coin_spends (
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    idem_key TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    reason TEXT NOT NULL,
+    ref TEXT NOT NULL,
+    refunded INTEGER NOT NULL DEFAULT 0,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (account_id, idem_key)
+  );`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -616,8 +672,9 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     lottoAddAutoMark: db.prepare('INSERT INTO lotto_auto_marks (round_id, account_id, price, at) VALUES (?, ?, ?, ?)'),
     lottoDone: db.prepare('SELECT status, result FROM lotto_rounds WHERE round_id = ?'),
     lottoClose: db.prepare('INSERT INTO lotto_rounds (round_id, status, result, at) VALUES (?, ?, ?, ?)'),
-    lottoStale: db.prepare(`SELECT t.round_id AS roundId FROM lotto_tickets t LEFT JOIN lotto_rounds r ON r.round_id = t.round_id
-      WHERE r.round_id IS NULL GROUP BY t.round_id HAVING MAX(t.at) < ?`),
+    lottoStale: db.prepare(`SELECT DISTINCT t.round_id AS id FROM lotto_tickets t LEFT JOIN lotto_rounds r ON r.round_id = t.round_id
+      WHERE t.at >= ? AND t.at < ? AND r.round_id IS NULL`),
+    lottoLastAt: db.prepare('SELECT MAX(at) AS at FROM lotto_tickets WHERE round_id = ?'),
     claimed: db.prepare('SELECT quest FROM quest_claims WHERE account_id = ? AND day = ?'),
     claimQuest: db.prepare('INSERT INTO quest_claims (account_id, day, quest, reward, at) VALUES (?, ?, ?, ?, ?)'),
     plantedOn: db.prepare('SELECT 1 FROM crop_cycles WHERE owner_account = ? AND planted_day = ? LIMIT 1'),
@@ -631,8 +688,19 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     unstake: db.prepare('DELETE FROM bau_cua_stakes WHERE round_id = ? AND account_id = ?'),
     roundDone: db.prepare('SELECT status, dice, results FROM bau_cua_rounds WHERE round_id = ?'),
     closeRound: db.prepare('INSERT INTO bau_cua_rounds (round_id, status, dice, results, at) VALUES (?, ?, ?, ?, ?)'),
-    staleRounds: db.prepare(`SELECT s.round_id AS roundId FROM bau_cua_stakes s LEFT JOIN bau_cua_rounds r ON r.round_id = s.round_id
-      WHERE r.round_id IS NULL GROUP BY s.round_id HAVING MAX(s.at) < ?`),
+    staleRounds: db.prepare(`SELECT DISTINCT s.round_id AS id FROM bau_cua_stakes s LEFT JOIN bau_cua_rounds r ON r.round_id = s.round_id
+      WHERE s.at >= ? AND s.at < ? AND r.round_id IS NULL`),
+    stakesLastAt: db.prepare('SELECT MAX(at) AS at FROM bau_cua_stakes WHERE round_id = ?'),
+    rpsStake: db.prepare('INSERT INTO rps_stakes (match_id, account_id, amount, at) VALUES (?, ?, ?, ?)'),
+    rpsStakes: db.prepare('SELECT account_id AS accountId, amount FROM rps_stakes WHERE match_id = ? ORDER BY rowid'),
+    rpsDone: db.prepare('SELECT status, results FROM rps_matches WHERE match_id = ?'),
+    rpsClose: db.prepare('INSERT INTO rps_matches (match_id, status, results, at) VALUES (?, ?, ?, ?)'),
+    rpsStale: db.prepare(`SELECT DISTINCT s.match_id AS id FROM rps_stakes s LEFT JOIN rps_matches m ON m.match_id = s.match_id
+      WHERE s.at >= ? AND s.at < ? AND m.match_id IS NULL`),
+    rpsLastAt: db.prepare('SELECT MAX(at) AS at FROM rps_stakes WHERE match_id = ?'),
+    coinSpend: db.prepare('SELECT amount, reason, ref, refunded FROM coin_spends WHERE account_id = ? AND idem_key = ?'),
+    addCoinSpend: db.prepare('INSERT INTO coin_spends (account_id, idem_key, amount, reason, ref, at) VALUES (?, ?, ?, ?, ?, ?)'),
+    markCoinRefunded: db.prepare('UPDATE coin_spends SET refunded = 1 WHERE account_id = ? AND idem_key = ?'),
     gameRound: db.prepare('INSERT INTO game_rounds (account_id, game, bets, dice, staked, payout, balance_after, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
     choreRewardCount: db.prepare('SELECT COUNT(*) AS n FROM chore_reward_events WHERE account_id = ? AND day = ? AND chore = ?'),
     botAccount: db.prepare('INSERT OR IGNORE INTO accounts (id, display_name, created_at) VALUES (?, ?, ?)'),
@@ -779,10 +847,31 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     return balance;
   }
 
+  // Tìm ván treo (có cược / vé mà chưa chốt, lần cược cuối đã quá staleMs). Bảng cược lớn dần mãi nên không quét cả
+  // bảng mỗi lần đặt cược (đo với 200 nghìn ván cũ: ~50 ms / lần đặt Bầu Cua, ~180 ms / trận Oẳn Tù Tì): mỗi lần chỉ xét
+  // các dòng trong khoảng [mốc lần trước, mốc mới) theo chỉ mục thời gian — dòng mới luôn mang giờ hiện tại nên không sót
+  // — rồi kiểm lại lần cược cuối của từng ván ứng viên. Lần đầu sau khi mở API quét hết một lần. Gọi từ lúc đặt cược thì
+  // tối đa STALE_SCAN_MS một lần; gọi trực tiếp (refundStale…()) thì quét ngay.
+  function staleScanner(windowQuery, lastAtQuery, staleMs) {
+    let done = 0;
+    let scannedAt = -Infinity;
+    return (force) => {
+      if (!force && now() - scannedAt < STALE_SCAN_MS) return [];
+      scannedAt = now();
+      const cutoff = now() - staleMs;
+      const ids = windowQuery.all(done, cutoff).map((row) => row.id).filter((id) => lastAtQuery.get(id).at < cutoff);
+      done = Math.max(done, cutoff);
+      return ids;
+    };
+  }
+  const staleLotto = staleScanner(q.lottoStale, q.lottoLastAt, LOTTO_STALE_MS);
+  const staleBauCua = staleScanner(q.staleRounds, q.stakesLastAt, BAU_CUA_STALE_MS);
+  const staleRps = staleScanner(q.rpsStale, q.rpsLastAt, RPS_STALE_MS);
+
   // Ván Lô Tô treo quá hạn: hoàn vé + tự đánh dấu, đánh dấu ván hủy. Chạy trong giao dịch.
-  function refundStaleLotto() {
-    const stale = q.lottoStale.all(now() - LOTTO_STALE_MS);
-    for (const { roundId } of stale) {
+  function refundStaleLotto(force = true) {
+    const stale = staleLotto(force);
+    for (const roundId of stale) {
       const items = [...q.lottoRoundTickets.all(roundId), ...q.lottoRoundAutoMarks.all(roundId)];
       for (const item of items) if (item.price) changeCoins(item.accountId, item.price, 'game_refund', null, null);
       q.lottoClose.run(roundId, 'void', JSON.stringify({ ok: true, void: true, stale: true, results: [] }), now());
@@ -791,13 +880,36 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
   }
 
   // Ván Bầu Cua treo quá hạn (máy realtime chết giữa ván): hoàn từng cược, đánh dấu ván hủy. Chạy trong giao dịch.
-  function refundStale() {
-    const stale = q.staleRounds.all(now() - BAU_CUA_STALE_MS);
-    for (const { roundId } of stale) {
+  function refundStale(force = true) {
+    const stale = staleBauCua(force);
+    for (const roundId of stale) {
       for (const row of q.roundStakes.all(roundId)) changeCoins(row.accountId, row.amount, 'game_refund', null, null);
       q.closeRound.run(roundId, 'void', null, '[]', now());
     }
     return stale.length;
+  }
+
+  // Trận Oẳn Tù Tì treo quá hạn (máy realtime chết giữa trận): hoàn cọc, đánh dấu trận hủy. Chạy trong giao dịch.
+  function refundStaleRps(force = true) {
+    const stale = staleRps(force);
+    for (const matchId of stale) closeRps(matchId, null, false);
+    return stale.length;
+  }
+
+  // Chốt một trận Oẳn Tù Tì (trong giao dịch). winner: accountId người thắng, 'bot' (bot thắng) hoặc null (hòa / hủy:
+  // hoàn cọc). Trả danh sách { accountId, staked, payout, net, coins } của người thật.
+  function closeRps(matchId, winner, bot) {
+    const stakes = q.rpsStakes.all(matchId);
+    const refund = winner === null;
+    const results = stakes.map(({ accountId, amount }) => {
+      // Hai cọc luôn bằng nhau (stakeRps kiểm tra); trận với bot thì phần của bot do hệ thống bù.
+      const payout = refund ? amount : accountId === winner ? rpsPrize(amount) : 0;
+      const coins = payout ? changeCoins(accountId, payout, refund ? 'game_refund' : 'game_win', null, null) : ensureWallet(accountId);
+      if (!refund) q.gameRound.run(accountId, 'rps', JSON.stringify({ stake: amount, bot: Boolean(bot) }), JSON.stringify({ winner: accountId === winner ? 'me' : 'other' }), amount, payout, coins, now());
+      return { accountId, staked: amount, payout, net: payout - amount, coins };
+    });
+    q.rpsClose.run(matchId, refund ? 'void' : 'settled', JSON.stringify(results), now());
+    return results;
   }
 
   // Nhiệm vụ hôm nay của một người: đã làm chưa (từ lịch sử), đã nhận xu chưa.
@@ -1032,6 +1144,36 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     },
 
     // Quản trị cộng/trừ xu. `key` lấy từ Telegram update_id nên gửi lại không đổi số dư lần hai.
+    // Máy realtime / API trừ xu cho một việc trong phòng (mở phim…). Ghi sổ trước, phòng làm việc sau; gửi lại cùng khóa
+    // không trừ hai lần. Thiếu xu thì không ghi gì. Trả { ok, coins } | { ok: false, code }.
+    spendCoins({ accountId, amount, reason, ref, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (!ROOM_SPEND_REASONS.includes(reason) || typeof ref !== 'string' || !ref || ref.length > 80
+        || !Number.isSafeInteger(amount) || amount < 1 || amount > 100_000) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        const previous = q.coinSpend.get(accountId, key);
+        if (previous) return previous.refunded ? { ok: false, code: 'REFUNDED', coins: ensureWallet(accountId) } : { ok: true, replayed: true, amount: previous.amount, coins: ensureWallet(accountId) };
+        if (ensureWallet(accountId) < amount) return { ok: false, code: 'INSUFFICIENT_COINS', coins: ensureWallet(accountId) };
+        const coins = changeCoins(accountId, -amount, 'room_spend', null, null);
+        q.addCoinSpend.run(accountId, key, amount, reason, ref, now());
+        return { ok: true, amount, coins };
+      });
+    },
+
+    // Hoàn lần tiêu xu có khóa này (hủy phim, rạp đóng…): chỉ hoàn lần tiêu có thật, tối đa một lần.
+    refundCoins({ accountId, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'INVALID' };
+      return transaction(() => {
+        const spent = q.coinSpend.get(accountId, key);
+        if (!spent) return { ok: false, code: 'UNKNOWN_SPEND' };
+        if (spent.refunded) return { ok: true, replayed: true, amount: spent.amount, coins: ensureWallet(accountId) };
+        const coins = changeCoins(accountId, spent.amount, 'room_refund', null, null);
+        q.markCoinRefunded.run(accountId, key);
+        return { ok: true, amount: spent.amount, coins };
+      });
+    },
+
     adjustCoins({ accountId, amount, key }) {
       if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
       if (!Number.isSafeInteger(amount) || amount === 0 || Math.abs(amount) > 1_000_000) return { ok: false, code: 'INVALID' };
@@ -1211,7 +1353,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         || !Number.isSafeInteger(amount) || amount < 1 || amount > BAU_CUA_MAX_STAKE) return { ok: false, code: 'INVALID' };
       if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
       return transaction(() => {
-        refundStale();
+        refundStale(false);
         const previous = q.request.get(accountId, key);
         if (previous) return { ...JSON.parse(previous.response), replayed: true };
         const mineBefore = Object.fromEntries(q.stakesOf.all(roundId, accountId).map((row) => [row.animal, row.amount]));
@@ -1280,6 +1422,53 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       });
     },
 
+    // Oẳn Tù Tì — vào bàn (máy realtime gọi khi người chơi mở bàn / nhận bàn): trừ cọc, mỗi người một cọc mỗi trận,
+    // tối đa 2 người. Cùng key gửi lại trả nguyên kết quả cũ. Trả { ok, coins } | { ok: false, code }.
+    stakeRps({ accountId, matchId, amount, key }) {
+      if (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key)) return { ok: false, code: 'IDEMPOTENCY_KEY_REQUIRED' };
+      if (typeof matchId !== 'string' || !RPS_MATCH_ID.test(matchId) || !RPS_STAKES.includes(amount)) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        refundStaleRps(false);
+        const previous = q.request.get(accountId, key);
+        if (previous) return { ...JSON.parse(previous.response), replayed: true };
+        const stakes = q.rpsStakes.all(matchId);
+        let result;
+        if (q.rpsDone.get(matchId)) result = { ok: false, code: 'ROUND_CLOSED' };
+        else if (stakes.some((row) => row.accountId === accountId)) result = { ok: false, code: 'STAKE_LIMIT' };
+        else if (stakes.length >= 2 || stakes.some((row) => row.amount !== amount)) result = { ok: false, code: 'INVALID' };
+        else if (ensureWallet(accountId) < amount) result = { ok: false, code: 'INSUFFICIENT_COINS', coins: ensureWallet(accountId) };
+        else result = { ok: true, coins: changeCoins(accountId, -amount, 'game_bet', null, null) };
+        if (result.ok) q.rpsStake.run(matchId, accountId, amount, now());
+        q.saveRequest.run(accountId, key, 'rps_stake', JSON.stringify(result), now());
+        return result;
+      });
+    },
+
+    // Oẳn Tù Tì — chốt trận. winner: accountId | 'bot' | null (hòa / hủy → hoàn cọc). bot: trận đấu với bot (đúng một
+    // người có cọc); không phải bot thì người thắng phải là một trong hai người có cọc. Gọi lại cùng trận: trả kết quả
+    // cũ. Trả { ok, results: [{ accountId, staked, payout, net, coins }] }.
+    settleRps({ matchId, winner, bot }) {
+      if (typeof matchId !== 'string' || !RPS_MATCH_ID.test(matchId) || typeof bot !== 'boolean'
+        || !(winner === null || (typeof winner === 'string' && winner.length <= 64))) return { ok: false, code: 'INVALID' };
+      return transaction(() => {
+        const done = q.rpsDone.get(matchId);
+        if (done) return { ok: true, results: JSON.parse(done.results), void: done.status === 'void', replayed: true };
+        const stakes = q.rpsStakes.all(matchId);
+        if (winner !== null) {
+          const valid = bot
+            ? stakes.length === 1 && (winner === 'bot' || winner === stakes[0].accountId)
+            : stakes.length === 2 && stakes[0].amount === stakes[1].amount && stakes.some((row) => row.accountId === winner);
+          if (!valid) return { ok: false, code: 'INVALID' };
+        }
+        return { ok: true, results: closeRps(matchId, winner, bot), void: winner === null };
+      });
+    },
+
+    refundStaleRps() {
+      return transaction(refundStaleRps);
+    },
+
     // Hoàn cược các ván treo (không được chốt sau BAU_CUA_STALE_MS). Trả số ván đã hủy.
     refundStaleBauCua() {
       return transaction(refundStale);
@@ -1294,7 +1483,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
         || count > LOTTO_MAX_TICKETS || typeof autoMark !== 'boolean' || (!count && !autoMark)) return { ok: false, code: 'INVALID' };
       if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
       return transaction(() => {
-        refundStaleLotto();
+        refundStaleLotto(false);
         const previous = q.request.get(accountId, key);
         if (previous) return { ...JSON.parse(previous.response), replayed: true };
         const owned = q.lottoTicketsOf.all(roundId, accountId);

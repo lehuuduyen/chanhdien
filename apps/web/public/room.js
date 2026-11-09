@@ -2,7 +2,9 @@ import { createSceneRenderer } from '/engine/renderer.mjs';
 import { parseYouTubeId } from '/youtube.js';
 import { createBootLoader, waitFor } from '/boot-loader.js';
 import { createGemUI } from '/gem-ui.js';
-import { getRoomRules } from '/shared/room-rules.mjs';
+import { cinemaRoomId, cinemaRoomName, getRoomRules, parseCinemaRoomId, privateRoomGame } from '/shared/room-rules.mjs';
+import { createCinemaPrivate } from '/cinema-private.js';
+import { currentCinemaHref } from '/region-cinema.js';
 import { loadShopCharacters } from '/shop-models.js';
 import { theaterSeats } from '/engine/theater.mjs';
 import { avatarNode, titleBadge } from '/badges.js';
@@ -12,7 +14,19 @@ const PROTOCOL_VERSION = 3;
 const RESUME_WINDOW_MS = 60_000;
 const SESSION_KEY = 'cinema-session-v1';
 const SCENE_ID = 'cinema-default';
-const roomId = new URLSearchParams(location.search).get('room') || 'cinema-1';
+const requestedRoomId = new URLSearchParams(location.search).get('room') || 'cinema-vn';
+// Rạp riêng của nhóm bạn (cinema-p-…): giữ nguyên mã; API chỉ cấp vé cho chủ phòng / khách / người mở link.
+const privateId = privateRoomGame(requestedRoomId) === 'cinema' ? requestedRoomId : null;
+const roomInfo = parseCinemaRoomId(requestedRoomId) || { state: 'vn' };
+const roomId = privateId || cinemaRoomId(roomInfo.state);
+const roomLabel = privateId ? '🔒 Rạp phim riêng' : cinemaRoomName(roomId);
+// Rạp chung để quay về (từ rạp riêng): rạp theo khu vực đã chọn ở cổng chùa.
+const publicRoomId = privateId ? new URL(currentCinemaHref(), location.origin).searchParams.get('room') : roomId;
+if (!privateId && requestedRoomId !== roomId) {
+  const canonical = new URL(location.href);
+  canonical.searchParams.set('room', roomId);
+  history.replaceState(null, '', `${canonical.pathname}${canonical.search}`);
+}
 // API và realtime đi qua cùng origin với trang (web server chuyển tiếp /api và /ws).
 const apiOrigin = location.origin;
 
@@ -28,6 +42,7 @@ const elements = {
   chatCount: $('chatCount'),
   chatForm: $('chatForm'),
   chatInput: $('chatInput'),
+  cinemaRoomLink: $('cinemaRoomLink'),
   coinChip: $('coinChip'),
   coinCount: $('coinCount'),
   copyLink: $('copyLink'),
@@ -52,6 +67,8 @@ const elements = {
   onlineCount: $('onlineCount'),
   queueBadge: $('queueBadge'),
   reactionPicker: $('reactionPicker'),
+  roomName: $('roomName'),
+  joinRoomName: $('joinRoomName'),
   showHud: $('showHud'),
   stage: $('stage'),
   voteInfo: $('voteInfo'),
@@ -83,6 +100,16 @@ const elements = {
   travelToggle: $('travelToggle'),
   unmute: $('unmute'),
 };
+
+document.title = `${roomLabel} · Chánh Điện Online`;
+elements.roomName.textContent = roomLabel;
+elements.joinRoomName.textContent = roomLabel;
+elements.cinemaRoomLink.dataset.room = publicRoomId;
+elements.cinemaRoomLink.textContent = `🎬 ${cinemaRoomName(publicRoomId) || 'Rạp phim'}`;
+for (const button of elements.travelPanel.querySelectorAll('[data-room]')) {
+  if (button.dataset.room === roomId) button.setAttribute('aria-current', 'true');
+  else button.removeAttribute('aria-current');
+}
 
 let session = null;
 let socket = null;
@@ -540,6 +567,20 @@ function renderPlayback() {
     by.textContent = `${item.addedBy} đề xuất`;
     body.append(title, by);
     row.append(body);
+    // Video mình mở, chưa chiếu: hủy được, hoàn đúng số tiền đã trả.
+    if (myVideos.has(item.itemId)) {
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'queue-cancel';
+      cancel.textContent = item.paid ? `Hủy · hoàn ${item.paid.amount} ${item.paid.currency === 'coins' ? 'xu' : '💎'}` : 'Hủy';
+      cancel.addEventListener('click', () => {
+        if (send({ type: 'queue.remove', requestId: requestId('unqueue'), itemId: item.itemId })) {
+          cancel.disabled = true;
+          notify('Đang hủy video…');
+        }
+      });
+      row.append(cancel);
+    }
     return row;
   }));
 }
@@ -561,6 +602,11 @@ function handleMessage(event) {
     clock = { offset: message.serverTime - Date.now(), rtt: Infinity };
     for (const delay of [0, 400, 1_200]) setTimeout(ping, delay);
   } else if (message.type === 'room.state') {
+    // Ngăn Rạp riêng đang mở: có người vào / ra thì tải lại danh sách khách (tối đa mỗi 3 giây).
+    if (privateId && drawerPart === 'private' && Date.now() - privateRefreshedAt > 3_000) {
+      privateRefreshedAt = Date.now();
+      privatePanel.load();
+    }
     const mySeatBefore = participants.get(session?.participantId)?.seatId;
     participants = new Map(message.participants.map((participant) => [participant.id, participant]));
     // Nhân vật Nam/Nữ đã chọn ở cổng chùa: báo server một lần để cả rạp thấy đúng (không bị đổi nhân vật).
@@ -589,8 +635,20 @@ function handleMessage(event) {
     // Của mình đã hiện ngay lúc bấm.
     if (message.participantId !== session?.participantId) renderer?.react?.(message.participantId, message.kind);
   } else if (message.type === 'wallet.update') {
-    notify(`Đã mở phim · −${message.spent} 💎 (còn ${message.diamonds} 💎)`);
-    gems.refresh();
+    // Mở phim / hoàn tiền: xu (ví vườn) hoặc kim cương, theo giá admin đặt lúc mở.
+    const unit = message.currency === 'coins' ? 'xu' : '💎';
+    const left = message.currency === 'coins' ? message.coins : message.diamonds;
+    if (message.spent) {
+      if (message.itemId) rememberMyVideo(message.itemId);
+      notify(`Đã mở phim · −${message.spent} ${unit}${left !== undefined ? ` (còn ${left} ${unit})` : ''}`);
+    } else notify(`Đã hoàn ${message.refunded} ${unit} tiền mở phim`);
+    if (message.currency === 'coins') {
+      if (left !== undefined) {
+        coins = left;
+        elements.coinCount.textContent = coins.toLocaleString('vi-VN');
+      } else loadCoins();
+    } else gems.refresh();
+    renderPlayback();
   } else if (message.type === 'playback.state') {
     const changed = message.current?.itemId !== playback.current?.itemId;
     playback = message;
@@ -613,6 +671,11 @@ function handleMessage(event) {
     if (message.code === 'BANNED') {
       sessionReplaced = true;
       notify(message.message);
+      return;
+    }
+    // Rạp riêng: bị chủ phòng mời ra, hoặc chủ phòng đã đóng rạp. Thôi nối lại, hiện lý do + nút về rạp chung.
+    if (message.code === 'PRIVATE_KICKED' || message.code === 'PRIVATE_ROOM_CLOSED') {
+      privateEnded(message.message);
       return;
     }
     if (message.code === 'INVALID_RESUME_TOKEN' || message.code === 'INVALID_TICKET') {
@@ -646,6 +709,8 @@ function handleMessage(event) {
       // Mở phim tốn kim cương: thiếu thì mở luôn bảng nạp.
       notify(message.message);
       gems.open();
+    } else if (message.code === 'INSUFFICIENT_COINS') {
+      notify(`${message.message} · ra Khu vườn bán trái cây để có thêm xu`);
     } else if (message.code === 'WALKERS_FULL') notify('Rạp đông, bạn đang xem như khán giả (vẫn chọn ghế được)');
     else if (['UNKNOWN_MESSAGE_TYPE', 'INVALID_MESSAGE'].includes(message.code) && Date.now() - reactedAt < 3_000) {
       notify('Máy chủ rạp chưa cập nhật tính năng thả cảm xúc: cần khởi động lại server');
@@ -732,6 +797,14 @@ function connectRealtime() {
   socket.addEventListener('error', () => setConnection('connecting', 'Lỗi kết nối'));
 }
 
+const PRIVATE_JOIN_ERRORS = {
+  private_room_closed: 'Rạp riêng này đã đóng.',
+  room_not_found: 'Không tìm thấy rạp này (có thể đã đóng).',
+  private_room_kicked: 'Chủ phòng đã mời bạn ra khỏi rạp riêng này.',
+  private_room_full: 'Rạp riêng đã đủ người.',
+  private_room_not_invited: 'Rạp riêng chỉ dành cho thành viên: đăng nhập ở cổng chùa rồi mở lại link.',
+};
+
 async function joinRoom(displayName) {
   const response = await fetch(`${apiOrigin}/api/v1/rooms/join`, {
     method: 'POST',
@@ -741,7 +814,7 @@ async function joinRoom(displayName) {
   if (!response.ok) {
     // Nick bị khóa / tên không phù hợp: hiện đúng câu server giải thích.
     const body = await response.json().catch(() => null);
-    const error = new Error(body?.message || 'Không thể cấp vé vào phòng. Hãy kiểm tra API đang chạy.');
+    const error = new Error(body?.message || PRIVATE_JOIN_ERRORS[body?.error] || 'Không thể cấp vé vào phòng. Hãy kiểm tra API đang chạy.');
     error.code = body?.error || null;
     throw error;
   }
@@ -782,9 +855,26 @@ elements.chatForm.addEventListener('submit', (event) => {
 });
 elements.chatInput.addEventListener('input', () => { elements.chatCount.textContent = `${elements.chatInput.value.length}/160`; });
 
-// Mở phim (thêm video vào hàng chờ) tốn kim cương, giá theo luật phòng rạp.
-const VIDEO_PRICE = getRoomRules('cinema').content.videoPrice || 0;
-if (VIDEO_PRICE) elements.queueInput.placeholder = `Dán link YouTube · mở phim ${VIDEO_PRICE} 💎`;
+// Mở phim (thêm video vào hàng chờ) tốn tiền: admin chọn xu hay kim cương và đặt giá ở API (/api/v1/cinema/video-price).
+const PAID_VIDEOS = Boolean(getRoomRules('cinema').content.videoPrice);
+let videoPrice = null;
+const priceLabel = () => (videoPrice ? `${videoPrice.price} ${videoPrice.currency === 'coins' ? 'xu' : '💎'}` : '');
+async function loadVideoPrice() {
+  if (!PAID_VIDEOS) return;
+  try {
+    const response = await fetch('/api/v1/cinema/video-price', { cache: 'no-store' });
+    if (response.ok) videoPrice = await response.json();
+  } catch {}
+  if (videoPrice) elements.queueInput.placeholder = `Dán link YouTube · mở phim ${priceLabel()}`;
+}
+loadVideoPrice();
+// Video mình mở còn trong hàng chờ (máy realtime báo mã riêng cho người mở): hiện nút Hủy để lấy lại tiền.
+const MY_VIDEOS_KEY = `cinema-my-videos:${roomId}`;
+const myVideos = new Set((() => { try { return JSON.parse(sessionStorage.getItem(MY_VIDEOS_KEY)) || []; } catch { return []; } })());
+function rememberMyVideo(itemId) {
+  myVideos.add(itemId);
+  try { sessionStorage.setItem(MY_VIDEOS_KEY, JSON.stringify([...myVideos].slice(-20))); } catch {}
+}
 elements.queueForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const videoId = parseYouTubeId(elements.queueInput.value);
@@ -794,7 +884,7 @@ elements.queueForm.addEventListener('submit', (event) => {
   }
   if (send({ type: 'queue.add', requestId: requestId('queue'), videoId })) {
     elements.queueInput.value = '';
-    notify(VIDEO_PRICE ? `Đang kiểm tra video… (mở phim ${VIDEO_PRICE} 💎)` : 'Đang kiểm tra video…');
+    notify(videoPrice ? `Đang kiểm tra video… (mở phim ${priceLabel()})` : 'Đang kiểm tra video…');
   }
 });
 
@@ -845,7 +935,7 @@ elements.cameras.addEventListener('click', (event) => {
 // ---- Thanh công cụ, ngăn kéo, cảm xúc ----
 let drawerPart = null;
 let unread = 0;
-const DRAWER_TITLES = { seats: 'Chọn ghế', queue: 'Hàng chờ', chat: 'Trò chuyện', people: 'Người xem' };
+const DRAWER_TITLES = { seats: 'Chọn ghế', queue: 'Hàng chờ', chat: 'Trò chuyện', people: 'Người xem', private: privateId ? 'Rạp riêng' : 'Phòng riêng' };
 let reactedAt = 0;
 function openDrawer(part) {
   drawerPart = drawerPart === part ? null : part;
@@ -856,6 +946,7 @@ function openDrawer(part) {
   }
   if (drawerPart) elements.drawerTitle.textContent = DRAWER_TITLES[drawerPart];
   if (drawerPart === 'seats') renderSeatMap();
+  if (drawerPart === 'private') privatePanel.load();
   if (drawerPart === 'chat') {
     unread = 0;
     elements.chatBadge.hidden = true;
@@ -1036,6 +1127,38 @@ elements.copyLink.addEventListener('click', async () => {
     notify(link);
   }
 });
+// ---- Rạp riêng: tạo / mời / đóng (cinema-private.js) ----
+const privatePanel = createCinemaPrivate({
+  body: $('privateBody'),
+  privateId,
+  price: getRoomRules('cinema-private')?.private?.price ?? 50,
+  notify,
+  onLeave: () => { location.href = `/room.html?room=${encodeURIComponent(publicRoomId)}`; },
+  // Rời / đóng rạp riêng: đóng kết nối có chủ ý (máy realtime đóng phòng nếu là chủ), rồi về rạp chung.
+  onClose: () => {
+    sessionReplaced = true;
+    sessionStorage.removeItem(SESSION_KEY);
+    socket?.close(1000, 'Rời phòng');
+    setTimeout(() => { location.href = `/room.html?room=${encodeURIComponent(publicRoomId)}`; }, 300);
+  },
+});
+function privateEnded(text) {
+  sessionReplaced = true;
+  sessionStorage.removeItem(SESSION_KEY);
+  clearTimeout(reconnectTimer);
+  socket?.close();
+  notify(text);
+  privatePanel.gone(text);
+  if (drawerPart !== 'private') openDrawer('private');
+}
+let privateRefreshedAt = 0;
+if (privateId) {
+  // Chủ phòng vừa mở rạp (chưa có khách): mở sẵn ngăn Rạp riêng để thấy link mời / danh sách bạn.
+  privatePanel.load().then(() => {
+    if (privatePanel.room?.isOwner && !privatePanel.room.members.length && drawerPart !== 'private') openDrawer('private');
+  });
+}
+
 // ---- Xem ngang (zoom): camera phóng vào màn chiếu, mọi thanh ẩn. Điện thoại xoay ngang thì tự vào; nút ⛶ vào
 // được ở mọi máy (kèm toàn màn hình và khóa hướng ngang nếu trình duyệt cho, vd Chrome Android).
 const zoom = { on: false, auto: false, previousCamera: 'overview' };
@@ -1122,9 +1245,15 @@ function openTravel(next) {
 }
 elements.travelToggle.addEventListener('click', () => openTravel(elements.travelPanel.hidden));
 elements.travelPanel.addEventListener('click', (event) => {
-  const destination = event.target.closest('[data-destination]')?.dataset.destination;
+  const target = event.target.closest('[data-destination]');
+  const destination = target?.dataset.destination;
   openTravel(false);
-  if (!destination || destination === 'cinema') return;
+  if (!destination) return;
+  if (destination === 'cinema') {
+    const targetRoom = target.dataset.room;
+    if (targetRoom && targetRoom !== roomId) location.href = `/room.html?room=${encodeURIComponent(targetRoom)}`;
+    return;
+  }
   if (destination === 'games') {
     location.href = '/game.html';
     return;

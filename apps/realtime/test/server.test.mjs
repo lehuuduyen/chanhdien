@@ -528,23 +528,25 @@ test('danh sách YouTube admin chỉ phát khi có người, lặp vòng và nh�
 test('máy realtime tải danh sách rạp bằng khóa nội bộ; lỗi API không xóa danh sách đang dùng', async () => {
   const calls = [];
   const provider = cinemaPlaylistProvider('http://api.test:4000', 'internal-key', async (url, options) => {
-    calls.push([url.pathname, options.headers['x-internal-key']]);
+    calls.push([url.pathname, url.searchParams.get('roomId'), options.headers['x-internal-key']]);
     return { ok: true, json: async () => ({ videos: [{ videoId: 'dQw4w9WgXcQ' }] }) };
   });
-  assert.deepEqual(await provider(), [{ videoId: 'dQw4w9WgXcQ' }]);
-  assert.deepEqual(calls, [['/internal/cinema/playlist', 'internal-key']]);
+  assert.deepEqual(await provider('cinema-az'), [{ videoId: 'dQw4w9WgXcQ' }]);
+  assert.deepEqual(calls, [['/internal/cinema/playlist', 'cinema-az', 'internal-key']]);
 
   let fail = false;
   const registry = new RoomRegistry({
-    getCinemaPlaylist: async () => (fail ? null : [{ videoId: 'dQw4w9WgXcQ' }]),
+    getCinemaPlaylist: async (roomId) => (fail ? null : [{ videoId: roomId === 'cinema-vn' ? 'aaaaaaaaaaa' : 'bbbbbbbbbbb' }]),
     botCounts: { cinema: 0 },
   });
-  const opened = await registry.open('cinema-1');
-  assert.deepEqual(opened.room.fallbackPlaylist, [{ videoId: 'dQw4w9WgXcQ' }]);
+  const [first, second] = await Promise.all([registry.open('cinema-vn'), registry.open('cinema-az')]);
+  assert.deepEqual(first.room.fallbackPlaylist, [{ videoId: 'aaaaaaaaaaa' }]);
+  assert.deepEqual(second.room.fallbackPlaylist, [{ videoId: 'bbbbbbbbbbb' }]);
   fail = true;
-  await registry.refreshCinemaPlaylist(true);
-  assert.deepEqual(opened.room.fallbackPlaylist, [{ videoId: 'dQw4w9WgXcQ' }]);
-  opened.room.close();
+  await registry.refreshCinemaPlaylist('cinema-az', true);
+  assert.deepEqual(second.room.fallbackPlaylist, [{ videoId: 'bbbbbbbbbbb' }]);
+  first.room.close();
+  second.room.close();
 });
 
 test('vote bỏ qua theo 35% người đang kết nối; lỗi phát cũng tính như vậy', () => {
@@ -593,22 +595,23 @@ test('failover giữ bài đang chiếu, giờ bắt đầu và hàng chờ', ()
   restored.close();
 });
 
-test('client thêm video qua WebSocket: khách không mở phim được, video cấm nhúng bị từ chối, mở phim trừ 20 💎 rồi phát cho cả phòng', async (t) => {
+test('client thêm video qua WebSocket: khách không mở phim được, video cấm nhúng bị từ chối, mở phim trừ 20 xu rồi phát cho cả phòng', async (t) => {
   const fetchVideoInfo = async (videoId) => (videoId === 'blockedvid1'
     ? { ok: false, error: 'VIDEO_NOT_EMBEDDABLE' }
     : { ok: true, title: `Video ${videoId}` });
   const spends = [];
   let balance = 30;
-  const wallet = {
-    spend: async (input) => {
+  // API giá mở phim: đang đặt trả bằng xu, 20 xu / phim.
+  const videoPay = {
+    pay: async (input) => {
       spends.push(input);
-      if (balance < input.amount) return { ok: false, error: 'INSUFFICIENT_DIAMONDS' };
-      balance -= input.amount;
-      return { ok: true, diamonds: balance };
+      if (balance < 20) return { ok: false, error: 'INSUFFICIENT_COINS', currency: 'coins', price: 20 };
+      balance -= 20;
+      return { ok: true, currency: 'coins', amount: 20, balance };
     },
     refund: async () => ({ ok: true }),
   };
-  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, fetchVideoInfo, wallet });
+  const server = createRealtimeServer({ botCounts: { cinema: 0 }, secret: SECRET, fetchVideoInfo, videoPay });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const port = server.address().port;
@@ -625,7 +628,7 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
 
   const guest = waitForMessage(binh.socket, (message) => message.type === 'protocol.error');
   binh.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q0', videoId: 'dQw4w9WgXcQ' }));
-  assert.equal((await guest).code, 'SIGN_IN_REQUIRED', 'khách không có ví kim cương');
+  assert.equal((await guest).code, 'SIGN_IN_REQUIRED', 'khách không có ví');
 
   const blocked = waitForMessage(an.socket, (message) => message.type === 'protocol.error');
   an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q1', videoId: 'blockedvid1' }));
@@ -636,12 +639,13 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
   an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q2', videoId: 'dQw4w9WgXcQ' }));
   const state = await playing;
   const update = await paid;
-  assert.deepEqual([update.diamonds, update.spent, parseServerMessage(update).ok], [10, 20, true]);
-  assert.deepEqual(spends.map(({ accountId, amount, reason, ref }) => [accountId, amount, reason, ref]), [['a-an-00000001', 20, 'cinema_video', 'dQw4w9WgXcQ']],
+  assert.deepEqual([update.currency, update.coins, update.spent, parseServerMessage(update).ok], ['coins', 10, 20, true]);
+  assert.deepEqual(spends.map(({ accountId, ref }) => [accountId, ref]), [['a-an-00000001', 'dQw4w9WgXcQ']],
     'video cấm nhúng không bị trừ tiền');
   const poor = waitForMessage(an.socket, (message) => message.type === 'protocol.error');
   an.socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'queue.add', requestId: 'q3', videoId: 'aaaaaaaaaaa' }));
-  assert.equal((await poor).code, 'INSUFFICIENT_DIAMONDS', 'còn 10 💎, không đủ 20');
+  const poorError = await poor;
+  assert.deepEqual([poorError.code, poorError.message], ['INSUFFICIENT_COINS', 'Không đủ xu để mở phim (cần 20 xu)'], 'còn 10 xu, không đủ 20');
   assert.equal(state.current.videoId, 'dQw4w9WgXcQ');
   assert.equal(state.current.title, 'Video dQw4w9WgXcQ');
   assert.equal(state.current.addedBy, 'An');
@@ -652,17 +656,22 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
   assert.equal(late.playback.current.videoId, 'dQw4w9WgXcQ', 'người vào sau nhận ngay bài đang chiếu');
 });
 
-test('mở phim: đã trừ kim cương mà video không vào được hàng chờ thì hoàn; cùng requestId dùng cùng khóa', async () => {
+test('mở phim: đã trừ tiền mà video không vào được hàng chờ thì hoàn; cùng requestId dùng cùng khóa', async () => {
   const calls = [];
-  const wallet = { spend: async (input) => { calls.push(['spend', input.key]); return { ok: true, diamonds: 80 }; }, refund: async (input) => { calls.push(['refund', input.key]); return { ok: true }; } };
-  const room = new Room('cinema-1', { botCount: 0, wallet });
+  const videoPay = {
+    pay: async (input) => { calls.push(['pay', input.key]); return { ok: true, currency: 'diamonds', amount: 20, balance: 80 }; },
+    refund: async (input) => { calls.push(['refund', input.key, input.currency]); return { ok: true, balance: 100 }; },
+  };
+  const room = new Room('cinema-1', { botCount: 0, videoPay });
   room.join({ readyState: WebSocket.CLOSED, send() {}, close() {} }, { participantId: 'u-1', displayName: 'An', accountId: 'a-1-00000001' });
   // Có người khác vừa thêm đúng video này trong lúc đang trừ tiền.
   const original = room.addVideo.bind(room);
   room.addVideo = (...args) => { original('u-1', 'dQw4w9WgXcQ', 'X'); return original(...args); };
   assert.deepEqual(await room.addPaidVideo('u-1', 'dQw4w9WgXcQ', 'X', 'q-1'), { ok: false, error: 'ALREADY_QUEUED' });
-  assert.deepEqual(calls.map(([kind]) => kind), ['spend', 'refund']);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.map(([kind]) => kind), ['pay', 'refund']);
   assert.equal(calls[0][1], calls[1][1], 'hoàn đúng lần trừ');
+  assert.equal(calls[1][2], 'diamonds', 'hoàn đúng loại tiền đã trả');
   room.close();
 });
 
@@ -2659,4 +2668,86 @@ test('bot đi khắp sân theo bản đồ scene: không đi xuyên vật cản,
   assert.deepEqual(bad.slice(0, 5), [], 'vị trí bot luôn đứng được (không trong tượng, hồ, hàng rào)');
   assert.ok(farFromPath > 1_000, 'bot ra khắp sân, không chỉ đi trên lối giữa');
   assert.ok(benchSits > 0, 'có lúc bot ngồi ghế đá');
+});
+
+test('rạp phim riêng: mở như rạp (ghế, hàng chờ, danh sách phát mặc định), không có bot tự vào, bạn bot được mời ngồi ghế, chủ rời thì đóng', async () => {
+  const closed = [];
+  const registry = new RoomRegistry({
+    getCinemaPlaylist: async (roomId) => [{ videoId: roomId === 'cinema-vn' ? 'aaaaaaaaaaa' : 'bbbbbbbbbbb' }],
+    privateRooms: { info: async () => ({ ok: true, owner: 'a-chu-00000001', bots: ['Mây Trắng'] }), closed: (id) => closed.push(id) },
+  });
+  const { room } = await registry.open('cinema-p-abcd1234');
+  try {
+    assert.equal(room.type, 'cinema-private');
+    assert.equal(room.rules.content.videoPrice, 20, 'mở phim vẫn tốn kim cương như rạp chung');
+    assert.deepEqual(room.fallbackPlaylist, [{ videoId: 'aaaaaaaaaaa' }], 'hàng chờ trống thì chiếu danh sách mặc định');
+    const bots = [...room.participants.values()].filter((person) => person.bot);
+    assert.deepEqual(bots.map((bot) => bot.displayName), ['Mây Trắng'], 'chỉ có bạn bot được mời');
+    assert.ok(bots[0].seatId, 'bạn bot ngồi một ghế');
+    const inbox = [];
+    const socket = { readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() { this.readyState = WebSocket.CLOSED; } };
+    const friend = { readyState: WebSocket.OPEN, send: (raw) => inbox.push(JSON.parse(raw)), close() { this.readyState = WebSocket.CLOSED; } };
+    room.join(socket, { participantId: 'chu', displayName: 'Chủ', role: 'member', accountId: 'a-chu-00000001' });
+    room.join(friend, { participantId: 'ban', displayName: 'Bạn', role: 'member', accountId: 'a-ban-00000001' });
+    room.ensureFallback({ broadcast: false });
+    assert.equal(room.playback.current?.videoId, 'aaaaaaaaaaa', 'có người vào thì phim mặc định chạy');
+    room.disconnect('chu', socket, { left: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(closed, ['cinema-p-abcd1234']);
+    assert.equal(inbox.at(-1).code, 'PRIVATE_ROOM_CLOSED');
+  } finally {
+    room.close();
+  }
+});
+
+test('hủy phim / video lỗi / rạp riêng đóng: hoàn đúng tiền đã trả; chỉ người mở mới hủy được; playback không lộ khóa trả tiền', async () => {
+  const refunds = [];
+  let serial = 0;
+  const videoPay = {
+    pay: async ({ accountId }) => ({ ok: true, currency: 'coins', amount: 20, balance: 100 - 20 * (serial += 1), accountId }),
+    refund: async (input) => { refunds.push([input.accountId, input.currency]); return { ok: true, balance: 100 }; },
+  };
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  const room = new Room('cinema-p-abcd1234', { privateOwner: 'a-chu-00000001', videoPay });
+  const inbox = { chu: [], ban: [] };
+  const socket = (id) => ({ readyState: WebSocket.OPEN, send: (raw) => inbox[id].push(JSON.parse(raw)), close() { this.readyState = WebSocket.CLOSED; } });
+  const chuSocket = socket('chu');
+  room.join(chuSocket, { participantId: 'chu', displayName: 'Chủ', role: 'member', accountId: 'a-chu-00000001' });
+  room.join(socket('ban'), { participantId: 'ban', displayName: 'Bạn', role: 'member', accountId: 'a-ban-00000001' });
+  for (const [who, video] of [['chu', 'aaaaaaaaaaa'], ['chu', 'bbbbbbbbbbb'], ['ban', 'ccccccccccc'], ['chu', 'ddddddddddd']]) {
+    assert.equal((await room.addPaidVideo(who, video, video, `q-${video}`)).ok, true);
+  }
+  // Video đầu đang chiếu; ba video còn chờ.
+  const state = room.playbackState();
+  assert.equal(parseServerMessage(state).ok, true);
+  assert.deepEqual(state.queue.map((item) => item.paid), [{ currency: 'coins', amount: 20 }, { currency: 'coins', amount: 20 }, { currency: 'coins', amount: 20 }]);
+  assert.ok(!('addedById' in state.queue[0]), 'không lộ id người mở');
+  // Người mở nhận riêng mã video của mình (để hiện nút Hủy).
+  const banPaid = inbox.ban.find((message) => message.type === 'wallet.update' && message.spent);
+  assert.equal(banPaid.itemId, state.queue[1].itemId);
+  assert.equal(parseServerMessage(banPaid).ok, true);
+  assert.equal(JSON.stringify(state).includes('key'), false, 'không lộ khóa trả tiền');
+  const banItem = state.queue[1].itemId;
+  assert.equal(room.removeVideo('chu', banItem).error, 'NOT_OWNER');
+  assert.equal(room.removeVideo('ban', banItem).ok, true);
+  assert.equal(room.removeVideo('ban', banItem).error, 'NOT_QUEUED');
+  assert.equal(room.removeVideo('chu', room.playback.current.itemId).error, 'NOT_QUEUED', 'video đang chiếu không hủy được');
+  await tick();
+  assert.deepEqual(refunds, [['a-ban-00000001', 'coins']]);
+  const refundMessage = inbox.ban.find((message) => message.type === 'wallet.update' && message.refunded);
+  assert.deepEqual([refundMessage.refunded, refundMessage.coins, parseServerMessage(refundMessage).ok], [20, 100, true]);
+  // Video đang chiếu báo lỗi ngay đầu (đủ số người): hoàn cho người mở.
+  const playing = room.playback.current.itemId;
+  room.report('chu', playing, 'error');
+  room.report('ban', playing, 'error');
+  await tick();
+  assert.deepEqual(refunds.at(-1), ['a-chu-00000001', 'coins']);
+  assert.equal(refunds.length, 2);
+  // Chủ rời: rạp đóng, video còn chờ (ddddddddddd) được hoàn; video đang chiếu thì không.
+  assert.equal(room.playback.queue.length, 1);
+  room.disconnect('chu', chuSocket, { left: true });
+  await tick();
+  assert.equal(refunds.length, 3);
+  assert.equal(room.playback.queue.length, 0);
+  room.close();
 });

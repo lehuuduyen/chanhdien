@@ -62,13 +62,18 @@ test('Chánh điện: số bồ đoàn cấu hình được, lễ vật có côn
   assert.equal(THIEN_RULES.interaction.offerings.bell.merit, 99);
   for (const offering of Object.values(THIEN_RULES.interaction.offerings)) assert.equal(offering.cooldownMs, 0, 'lễ vật không có thời gian chờ');
   assert.equal(roomTypeOf('thien-1'), 'thien');
-  assert.equal(roomTypeOf('cinema-1'), 'cinema');
+  assert.equal(roomTypeOf('cinema-1'), 'cinema', 'link rạp cũ vẫn vào rạp Việt Nam');
+  assert.equal(roomTypeOf('cinema-vn'), 'cinema');
+  assert.equal(roomTypeOf('cinema-az'), 'cinema');
   assert.equal(roomTypeOf('khong-co'), null);
   assert.equal(Object.isFrozen(ROOM_CATALOG[0]), true);
 });
 
-test('chánh điện theo tiểu bang và ngôn ngữ: mã phòng, tên ngắn, ngôn ngữ, múi giờ, bài giảng mỗi ngôn ngữ', async () => {
-  const { parseThienRoomId, roomLangOf, roomTypeOf, thienRoomId, thienRoomName, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, US_STATES } = await import('../src/index.mjs');
+test('chánh điện và rạp theo tiểu bang: mã phòng, tên ngắn, ngôn ngữ, múi giờ, bài giảng mỗi ngôn ngữ', async () => {
+  const {
+    cinemaRoomId, cinemaRoomName, parseCinemaRoomId, parseThienRoomId, roomLangOf, roomTypeOf, thienRoomId,
+    thienRoomName, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, US_STATES,
+  } = await import('../src/index.mjs');
   assert.equal(US_STATES.length, 52, 'Việt Nam + 50 tiểu bang và DC');
   assert.deepEqual(US_STATES[0], { code: 'vn', name: 'Việt Nam', timeZone: 'Asia/Ho_Chi_Minh' });
   assert.deepEqual(parseThienRoomId('thien-vn-vi-1'), { state: 'vn', lang: 'vi', shard: 1 });
@@ -85,6 +90,11 @@ test('chánh điện theo tiểu bang và ngôn ngữ: mã phòng, tên ngắn, 
   assert.equal(roomTypeOf('thien-ca-zh-3'), 'thien');
   assert.equal(roomLangOf('thien-tx-es-1'), 'es');
   assert.equal(roomLangOf('thien-1'), 'vi');
+  assert.equal(cinemaRoomId('az'), 'cinema-az');
+  assert.deepEqual(parseCinemaRoomId('cinema-az'), { state: 'az' });
+  assert.deepEqual(parseCinemaRoomId('cinema-1'), { state: 'vn' }, 'link cũ quy về rạp Việt Nam');
+  assert.equal(cinemaRoomName('cinema-az'), 'Rạp phim · Arizona');
+  assert.equal(parseCinemaRoomId('cinema-xx'), null);
   for (const lang of Object.keys(THIEN_LANGS)) {
     assert.match(THIEN_EVENT.lectures[lang].videoId, /^[A-Za-z0-9_-]{11}$/, `bài giảng ${lang}`);
     const names = lang === 'vi' ? THIEN_RULES.bots.names : THIEN_RULES.bots.byLang[lang].names;

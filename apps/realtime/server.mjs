@@ -14,7 +14,10 @@ import {
   NODE_TTL_MS,
   SNAPSHOT_TTL_MS,
 } from '@chanh-dien/room-directory';
-import { dayStartOf, getRoomRules, isPremiumSkin, isPrivateRoomId, isShopSkin, parseThienRoomId, roomLangOf, roomTypeOf, THIEN_GARDEN } from '@chanh-dien/room-rules';
+import {
+  cinemaRoomName, dayStartOf, getRoomRules, isPremiumSkin, isPrivateRoomId, isShopSkin, parseThienRoomId,
+  roomLangOf, roomTypeOf, THIEN_GARDEN,
+} from '@chanh-dien/room-rules';
 import {
   createResumeToken,
   DEFAULT_LOCAL_SECRET,
@@ -24,6 +27,7 @@ import {
 } from '@chanh-dien/session-token';
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
+import { rpsBank, RpsTable } from './rps.mjs';
 import { BOT_AI_MODEL, createBotAi, guessLang } from './bot-ai.mjs';
 import { botNavFor } from './bot-nav.mjs';
 import { LottoTable, lottoBank } from './loto.mjs';
@@ -41,6 +45,8 @@ const HELLO_TIMEOUT_MS = 10_000;
 // Giới hạn chat cả phòng: 500 người × 5 tin/10 giây vẫn bị chặn ở mức này để bong bóng còn đọc được.
 const ROOM_CHAT_PER_SECOND = 30;
 const CINEMA = getRoomRules('cinema');
+// Rạp chung theo khu vực (cinema-<mã>) và rạp riêng của nhóm bạn (cinema-p-…) cùng cách phát phim.
+const isCinemaType = (type) => type === 'cinema' || type === 'cinema-private';
 const MAX_QUEUE = 50;
 const MAX_QUEUED_PER_PERSON = 3;
 const CINEMA_PLAYLIST_REFRESH_MS = 15_000;
@@ -229,9 +235,17 @@ export async function fetchYouTubeInfo(videoId) {
   return result;
 }
 
+// paid (chỉ ở server và snapshot): { accountId, key, currency, amount } của lần trả tiền mở video này, để hoàn đúng.
+const validPayment = (paid) => paid === undefined || paid === null || (typeof paid === 'object'
+  && typeof paid.accountId === 'string' && typeof paid.key === 'string' && ['coins', 'diamonds'].includes(paid.currency)
+  && Number.isSafeInteger(paid.amount) && paid.amount > 0);
 const validQueueItem = (item) => item !== null && typeof item === 'object'
   && typeof item.itemId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(item.videoId)
-  && typeof item.title === 'string' && typeof item.addedBy === 'string';
+  && typeof item.title === 'string' && typeof item.addedBy === 'string' && validPayment(item.paid);
+// Hoàn tiền mở phim khi video lỗi ngay từ đầu (chặn nhúng, bị xóa…): chỉ khi lỗi trong khoảng này kể từ lúc bắt đầu chiếu.
+const VIDEO_ERROR_REFUND_MS = 90_000;
+// Hoàn tiền không được (API tạm lỗi): thử lại ở nền.
+const REFUND_RETRY_MS = [2_000, 5_000, 15_000, 30_000, 60_000, 300_000];
 
 const validLevel = (level) => Number.isSafeInteger(level) && level >= 1 && level <= 99;
 const validRecordParticipant = (item, seatIds, benchIds, seatsPerBench) => item !== null && typeof item === 'object'
@@ -266,7 +280,8 @@ export class Room {
     this.rates = new Map();
     this.chatLog = [];
     // Ví kim cương ({ spend, refund } qua API): mở phim tốn kim cương.
-    this.wallet = options.wallet || null;
+    // Trả / hoàn tiền mở phim qua API (xu hoặc kim cương, admin chọn): { pay, refund }. Không có thì không mở phim tốn tiền được.
+    this.videoPay = options.videoPay || null;
     // Bot làm vườn ({ task, act } qua API): bot đi dạo rẽ vào Vườn Công Đức gieo / tưới / hái luống của bot.
     this.gardenBots = options.gardenBots || null;
     // Phòng Lô Tô riêng: tài khoản chủ phòng (chủ rời phòng thì đóng phòng) và báo API khi đóng. Bot chỉ có khi được mời.
@@ -330,7 +345,9 @@ export class Room {
     const game = this.rules.interaction?.game;
     this.table = DICE_TABLE_GAMES[game]
       ? new BauCuaTable({ room: this, rules: this.rules.interaction, ...(options.bauCua || {}) })
-      : game === 'loto' ? new LottoTable({ room: this, rules: this.rules.interaction, ...(options.lotto || {}) }) : null;
+      : game === 'loto' ? new LottoTable({ room: this, rules: this.rules.interaction, ...(options.lotto || {}) })
+        // Oẳn Tù Tì cược (đấu 1–1): options.rps { stake, settle } gọi API giữ cọc / chốt trận.
+        : game === 'rps' ? new RpsTable({ room: this, rules: this.rules.interaction, ...(options.rps || {}) }) : null;
     // Phòng game công cộng cấu hình alwaysOn tự tạo đủ bot ngay khi room actor mở, giữ bàn chạy khi chưa có người
     // thật và dùng cùng cơ chế dao động của addbot. Giá trị botCount truyền vào (env / Telegram) vẫn được ưu tiên.
     if (this.rules.bots?.alwaysOn && this.botCount > 0) {
@@ -1231,6 +1248,7 @@ export class Room {
   // Người rời phòng hẳn: dừng công việc, huỷ trận và lời mời kết bạn của người đó.
   dropSocial(participantId) {
     this.stopChore(participantId);
+    this.table?.participantAway?.(participantId);
     for (const key of this.friendRequests.keys()) if (key.split('>').includes(participantId)) this.friendRequests.delete(key);
     for (const key of this.handRequests.keys()) if (key.split('>').includes(participantId)) this.handRequests.delete(key);
     // Người rời phòng (đã xóa khỏi danh sách): người còn lại thôi nắm tay.
@@ -1339,7 +1357,7 @@ export class Room {
 
   // ---- Phát video: server giữ bài đang chiếu, giờ bắt đầu và hàng chờ; client tự đồng bộ theo giờ server. ----
   setFallbackPlaylist(input) {
-    if (this.type !== 'cinema') return;
+    if (!isCinemaType(this.type)) return;
     const seen = new Set();
     const playlist = [];
     for (const item of Array.isArray(input) ? input : []) {
@@ -1361,7 +1379,7 @@ export class Room {
   }
 
   nextFallbackItem() {
-    if (this.type !== 'cinema' || this.connectedCount === 0 || !this.fallbackPlaylist.length) return null;
+    if (!isCinemaType(this.type) || this.connectedCount === 0 || !this.fallbackPlaylist.length) return null;
     const previousVideoId = this.playback.current?.videoId;
     let first = null;
     for (let offset = 0; offset < this.fallbackPlaylist.length; offset += 1) {
@@ -1403,8 +1421,15 @@ export class Room {
       v: PROTOCOL_VERSION,
       type: 'playback.state',
       epoch: this.epoch,
-      current: current ? { ...current } : null,
-      queue: queue.map(({ itemId, videoId, title, addedBy }) => ({ itemId, videoId, title, addedBy })),
+      // Không gửi key / accountId của lần trả tiền ra ngoài: chỉ loại tiền + số tiền.
+      current: current ? {
+        itemId: current.itemId, videoId: current.videoId, title: current.title, addedBy: current.addedBy, startedAt: current.startedAt,
+        ...(current.duration !== undefined ? { duration: current.duration } : {}),
+      } : null,
+      queue: queue.map(({ itemId, videoId, title, addedBy, paid }) => ({
+        itemId, videoId, title, addedBy,
+        ...(paid ? { paid: { currency: paid.currency, amount: paid.amount } } : {}),
+      })),
       votes: votes.size,
       votesNeeded: this.votesNeeded(),
     };
@@ -1415,40 +1440,95 @@ export class Room {
     this.broadcast(this.playbackState());
   }
 
-  addVideo(participantId, videoId, title) {
+  addVideo(participantId, videoId, title, paid = null) {
     const participant = this.participants.get(participantId);
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     const check = this.canAddVideo(participantId, videoId);
     if (!check.ok) return check;
     const { current, queue } = this.playback;
-    queue.push({ itemId: `q-${randomUUID()}`, videoId, title, addedBy: participant.displayName, addedById: participantId });
+    queue.push({ itemId: `q-${randomUUID()}`, videoId, title, addedBy: participant.displayName, addedById: participantId, ...(paid ? { paid } : {}) });
     if (!current) this.advance();
     else this.broadcastPlayback();
     return { ok: true };
   }
 
-  // Mở phim tốn kim cương (rules.content.videoPrice): kiểm tra hàng chờ trước, trừ 💎 qua sổ API (khóa theo requestId nên
-  // gửi lại không trừ hai lần), rồi mới thêm video; thêm không được (vừa có người thêm trùng…) thì hoàn ngay.
+  // Mở phim tốn tiền (rules.content.videoPrice bật tính năng; loại tiền + giá do admin đặt ở API): kiểm tra hàng chờ trước,
+  // trả qua API (khóa theo requestId nên gửi lại không trừ hai lần), rồi mới thêm video kèm thông tin đã trả; thêm không
+  // được (vừa có người thêm trùng…) thì hoàn ngay.
   async addPaidVideo(participantId, videoId, title, requestId) {
-    const price = this.rules.content?.videoPrice || 0;
-    if (!price) return this.addVideo(participantId, videoId, title);
+    if (!this.rules.content?.videoPrice) return this.addVideo(participantId, videoId, title);
     const participant = this.participants.get(participantId);
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
     if (!participant.accountId) return { ok: false, error: 'SIGN_IN_REQUIRED' };
     const check = this.canAddVideo(participantId, videoId);
     if (!check.ok) return check;
-    if (!this.wallet) return { ok: false, error: 'WALLET_UNAVAILABLE' };
+    if (!this.videoPay) return { ok: false, error: 'WALLET_UNAVAILABLE' };
     const accountId = participant.accountId;
     const key = createHash('sha256').update(`${accountId}:video:${requestId}`).digest('base64url').slice(0, 40);
-    const paid = await this.wallet.spend({ accountId, amount: price, reason: 'cinema_video', ref: videoId, key }).catch(() => null);
-    if (!paid?.ok) return { ok: false, error: paid?.error === 'INSUFFICIENT_DIAMONDS' ? 'INSUFFICIENT_DIAMONDS' : 'WALLET_UNAVAILABLE' };
-    const result = this.closed ? { ok: false, error: 'NOT_IN_ROOM' } : this.addVideo(participantId, videoId, title);
+    const paid = await Promise.resolve(this.videoPay.pay({ accountId, ref: videoId, key })).catch(() => null);
+    if (!paid?.ok) {
+      const error = ['INSUFFICIENT_COINS', 'INSUFFICIENT_DIAMONDS'].includes(paid?.error) ? paid.error : 'WALLET_UNAVAILABLE';
+      return { ok: false, error, ...(Number.isSafeInteger(paid?.price) ? { price: paid.price } : {}) };
+    }
+    const payment = { accountId, key, currency: paid.currency, amount: paid.amount };
+    const result = this.closed ? { ok: false, error: 'NOT_IN_ROOM' } : this.addVideo(participantId, videoId, title, payment);
     if (!result.ok) {
-      await this.wallet.refund({ accountId, key }).catch(() => null);
+      this.refundPayment(payment);
       return result;
     }
-    this.sendTo(participantId, { v: PROTOCOL_VERSION, type: 'wallet.update', epoch: this.epoch, diamonds: paid.diamonds, spent: price });
+    // Video còn trong hàng chờ (chưa chiếu ngay): báo mã của nó cho người mở để trang hiện nút Hủy.
+    const itemId = this.playback.queue.find((item) => item.paid?.key === key)?.itemId;
+    this.sendWallet(accountId, { currency: paid.currency, spent: paid.amount, balance: paid.balance, itemId });
     return result;
+  }
+
+  // Báo ví vừa đổi cho mọi kết nối của tài khoản (ô 💎 / 🪙 trên trang cập nhật ngay).
+  sendWallet(accountId, { currency, spent, refunded, balance, itemId }) {
+    const message = {
+      v: PROTOCOL_VERSION, type: 'wallet.update', epoch: this.epoch, currency,
+      ...(spent ? { spent, ...(itemId ? { itemId } : {}) } : { refunded }),
+      ...(Number.isSafeInteger(balance) && balance >= 0 ? { [currency === 'coins' ? 'coins' : 'diamonds']: balance } : {}),
+    };
+    for (const participant of this.participants.values()) if (participant.accountId === accountId) this.sendTo(participant.id, message);
+  }
+
+  // Hoàn một lần trả tiền mở phim (API hoàn tối đa một lần cho mỗi key). Lỗi mạng thì thử lại ở nền.
+  refundPayment(payment, attempt = 0) {
+    if (!payment || !this.videoPay) return;
+    Promise.resolve(this.videoPay.refund({ accountId: payment.accountId, key: payment.key, currency: payment.currency })).catch(() => null).then((result) => {
+      if (result?.ok) {
+        if (!result.replayed) this.sendWallet(payment.accountId, { currency: payment.currency, refunded: payment.amount, balance: result.balance });
+        return;
+      }
+      if (attempt >= REFUND_RETRY_MS.length) {
+        console.warn(`Rạp: chưa hoàn được tiền mở phim (${payment.currency} ${payment.amount}) cho ${payment.accountId}: ${result?.error || 'lỗi mạng'}`);
+        return;
+      }
+      const timer = setTimeout(() => this.refundPayment(payment, attempt + 1), REFUND_RETRY_MS[attempt]);
+      timer.unref?.();
+    });
+  }
+
+  // Người mở phim hủy video của mình khi còn trong hàng chờ (chưa chiếu): bỏ khỏi hàng chờ, hoàn tiền đã trả.
+  removeVideo(participantId, itemId) {
+    const participant = this.participants.get(participantId);
+    if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
+    const index = this.playback.queue.findIndex((item) => item.itemId === itemId);
+    if (index < 0) return { ok: false, error: 'NOT_QUEUED' };
+    const item = this.playback.queue[index];
+    const mine = item.addedById === participantId || Boolean(participant.accountId && item.paid?.accountId === participant.accountId);
+    if (!mine) return { ok: false, error: 'NOT_OWNER' };
+    this.playback.queue.splice(index, 1);
+    this.broadcastPlayback();
+    this.refundPayment(item.paid);
+    return { ok: true };
+  }
+
+  // Phòng bỏ hàng chờ (rạp riêng đóng, phòng bị dọn): hoàn mọi video đã trả tiền mà chưa chiếu.
+  refundQueue() {
+    const items = this.playback.queue;
+    this.playback.queue = [];
+    for (const item of items) this.refundPayment(item.paid);
   }
 
   canAddVideo(participantId, videoId) {
@@ -1469,7 +1549,7 @@ export class Room {
     // Video người chơi thêm luôn được ưu tiên; chỉ lấy danh sách admin khi hàng chờ đã hết.
     const next = playback.queue.shift() || this.nextFallbackItem();
     playback.current = next
-      ? { itemId: next.itemId, videoId: next.videoId, title: next.title, addedBy: next.addedBy, startedAt: Date.now() + START_DELAY_MS }
+      ? { itemId: next.itemId, videoId: next.videoId, title: next.title, addedBy: next.addedBy, startedAt: Date.now() + START_DELAY_MS, ...(next.paid ? { paid: next.paid } : {}) }
       : null;
     if (options.broadcast !== false) this.broadcastPlayback();
   }
@@ -1515,7 +1595,11 @@ export class Room {
       if (current.duration && Date.now() >= current.startedAt + current.duration * 1_000 - 5_000) this.advance();
     } else if (event === 'error') {
       playback.errors.add(participantId);
-      if (playback.errors.size >= this.votesNeeded()) this.advance();
+      if (playback.errors.size >= this.votesNeeded()) {
+        // Video đã trả tiền mà không phát được ngay từ đầu (bị chặn nhúng, bị xóa…): hoàn tiền người mở.
+        if (current.paid && Date.now() - current.startedAt < VIDEO_ERROR_REFUND_MS) this.refundPayment(current.paid);
+        this.advance();
+      }
     }
   }
 
@@ -2004,18 +2088,20 @@ export class Room {
     return true;
   }
 
-  // ---- Phòng Lô Tô riêng ----
-  // Bot được chủ phòng mời: ngồi bàn như người chơi, mỗi ván tự mua vé (bàn Lô Tô gọi số, bot tự kinh như ở phòng chung).
+  // ---- Phòng riêng (Lô Tô, Rạp phim) ----
+  // Bot được chủ phòng mời: Lô Tô ngồi bàn như người chơi, mỗi ván tự mua vé (bàn Lô Tô gọi số, bot tự kinh như ở phòng chung).
   addInvitedBot(name) {
     if (!this.privateOwner || this.closed || this.privateClosing || typeof name !== 'string' || !name.trim()) return null;
     for (const participant of this.participants.values()) if (participant.bot && participant.displayName === name) return participant;
     const skins = this.rules.private?.botSkins || [];
     const bot = {
-      id: `bot-p-${randomUUID().slice(0, 8)}`, displayName: name.slice(0, 40), seatId: null, socket: null, connected: true, bot: true,
+      // Rạp riêng: bạn bot ngồi một ghế trống ngẫu nhiên; Lô Tô không có ghế.
+      id: `bot-p-${randomUUID().slice(0, 8)}`, displayName: name.slice(0, 40), seatId: this.rules.seats ? this.freeSeat(undefined, Math.random) : null, socket: null, connected: true, bot: true,
       resumeToken: null, expireTimer: null, invited: true, ...(skins.length ? { skin: skins[Math.floor(Math.random() * skins.length)] } : {}),
     };
     this.participants.set(bot.id, bot);
-    if (!this.privateTimer) {
+    // Lô Tô riêng: bot được mời tự mua vé mỗi ván. Rạp riêng không có bàn nên không cần nhịp này.
+    if (!this.privateTimer && this.table?.placeBotTicket) {
       this.privateTimer = setInterval(() => {
         for (const participant of this.participants.values()) if (participant.bot) this.table?.placeBotTicket?.(participant);
       }, 2_000);
@@ -2053,6 +2139,8 @@ export class Room {
     clearInterval(this.privateTimer);
     this.privateTimer = null;
     this.table?.abort?.();
+    // Rạp riêng đóng: video đã trả tiền mà chưa chiếu được hoàn lại.
+    this.refundQueue();
     for (const [id, participant] of [...this.participants]) {
       if (!participant.bot) this.kick(id, 'PRIVATE_ROOM_CLOSED', 'Chủ phòng đã rời, phòng riêng đã đóng');
     }
@@ -2423,6 +2511,8 @@ export class Room {
       this.botBuyTicket(bot, config.tickets);
       return;
     }
+    // Oẳn Tù Tì: bàn tự điều khiển bot (mở bàn, nhận bàn, ra tay); bot không nói gì thêm.
+    if (config.play === 'rps') return;
     const { lines } = this.botWords();
     const line = () => lines[Math.floor(Math.random() * lines.length)];
     // Bot đang đi ngoài sân chỉ trò chuyện/niệm Phật; lễ vật được dâng bởi bot đang ở chánh điện. Ngoài sân nói ít
@@ -2561,6 +2651,8 @@ export class Room {
     participant.connected = false;
     participant.resumeExpiresAt = Date.now() + this.resumeTtlMs;
     this.stopChore(participantId);
+    // Oẳn Tù Tì: bàn đang chờ đối thủ của người vừa rớt kết nối thì đóng, hoàn cọc.
+    this.table?.participantAway?.(participantId);
     this.scheduleExpiry(participant);
     this.revision += 1;
     this.broadcastState();
@@ -2884,9 +2976,9 @@ export class RoomRegistry {
     this.botPlanReplacesDefaults = false;
     this.getBotSkins = options.getBotSkins || (async () => []);
     this.getCinemaPlaylist = options.getCinemaPlaylist || null;
-    this.cinemaPlaylist = [];
-    this.cinemaPlaylistRefreshAfter = 0;
-    this.cinemaPlaylistPending = null;
+    this.cinemaPlaylists = new Map();
+    this.cinemaPlaylistRefreshAfter = new Map();
+    this.cinemaPlaylistPending = new Map();
     this.onOffering = options.onOffering;
     this.onChoreReward = options.onChoreReward;
     this.onFriend = options.onFriend;
@@ -2895,8 +2987,9 @@ export class RoomRegistry {
     this.botAi = options.botAi || null;
     this.moderation = options.moderation || null;
     this.bauCua = options.bauCua;
+    this.rps = options.rps;
     this.lotto = options.lotto;
-    this.wallet = options.wallet;
+    this.videoPay = options.videoPay;
     this.gardenBots = options.gardenBots;
     this.privateRooms = options.privateRooms;
     this.ticker = null;
@@ -2913,20 +3006,24 @@ export class RoomRegistry {
     return this.opening.get(roomId);
   }
 
-  async refreshCinemaPlaylist(force = false) {
-    if (!this.getCinemaPlaylist) return this.cinemaPlaylist;
-    if (!force && Date.now() < this.cinemaPlaylistRefreshAfter) return this.cinemaPlaylist;
-    if (this.cinemaPlaylistPending) return this.cinemaPlaylistPending;
-    this.cinemaPlaylistPending = Promise.resolve(this.getCinemaPlaylist()).then((videos) => {
-      if (!Array.isArray(videos)) return this.cinemaPlaylist;
-      this.cinemaPlaylist = videos;
-      for (const room of this.rooms.values()) if (room.type === 'cinema' && !room.closed) room.setFallbackPlaylist(videos);
-      return this.cinemaPlaylist;
-    }).catch(() => this.cinemaPlaylist).finally(() => {
-      this.cinemaPlaylistRefreshAfter = Date.now() + CINEMA_PLAYLIST_REFRESH_MS;
-      this.cinemaPlaylistPending = null;
+  async refreshCinemaPlaylist(roomId, force = false) {
+    const current = this.cinemaPlaylists.get(roomId) || [];
+    if (!this.getCinemaPlaylist) return current;
+    if (!force && Date.now() < (this.cinemaPlaylistRefreshAfter.get(roomId) || 0)) return current;
+    if (this.cinemaPlaylistPending.has(roomId)) return this.cinemaPlaylistPending.get(roomId);
+    // Rạp riêng chiếu danh sách phát mặc định (của rạp Việt Nam) khi hàng chờ trống.
+    const pending = Promise.resolve(this.getCinemaPlaylist(isPrivateRoomId(roomId) ? 'cinema-vn' : roomId)).then((videos) => {
+      if (!Array.isArray(videos)) return this.cinemaPlaylists.get(roomId) || [];
+      this.cinemaPlaylists.set(roomId, videos);
+      const room = this.rooms.get(roomId);
+      if (isCinemaType(room?.type) && !room.closed) room.setFallbackPlaylist(videos);
+      return videos;
+    }).catch(() => this.cinemaPlaylists.get(roomId) || []).finally(() => {
+      this.cinemaPlaylistRefreshAfter.set(roomId, Date.now() + CINEMA_PLAYLIST_REFRESH_MS);
+      this.cinemaPlaylistPending.delete(roomId);
     });
-    return this.cinemaPlaylistPending;
+    this.cinemaPlaylistPending.set(roomId, pending);
+    return pending;
   }
 
   // `addbot N`: mở các phòng công khai nền tảng, dành tối thiểu hai bot cho từng trò rồi rải ngẫu nhiên phần còn
@@ -2935,8 +3032,8 @@ export class RoomRegistry {
     if (!Number.isSafeInteger(total) || total < 0 || total > 1_000) return null;
     this.botManaged = true;
     this.botPlanReplacesDefaults = true;
-    for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto']) this.botCounts[type] = 0;
-    const baseRooms = ['thien-1', 'game-1', 'taixiu-1', 'loto-1'];
+    for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto', 'rps']) this.botCounts[type] = 0;
+    const baseRooms = ['thien-1', 'game-1', 'taixiu-1', 'loto-1', 'oantuti-1'];
     if (total > 0) await Promise.all(baseRooms.map((roomId) => this.open(roomId)));
 
     // Phòng có bots.range (rạp) tự giữ số bot trong khoảng của nó, addbot không chia vào.
@@ -2944,7 +3041,7 @@ export class RoomRegistry {
     const allocations = new Map(rooms.map((room) => [room.id, 0]));
     const capacity = (room) => Math.max(0, Math.min(room.botLimit, room.maxParticipants - room.realCount));
     let remaining = total;
-    const games = ['game-1', 'taixiu-1', 'loto-1'].map((roomId) => this.rooms.get(roomId)).filter((room) => room?.rules.bots);
+    const games = ['game-1', 'taixiu-1', 'loto-1', 'oantuti-1'].map((roomId) => this.rooms.get(roomId)).filter((room) => room?.rules.bots);
     // Hai người là đủ để Lô Tô bắt đầu; Bầu Cua/Tài Xỉu cũng không còn cảnh bàn trống.
     for (let pass = 0; pass < 2 && remaining > 0; pass += 1) {
       for (const room of games) {
@@ -3031,7 +3128,9 @@ export class RoomRegistry {
   }
 
   roomName(roomId) {
-    return ({ 'thien-1': 'Chánh điện', 'cinema-1': 'Rạp phim', 'game-1': 'Bầu Cua', 'taixiu-1': 'Tài Xỉu', 'loto-1': 'Lô Tô' })[roomId] || roomId;
+    return cinemaRoomName(roomId)
+      || ({ 'thien-1': 'Chánh điện', 'game-1': 'Bầu Cua', 'taixiu-1': 'Tài Xỉu', 'loto-1': 'Lô Tô', 'oantuti-1': 'Oẳn Tù Tì' })[roomId]
+      || roomId;
   }
 
   async #open(roomId) {
@@ -3044,7 +3143,7 @@ export class RoomRegistry {
     }
     const [botSkins] = await Promise.all([
       this.getBotSkins().catch(() => []),
-      roomTypeOf(roomId) === 'cinema' ? this.refreshCinemaPlaylist() : Promise.resolve(),
+      isCinemaType(roomTypeOf(roomId)) ? this.refreshCinemaPlaylist(roomId) : Promise.resolve(),
     ]);
     const lease = await this.directory.acquireRoom(roomId, this.nodeId, this.leaseTtlMs);
     if (!lease.ok) return { ok: false, error: 'ROOM_ELSEWHERE', owner: lease.owner };
@@ -3065,7 +3164,8 @@ export class RoomRegistry {
       moderation: this.moderation,
       bauCua: this.bauCua,
       lotto: this.lotto,
-      wallet: this.wallet,
+      rps: this.rps,
+      videoPay: this.videoPay,
       gardenBots: this.gardenBots,
       ...(privateInfo ? { privateOwner: privateInfo.owner, onPrivateClosed: (id) => this.privateRooms?.closed(id) } : {}),
     });
@@ -3077,7 +3177,7 @@ export class RoomRegistry {
       await this.directory.releaseRoom(roomId, this.nodeId, lease.epoch).catch(() => {});
       throw error;
     }
-    if (room.type === 'cinema') room.setFallbackPlaylist(this.cinemaPlaylist);
+    if (isCinemaType(room.type)) room.setFallbackPlaylist(this.cinemaPlaylists.get(roomId) || []);
     if (managedBotCount !== undefined) room.setBotCount(managedBotCount, { managed: !parseThienRoomId(roomId), drift: true });
     this.rooms.set(roomId, room);
     return { ok: true, room };
@@ -3087,6 +3187,8 @@ export class RoomRegistry {
     const room = this.rooms.get(roomId);
     if (!room || room.realCount > 0 || room.keepBotsAlive) return;
     this.rooms.delete(roomId);
+    // Bỏ hẳn phòng (xóa snapshot): hàng chờ mất theo, nên hoàn tiền các video chưa chiếu.
+    room.refundQueue();
     room.close();
     this.directory.releaseRoom(roomId, this.nodeId, room.epoch, { dropSnapshot: true }).catch(() => {});
   }
@@ -3103,7 +3205,9 @@ export class RoomRegistry {
     this.ticking = true;
     try {
       // Không chặn nhịp gia hạn lease nếu API cấu hình tạm chậm; lần mở phòng đầu tiên vẫn chờ tải một lần.
-      if ([...this.rooms.values()].some((room) => room.type === 'cinema' && !room.closed)) this.refreshCinemaPlaylist().catch(() => {});
+      for (const [roomId, room] of this.rooms) {
+        if (isCinemaType(room.type) && !room.closed) this.refreshCinemaPlaylist(roomId).catch(() => {});
+      }
       for (const [roomId, room] of [...this.rooms]) {
         // Phòng mở ra nhưng không ai gửi hello: trả lease sau thời gian chờ.
         if (room.realCount === 0 && Date.now() - room.openedAt > EMPTY_ROOM_GRACE_MS) {
@@ -3330,6 +3434,23 @@ function handleRoomMessage(socket, context, raw) {
     });
     return;
   }
+  if (message.type.startsWith('rps.')) {
+    if (room.table?.kind !== 'rps') {
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Oẳn Tù Tì', message.requestId);
+      return;
+    }
+    const picking = message.type === 'rps.pick';
+    if (!room.allow(`${context.participantId}:${picking ? 'rps-pick' : 'rps'}`, picking ? 10 : 5, 10_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn bấm quá nhanh', message.requestId);
+      return;
+    }
+    const participant = room.participants.get(context.participantId);
+    const action = { 'rps.open': 'open', 'rps.find': 'find', 'rps.join': 'join', 'rps.leave': 'leave', 'rps.pick': 'pick', 'rps.rematch': 'rematch' }[message.type];
+    Promise.resolve(room.table[action](participant, message)).then((result) => {
+      if (!result?.ok) protocolError(socket, room.epoch, result?.code || 'GAME_UNAVAILABLE', result?.message || 'Thử lại sau', message.requestId);
+    });
+    return;
+  }
   if (message.type === 'lotto.buy' || message.type === 'lotto.claim') {
     if (room.table?.kind !== 'loto') {
       protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Lô Tô', message.requestId);
@@ -3515,9 +3636,18 @@ function handleRoomMessage(socket, context, raw) {
         return;
       }
       return room.addPaidVideo(context.participantId, message.videoId, info.title, message.requestId).then((result) => {
-        if (!result.ok) protocolError(socket, room.epoch, result.error, QUEUE_ERRORS[result.error] || 'Không thêm được video', message.requestId);
+        if (!result.ok) protocolError(socket, room.epoch, result.error, queueErrorText(result), message.requestId);
       });
     }).catch(() => protocolError(socket, room.epoch, 'VIDEO_CHECK_FAILED', 'Chưa kiểm tra được video, thử lại sau', message.requestId));
+    return;
+  }
+  if (message.type === 'queue.remove') {
+    if (!room.allow(`${context.participantId}:queue-remove`, 5, 60_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn hủy video quá nhanh, chờ một chút nhé', message.requestId);
+      return;
+    }
+    const result = room.removeVideo(context.participantId, message.itemId);
+    if (!result.ok) protocolError(socket, room.epoch, result.error, QUEUE_ERRORS[result.error] || 'Không hủy được video', message.requestId);
     return;
   }
   if (message.type === 'vote.skip') {
@@ -3602,10 +3732,17 @@ const QUEUE_ERRORS = {
   ALREADY_QUEUED: 'Video này đã có trong hàng chờ',
   TOO_MANY_QUEUED: 'Mỗi người chỉ được chờ tối đa 3 video',
   NOT_IN_ROOM: 'Bạn chưa ở trong phòng',
-  SIGN_IN_REQUIRED: 'Đăng nhập để mở phim (mỗi phim 20 💎)',
-  INSUFFICIENT_DIAMONDS: 'Không đủ kim cương để mở phim (cần 20 💎)',
-  WALLET_UNAVAILABLE: 'Chưa trừ được kim cương, thử lại sau',
+  SIGN_IN_REQUIRED: 'Đăng nhập để mở phim',
+  INSUFFICIENT_COINS: 'Không đủ xu để mở phim',
+  INSUFFICIENT_DIAMONDS: 'Không đủ kim cương để mở phim',
+  WALLET_UNAVAILABLE: 'Chưa trừ được tiền mở phim, thử lại sau',
+  NOT_QUEUED: 'Video không còn trong hàng chờ (có thể đã bắt đầu chiếu)',
+  NOT_OWNER: 'Chỉ người mở phim mới hủy được video này',
 };
+// Thiếu tiền: kèm giá đang áp dụng (API trả về) để người chơi biết cần bao nhiêu.
+const queueErrorText = (result) => (result.error === 'INSUFFICIENT_COINS' && result.price ? `Không đủ xu để mở phim (cần ${result.price} xu)`
+  : result.error === 'INSUFFICIENT_DIAMONDS' && result.price ? `Không đủ kim cương để mở phim (cần ${result.price} 💎)`
+    : QUEUE_ERRORS[result.error] || 'Không thêm được video');
 
 // Nhận localhost, cùng origin với Host (khi đi qua web gateway/tunnel, Host được giữ nguyên)
 // và các host khai báo trong ALLOWED_ORIGIN_HOSTS (phân tách bằng dấu phẩy).
@@ -3995,14 +4132,15 @@ export function gardenBotApi(apiInternalUrl, key, fetcher = fetch) {
 }
 
 // Gọi API trừ / hoàn kim cương. Lỗi mạng ném lỗi (phòng coi như chưa trừ được).
-export function diamondWallet(apiInternalUrl, key, fetcher = fetch) {
+// Trả / hoàn tiền mở phim qua API (API chọn xu hay kim cương theo cấu hình admin).
+export function cinemaVideoPay(apiInternalUrl, key, fetcher = fetch) {
   const call = (path) => (body) => fetcher(new URL(path, apiInternalUrl), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-internal-key': key },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(5_000),
   }).then((response) => response.json());
-  return { spend: call('/internal/shop/spend'), refund: call('/internal/shop/refund') };
+  return { pay: call('/internal/cinema/video/pay'), refund: call('/internal/cinema/video/refund') };
 }
 
 export function shopBotSkinProvider(apiInternalUrl, fetcher = fetch) {
@@ -4035,9 +4173,11 @@ export function shopBotSkinProvider(apiInternalUrl, fetcher = fetch) {
 
 export function cinemaPlaylistProvider(apiInternalUrl, key, fetcher = fetch) {
   const url = new URL('/internal/cinema/playlist', apiInternalUrl);
-  return async () => {
+  return async (roomId = 'cinema-vn') => {
     try {
-      const response = await fetcher(url, {
+      const target = new URL(url);
+      target.searchParams.set('roomId', roomId);
+      const response = await fetcher(target, {
         headers: { 'x-internal-key': key },
         signal: AbortSignal.timeout(2_000),
       });
@@ -4078,8 +4218,9 @@ export function createRealtimeServer(options = {}) {
     // Bầu Cua: đặt cược / chốt ván qua ví xu ở API.
     bauCua: options.bauCua || (options.apiInternalUrl ? bauCuaBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     lotto: options.lotto || (options.apiInternalUrl ? lottoBank(options.apiInternalUrl, internalKey(secret)) : undefined),
+    rps: options.rps || (options.apiInternalUrl ? rpsBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Ví kim cương (mở phim): trừ / hoàn qua API.
-    wallet: options.wallet || (options.apiInternalUrl ? diamondWallet(options.apiInternalUrl, internalKey(secret)) : undefined),
+    videoPay: options.videoPay || (options.apiInternalUrl ? cinemaVideoPay(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Phòng Lô Tô riêng: hỏi API chủ phòng + bot được mời, báo API khi phòng đóng.
     privateRooms: options.privateRooms || (options.apiInternalUrl ? privateRoomApi(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Bot làm vườn: hỏi API việc cần làm, báo API khi bot đã tới luống.
@@ -4209,7 +4350,7 @@ if (isMain) {
   // Số bot theo loại phòng: BOTS_THIEN / BOTS_GAME / BOTS_TAIXIU / BOTS_LOTO (0 để tắt). Rạp phim (bots.range trong room
   // rules) luôn giữ số bot trong khoảng của nó nên bỏ qua BOTS_CINEMA (file env cũ có thể còn BOTS_CINEMA=0).
   const botCounts = {};
-  for (const type of ['thien', 'game', 'taixiu', 'loto']) {
+  for (const type of ['thien', 'game', 'taixiu', 'loto', 'rps']) {
     const value = process.env[`BOTS_${type.toUpperCase()}`];
     if (value !== undefined && /^\d+$/.test(value)) botCounts[type] = Number(value);
   }

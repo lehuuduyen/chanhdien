@@ -119,3 +119,41 @@ test('phòng Lô Tô riêng: tối đa 20 người / bot được mời', async 
   const stranger = accounts.register({ username: 'nguoi.co.link', password: 'matkhau123', displayName: 'Có link' }).account;
   assert.equal(privateRooms.view(roomId, stranger.id).error, 'full', 'phòng đủ người thì link không vào thêm được');
 });
+
+test('rạp phim riêng: mã cinema-p-…, mỗi loại một phòng đang mở, vé chỉ cho chủ / khách / người mở link, link mời đưa vào rạp', async () => {
+  const { chu, ban, la, call, coins, options } = setup();
+  options.garden.adjustCoins({ accountId: chu.id, amount: 100, key: 'grant-cinema-1' });
+  const loto = await call(chu, 'POST', '/api/v1/private-rooms', { game: 'loto' });
+  const cinema = await call(chu, 'POST', '/api/v1/private-rooms', { game: 'cinema' });
+  assert.equal(cinema.status, 200);
+  const { roomId } = cinema.json.room;
+  assert.match(roomId, /^cinema-p-[a-z0-9]{8}$/);
+  assert.notEqual(roomId, loto.json.room.roomId, 'Lô Tô riêng và rạp riêng là hai phòng');
+  assert.deepEqual([cinema.json.room.game, cinema.json.room.price, cinema.json.room.maxGuests], ['cinema', 50, 20]);
+  assert.equal(coins(chu), 50);
+  assert.equal((await call(chu, 'GET', '/api/v1/private-rooms/mine?game=cinema')).json.room.roomId, roomId);
+  assert.equal((await call(chu, 'GET', '/api/v1/private-rooms/mine')).json.room.roomId, loto.json.room.roomId, 'mặc định là Lô Tô (client cũ)');
+
+  // Chủ phòng mời bạn: lời mời trong hộp thư mang link rạp.
+  assert.equal((await call(chu, 'POST', `/api/v1/private-rooms/${roomId}/invite`, { accountId: ban.id })).status, 200);
+  const invite = options.friendLinks.inbox(ban.id).items.find((note) => note.kind === 'invite');
+  assert.deepEqual(invite.room, { roomId, type: 'cinema', private: true, href: `/room.html?room=${roomId}` });
+
+  // Vé vào phòng: khách được, người lạ đã đăng nhập mở link cũng được (thành khách), khách vãng lai thì không.
+  const join = (account) => request(options, 'POST', '/api/v1/rooms/join', {
+    body: { roomId, displayName: 'Khách' },
+    headers: account ? { cookie: `cd_session=${createSessionToken({ accountId: account.id, version: account.sessionVersion ?? 0 }, SECRET)}` } : {},
+  });
+  assert.equal((await join(ban)).status, 200);
+  assert.equal((await join(la)).status, 200);
+  assert.equal((await join(null)).status, 403);
+  const ticket = verifyJoinTicket((await join(chu)).json.ticket, SECRET);
+  assert.equal(ticket.value.roomId, roomId);
+
+  // Đuổi người lạ: không vào lại bằng link được.
+  assert.equal((await call(chu, 'POST', `/api/v1/private-rooms/${roomId}/kick`, { accountId: la.id })).status, 200);
+  assert.equal((await join(la)).status, 403);
+  // Chủ phòng rời: phòng đóng, link hết hiệu lực.
+  options.privateRooms.closed(roomId);
+  assert.equal((await join(ban)).status, 410);
+});
