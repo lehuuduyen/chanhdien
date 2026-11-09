@@ -29,6 +29,7 @@ import { openThienEventStore } from './thien-event.mjs';
 import { openPrayerSlipStore } from './prayer-slips.mjs';
 import { handleCinemaPlaylistRequest, openCinemaPlaylistStore } from './cinema-playlist.mjs';
 import { handleCinemaPayRequest } from './cinema-pay.mjs';
+import { handleVideoReviewRequest } from './video-review.mjs';
 
 
 export const ROOMS = Object.freeze(ROOM_CATALOG.map((room) => Object.freeze({ ...room, status: 'open', participantCount: 0 })));
@@ -230,6 +231,8 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleCinemaPlaylistRequest(req, res, pathname, options)) return;
   // Giá mở phim ở rạp (xu / kim cương do admin chọn), trừ / hoàn khi máy realtime gọi.
   if (await handleCinemaPayRequest(req, res, pathname, options)) return;
+  // Kiểm duyệt video trước khi lên rạp (AI + quản trị qua Telegram).
+  if (await handleVideoReviewRequest(req, res, pathname, options)) return;
   if (await handleThienRequest(req, res, pathname, options, roomSeatCounts)) return;
   if (await handleModerationRequest(req, res, pathname, options)) return;
   if (await handleBotChatRequest(req, res, pathname, options)) return;
@@ -305,6 +308,12 @@ if (isMain) {
     notifyInbox,
     // Khu tưởng niệm: mỗi mộ mới báo nhóm Telegram để quản trị gỡ được (/xoamo) nếu tên xúc phạm.
     memorialNotify: createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }),
+    // Kiểm duyệt video ở rạp: AI Groq (VIDEO_REVIEW_GROQ_KEY, mặc định dùng GROQ_API_KEY; VIDEO_REVIEW=0 tắt),
+    // YOUTUBE_API_KEY (tùy chọn) để đọc thêm mô tả và cờ 18+; video bị chặn / chờ duyệt báo cùng nhóm Telegram.
+    videoReviewKey: process.env.VIDEO_REVIEW === '0' ? '' : (process.env.VIDEO_REVIEW_GROQ_KEY || process.env.GROQ_API_KEY || ''),
+    videoReviewModel: process.env.VIDEO_REVIEW_MODEL || undefined,
+    youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
+    videoReviewNotify: createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }),
     supportStore, notifySupport, shopStore, shop, shopModelDir, moderation,
     friendLinks,
     // Vườn / khu tưởng niệm / công trình chung báo tới mọi máy realtime (mỗi máy phát cho phòng nó đang giữ).

@@ -29,7 +29,7 @@ Parser từ chối trường lạ, không ép kiểu và trả `{ ok: false, err
 | `rps.pick` | thành viên | 10/10 giây, một lần mỗi lượt, chỉ trong pha `pick` (`PICK_CLOSED`, `ALREADY_PICKED`) | `requestId`, `matchId`, `choice` (`rock`/`paper`/`scissors`). Server giữ kín tới khi lật |
 | `rps.rematch` | thành viên | 5/10 giây, chỉ trong pha `done` | `requestId`, `matchId`; cả hai bấm thì mở trận mới, trừ cọc lại |
 | `room.command` | moderator, host | 10/10 giây | `requestId`, `command` (`pause`, `resume`, `skip`) |
-| `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự). Rạp tốn tiền (xu hoặc 💎, admin đặt ở API), chỉ thành viên; lỗi `SIGN_IN_REQUIRED`, `INSUFFICIENT_COINS`, `INSUFFICIENT_DIAMONDS`, `WALLET_UNAVAILABLE` |
+| `queue.add` | mọi người | 3/60 giây, tối đa 3 video chờ mỗi người, hàng chờ 50 | `requestId`, `videoId` (id YouTube 11 ký tự). Rạp tốn tiền (xu hoặc 💎, admin đặt ở API), chỉ thành viên; lỗi `SIGN_IN_REQUIRED`, `INSUFFICIENT_COINS`, `INSUFFICIENT_DIAMONDS`, `WALLET_UNAVAILABLE`; kiểm duyệt (trước khi trừ tiền): `VIDEO_BLOCKED` / `VIDEO_HELD` (message kèm lý do), `VIDEO_REVIEW_FAILED`. Quản trị gỡ video đã thêm: người mở nhận `VIDEO_REMOVED` (không có `requestId`) |
 | `queue.remove` | người đã mở video đó | 5/60 giây | `requestId`, `itemId`. Chỉ video còn trong hàng chờ (chưa chiếu); đã trả tiền thì hoàn đúng loại tiền. Lỗi `NOT_QUEUED`, `NOT_OWNER` |
 | `vote.skip` | mọi người | 5/60 giây | `requestId`, `itemId` (bài đang chiếu) |
 | `playback.report` | mọi người | 10/10 giây | `itemId`, `event` (`duration`, `ended`, `error`), `value?` |

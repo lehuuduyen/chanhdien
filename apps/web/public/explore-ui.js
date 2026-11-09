@@ -19,6 +19,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   let walkersFull = false;
   let gameLock = false;
   let hiddenDecor = [];
+  let roleMarks = {};
 
   const benchPoint = (bench, localX, localZ) => {
     const scale = bench.scale || 1;
@@ -507,6 +508,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       if (choreStates.size) api?.setChores?.([...choreStates.values()]);
       api?.setSpectator(walkersFull || gameLock);
       api?.setHiddenDecor?.(hiddenDecor);
+      api?.setRoleMarks?.(roleMarks);
     },
     detach() {
       renderer = null;
@@ -623,6 +625,11 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     setHiddenDecor(ids) {
       hiddenDecor = [...ids];
       api?.setHiddenDecor?.(hiddenDecor);
+    },
+    // Trốn tìm: { id: 'seeker' } tô đỏ người đi tìm.
+    setRoleMarks(marks) {
+      roleMarks = { ...marks };
+      api?.setRoleMarks?.(roleMarks);
     },
     // Những người đang có trong cảnh của mình (server đã lọc theo vai).
     visibleIds() {

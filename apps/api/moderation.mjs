@@ -395,6 +395,9 @@ const HELP = [
   '/ban <tên đăng nhập> [giờ] — khóa nick (mặc định 24 giờ)',
   '/dsban — người đang bị khóa',
   '/xoamo <số ô> — gỡ mộ ở Khu tưởng niệm (không hoàn xu)',
+  '/duyetvideo <mã | link> — cho phép video ở rạp (ghi đè AI)',
+  '/chanvideo <mã | link> [lý do] — chặn video, gỡ khỏi mọi rạp',
+  '/dsvideo — video vừa bị chặn / chờ duyệt',
 ].join('\n');
 
 // Lệnh kiểm duyệt trong nhóm Telegram quản trị (webhook đã kiểm tra secret + chat ID). Trả câu trả lời hoặc null.

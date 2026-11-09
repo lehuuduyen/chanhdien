@@ -45,6 +45,10 @@ test('trốn tìm: chờ đủ người mới đếm ngược, rời bớt thì 
     assert.equal(state().phase, 'idle');
     room.hideSeek.join('an');
     assert.deepEqual([state().phase, state().endsAt], ['lobby', undefined], 'một người: chờ thêm người');
+    // Phòng chờ chung: người vừa tham gia ra vòng tập trung quanh điểm xuất phát (3–4,5 m).
+    const gathered = Math.hypot(room.participants.get('an').pos.x - RULES.base.x, room.participants.get('an').pos.z - RULES.base.z);
+    assert.ok(gathered >= 3 && gathered <= 4.5, `ra điểm tập trung (${gathered.toFixed(2)} m)`);
+    assert.ok(Math.hypot(room.participants.get('chi').pos.x - RULES.base.x, room.participants.get('chi').pos.z - RULES.base.z) > 10, 'người không chơi ở nguyên chỗ');
     room.hideSeek.join('binh');
     assert.ok(state().endsAt, 'đủ hai người: đếm ngược');
     room.hideSeek.leave('binh');

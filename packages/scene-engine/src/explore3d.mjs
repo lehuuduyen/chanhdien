@@ -192,6 +192,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     let selfId = null;
     let selfSeated = false;
     let spectator = false;
+    // Trốn tìm: id → 'seeker' (bảng tên đỏ 🔍 + vòng đỏ dưới chân).
+    let roleMarks = new Map();
 
     function addWalker(item) {
       const group = new THREE.Group();
@@ -201,7 +203,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       group.add(parts.figure, parts.shadow);
       // Đổ bóng dưới nắng ngoài sân (renderer chỉ tính khi có nguồn sáng đổ bóng).
       parts.figure.traverse((mesh) => { if (mesh.isMesh) mesh.castShadow = true; });
-      const label = makeLabel(item.name, item.me);
+      const tone = roleMarks.get(item.id) || null;
+      const label = makeLabel(tone === 'seeker' ? `🔍 ${item.name}` : item.name, item.me, tone);
       label.position.y = parts.labelY;
       group.add(label);
       let status = null;
@@ -219,10 +222,45 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         danceStyle: danceStyleOf(String(item.skin || 'c_man').replace(/^c_/, '')),
         benchId: item.benchId || null, benchSpot: item.benchSpot || null, benchY: item.benchY || 0,
         chore: null, choreTool: null, choreEffect: null, choreOffset: 0, choreRy: 0,
+        tone, ring: null,
       };
+      if (tone === 'seeker') addSeekerRing(walker);
       group.position.set(walker.x, 0, walker.z);
       walkers.set(item.id, walker);
       return walker;
+    }
+
+    // Trốn tìm: vòng đỏ dưới chân người đi tìm (nhấp nháy nhẹ), nhìn từ xa cũng biết ai đang đi tìm.
+    function addSeekerRing(walker) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.42, 0.56, 40),
+        new THREE.MeshBasicMaterial({ color: 0xe53935, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.03;
+      ring.renderOrder = 2;
+      walker.group.add(ring);
+      walker.ring = ring;
+    }
+
+    // Đổi kiểu bảng tên (người đi tìm / thường) mà không dựng lại nhân vật.
+    function applyTone(walker) {
+      const tone = roleMarks.get(walker.id) || null;
+      if (walker.tone === tone) return;
+      walker.tone = tone;
+      const label = makeLabel(tone === 'seeker' ? `🔍 ${walker.name}` : walker.name, walker.me, tone);
+      label.position.copy(walker.label.position);
+      walker.group.remove(walker.label);
+      disposeSprite(walker.label);
+      walker.group.add(label);
+      walker.label = label;
+      if (tone === 'seeker' && !walker.ring) addSeekerRing(walker);
+      if (tone !== 'seeker' && walker.ring) {
+        walker.group.remove(walker.ring);
+        walker.ring.geometry.dispose();
+        walker.ring.material.dispose();
+        walker.ring = null;
+      }
     }
 
     // Linh thú đi theo (pet = { species, level } hoặc null). Đổi loài / cấp thì dựng lại.
@@ -250,6 +288,10 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (walker.choreTool) walker.choreTool.userData.dispose?.();
       if (walker.choreEffect) walker.choreEffect.userData.dispose?.();
       setSpirit(walker, null);
+      if (walker.ring) {
+        walker.ring.geometry.dispose();
+        walker.ring.material.dispose();
+      }
       walker.parts.shadow.material.dispose();
       walkers.delete(id);
     }
@@ -934,6 +976,11 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         if (walker.status) walker.status.visible = walker.label.visible;
         if (walker.bubble) walker.bubble.sprite.visible = !decorHidden;
         walker.parts.shadow.visible = detailed || cameraDistance < SHADOW_VIEW_DISTANCE;
+        if (walker.ring) {
+          walker.ring.visible = walker.group.visible;
+          const pulse = reduceMotion ? 1 : 1 + Math.sin(time / 260) * 0.12;
+          walker.ring.scale.set(pulse, pulse, 1);
+        }
         if (walker.spirit) {
           // Linh thú ở xa camera thì ẩn và không tính (phòng đông nhiều bot dẫn linh thú vẫn nhẹ trên điện thoại).
           const near = cameraDistance < SPIRIT_VIEW_DISTANCE;
@@ -1295,6 +1342,11 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       setHiddenDecor(ids) {
         hiddenDecor = new Set(ids || []);
       },
+      // Trốn tìm: { id: 'seeker' } — người đi tìm có bảng tên đỏ 🔍 và vòng đỏ dưới chân (mọi người đều thấy).
+      setRoleMarks(marks) {
+        roleMarks = new Map(Object.entries(marks || {}).filter(([, tone]) => tone === 'seeker'));
+        for (const walker of walkers.values()) applyTone(walker);
+      },
       setSpectator(on) {
         spectator = Boolean(on);
       },
@@ -1348,7 +1400,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           walkers: [...walkers.values()].map((item) => ({
             id: item.id, name: item.name, x: item.x, z: item.z, ry: item.ry,
             moving: item.moving, running: Boolean(item.running), benchId: item.benchId, benchSpot: item.benchSpot,
-            emote: item.emote, visible: item.group.visible,
+            emote: item.emote, visible: item.group.visible, tone: item.tone || null, ring: Boolean(item.ring),
             spirit: item.spirit ? {
               key: item.spiritKey, reacting: item.spirit.reacting, visible: item.spirit.group.visible,
               x: item.spirit.group.position.x, z: item.spirit.group.position.z,
