@@ -8,6 +8,7 @@
 //   - Lúc đi tìm: thẻ góc phải ghi rõ cần tìm ai (ai đã bị bắt thì gạch); người trốn thấy người đi tìm là ai.
 //   - Người trốn lúc đi tìm, người đã bị bắt: đứng yên / xem camera người khác (◀ ▶).
 //   - Người đi tìm chạm vào người trốn (trong 3 m) để bắt.
+//   - Nút "👁 Ẩn chữ & nút" (người đang chờ / đang chơi): ẩn mọi chữ, nút trên màn hình, chỉ còn cảnh + cần điều khiển.
 // Tên người chơi chỉ đưa ra màn hình qua textContent.
 const MAX_CHIPS = 8;
 const REVEAL_MS = 4_500;
@@ -99,7 +100,42 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
   watch.append(watchPrev, watchName, watchNext, watchSelf);
   const result = el('div', 'hs-result');
   result.hidden = true;
-  stage.append(hud, blind, watch, result, reveal);
+  // Nút "👁 Ẩn chữ & nút" (chỉ hiện với người đang chờ / đang chơi): ẩn mọi chữ và nút trên màn hình để nhìn rõ
+  // xung quanh; bấm lần nữa (nút ghi kèm đồng hồ) là hiện lại. Rời trò chơi / đổi phòng thì tự hiện lại.
+  let cleanView = false;
+  const cleanToggle = button('chip hs-clean-toggle', '', () => setClean(!cleanView));
+  cleanToggle.hidden = true;
+  stage.append(hud, blind, watch, result, reveal, cleanToggle);
+
+  // ---- Ẩn chữ & nút ----
+  // Đang ở phòng chờ hoặc đang trong ván (kể cả lúc xem kết quả).
+  const engaged = () => inLobby() || Boolean(state && state.phase !== 'idle' && myPlayer());
+  function setClean(on) {
+    cleanView = Boolean(on);
+    stage.classList.toggle('hs-clean', cleanView);
+    if (cleanView) {
+      openSheet(false);
+      // Ô chat đang gõ (bàn phím đang mở) cũng bị ẩn: bỏ chọn cho bàn phím đóng lại.
+      if (stage.contains(document.activeElement) && document.activeElement !== cleanToggle) document.activeElement.blur?.();
+    }
+    renderClean();
+  }
+  function renderClean() {
+    const show = engaged();
+    if (!show && cleanView) {
+      cleanView = false;
+      stage.classList.remove('hs-clean');
+    }
+    cleanToggle.hidden = !show;
+    // Đang chơi: bảng Tấm lòng thành (trong chánh điện) nhường chỗ cho nút này và thẻ trốn tìm.
+    stage.classList.toggle('hs-playing', show);
+    if (!show) return;
+    const timed = Boolean(state.endsAt) && (active() || state.phase === 'lobby');
+    const text = !cleanView ? t('hs.cleanOn') : timed ? t('hs.cleanOffTime', { time: clock() }) : t('hs.cleanOff');
+    if (cleanToggle.textContent !== text) cleanToggle.textContent = text;
+    cleanToggle.title = t('hs.cleanTitle');
+    cleanToggle.setAttribute('aria-pressed', String(cleanView));
+  }
 
   function renderChip() {
     const count = active() || state?.phase === 'result' ? state.players.length : state?.lobby.length || 0;
@@ -237,6 +273,8 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     // Người đi tìm lúc đi trốn: màn đen + đồng hồ + danh sách người sẽ phải tìm.
     const blinded = state?.phase === 'hiding' && player?.role === 'seeker';
     blind.hidden = !blinded;
+    // Màn đen chừa khung bài giảng YouTube nếu đang phát (không vẽ gì đè lên player).
+    stage.classList.toggle('hs-blinded', blinded);
     if (blinded) {
       blind.replaceChildren(
         el('h2', '', t('hs.youAreSeeker')),
@@ -344,6 +382,7 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     renderHud();
     renderWatch();
     renderResult();
+    renderClean();
   }
 
   // Người đi tìm chạm vào một người: đang đi tìm và người đó là người trốn chưa bị bắt thì bắt (server đo khoảng cách).
@@ -362,9 +401,10 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     onCoins?.(message.coins);
   }
 
-  // Mình đang trong ván (đi tìm / đi trốn / đã bị bắt).
-  function inRound() {
-    return active() && Boolean(myPlayer());
+  // Không hiện thông báo dâng lễ của người khác khi mình đang trong ván (đi tìm / đi trốn / đã bị bắt) hoặc đang ẩn
+  // chữ & nút.
+  function quiet() {
+    return cleanView || (active() && Boolean(myPlayer()));
   }
 
   function onError(message) {
@@ -387,8 +427,10 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     watch.hidden = true;
     result.hidden = true;
     reveal.hidden = true;
+    stage.classList.remove('hs-blinded');
     hudKey = null;
     dynamic = [];
+    setClean(false);
     renderChip();
     renderSheet();
   }
@@ -396,6 +438,7 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
   setInterval(() => {
     if (!state || state.phase === 'idle') return;
     renderHud();
+    renderClean();
     // Người trong cảnh đổi (người bị bắt biến mất…): cập nhật danh sách xem.
     if (canWatch()) renderWatch();
   }, 500);
@@ -405,8 +448,9 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     renderHud(true);
     renderWatch();
     renderResult();
+    renderClean();
   });
   renderChip();
 
-  return { chip, onState, onReward, handleTap, onError, reset, inRound };
+  return { chip, onState, onReward, handleTap, onError, reset, quiet };
 }
