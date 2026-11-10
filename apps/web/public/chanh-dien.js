@@ -249,7 +249,8 @@ function setCurrentPlace(place) {
   lecture.setVisible(inHall);
   if (!inHall) elements.ledger.hidden = true;
   // Bộ vẽ có thể báo vị trí ngay khi còn ở màn tải/cổng vào; chỉ mở hướng dẫn sau khi đã thật sự vào phòng.
-  if (session.participantId && elements.gate.hidden) zoneGuide.enter(place);
+  // Đang chơi trốn tìm: không tự mở hướng dẫn khu vực (che cả màn hình giữa ván); lần sau vào khu đó mới hiện.
+  if (session.participantId && elements.gate.hidden && !hideSeek?.engaged()) zoneGuide.enter(place);
   requestAnimationFrame(updateInsets);
 }
 

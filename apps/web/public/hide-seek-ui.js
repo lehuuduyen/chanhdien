@@ -93,7 +93,8 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
   reveal.addEventListener('click', () => { revealUntil = 0; reveal.hidden = true; });
   const watch = el('div', 'hs-watch');
   watch.hidden = true;
-  const watchName = el('span', 'hs-watch-name');
+  // Chữ giữa thanh cũng bấm được: chưa xem ai thì xem ngay người đi tìm, đang xem thì sang người kế.
+  const watchName = button('hs-watch-name', '', () => (watchId ? cycleWatch(1) : watchSeeker()));
   const watchPrev = button('chip', '◀', () => cycleWatch(-1));
   const watchNext = button('chip', '▶', () => cycleWatch(1));
   const watchSelf = button('chip', '', () => setWatch(null));
@@ -190,6 +191,11 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     watchId = id && explore.setCameraFollow(id) ? id : null;
     if (!watchId) explore.setCameraFollow(null);
     renderWatch();
+  }
+  function watchSeeker() {
+    const seeker = watchable().find((player) => player.role === 'seeker');
+    if (seeker) setWatch(seeker.id);
+    else cycleWatch(1);
   }
   function cycleWatch(step) {
     const list = watchable();
@@ -342,6 +348,8 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     const player = myPlayer();
     const locked = active() && Boolean(player) && (state.phase === 'hiding' ? player.role === 'seeker' : player.role === 'hider');
     explore.setGameLock(locked);
+    // Đang bị khóa đứng yên thì cần điều khiển vô dụng: ẩn đi (khỏi chồng lên thanh xem camera).
+    stage.classList.toggle('hs-locked', locked);
     explore.setHiddenDecor(active() ? hiders().map((item) => item.id) : []);
     explore.setRoleMarks?.(active() || state?.phase === 'result' ? Object.fromEntries(seekers().map((item) => [item.id, 'seeker'])) : {});
   }
@@ -427,7 +435,7 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
     watch.hidden = true;
     result.hidden = true;
     reveal.hidden = true;
-    stage.classList.remove('hs-blinded');
+    stage.classList.remove('hs-blinded', 'hs-locked');
     hudKey = null;
     dynamic = [];
     setClean(false);
@@ -452,5 +460,5 @@ export function createHideSeekUI({ stage, host, session, explore, showToast, t, 
   });
   renderChip();
 
-  return { chip, onState, onReward, handleTap, onError, reset, quiet };
+  return { chip, onState, onReward, handleTap, onError, reset, quiet, engaged };
 }

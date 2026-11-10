@@ -730,6 +730,9 @@ w.statues.arhats = [
 ];
 delete w.statues.buddha;
 w.statues.shrine = [
+  // Giữ tượng A Di Đà GLB gốc ở chính giữa. WebP chỉ dùng để nén texture, không được đổi
+  // tượng chính sang bản dựng hình khối của engine.
+  { id: 'amitabha', src: '/models/statues/amitabha.glb', x: 0, z: -2, height: 4.6, throne: { lotus: false }, replaces: 'buddha' },
   { id: 'dia-tang', src: '/models/statues/dia-tang.glb', x: -4.5, z: -2.1, height: 3.5, throne: true, finish: 'bronze' },
   { id: 'quan-am', src: '/models/statues/quan-am.glb', x: 4.5, z: -2.1, height: 3.3, throne: { lotus: false } },
 ];
@@ -739,6 +742,6 @@ w.statues.guardians = [
   { src: '/models/statues/guardian-b.glb', x: 3.9, z: 17.7, ry: 0, height: 2.1, finish: 'bronze' },
 ];
 delete w.statues.arhat;
-w.statues.credits = 'Quan Âm: "Guan Yin Bodhisattva" — AmitabhaNZ (CC BY). Tượng Địa Tạng: "Ksitigarbha Bodhisattva - Statue" — kieuvantruong060194 (CC BY). Hộ pháp: Cleveland Museum of Art, Guardian Figure: Nio (CC0). La Hán — CC0: Mia, Wirtualne Muzea Małopolski (Figure of seated arhat with a vase), Mia (10th C BCE Chinese monk); CC BY: nate_sid (Monk Statue, Kek Lok Si), ThomasRedfern12 (Budai Statue - Low Poly), gtmkf123 (Seated Buddhist monk in orange robe), local.yany (Monk Statues), pierreparfait01 (Ksitigarbha / Ojizo-Sama, Kasa Jizō), manoworks (Jizo Bosatsu statue), fusion (Jizo statue in Kyoto - MTSU Animation). Quan Âm: Mia (CC0). Qua Sketchfab';
+w.statues.credits = 'A Di Đà: "Amitabha Buddha", Quan Âm: "Guan Yin Bodhisattva" — AmitabhaNZ (CC BY). Tượng Địa Tạng: "Ksitigarbha Bodhisattva - Statue" — kieuvantruong060194 (CC BY). Hộ pháp: Cleveland Museum of Art, Guardian Figure: Nio (CC0). La Hán — CC0: Mia, Wirtualne Muzea Małopolski (Figure of seated arhat with a vase), Mia (10th C BCE Chinese monk); CC BY: nate_sid (Monk Statue, Kek Lok Si), ThomasRedfern12 (Budai Statue - Low Poly), gtmkf123 (Seated Buddhist monk in orange robe), local.yany (Monk Statues), pierreparfait01 (Ksitigarbha / Ojizo-Sama, Kasa Jizō), manoworks (Jizo Bosatsu statue), fusion (Jizo statue in Kyoto - MTSU Animation). Quan Âm: Mia (CC0). Qua Sketchfab';
 writeFileSync(file, `${JSON.stringify(scene, null, 2)}\n`);
 console.log(`Đã ghi ${file}: ${c.arhats.length} La Hán, ${walk.obstacles.length} vật cản.`);

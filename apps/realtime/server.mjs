@@ -634,14 +634,18 @@ export class Room {
       link(to, from);
     }
     for (const participant of this.participants.values()) if (participant.handWith) link(participant.id, participant.handWith);
-    // Đang có ván trốn tìm: lọc theo vai (hide-seek.mjs visible) trước khi chọn người gần nhất.
+    // Đang có ván trốn tìm: lọc theo vai (hide-seek.mjs visible) trước khi chọn người gần nhất. Người trong ván thấy
+    // người cùng ván ở cả hai vùng (trốn trong chánh điện vẫn thấy / xem camera người đi tìm ngoài sân và ngược lại);
+    // người ngoài vẫn chỉ thấy người cùng vùng.
     const game = this.hideSeek?.active ? this.hideSeek : null;
+    const roundWalkers = game ? [...zones.hall, ...zones.yard].filter((participant) => game.inRound(participant.id)) : [];
     for (const viewer of this.participants.values()) {
       if (!viewer.socket) continue;
       const door = this.rules.world.zones?.hall?.z[1] ?? 0;
       const center = viewer.pos || { x: 0, z: door };
       const zone = viewer.seatId ? 'hall' : viewer.benchId || !viewer.pos ? 'yard' : this.zoneOf(center);
-      const list = game ? zones[zone].filter((participant) => game.visible(viewer.id, participant.id)) : zones[zone];
+      const pool = game?.inRound(viewer.id) ? roundWalkers : zones[zone];
+      const list = game ? pool.filter((participant) => game.visible(viewer.id, participant.id)) : pool;
       const limit = this.view[zone] || 40;
       let near;
       if (list.length <= limit) near = list.map((participant) => participant.id);
