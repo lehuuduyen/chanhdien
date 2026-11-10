@@ -271,3 +271,30 @@ test('trốn tìm: thưởng đúng người thắng (≥ 2 người thật), h�
     close();
   }
 });
+
+test('trốn tìm: người chơi thấy nhau dù một bên trong chánh điện, một bên ngoài sân (người trốn xem được camera người đi tìm)', async () => {
+  const { room, state, role, close } = setup(['an', 'binh', 'chi', 'ngoai']);
+  try {
+    for (const id of ['an', 'binh', 'chi']) room.hideSeek.join(id);
+    await until(() => state().phase === 'hiding');
+    const seeker = ['an', 'binh', 'chi'].find((id) => role(id) === 'seeker');
+    const [inHall, inYard] = ['an', 'binh', 'chi'].filter((id) => role(id) === 'hider');
+    // Một người trốn chạy vào chánh điện (vùng hall), người kia trốn ngoài sân; người ngoài cũng đứng trong điện.
+    room.participants.get(inHall).pos = { x: 2, z: 8, ry: 0 };
+    room.participants.get('ngoai').pos = { x: -2, z: 6, ry: 0 };
+    room.refreshViews();
+    const view = (id) => room.participants.get(id).view;
+    assert.equal(view(inHall).has(seeker), true, 'trong điện vẫn thấy người đi tìm ngoài sân');
+    assert.equal(view(inHall).has(inYard), true, 'trong điện vẫn thấy người trốn ngoài sân');
+    assert.equal(view(inHall).has('ngoai'), false, 'vẫn không thấy người ngoài');
+    assert.equal(view(seeker).has(inHall), false, 'lúc đi trốn người đi tìm vẫn không thấy người trốn');
+    await until(() => state().phase === 'seeking');
+    room.refreshViews();
+    assert.equal(view(inHall).has(seeker), true);
+    assert.equal(view(seeker).has(inHall), true, 'pha đi tìm: người đi tìm ngoài sân thấy người trốn trong điện');
+    assert.equal(view('ngoai').has(inHall), false, 'người ngoài vẫn không thấy người trốn');
+    assert.equal(view('ngoai').has(seeker), false, 'người ngoài vẫn chỉ thấy người cùng vùng');
+  } finally {
+    close();
+  }
+});

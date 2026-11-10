@@ -193,8 +193,11 @@ test('chánh điện: lấp kín bề ngang trên màn dài/thấp, cắt trần
   for (const offset of [stageToView({ x: 0, y: focus.y0 }, wide).y, 500 - stageToView({ x: 0, y: focus.y1 }, wide).y]) assert.ok(offset >= -0.5);
 });
 
-test('tượng Phật ngồi chính giữa không bị tượng GLB tải trễ thay thế', () => {
+test('chánh điện luôn dùng đúng tượng A Di Đà GLB gốc ở chính giữa', () => {
   const shrine = loadScene('thien-default').world?.statues?.shrine ?? [];
-  assert.equal(shrine.some((item) => item.replaces === 'buddha'), false);
-  assert.deepEqual(shrine.map((item) => item.id), ['dia-tang', 'quan-am']);
+  assert.deepEqual(shrine.map((item) => item.id), ['amitabha', 'dia-tang', 'quan-am']);
+  assert.deepEqual(shrine[0], {
+    id: 'amitabha', src: '/models/statues/amitabha.glb', x: 0, z: -2, height: 4.6,
+    throne: { lotus: false }, replaces: 'buddha',
+  });
 });

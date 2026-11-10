@@ -12268,7 +12268,7 @@
         "height": 5.2,
         "material": "whiteStone"
       },
-      "credits": "Quan Âm: \"Guan Yin Bodhisattva\" — AmitabhaNZ (CC BY). Tượng Địa Tạng: \"Ksitigarbha Bodhisattva - Statue\" — kieuvantruong060194 (CC BY). Hộ pháp: Cleveland Museum of Art, Guardian Figure: Nio (CC0). La Hán — CC0: Mia, Wirtualne Muzea Małopolski (Figure of seated arhat with a vase), Mia (10th C BCE Chinese monk); CC BY: nate_sid (Monk Statue, Kek Lok Si), ThomasRedfern12 (Budai Statue - Low Poly), gtmkf123 (Seated Buddhist monk in orange robe), local.yany (Monk Statues), pierreparfait01 (Ksitigarbha / Ojizo-Sama, Kasa Jizō), manoworks (Jizo Bosatsu statue), fusion (Jizo statue in Kyoto - MTSU Animation). Quan Âm: Mia (CC0). Qua Sketchfab",
+      "credits": "A Di Đà: \"Amitabha Buddha\", Quan Âm: \"Guan Yin Bodhisattva\" — AmitabhaNZ (CC BY). Tượng Địa Tạng: \"Ksitigarbha Bodhisattva - Statue\" — kieuvantruong060194 (CC BY). Hộ pháp: Cleveland Museum of Art, Guardian Figure: Nio (CC0). La Hán — CC0: Mia, Wirtualne Muzea Małopolski (Figure of seated arhat with a vase), Mia (10th C BCE Chinese monk); CC BY: nate_sid (Monk Statue, Kek Lok Si), ThomasRedfern12 (Budai Statue - Low Poly), gtmkf123 (Seated Buddhist monk in orange robe), local.yany (Monk Statues), pierreparfait01 (Ksitigarbha / Ojizo-Sama, Kasa Jizō), manoworks (Jizo Bosatsu statue), fusion (Jizo statue in Kyoto - MTSU Animation). Quan Âm: Mia (CC0). Qua Sketchfab",
       "arhats": [
         {
           "src": "/models/statues/arhat-seated.glb",
@@ -12346,6 +12346,17 @@
         }
       ],
       "shrine": [
+        {
+          "id": "amitabha",
+          "src": "/models/statues/amitabha.glb",
+          "x": 0,
+          "z": -2,
+          "height": 4.6,
+          "throne": {
+            "lotus": false
+          },
+          "replaces": "buddha"
+        },
         {
           "id": "dia-tang",
           "src": "/models/statues/dia-tang.glb",

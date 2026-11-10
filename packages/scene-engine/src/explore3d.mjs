@@ -801,6 +801,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     const playOccupied = new Set();
     let selfPlay = null;
     let lastPlayFollow = null;
+    // Trốn tìm · đang xem camera người khác: vị trí người đó ở khung trước (camera dời theo cùng một đoạn).
+    let lastWatchFollow = null;
     const memorialData = world.courtyard?.memorial;
     // Chỗ chạm được khác cũng sáng vòng khi lại gần: ô mộ, bảng hướng dẫn, bảng vàng công đức (xa hơn chỗ ngồi
     // một chút để thấy từ lối đi). Chó mèo đi lại nên tính vòng theo con gần nhất mỗi khung (updateRings).
@@ -1047,6 +1049,13 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           controls.target.z += followZ - lastPlayFollow.z;
         }
         lastPlayFollow = selfPlayFollow ? { x: followX, z: followZ } : null;
+        // Xem camera người khác: dời camera theo người đó như khi mình tự đi (trước đây camera đứng yên, chỉ quay
+        // nhìn theo nên người đi xa là chỉ còn thấy bảng tên nhỏ).
+        if (watched && lastWatchFollow && cameraReady) {
+          camera.position.x += followX - lastWatchFollow.x;
+          camera.position.z += followZ - lastWatchFollow.z;
+        }
+        lastWatchFollow = watched ? { x: followX, z: followZ } : null;
         followTarget.set(followX, followTargetHeight + (selfPlayFollow ? selfPlayFollow.y * 0.5 : 0), followZ);
         if (!cameraReady) {
           controls.target.copy(followTarget);

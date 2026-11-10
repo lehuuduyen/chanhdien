@@ -757,17 +757,18 @@ button.chip { cursor: pointer; }
 .hs-blind-time { font-size: clamp(48px, 22cqw, 110px); font-variant-numeric: tabular-nums; line-height: 1; }
 .hs-blind p { margin: 0; color: #d8c9a8; font-size: clamp(12px, 3.8cqw, 16px); }
 .hs-watch { position: absolute; z-index: 9; left: 50%; bottom: 52cqw; transform: translateX(-50%); display: flex; align-items: center; gap: 1.6cqw; max-width: 94%; padding: 1.2cqw; background: rgba(12, 8, 4, .78); border: 1px solid var(--line); border-radius: 999px; }
-.hs-watch[hidden] { display: none; }
-.hs-watch-name { min-width: 0; max-width: 40cqw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; font-size: clamp(11px, 3.3cqw, 14px); }
+.hs-watch[hidden], .hs-watch [hidden] { display: none; }
+#stage.hs-locked .joystick { display: none; }
+.hs-watch-name { min-width: 0; max-width: 40cqw; overflow: hidden; padding: 0 1cqw; text-overflow: ellipsis; white-space: nowrap; color: #fff; background: none; border: 0; font: inherit; font-size: clamp(11px, 3.3cqw, 14px); cursor: pointer; }
 .hs-result { position: absolute; z-index: 12; top: 42%; left: 50%; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 1.6cqw; min-width: 60%; padding: 5cqw 6cqw; color: #fff; background: rgba(12, 8, 4, .9); border: 2px solid var(--gold); border-radius: 4cqw; text-align: center; pointer-events: none; }
 .hs-result[hidden] { display: none; }
 .hs-result b { color: var(--gold); font-family: var(--display); font-size: clamp(18px, 6.4cqw, 28px); }
 .hs-result span { font-size: clamp(13px, 4.2cqw, 18px); font-weight: 700; }
 .hs-result small { color: #d8c9a8; font-size: clamp(10px, 3cqw, 13px); }
-/* Trốn tìm · ẩn chữ & nút: chỉ còn cảnh, cần điều khiển, nút hiện lại, màn đen / thẻ báo vai / kết quả / thông báo và
-   bảng đang mở; khung bài giảng YouTube cũng giữ nguyên (không được ẩn player đang phát). Dùng visibility (không đổi
-   bố cục, phần bị ẩn không nhận chạm). */
-#stage.hs-clean > :not(canvas, .joystick, .hs-clean-toggle, .hs-blind, .hs-reveal, .hs-result, .toast, .lecture, [role="dialog"]) { visibility: hidden; }
+/* Trốn tìm · ẩn chữ & nút: chỉ còn cảnh, cần điều khiển, nút hiện lại, thanh xem camera, màn đen / thẻ báo vai / kết quả /
+   thông báo và bảng đang mở; khung bài giảng YouTube cũng giữ nguyên (không được ẩn player đang phát). Dùng visibility
+   (không đổi bố cục, phần bị ẩn không nhận chạm). */
+#stage.hs-clean > :not(canvas, .joystick, .hs-clean-toggle, .hs-blind, .hs-reveal, .hs-result, .hs-watch, .toast, .lecture, [role="dialog"]) { visibility: hidden; }
 .hs-clean-toggle { position: absolute; z-index: 15; top: 13cqw; right: 2.5cqw; font-variant-numeric: tabular-nums; cursor: pointer; }
 .hs-clean-toggle[hidden] { display: none; }
 #stage.hs-clean .hs-clean-toggle { color: var(--gold); background: rgba(12, 8, 4, .55); border-color: var(--gold); }
