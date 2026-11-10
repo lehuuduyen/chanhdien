@@ -872,8 +872,8 @@ function handleMessage(message) {
     renderer?.offer(message.participantId, message.kind, { big });
     const badges = badgesOf(message.participantId);
     say(name, `${act}${message.text ? ` · "${message.text}"` : ''}`, true, badges);
-    // Đang chơi trốn tìm: lễ của người khác không hiện thông báo (đè lên đồng hồ / tin bắt người).
-    if (mine || !hideSeek?.inRound()) showToast(`${name} ${act}${message.text ? ` — ${message.text}` : ''}`, badges);
+    // Đang chơi trốn tìm / đang ẩn chữ & nút: lễ của người khác không hiện thông báo (đè lên đồng hồ / tin bắt người).
+    if (mine || !hideSeek?.quiet()) showToast(`${name} ${act}${message.text ? ` — ${message.text}` : ''}`, badges);
     // Ngoài chánh điện (sân, vườn, khu vui chơi…): lễ của người khác không phát tiếng (chuông, giọng đọc). Giọng đọc
     // giành loa trên điện thoại làm nhạc nền bị ngắt / hạ nhỏ liên tục khi trong điện đông người dâng lễ.
     if (!mine && currentPlace && currentPlace !== 'hall') return;

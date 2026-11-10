@@ -764,3 +764,16 @@ button.chip { cursor: pointer; }
 .hs-result b { color: var(--gold); font-family: var(--display); font-size: clamp(18px, 6.4cqw, 28px); }
 .hs-result span { font-size: clamp(13px, 4.2cqw, 18px); font-weight: 700; }
 .hs-result small { color: #d8c9a8; font-size: clamp(10px, 3cqw, 13px); }
+/* Trốn tìm · ẩn chữ & nút: chỉ còn cảnh, cần điều khiển, nút hiện lại, màn đen / thẻ báo vai / kết quả / thông báo và
+   bảng đang mở; khung bài giảng YouTube cũng giữ nguyên (không được ẩn player đang phát). Dùng visibility (không đổi
+   bố cục, phần bị ẩn không nhận chạm). */
+#stage.hs-clean > :not(canvas, .joystick, .hs-clean-toggle, .hs-blind, .hs-reveal, .hs-result, .toast, .lecture, [role="dialog"]) { visibility: hidden; }
+.hs-clean-toggle { position: absolute; z-index: 15; top: 13cqw; right: 2.5cqw; font-variant-numeric: tabular-nums; cursor: pointer; }
+.hs-clean-toggle[hidden] { display: none; }
+#stage.hs-clean .hs-clean-toggle { color: var(--gold); background: rgba(12, 8, 4, .55); border-color: var(--gold); }
+#stage.hs-playing .board, #stage.hs-playing .board-toggle { display: none; }
+/* Bài giảng YouTube đang phát trong chánh điện: thẻ trốn tìm dời xuống dưới khung phát; màn đen của người đi tìm chừa
+   khung phát (không vẽ gì đè lên player; khung chỉ có video, không lộ cảnh). */
+#stage.in-hall.has-lecture .hs-hud { top: 96cqw; }
+#stage.in-hall.has-lecture .hs-reveal, #stage.in-hall.has-lecture .hs-result { top: 74%; }
+#stage.hs-blinded .lecture { z-index: 31; }
