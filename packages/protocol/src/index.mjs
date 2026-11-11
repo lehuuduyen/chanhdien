@@ -816,7 +816,8 @@ const serverSchemas = {
   // players: đúng 4 chỗ theo số ghế (null = ghế trống); seat: ghế của mình. turn / deadline: ai đang tới lượt, giờ server
   // (ms) hết lượt / hết đếm ngược. top: bộ đang nằm trên bàn. lead: mình đang mở vòng; mustInclude: lá phải đánh kèm.
   // last: nước vừa đi (chop kèm số phần người bị chặt phải trả). result: kết quả ván (ranks / nets theo ghế; lines là các
-  // khoản đã tính ra xu; net / cut: xu của mình thực cộng / trừ sau phế; before / after: số dư của mình trước / sau ván).
+  // khoản đã tính ra xu; net / cut: xu của mình thực cộng / trừ sau phế; before / after: số dư của mình trước / sau ván;
+  // hands: bài còn lại của từng ghế, chỉ lật khi ván đã xong — tới trắng thì đủ 13 lá của người thắng).
   // minCoins: số xu tối thiểu để ngồi bàn này. bots: bàn có cho bot vào. players[].missed: số lượt liên tiếp hệ thống đánh
   // hộ (≥ 2 là đang tự đánh); away: mất kết nối. last.auto: nước vừa rồi do hệ thống đánh hộ.
   'tienlen.table'(message) {
@@ -833,7 +834,8 @@ const serverSchemas = {
     const line = (item) => isRecord(item) && exactKeys(item, ['from', 'to', 'units', 'coins', 'reason'])
       && tienLenSeat(item.from) && tienLenSeat(item.to) && item.from !== item.to
       && isInteger(item.units) && item.units >= 0 && isInteger(item.coins) && item.coins >= 0 && TIENLEN_REASONS.includes(item.reason);
-    const result = (value) => isRecord(value) && exactKeys(value, ['ranks', 'nets', 'lines'], ['white', 'net', 'cut', 'before', 'after'])
+    const result = (value) => isRecord(value) && exactKeys(value, ['ranks', 'nets', 'lines'], ['white', 'net', 'cut', 'before', 'after', 'hands'])
+      && (value.hands === undefined || seatList(value.hands, (cards) => tienLenCards(cards, 0)))
       && ['before', 'after'].every((key) => value[key] === undefined || (isInteger(value[key]) && value[key] >= 0))
       && seatList(value.ranks, (rank) => isInteger(rank) && rank >= 1 && rank <= TIENLEN_SEATS)
       && seatList(value.nets, isInteger)

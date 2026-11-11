@@ -2,7 +2,7 @@
 // của mình, kiểm tra trước nước đánh bằng chính luật của server (/shared/tien-len.mjs) để sáng nút Đánh / gợi ý.
 // Tên người chơi chỉ đưa ra màn hình qua textContent.
 import { currentCinemaHref } from '/region-cinema.js';
-import { beats, classify, isFreeChop, playOptions, rankOf, RANKS, suitOf, SUITS, TIENLEN_MODES, TIENLEN_STAKES, tienLenMinCoins } from '/shared/tien-len.mjs';
+import { beats, classify, isFreeChop, playOptions, rankOf, RANKS, smartSelect, suitOf, SUITS, TIENLEN_MODES, TIENLEN_STAKES, tienLenMinCoins } from '/shared/tien-len.mjs';
 
 const PROTOCOL_VERSION = 3;
 const ROOM_ID = 'tienlen-1';
@@ -23,7 +23,8 @@ const $ = (id) => document.getElementById(id);
 const el = Object.fromEntries(['lobbyView', 'roomChip', 'balance', 'online', 'playing', 'modes', 'stakes', 'deposit', 'quick', 'open', 'signIn', 'message',
   'tables', 'board', 'leave', 'tableInfo', 'seatTop', 'seatLeft', 'seatRight', 'flash', 'pile', 'whoPlayed', 'status', 'result', 'boardMessage',
   'meName', 'meTag', 'meCoins', 'turnbar', 'turnbarFill', 'hand', 'sort', 'hint', 'pass', 'play', 'rules', 'rulesOpen', 'rulesOpen2', 'rulesClose',
-  'travelToggle', 'travelPanel', 'botsToggle', 'botsNote', 'idleBar', 'idleText', 'idleBack', 'net'].map((id) => [id, $(id)]));
+  'travelToggle', 'travelPanel', 'idleBar', 'idleText', 'idleBack', 'net', 'notice', 'noticeTitle', 'noticeText', 'noticeLower', 'noticeGarden',
+  'noticeClose', 'autoPick'].map((id) => [id, $(id)]));
 
 let coins = null;
 let signedIn = false;
@@ -36,15 +37,15 @@ let selected = new Set();
 let sortBySuit = false;
 let hintIndex = -1;
 let lastMoveKey = '';
-// Người tạo bàn cho bot vào khi thiếu người (nhớ lựa chọn ở máy).
-let allowBots = true;
+// Tự chọn bộ khi chạm bài (bật / tắt, nhớ ở máy).
+let autoPick = true;
 // Đã ẩn màn kết quả của ván này (bấm "Ở lại") — ván mới thì hiện lại.
 let resultHiddenFor = 0;
 // Trạng thái mạng: 'down' đang mất kết nối, 'back' vừa nối lại (hiện 2,5 giây).
 let netState = '';
 let netTimer = null;
-// Vừa bị mời rời bàn vì treo máy: giữ câu báo đó ở sảnh.
-let kickedAt = 0;
+// Lý do bị đưa ra khỏi bàn (không đủ xu / treo máy lâu) vừa nhận: { code, text, at } — về sảnh thì hiện hộp thông báo.
+let leaveReason = null;
 let clockOffset = 0;
 let socket = null;
 let session = null;
@@ -63,8 +64,22 @@ function say(text, tone = '') {
   el.message.textContent = text;
   el.message.className = `message ${tone}`;
 }
-function boardSay(text) {
+function boardSay(text, tone = '') {
   el.boardMessage.textContent = text;
+  el.boardMessage.className = `board-message ${tone}`;
+}
+
+const COMBO_NAMES = { single: 'rác', pair: 'đôi', triple: 'sám', quad: 'tứ quý' };
+const comboName = (cards) => {
+  const combo = classify(cards);
+  if (!combo) return 'bộ';
+  if (combo.type === 'straight') return `sảnh ${combo.size} lá`;
+  if (combo.type === 'pairs') return `${combo.size} đôi thông`;
+  return COMBO_NAMES[combo.type];
+};
+function renderAutoPick() {
+  el.autoPick.textContent = autoPick ? '🪄 Tự chọn: bật' : '🪄 Tự chọn: tắt';
+  el.autoPick.setAttribute('aria-pressed', String(autoPick));
 }
 
 const send = (type, body = {}) => {
@@ -85,6 +100,13 @@ function cardNode(card) {
   return item;
 }
 const sortedHand = (hand) => [...hand].sort(sortBySuit ? (a, b) => suitOf(a) - suitOf(b) || a - b : (a, b) => a - b);
+// Bài lật lúc hết ván (lá nhỏ, xếp theo thứ tự).
+function miniHand(cards, empty = '') {
+  const box = node('div', 'mini-hand');
+  if (!cards.length) box.append(node('span', 'mini-empty', empty));
+  for (const card of [...cards].sort((a, b) => a - b)) box.append(cardNode(card));
+  return box;
+}
 
 // ---- Sảnh ----
 for (const value of TIENLEN_STAKES) {
@@ -97,7 +119,6 @@ for (const value of TIENLEN_STAKES) {
 
 // Ngồi bàn cần ít nhất 10 lần mức cược trong ví (server kiểm tra lại lúc vào bàn và đầu mỗi ván).
 const canAfford = (value) => coins === null || coins >= tienLenMinCoins(value);
-const BOT_MAX_STAKE = 500;
 
 function renderLobby() {
   el.balance.textContent = coins === null ? '—' : coins.toLocaleString('vi-VN');
@@ -109,10 +130,6 @@ function renderLobby() {
   }
   el.deposit.replaceChildren('1 phần = ', node('b', '', `${stake.toLocaleString('vi-VN')} xu`), ' · cần ít nhất ',
     node('b', '', `${tienLenMinCoins(stake).toLocaleString('vi-VN')} xu`), ' trong ví để ngồi');
-  const botsPossible = stake <= BOT_MAX_STAKE;
-  el.botsToggle.disabled = !botsPossible;
-  el.botsToggle.checked = botsPossible && allowBots;
-  el.botsNote.textContent = botsPossible ? 'Bàn mình tạo: chờ 5–8 giây cho người khác vào trước rồi bot mới vào' : `Bàn trên ${BOT_MAX_STAKE} xu chỉ có người thật`;
   el.signIn.hidden = signedIn;
   el.online.textContent = `👥 ${people} người trong sảnh`;
   el.playing.textContent = lobby ? `${lobby.playing} bàn đang chơi` : '';
@@ -127,7 +144,7 @@ function renderLobby() {
     amount.append(node('small', '', item.mode === 'rank' ? 'A · Xếp hạng' : 'B · Đếm lá'));
     const who = node('span', 'who');
     who.append(node('span', '', item.players.map((player) => `${AVATARS[player.skin] || '🙂'} ${player.displayName}`).join(' · ')),
-      node('small', '', `${item.players.length}/${SEATS} người · ${PHASE_NAMES[item.phase]}${item.bots === false ? ' · chỉ người thật' : ''}`));
+      node('small', '', `${item.players.length}/${SEATS} người · ${PHASE_NAMES[item.phase]}`));
     const join = node('button', '', 'Vào');
     join.type = 'button';
     join.dataset.table = item.id;
@@ -182,6 +199,9 @@ function renderSeat(seat) {
   }
   const [tag, tone] = tagOf(player, seat);
   parts.push(node('div', `tag ${tone}`, tag));
+  // Hết ván: lật bài còn lại của người này.
+  const revealed = table.phase === 'result' ? table.result?.hands?.[seat] : null;
+  if (player && revealed?.length) parts.push(miniHand(revealed));
   box.replaceChildren(...parts);
 }
 
@@ -276,10 +296,18 @@ function renderResult() {
     const [tag] = tagOf(player, seat);
     item.append(node('span', '', tag.split(' ')[0] || '·'), node('b', '', seat === table.seat ? `${player?.displayName || 'Bạn'} (bạn)` : player?.displayName || '…'),
       node('span', net >= 0 ? 'plus' : 'minus', money(net)));
+    // Lật bài: bài còn lại của từng người; tới trắng thì đủ 13 lá của người thắng.
+    if (result.hands?.[seat]) item.append(miniHand(result.hands[seat], 'Hết bài'));
     list.append(item);
   }
   const title = result.white ? `Tới trắng · ${WHITE_NAMES[result.white]}` : `Kết quả ván ${table.game}`;
-  const parts = [node('h3', '', title), list];
+  const parts = [node('h3', '', title)];
+  // Sau ván không còn đủ 10 lần mức cược: báo ngay dưới tiêu đề (thấy liền, không phải cuộn), hết đếm ngược sẽ rời bàn.
+  const broke = result.after !== undefined && result.after < table.minCoins;
+  if (broke) {
+    parts.push(node('p', 'result-warn', `⚠️ Bạn còn ${result.after.toLocaleString('vi-VN')} xu, không đủ ${table.minCoins.toLocaleString('vi-VN')} xu (10 lần mức cược) để chơi tiếp bàn này. Hết đếm ngược bạn sẽ rời bàn.`));
+  }
+  parts.push(list);
   // Từng khoản: của mình trước (thắng / thua, chặt, thối, cóng), rồi các khoản khác.
   const lines = result.lines.filter((line) => line.coins > 0);
   const mineLines = lines.filter((line) => line.from === table.seat || line.to === table.seat);
@@ -314,13 +342,16 @@ function renderResult() {
   const countdown = node('p', 'result-countdown');
   countdown.dataset.countdown = '1';
   const actions = node('div', 'result-actions');
-  const leave = node('button', 'secondary', '🚪 Rời bàn');
+  const leave = node('button', 'secondary', broke ? '🚪 Rời bàn ngay' : '🚪 Rời bàn');
   leave.type = 'button';
   leave.dataset.resultLeave = '1';
-  const stay = node('button', 'primary', '▶ Ở lại chơi tiếp');
-  stay.type = 'button';
-  stay.dataset.resultStay = '1';
-  actions.append(leave, stay);
+  actions.append(leave);
+  if (!broke) {
+    const stay = node('button', 'primary', '▶ Ở lại chơi tiếp');
+    stay.type = 'button';
+    stay.dataset.resultStay = '1';
+    actions.append(stay);
+  } else actions.classList.add('single');
   parts.push(countdown, actions);
   el.result.replaceChildren(...parts);
 }
@@ -407,7 +438,8 @@ function tick() {
   }
   el.status.textContent = statusText();
   const countdown = el.result.querySelector('[data-countdown]');
-  if (countdown && table.phase === 'result') countdown.textContent = `Ván mới sau ${Math.ceil(left / 1_000)} giây`;
+  const leaving = table.result?.after !== undefined && table.result.after < table.minCoins;
+  if (countdown && table.phase === 'result') countdown.textContent = `${leaving ? 'Rời bàn sau' : 'Ván mới sau'} ${Math.ceil(left / 1_000)} giây`;
 }
 
 function onTable(message) {
@@ -416,7 +448,11 @@ function onTable(message) {
     if (table && message.tableId === table.tableId) {
       table = null;
       selected = new Set();
-      if (Date.now() - kickedAt > 3_000) say(previous?.phase === 'playing' ? '' : 'Đã rời bàn');
+      if (leaveReason && Date.now() - leaveReason.at < 5_000) {
+        say(leaveReason.text, 'lose');
+        showNotice(leaveReason);
+      } else say(previous?.phase === 'playing' ? '' : 'Đã rời bàn');
+      leaveReason = null;
       loadWallet();
     }
     renderBoard();
@@ -465,10 +501,8 @@ function onMessage(event) {
       return;
     }
     const text = ERROR_TEXT[message.code] || message.message;
-    if (message.code === 'IDLE_KICKED') {
-      kickedAt = Date.now();
-      say(text, 'lose');
-    }
+    // Đang ngồi bàn mà bị báo không đủ xu / treo máy: máy chủ sắp đưa ra khỏi bàn, nhớ lý do để báo rõ ở sảnh.
+    if (table && ['INSUFFICIENT_COINS', 'IDLE_KICKED'].includes(message.code)) leaveReason = { code: message.code, text, at: Date.now() };
     if (table) boardSay(text);
     else say(text, 'lose');
     if (message.code === 'INSUFFICIENT_COINS') loadWallet();
@@ -617,8 +651,7 @@ el.quick.addEventListener('click', () => {
   } else if (canPlay(stake) && send('tienlen.find', { stake, mode })) say('Đang tìm bàn…');
 });
 el.open.addEventListener('click', () => {
-  const bots = stake <= BOT_MAX_STAKE && allowBots;
-  if (canPlay(stake) && send('tienlen.open', { stake, mode, bots })) say(`Đang mở bàn ${stake.toLocaleString('vi-VN')} xu${bots ? '' : ' (chỉ người thật)'}…`);
+  if (canPlay(stake) && send('tienlen.open', { stake, mode })) say(`Đang mở bàn ${stake.toLocaleString('vi-VN')} xu…`);
 });
 el.tables.addEventListener('click', (event) => {
   const button = event.target.closest('[data-table]');
@@ -633,11 +666,29 @@ el.hand.addEventListener('click', (event) => {
   const item = event.target.closest('[data-card]');
   if (!item || !table) return;
   const card = Number(item.dataset.card);
-  if (selected.has(card)) selected.delete(card);
-  else selected.add(card);
+  if (selected.has(card)) {
+    // Bỏ chọn: chỉ bỏ lá đó (sảnh tự chọn dài quá thì chạm bớt lá cuối).
+    selected.delete(card);
+    boardSay('');
+  } else {
+    selected.add(card);
+    // Tự chọn bộ: 3 rồi 4 → cả sảnh; đôi + hạng kế → đôi thông; 2 lá của tứ quý → tứ quý; đang chặn thì bộ nhỏ nhất đè được.
+    const top = table.phase === 'playing' ? table.top?.cards || null : null;
+    const picked = autoPick && table.hand ? smartSelect({ hand: table.hand, picked: [...selected], top }) : null;
+    if (picked) {
+      selected = new Set(picked);
+      boardSay(`🪄 Tự chọn ${comboName(picked)} · chạm lá để bỏ bớt`, 'info');
+    } else boardSay('');
+  }
   hintIndex = -1;
   renderHand();
   renderButtons();
+});
+el.autoPick.addEventListener('click', () => {
+  autoPick = !autoPick;
+  try { localStorage.setItem('tienlen-autopick', autoPick ? '1' : '0'); } catch {}
+  renderAutoPick();
+  boardSay(autoPick ? '🪄 Chạm 2 lá liền nhau (3, 4…) là tự chọn cả sảnh / đôi thông / tứ quý' : 'Đã tắt tự chọn: chạm lá nào chọn lá đó', 'info');
 });
 el.sort.addEventListener('click', () => {
   sortBySuit = !sortBySuit;
@@ -675,11 +726,6 @@ el.pass.addEventListener('click', () => {
     boardSay('');
   }
 });
-el.botsToggle.addEventListener('change', () => {
-  allowBots = el.botsToggle.checked;
-  try { localStorage.setItem('tienlen-bots', allowBots ? '1' : '0'); } catch {}
-  renderLobby();
-});
 el.idleBack.addEventListener('click', () => {
   if (table && send('tienlen.back', { tableId: table.tableId })) boardSay('');
 });
@@ -695,6 +741,32 @@ el.leave.addEventListener('click', () => {
   if (!table) return;
   if (send('tienlen.leave') && table.phase === 'playing') boardSay(table.players[table.seat]?.leaving ? 'Bạn ở lại bàn' : 'Bạn sẽ rời bàn khi hết ván này');
 });
+// Hộp thông báo ở sảnh khi vừa bị đưa ra khỏi bàn (không đủ xu / treo máy lâu).
+function showNotice(reason) {
+  const poor = reason.code === 'INSUFFICIENT_COINS';
+  el.noticeTitle.textContent = poor ? '💸 Không đủ xu để chơi tiếp' : '⏱ Bạn đã rời bàn';
+  el.noticeText.textContent = reason.text;
+  el.noticeLower.hidden = !poor;
+  el.noticeGarden.hidden = !poor;
+  el.notice.hidden = false;
+}
+// Chọn mức cược cao nhất còn đủ xu ngồi.
+function pickAffordable() {
+  const affordable = TIENLEN_STAKES.filter((value) => coins !== null && coins >= tienLenMinCoins(value));
+  if (affordable.length) {
+    stake = affordable.at(-1);
+    try { localStorage.setItem('tienlen-stake', String(stake)); } catch {}
+    say(`Đã chọn mức ${stake.toLocaleString('vi-VN')} xu (bạn đang có ${coins.toLocaleString('vi-VN')} xu)`);
+  } else say(`Bạn còn ${(coins ?? 0).toLocaleString('vi-VN')} xu, chưa đủ ${tienLenMinCoins(TIENLEN_STAKES[0]).toLocaleString('vi-VN')} xu cho bàn thấp nhất · ra Khu vườn bán trái cây để có thêm`, 'lose');
+  renderLobby();
+}
+el.noticeClose.addEventListener('click', () => { el.notice.hidden = true; });
+el.noticeLower.addEventListener('click', async () => {
+  el.notice.hidden = true;
+  await loadWallet();
+  pickAffordable();
+});
+el.noticeGarden.addEventListener('click', () => travelTo('garden'));
 const openRules = (on) => { el.rules.hidden = !on; };
 el.rulesOpen.addEventListener('click', () => openRules(true));
 el.rulesOpen2.addEventListener('click', () => openRules(true));
@@ -730,10 +802,11 @@ try {
   if (TIENLEN_STAKES.includes(savedStake)) stake = savedStake;
   const savedMode = localStorage.getItem('tienlen-mode');
   if (TIENLEN_MODES.includes(savedMode)) mode = savedMode;
-  allowBots = localStorage.getItem('tienlen-bots') !== '0';
+  autoPick = localStorage.getItem('tienlen-autopick') !== '0';
 } catch {}
 renderLobby();
 renderBoard();
+renderAutoPick();
 loadWallet().then(connect);
 setInterval(tick, 200);
 window.addEventListener('resize', () => { if (table) renderHand(); });

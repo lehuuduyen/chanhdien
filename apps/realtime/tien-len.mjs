@@ -3,10 +3,11 @@
 //   waiting (chờ người) → starting (đủ 2 người, đếm ngược; đủ 4 thì nhanh hơn) → ghi người thật vào ván (API, ai không còn
 //   đủ xu thì đứng dậy) → chia bài → playing (lượt turnMs; hết giờ tự bỏ / tự đánh lá nhỏ nhất) → result (API trừ / cộng
 //   theo các khoản, ai thiếu xu thì trả hết số có, phế phần thắng) → ván mới (người bấm rời / mất kết nối thì đứng dậy) …
-// - Bài trên tay chỉ gửi cho chủ bài; người khác chỉ thấy số lá. Bot chỉ được đọc bài của chính nó (botChoice).
-// - Bot: người tạo bàn chọn có cho bot vào không (mặc định có; bàn mức trên botFill.maxStake không có bot). Bàn cho bot
-//   thì người thật ngồi xuống xong chờ botFill.firstDelayMs mới có bot đầu tiên vào (nhường chỗ cho người), rồi lần lượt
-//   cách nhau botFill.delayMs cho đủ bàn. Vài bàn bot ngồi sẵn trong sảnh cho người bấm "Vào nhanh". Bàn không còn người
+// - Bài trên tay chỉ gửi cho chủ bài; người khác chỉ thấy số lá. Hết ván (result) mới lật bài còn lại của mọi người
+//   (result.hands; tới trắng thì đủ 13 lá của người thắng). Bot chỉ được đọc bài của chính nó (botChoice).
+// - Bot vào bàn như người thật (trang không nhắc gì tới bot, tin gửi trình duyệt không có cờ bot): người thật ngồi xuống
+//   xong chờ botFill.firstDelayMs mới có bot đầu tiên (nhường chỗ cho người), rồi lần lượt cách nhau botFill.delayMs cho đủ
+//   bàn. Bàn mức trên botFill.maxStake không có bot. tienlen.open { bots: false } (trang không dùng) mở bàn không bot. Vài bàn bot ngồi sẵn trong sảnh cho người bấm "Vào nhanh". Bàn không còn người
 //   thật thì giải tán (bàn bot trong sảnh thì hết hạn mới giải tán). Ván chỉ chia khi có ít nhất một người thật.
 // - Hết giờ: hệ thống đánh hộ (bỏ lượt / đánh lá nhỏ nhất), nước đó gắn cờ auto; lỡ 2 lượt liên tiếp mới chuyển hẳn sang tự
 //   đánh (lượt ngắn afkTurnMs) cho tới khi người chơi bấm "Tôi đã quay lại" (tienlen.back) hoặc tự đánh. Lỡ idleKickMissed
@@ -187,8 +188,13 @@ export class TienLenTable {
     return { ok: false, code: 'GAME_UNAVAILABLE', message: 'Chưa xem được ví xu, thử lại sau' };
   }
 
-  poor(stake) {
-    return { ok: false, code: 'INSUFFICIENT_COINS', message: `Cần ít nhất ${tienLenMinCoins(stake).toLocaleString('vi-VN')} xu (10 lần mức cược) để ngồi bàn này` };
+  // Không đủ xu: lúc vào bàn thì báo cần bao nhiêu; đang ngồi (hết ván / đầu ván) thì báo còn bao nhiêu, thiếu bao nhiêu.
+  poor(stake, coins = null) {
+    const need = tienLenMinCoins(stake).toLocaleString('vi-VN');
+    const message = Number.isSafeInteger(coins)
+      ? `Bạn còn ${coins.toLocaleString('vi-VN')} xu, không đủ ${need} xu (10 lần mức cược) để chơi tiếp bàn ${stake.toLocaleString('vi-VN')} xu nên đã rời bàn`
+      : `Cần ít nhất ${need} xu (10 lần mức cược) để ngồi bàn này`;
+    return { ok: false, code: 'INSUFFICIENT_COINS', message };
   }
 
   async open(participant, { stake, mode, bots = true }) {
@@ -431,7 +437,7 @@ export class TienLenTable {
       seat.before = result.coins;
       return { ok: true };
     }
-    if (result?.code === 'INSUFFICIENT_COINS') return this.poor(table.stake);
+    if (result?.code === 'INSUFFICIENT_COINS') return this.poor(table.stake, Number.isSafeInteger(result.coins) ? result.coins : null);
     return { ok: false, code: 'GAME_UNAVAILABLE', message: 'Chưa vào được ván, thử lại sau' };
   }
 
@@ -514,6 +520,8 @@ export class TienLenTable {
       ranks: bySeat(outcome.ranks),
       nets: bySeat(nets),
       lines: transfers.slice(0, 48).map((item) => ({ from: players[item.from], to: players[item.to], units: item.units, coins: item.coins, reason: item.reason })),
+      // Hết ván mới lật bài còn lại của mọi người (tới trắng: đủ 13 lá của người thắng).
+      hands: bySeat(round.hands.map((hand) => [...hand])),
       cong: (outcome.cong || []).map((player) => players[player]),
     };
     table.lastWinner = players[outcome.winner];
@@ -574,7 +582,8 @@ export class TienLenTable {
     timer.unref?.();
   }
 
-  // Sau màn kết quả: người bấm rời / mất kết nối đứng dậy, vài bot rời; còn người thật thì chờ ván mới.
+  // Sau màn kết quả: người bấm rời / mất kết nối / không còn đủ xu / treo máy lâu đứng dậy (báo lý do trước rồi mới đưa ra),
+  // vài bot rời; còn người thật thì chờ ván mới.
   nextGame(table) {
     table.round = null;
     table.result = null;
@@ -584,8 +593,13 @@ export class TienLenTable {
       if (!seat) continue;
       seat.paid = undefined;
       const idle = !seat.bot && seat.missed >= (this.rules.idleKickMissed || Infinity);
-      const gone = seat.bot ? !this.room.participants.get(seat.pid) || this.random(100) < BOT_LEAVE_PERCENT : seat.leaving || idle || !this.connected(seat);
-      if (idle && this.connected(seat)) {
+      // Số dư sau khi chốt ván (API trả) dưới 10 lần mức cược: không chơi tiếp được.
+      const broke = !seat.bot && Number.isSafeInteger(seat.coins) && seat.coins < tienLenMinCoins(table.stake);
+      const gone = seat.bot ? !this.room.participants.get(seat.pid) || this.random(100) < BOT_LEAVE_PERCENT : seat.leaving || idle || broke || !this.connected(seat);
+      if (broke && this.connected(seat)) {
+        const { code, message } = this.poor(table.stake, seat.coins);
+        this.sendToAccount(seat.accountId, { v: PROTOCOL_VERSION, type: 'protocol.error', epoch: this.room.epoch, code, message });
+      } else if (idle && this.connected(seat)) {
         this.sendToAccount(seat.accountId, { v: PROTOCOL_VERSION, type: 'protocol.error', epoch: this.room.epoch, code: 'IDLE_KICKED', message: 'Bạn đã rời bàn vì nhiều lượt liền không thao tác' });
       }
       if (gone) {
@@ -643,7 +657,6 @@ export class TienLenTable {
       game: table.game,
       seat: index,
       minCoins: tienLenMinCoins(table.stake),
-      bots: this.botsAllowed(table),
       players: table.seats.map((item, seatIndex) => {
         if (!item) return null;
         const player = playerOf(seatIndex);
@@ -683,8 +696,8 @@ export class TienLenTable {
       };
     }
     if (table.result) {
-      const { ranks, nets, lines, white } = table.result;
-      message.result = { ranks, nets, lines, ...(white ? { white } : {}) };
+      const { ranks, nets, lines, white, hands } = table.result;
+      message.result = { ranks, nets, lines, hands, ...(white ? { white } : {}) };
       if (seat.paid) Object.assign(message.result, { net: seat.paid.net, cut: seat.paid.cut });
       if (seat.paid && Number.isSafeInteger(seat.before) && Number.isSafeInteger(seat.coins)) Object.assign(message.result, { before: seat.before, after: seat.coins });
     }
@@ -709,7 +722,6 @@ export class TienLenTable {
         stake: table.stake,
         mode: table.mode,
         phase: table.phase,
-        bots: this.botsAllowed(table),
         players: table.seats.filter(Boolean).map((seat) => ({ displayName: seat.name, ...(seat.skin ? { skin: seat.skin } : {}) })),
       }));
     const playing = [...this.tables.values()].filter((table) => table.phase === 'playing').length;
