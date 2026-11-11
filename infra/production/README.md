@@ -135,7 +135,32 @@ Chỉ khi CI của `main` xanh, workflow `Deploy production` mới:
 3. Cài dependency production dưới user `lotusgather`, backup SQLite và đổi symlink `current`.
 4. Restart API rồi web, kiểm tra health.
 5. Restart từng realtime node; trước mỗi node phải còn một node khác khỏe để nhận lại phòng.
-6. Kiểm tra domain gốc, API và cả hai realtime endpoint từ bên ngoài.
+6. Khi mọi dịch vụ đã khỏe: xóa release cũ trong `/opt/lotusgather/releases`, giữ `KEEP_RELEASES` bản deploy gần
+   nhất (mặc định 5, tính cả bản đang chạy) và luôn giữ bản vừa bị thay để rollback. Mỗi release ~145 MB
+   (`node_modules`), 4–5 lần deploy mỗi ngày nên không dọn thì đầy đĩa sau vài tuần. Thư mục staging bỏ dở quá 1 giờ
+   cũng bị xóa; lỗi khi dọn không làm hỏng lần deploy.
+7. Kiểm tra domain gốc, API và cả hai realtime endpoint từ bên ngoài.
+
+Workflow `CI` có job `deploy-script` chạy `bash -n` + `shellcheck` cho `deploy.sh` (script chạy bằng root), nên script
+lỗi thì không deploy.
+
+### Cập nhật script deploy trên VPS
+
+GitHub Actions gọi bản đã cài ở `/usr/local/sbin/lotusgather-deploy` (chủ root), không phải file trong release, nên
+sửa `infra/production/deploy.sh` trong repo **chưa có tác dụng** cho tới khi quản trị cài lại bằng tay. Cố ý không
+cho script tự cập nhật từ release: như vậy ai push được vào `main` cũng có quyền root trên VPS. Sau khi commit có
+script mới đã deploy xong:
+
+```bash
+sudo install -m 0755 /opt/lotusgather/current/infra/production/deploy.sh /usr/local/sbin/lotusgather-deploy
+sudo lotusgather-deploy prune --dry-run   # xem trước những release sẽ bị xóa
+sudo lotusgather-deploy prune             # dọn ngay, không cần chờ lần deploy sau
+```
+
+`lotusgather-deploy prune` chỉ dọn (giữ bản đang chạy + `KEEP_RELEASES` bản gần nhất), không đụng tới dịch vụ hay
+database. Muốn giữ nhiều / ít hơn thì thêm `KEEP_RELEASES=<số ≥ 2>` vào `/etc/lotusgather/deploy.conf`. Backup
+SQLite ở `/var/backups/lotusgather/app-<commit>.db` (mỗi lần deploy một file) chưa được dọn tự động; xem dung lượng
+bằng `sudo du -sh /var/backups/lotusgather`.
 
 Script hiện dùng graceful SIGTERM: realtime chờ ván đang lắc / chốt tiền xong, ghi snapshot (gồm cả ván Lô Tô /
 Bầu Cua / Tài Xỉu đang chơi), trả lease và client nối lại với jitter; máy nhận phòng chơi tiếp đúng ván đó. Kế hoạch
@@ -158,4 +183,6 @@ curl -fsS https://rt2.lotusgather.online/health
 
 Nếu health check trong lúc deploy lỗi và đã có release cũ, script tự đổi symlink về release trước rồi restart dịch
 vụ. Rollback thủ công cũng thực hiện bằng cách trỏ `/opt/lotusgather/current` về release cũ, sau đó restart API,
-web và lần lượt từng realtime node. Không xóa release hoặc database trong lúc xử lý sự cố.
+web và lần lượt từng realtime node. Không xóa release hoặc database trong lúc xử lý sự cố. Script chỉ giữ
+`KEEP_RELEASES` bản gần nhất trên đĩa; cần quay về bản cũ hơn thì chạy lại workflow **Deploy production** với commit
+đó (Run workflow trên `main` sau khi revert) thay vì trỏ symlink tay.

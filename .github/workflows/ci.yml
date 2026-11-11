@@ -30,6 +30,15 @@ jobs:
       - run: npm test
       - run: npm run build:web
 
+  # Script phát hành chạy bằng root trên VPS (có bước xóa release cũ): kiểm tra cú pháp + shellcheck trước khi deploy.
+  deploy-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n infra/production/deploy.sh
+      - run: shellcheck infra/production/deploy.sh
+
   dependency-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
