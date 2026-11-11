@@ -499,6 +499,9 @@ test('tiến lên: chỉ thành viên chơi; bài là số 0–51 không trùng;
   assert.equal(parseServerMessage({ ...table, players: [{ displayName: 'An', cards: 12, missed: 0 }, null, null, null] }).ok, false, 'missed ≥ 1 mới gửi');
   assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, before: 1_000, after: 1_950 } }).ok, true, 'số dư trước / sau');
   assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, before: -1 } }).ok, false);
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, hands: [[], [4, 9], null, [51]] } }).ok, true, 'lật bài hết ván');
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, hands: [[], [52], null, []] } }).ok, false);
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, hands: [[], [], []] } }).ok, false, 'đủ 4 ghế');
   const lobby = { v: PROTOCOL_VERSION, type: 'tienlen.lobby', epoch: 1, playing: 1,
     tables: [{ id: tableId, stake: 100, mode: 'count', phase: 'waiting', players: [{ displayName: 'An' }, { displayName: 'Bình', skin: 'man' }] }] };
   assert.equal(parseServerMessage(lobby).ok, true);

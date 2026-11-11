@@ -220,77 +220,220 @@ export function playOptions(hand, top = null) {
   return out;
 }
 
-// Lá "quý" không nên xé lẻ: heo, lá nằm trong tứ quý hoặc trong một dãy đôi thông.
-function preciousCards(hand) {
+// ---- Bot ----
+// Chia bài trên tay thành các bộ như người chơi thật: hàng (tứ quý, đôi thông) để dành chặt heo, heo (2) để giành vòng,
+// phần còn lại ghép sảnh (dài nhất trước), sám, đôi, rác. Trả [{ kind: 'bomb' | 'twos' | 'plain', cards }].
+export function planHand(hand) {
   const buckets = bucketsOf(hand);
-  const precious = new Set(buckets[TWO]);
-  for (let rank = 0; rank < TWO; rank += 1) if (buckets[rank].length === 4) for (const card of buckets[rank]) precious.add(card);
-  let run = [];
-  for (let rank = 0; rank <= TWO; rank += 1) {
-    if (rank < TWO && buckets[rank].length >= 2) run.push(rank);
-    else {
-      if (run.length >= 3) for (const item of run) for (const card of buckets[item].slice(0, 2)) precious.add(card);
-      run = [];
-    }
+  const used = new Set();
+  const free = (rank) => buckets[rank].filter((card) => !used.has(card));
+  const take = (cards) => {
+    for (const card of cards) used.add(card);
+    return [...cards].sort(byValue);
+  };
+  const units = [];
+  for (let rank = 0; rank < TWO; rank += 1) {
+    if (buckets[rank].length === 4) units.push({ kind: 'bomb', cards: take(buckets[rank]) });
   }
-  return precious;
+  // Đôi thông: dãy hạng liền nhau còn ≥ 2 lá, dài nhất trước.
+  for (;;) {
+    let best = null;
+    for (let low = 0; low < TWO; low += 1) {
+      let high = low;
+      while (high < TWO && free(high).length >= 2) high += 1;
+      if (high - low >= 3 && (!best || high - low > best[1] - best[0])) best = [low, high];
+    }
+    if (!best) break;
+    const cards = [];
+    for (let rank = best[0]; rank < best[1]; rank += 1) cards.push(...free(rank).slice(0, 2));
+    units.push({ kind: 'bomb', cards: take(cards) });
+  }
+  if (free(TWO).length) units.push({ kind: 'twos', cards: take(free(TWO)) });
+  // Sảnh: dãy hạng liền nhau còn lá, dài nhất trước.
+  for (;;) {
+    let best = null;
+    for (let low = 0; low < TWO; low += 1) {
+      let high = low;
+      while (high < TWO && free(high).length) high += 1;
+      if (high - low >= 3 && (!best || high - low > best[1] - best[0])) best = [low, high];
+    }
+    if (!best) break;
+    const cards = [];
+    for (let rank = best[0]; rank < best[1]; rank += 1) cards.push(free(rank)[0]);
+    units.push({ kind: 'plain', cards: take(cards) });
+  }
+  for (let rank = 0; rank < TWO; rank += 1) {
+    const rest = free(rank);
+    if (rest.length) units.push({ kind: 'plain', cards: take(rest) });
+  }
+  return units;
 }
+
+// Độ "mạnh" của một bộ để giữ vòng: hàng > heo > bộ thường (theo lá cao nhất).
+const unitStrength = (unit) => (unit.kind === 'bomb' ? 200 : unit.kind === 'twos' ? 100 + unit.cards.length * 10 : 0) + classify(unit.cards).top;
 
 // Bot chọn nước: trả mảng lá hoặc null (bỏ lượt). Chỉ dùng bài của chính nó + thông tin công khai (bộ trên bàn, số lá
 // ít nhất của đối thủ). random() trả [0, 1).
+// - Mở vòng: đánh bộ rác thấp nhất (sảnh dài, đôi, rác…), giữ hàng để chặt heo và giữ heo để giành vòng; nước đầu phải
+//   kèm lá bắt buộc thì đánh bộ chứa lá đó (lá đó nằm trong tứ quý / heo thì chỉ đánh lẻ lá đó). Còn 2 bộ thì đánh bộ
+//   mạnh trước để giành vòng rồi đánh bộ cuối. Đối thủ còn 1 lá thì không mở bằng rác nhỏ.
+// - Chặn: heo / hàng trên bàn thì chặt bằng hàng nhỏ nhất; không thì chọn nước ít "tốn" nhất (không xé bộ khác, không phí
+//   heo khi còn nhiều bài), tốn quá thì bỏ lượt. Gần hết bài / đối thủ sắp hết bài thì đánh mạnh tay.
 export function botChoice({ hand, top = null, mustInclude = null, opponentMin = HAND_SIZE, random = Math.random }) {
   if (!hand.length) return null;
   const topCombo = top ? classify(top) : null;
   const options = playOptions(hand, topCombo);
   if (!options.length) return null;
-  const precious = preciousCards(hand);
-  const breaks = (cards) => {
-    const combo = classify(cards);
-    if (isBomb(combo)) return false;
-    return cards.some((card) => precious.has(card) && rankOf(card) !== TWO);
-  };
-  const usesTwo = (cards) => cards.some((card) => rankOf(card) === TWO);
-  const endgame = hand.length <= 4 || opponentMin <= 2;
+  const units = planHand(hand);
   // Đánh hết được luôn thì đánh.
   const finishing = options.find((cards) => cards.length === hand.length);
   if (finishing && (!mustInclude || finishing.includes(mustInclude))) return finishing;
+  const endgame = hand.length <= 4 || opponentMin <= 2 || units.length <= 2;
 
   if (!topCombo) {
-    const low = mustInclude ?? [...hand].sort(byValue)[0];
-    let pool = options.filter((cards) => cards.includes(low) && !breaks(cards));
-    if (!pool.length) pool = options.filter((cards) => cards.includes(low));
-    // Ưu tiên bộ dài (xả nhiều lá rác), tránh dùng heo khi chưa cần.
-    const score = (cards) => {
-      const combo = classify(cards);
-      let value = cards.length * 10 - combo.top / 10;
-      if (usesTwo(cards) && !endgame) value -= 40;
-      if (isBomb(combo) && !endgame) value -= 60;
-      // Đối thủ còn 1 lá: đừng mở bằng rác nhỏ.
-      if (opponentMin === 1 && combo.type === 'single') value -= 30;
-      return value;
-    };
-    pool.sort((a, b) => score(b) - score(a));
-    return pool[0];
+    if (mustInclude !== null) {
+      const unit = units.find((item) => item.cards.includes(mustInclude));
+      if (unit && unit.kind === 'plain') return unit.cards;
+      return [mustInclude];
+    }
+    if (units.length === 1) return units[0].cards;
+    if (units.length === 2) return [...units].sort((a, b) => unitStrength(b) - unitStrength(a))[0].cards;
+    let pool = units.filter((unit) => unit.kind === 'plain');
+    if (!pool.length) {
+      // Chỉ còn heo và hàng: ra heo trước, giữ hàng.
+      pool = units.filter((unit) => unit.kind === 'twos');
+      if (!pool.length) pool = units;
+      return [...pool].sort((a, b) => unitStrength(a) - unitStrength(b))[0].cards;
+    }
+    if (opponentMin === 1) {
+      // Đối thủ còn 1 lá: mở bằng bộ nhiều lá; chỉ còn rác thì ra rác cao nhất.
+      const multi = pool.filter((unit) => unit.cards.length > 1);
+      if (multi.length) pool = multi;
+      else return [...pool].sort((a, b) => classify(b.cards).top - classify(a.cards).top)[0].cards;
+    }
+    // Rác thấp nhất trước; cùng hạng thì bộ nhiều lá trước (xả bài nhanh).
+    return [...pool].sort((a, b) => rankOf(a.cards[0]) - rankOf(b.cards[0]) || b.cards.length - a.cards.length)[0].cards;
   }
 
-  let pool = options.filter((cards) => !breaks(cards));
-  // Chặt heo / hàng bằng hàng: gần như luôn chặt (ăn tiền).
+  // Chặt heo / hàng bằng hàng nhỏ nhất (ăn tiền).
   if (isTwos(topCombo) || isBomb(topCombo)) {
     const chops = options.filter((cards) => isChop(topCombo, classify(cards)));
     if (chops.length && random() < 0.9) return chops.sort((a, b) => classify(a).top - classify(b).top)[0];
   }
-  pool = pool.filter((cards) => !isBomb(classify(cards)) || endgame);
-  if (!endgame) {
-    const plain = pool.filter((cards) => !usesTwo(cards));
-    // Chỉ còn cách đè bằng heo: giữ heo phần lớn thời gian lúc còn nhiều bài.
-    if (!plain.length && pool.length && random() < 0.65) return null;
-    if (plain.length) pool = plain;
-  }
-  if (!pool.length) return null;
-  pool.sort((a, b) => classify(a).top - classify(b).top);
+  const unitOf = new Map();
+  units.forEach((unit, index) => { for (const card of unit.cards) unitOf.set(card, index); });
+  const highTop = rankOf(topCombo.top) >= 11;
+  const cost = (cards) => {
+    const combo = classify(cards);
+    let value = rankOf(combo.top);
+    const touched = new Set(cards.map((card) => unitOf.get(card)));
+    for (const index of touched) {
+      const unit = units[index];
+      const whole = unit.cards.every((card) => cards.includes(card));
+      if (whole) continue;
+      // Xé bộ: xé hàng rất tốn, xé heo thì tính ở dưới; xé bộ thường mà phần còn lại vẫn thành bộ (rút đầu sảnh 6-7-8-9 còn
+      // 7-8-9) thì rẻ, không thì vừa phải.
+      const rest = unit.cards.filter((card) => !cards.includes(card));
+      value += unit.kind === 'bomb' ? 60 : unit.kind === 'twos' ? 0 : classify(rest) ? 2 : 6;
+    }
+    if (isBomb(combo)) value += 60;
+    if (cards.some((card) => rankOf(card) === TWO) && !endgame) value += highTop ? 6 : 25;
+    return value;
+  };
+  const ranked = options.map((cards) => ({ cards, cost: cost(cards) })).sort((a, b) => a.cost - b.cost);
+  const best = ranked[0];
+  if (endgame) return best.cards;
+  // Phải phí heo / xé hàng mới đè được: phần lớn thời gian giữ lại.
+  if (best.cost >= 25 && random() < 0.75) return null;
   // Thỉnh thoảng nhường vòng dù đè được (cho giống người, đỡ đoán).
-  if (!endgame && random() < 0.08) return null;
-  return pool[0];
+  if (best.cost >= 8 && random() < 0.15) return null;
+  return best.cards;
+}
+
+// ---- Tự chọn bộ khi chạm bài (trình duyệt) ----
+// Lấy một bộ mẫu rồi thay lá cùng hạng bằng các lá bắt buộc (lá người chơi đã chọn); không thay được thì null.
+function adopt(cards, required) {
+  const out = [...cards];
+  for (const card of required) {
+    if (out.includes(card)) continue;
+    const index = out.findIndex((item) => rankOf(item) === rankOf(card) && !required.includes(item));
+    if (index < 0) return null;
+    out[index] = card;
+  }
+  return out.sort(byValue);
+}
+
+// Dãy hạng liền nhau dài nhất đi lên từ hạng from (không có 2), mỗi hạng có ít nhất need lá.
+function runUp(buckets, from, need) {
+  let end = from;
+  while (end + 1 < TWO && buckets[end + 1].length >= need) end += 1;
+  return end;
+}
+
+// Người chơi vừa chạm thêm lá `tapped`, `picked` là các lá đang chọn (đã gồm lá vừa chạm). Trả bộ nên chọn (mảng lá,
+// gồm mọi lá đã chọn) hoặc null để giữ nguyên.
+// - Có bộ trên bàn (top): bộ nhỏ nhất đè được top có chứa các lá đã chọn (đôi cùng hạng, sảnh / đôi thông cùng độ dài,
+//   hàng để chặt heo); lá đã chọn tự đè được thì giữ nguyên.
+// - Mở vòng: 2 lá cùng hạng mà tay có đủ 4 → tứ quý; có một đôi + hạng kế bên → đôi thông dài nhất đi lên; các lá khác
+//   hạng liền nhau → sảnh dài nhất đi lên (từ hạng thấp nhất đã chọn). Không rõ ý thì giữ nguyên.
+export function smartSelect({ hand, picked, top = null }) {
+  if (!Array.isArray(hand) || !Array.isArray(picked) || !picked.length || !picked.every((card) => hand.includes(card))) return null;
+  const topCombo = top ? classify(top) : null;
+  const differs = (cards) => cards && (cards.length !== picked.length || cards.some((card) => !picked.includes(card)));
+  if (topCombo) {
+    const own = classify(picked);
+    if (own && beats(topCombo, own)) return null;
+    const options = [];
+    const seen = new Set();
+    for (const option of playOptions(hand, topCombo)) {
+      const cards = adopt(option, picked);
+      const combo = cards && classify(cards);
+      if (!combo || !beats(topCombo, combo) || !picked.every((card) => cards.includes(card))) continue;
+      const key = cards.join();
+      if (!seen.has(key)) {
+        seen.add(key);
+        options.push({ cards, combo });
+      }
+    }
+    if (!options.length) return null;
+    // Ít lá nhất, lá cao nhất nhỏ nhất (đè vừa đủ, không phí bài lớn).
+    options.sort((a, b) => a.cards.length - b.cards.length || a.combo.top - b.combo.top);
+    return differs(options[0].cards) ? options[0].cards : null;
+  }
+  const buckets = bucketsOf(hand);
+  const counts = new Map();
+  for (const card of picked) counts.set(rankOf(card), (counts.get(rankOf(card)) || 0) + 1);
+  const ranks = [...counts.keys()].sort((a, b) => a - b);
+  if (ranks.at(-1) === TWO && ranks.length > 1) return null;
+  // Tứ quý: chọn 2 lá cùng hạng, tay có đủ 4.
+  if (ranks.length === 1) {
+    const [rank] = ranks;
+    return picked.length === 2 && buckets[rank].length === 4 ? [...buckets[rank]] : null;
+  }
+  const consecutive = ranks.every((rank, index) => index === 0 || rank === ranks[index - 1] + 1);
+  if (!consecutive || [...counts.values()].some((count) => count > 2)) return null;
+  const low = ranks[0];
+  const fill = (end, per) => {
+    const cards = [];
+    for (let rank = low; rank <= end; rank += 1) {
+      const chosen = picked.filter((card) => rankOf(card) === rank);
+      cards.push(...chosen, ...buckets[rank].filter((card) => !chosen.includes(card)).slice(0, per - chosen.length));
+    }
+    return cards.sort(byValue);
+  };
+  // Đôi thông: có hạng chọn 2 lá.
+  if ([...counts.values()].some((count) => count === 2)) {
+    if (!ranks.every((rank) => buckets[rank].length >= 2)) return null;
+    const end = runUp(buckets, low, 2);
+    if (end < ranks.at(-1) || end - low + 1 < 3) return null;
+    const cards = fill(end, 2);
+    return classify(cards)?.type === 'pairs' && differs(cards) ? cards : null;
+  }
+  // Sảnh: mỗi hạng một lá.
+  const end = runUp(buckets, low, 1);
+  if (end < ranks.at(-1) || end - low + 1 < 3) return null;
+  const cards = fill(end, 1);
+  return classify(cards)?.type === 'straight' && differs(cards) ? cards : null;
 }
 
 // ---- Một ván ----

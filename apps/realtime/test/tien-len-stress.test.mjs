@@ -128,6 +128,14 @@ function checkView(tables, message, leaks) {
     ...(message.mustInclude === undefined ? [] : [message.mustInclude])];
   for (const card of shown) if (others.has(card)) leaks.push(`lộ lá ${card} còn trên tay người khác`);
   if (message.mustInclude !== undefined && !mine.includes(message.mustInclude)) leaks.push('lá bắt buộc không phải của mình');
+  // Lật bài: chỉ khi ván đã xong, và đúng bài còn lại trên server.
+  if (message.result?.hands) {
+    if (message.phase !== 'result' || !round.over) leaks.push(`lật bài khi ván chưa xong (${message.phase})`);
+    board.players.forEach((seat, player) => {
+      if (sorted(message.result.hands[seat] || []).join() !== sorted(round.hands[player]).join()) leaks.push('bài lật khác bài thật');
+    });
+  }
+  if (message.phase === 'playing' && message.result) leaks.push('đang chơi mà có kết quả');
   message.players.forEach((player, seat) => {
     const index = board.players.indexOf(seat);
     if (player && index >= 0 && player.cards !== round.hands[index].length) leaks.push('số lá người khác sai');
@@ -354,6 +362,11 @@ test('tới trắng ngay lúc chia: ra thẳng kết quả, mỗi người vẫn
   assert.ok(!frames('an').some((message) => message.phase === 'playing'), 'không có lượt đánh nào');
   const view = frames('an').at(-1);
   assert.equal(view.result.white, 'six-pairs');
+  // Hết ván lật bài: người tới trắng đủ 13 lá (6 đôi), người thua cũng 13 lá.
+  assert.equal(view.result.hands[0].length, 13);
+  assert.deepEqual(sorted(view.result.hands[0]), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.equal(view.result.hands[1].length, 13);
+  assert.deepEqual(frames('binh').at(-1).result.hands, view.result.hands, 'ai trong bàn cũng thấy bài lật');
   assert.deepEqual(view.result.nets, [650, -650, null, null], 'kiểu B: người thua trả 13 phần');
   assert.equal(view.result.net, 650 - 32, 'phế 5% phần thắng');
   assert.equal(frames('binh').at(-1).hand.filter((card) => view.hand.includes(card)).length, 0);
@@ -493,6 +506,9 @@ test('qua WebSocket: người chơi chỉ nhận bài của mình, người xem 
       if (frame.mustInclude !== undefined) assert.ok(own.has(frame.mustInclude));
       for (const card of frame.top?.cards || []) if (other.has(card)) assert.equal(frame.top.seat, otherSeat, 'lá của người kia trên bàn là lá họ đã đánh');
       for (const card of frame.last?.cards || []) if (other.has(card)) assert.equal(frame.last.seat, otherSeat);
+      // Phần lật bài chỉ có khi ván đã xong.
+      if (frame.result) assert.equal(frame.phase, 'result', 'chỉ hết ván mới có kết quả / lật bài');
+      if (frame.result?.hands) for (const card of frame.result.hands[otherSeat] || []) assert.ok(other.has(card), 'bài lật của người kia đúng là bài họ');
     }
   }
   // Người xem trong sảnh: chỉ có danh sách bàn, không có tin bàn nào, không có lá nào.
