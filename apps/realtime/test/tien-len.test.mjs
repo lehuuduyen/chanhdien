@@ -9,7 +9,7 @@ const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 // Nhịp ngắn cho test; còn lại giống luật thật. Mặc định không có bot (bật riêng từng test).
 const RULES = {
   ...TIENLEN_RULES.interaction, startMs: 40, fullStartMs: 15, turnMs: 400, afkTurnMs: 30, resultMs: 60, botActMs: [3, 8], tickMs: 5,
-  botFill: { chance: 0, delayMs: [10, 20], aloneMs: [100_000, 100_000], maxStake: 500 }, botTables: [0, 0], botTableMs: [80, 80],
+  botFill: { firstDelayMs: [10, 20], delayMs: [10, 20], maxStake: 500 }, botTables: [0, 0], botTableMs: [80, 80],
 };
 
 function seeded(seed = 42) {
@@ -189,6 +189,8 @@ test('đánh trọn ván với người thật: hết ván chốt tiền (tổng
   assert.equal(result.nets.filter((value) => value !== null).reduce((sum, value) => sum + value, 0), 0);
   assert.ok(result.ranks.includes(1));
   await until(() => settles.length === 1 && last('an').result?.net !== undefined);
+  const mine = last('an').result;
+  assert.equal(mine.after - mine.before, mine.net, 'số dư trước / sau khớp số xu thắng thua');
   assert.equal(settles[0].bots, false);
   assert.ok(settles[0].transfers.every((item) => item.from && item.to), 'ván không có bot: mọi khoản giữa người thật');
   const winner = ['acc-an', 'acc-binh', 'acc-chi'].find((id) => wallet[id] > start[id]);
@@ -200,20 +202,23 @@ test('đánh trọn ván với người thật: hết ván chốt tiền (tổng
 });
 
 test('bot vào cho đủ bàn (bàn mức thấp), hết giờ thì tự bỏ lượt / tự đánh; bàn mức cao không có bot', async () => {
-  const { table, join, last, settles } = setup({ bots: 6, rules: { ...RULES, botFill: { ...RULES.botFill, chance: 1 } } });
+  const { table, join, last, settles, sent } = setup({ bots: 6, rules: { ...RULES, idleKickMissed: 2 } });
   const an = join('an');
   await table.open(an, { stake: 50, mode: 'rank' });
   await until(() => last('an').players.filter(Boolean).length === 4);
   assert.ok(table.hasBotBet('bot-0') || table.hasBotBet('bot-1') || table.hasBotBet('bot-2'));
-  // Người thật không bấm gì: hết giờ thì tự động, lượt sau ngắn lại; ván vẫn xong.
+  // Người thật không bấm gì: hết giờ thì hệ thống đánh hộ (gắn cờ auto); ván vẫn xong.
   await until(() => last('an').phase === 'result', 8_000);
-  assert.equal(last('an').players[0].away, true, 'đã hết giờ ít nhất một lần');
+  assert.ok(last('an').players[0].missed >= 2, 'đã lỡ nhiều lượt');
+  assert.ok(sent.get('an').some((message) => message.last?.seat === 0 && message.last.auto === true), 'nước đánh hộ có cờ auto');
+  // Lỡ quá idleKickMissed lượt liên tiếp: hết ván phải đứng dậy.
+  await until(() => sent.get('an').some((message) => message.code === 'IDLE_KICKED') && last('an').phase === 'closed', 3_000);
   await until(() => settles.length === 1);
   assert.equal(settles[0].bots, true);
   assert.ok(settles[0].transfers.every((item) => item.from === 'acc-an' || item.to === 'acc-an'), 'chỉ gửi khoản có người thật');
   table.stop();
 
-  const rich = setup({ bots: 6, rules: { ...RULES, botFill: { ...RULES.botFill, chance: 1, aloneMs: [20, 20] } } });
+  const rich = setup({ bots: 6 });
   const binh = rich.join('binh');
   await rich.table.open(binh, { stake: 1_000, mode: 'rank' });
   await wait(150);
@@ -221,18 +226,62 @@ test('bot vào cho đủ bàn (bàn mức thấp), hết giờ thì tự bỏ l�
   rich.table.stop();
 });
 
-test('người ngồi một mình: sau aloneMs có một bot vào chơi cùng', async () => {
-  const { table, join, last } = setup({ bots: 3, rules: { ...RULES, botFill: { ...RULES.botFill, aloneMs: [30, 30] } } });
+test('người tạo bàn chọn bot: không cho thì không bao giờ có bot; cho thì bot chờ firstDelayMs rồi mới vào', async () => {
+  const rules = { ...RULES, startMs: 5_000, botFill: { firstDelayMs: [150, 150], delayMs: [10, 10], maxStake: 500 } };
+  const { table, join, last, room } = setup({ bots: 4, rules });
   const an = join('an');
+  await table.open(an, { stake: 20, mode: 'rank', bots: false });
+  assert.equal(last('an').bots, false);
+  await wait(300);
+  assert.equal(last('an').players.filter(Boolean).length, 1, 'bàn không cho bot');
+  await until(() => room.lastLobby?.tables.some((item) => item.bots === false));
+  const binh = join('binh');
+  await table.open(binh, { stake: 20, mode: 'rank' });
+  assert.equal(last('binh').bots, true);
+  await wait(80);
+  assert.equal(last('binh').players.filter(Boolean).length, 1, 'chưa tới firstDelayMs: chưa có bot');
+  await until(() => last('binh').players.filter(Boolean).length === 4, 2_000);
+  // Trước khi chia bài vẫn rời bàn ngay được.
+  assert.equal(last('binh').phase, 'starting');
+  assert.ok(table.leave(binh).ok);
+  assert.equal(last('binh').phase, 'closed');
+  table.stop();
+});
+
+test('hết giờ lần đầu: hệ thống đánh hộ, lượt sau vẫn đủ giờ; lỡ 2 lượt liền mới tự đánh (lượt ngắn); "Tôi đã quay lại" thì đủ giờ lại', async () => {
+  const rules = { ...RULES, turnMs: 150, afkTurnMs: 20 };
+  const { table, join, last } = setup({ rules, coins: { 'acc-an': 5_000, 'acc-binh': 5_000 } });
+  const an = join('an');
+  const binh = join('binh');
   await table.open(an, { stake: 20, mode: 'rank' });
-  await until(() => last('an').players.filter(Boolean).length === 2);
+  const { tableId } = last('an');
+  await table.join(binh, { tableId });
   await until(() => last('an').phase === 'playing');
-  assert.equal(last('an').players.filter(Boolean).length, 2, 'chỉ một bot (không lấp đủ bàn)');
+  const board = table.tables.get(tableId);
+  const seatOf = (person) => board.seats.findIndex((seat) => seat?.accountId === person.accountId);
+  const myTurn = (person) => board.phase === 'playing' && board.players[board.round.turn] === seatOf(person);
+  // An không bấm gì, Bình luôn tự đánh: theo dõi thời gian lượt của An.
+  const turns = [];
+  while (turns.length < 3 && board.phase === 'playing') {
+    if (myTurn(binh)) autoPlay(table, binh);
+    else if (myTurn(an) && board.deadline !== turns.at(-1)?.deadline) turns.push({ deadline: board.deadline, length: board.deadline - Date.now(), missed: board.seats[seatOf(an)].missed });
+    await wait(2);
+  }
+  assert.ok(turns.length === 3, 'An tới lượt 3 lần');
+  assert.ok(turns[0].length > 100 && turns[1].length > 100, `lượt đầu và lượt sau lần đánh hộ đầu vẫn đủ giờ: ${turns.map((item) => item.length)}`);
+  assert.equal(turns[1].missed, 1);
+  assert.ok(turns[2].length <= 25 && turns[2].missed === 2, 'lỡ 2 lượt liền: tự đánh, lượt ngắn');
+  assert.equal(last('an').players[seatOf(an)].missed, 2);
+  // Bấm "Tôi đã quay lại" ngay trong lượt ngắn: thôi tự đánh, được đủ giờ.
+  assert.ok(table.back(an, { tableId }).ok);
+  assert.equal(last('an').players[seatOf(an)].missed, undefined);
+  if (myTurn(an)) assert.ok(board.deadline - Date.now() > 100, 'đang tới lượt: được đủ giờ lại');
+  assert.equal(table.back(binh, { tableId: 'tl-khong-co-1-1-1-abcd' }).code, 'NOT_IN_GAME');
   table.stop();
 });
 
 test('rời bàn giữa ván thì rời sau ván; rút máy thì bỏ ván dở, không trừ xu ai', async () => {
-  const { table, join, last, settles, wallet } = setup({ bots: 3, coins: { 'acc-an': 1_000 }, rules: { ...RULES, turnMs: 5_000, botFill: { ...RULES.botFill, aloneMs: [10, 10] } } });
+  const { table, join, last, settles, wallet } = setup({ bots: 3, coins: { 'acc-an': 1_000 }, rules: { ...RULES, turnMs: 5_000 } });
   const an = join('an');
   await table.open(an, { stake: 20, mode: 'rank' });
   await until(() => last('an').phase === 'playing');

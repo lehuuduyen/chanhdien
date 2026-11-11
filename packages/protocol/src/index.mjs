@@ -173,6 +173,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'tienlen.leave': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
   'tienlen.play': { roles: ['member', 'moderator', 'host'], rate: '30/10 giây (chung với pass), đúng lượt (4 đôi thông chặt ngoài lượt)' },
   'tienlen.pass': { roles: ['member', 'moderator', 'host'], rate: '30/10 giây (chung với play), đúng lượt' },
+  'tienlen.back': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
   'prayer.announce': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'friend.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'friend.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
@@ -399,11 +400,13 @@ const clientSchemas = {
       && (message.stake === undefined || TIENLEN_STAKES.includes(message.stake))
       && (message.mode === undefined || TIENLEN_MODES.includes(message.mode));
   },
+  // bots: cho bot vào bàn khi thiếu người (mặc định có; bàn mức cao thì không bao giờ có bot).
   'tienlen.open'(message) {
-    return exactKeys(message, ['v', 'type', 'requestId', 'stake', 'mode'])
+    return exactKeys(message, ['v', 'type', 'requestId', 'stake', 'mode'], ['bots'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && TIENLEN_STAKES.includes(message.stake)
-      && TIENLEN_MODES.includes(message.mode);
+      && TIENLEN_MODES.includes(message.mode)
+      && (message.bots === undefined || typeof message.bots === 'boolean');
   },
   'tienlen.join'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'tableId'])
@@ -421,6 +424,12 @@ const clientSchemas = {
       && tienLenCards(message.cards);
   },
   'tienlen.pass'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'tableId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && tienLenTableId(message.tableId);
+  },
+  // "Tôi đã quay lại": thôi để hệ thống đánh hộ.
+  'tienlen.back'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'tableId'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && tienLenTableId(message.tableId);
@@ -794,7 +803,8 @@ const serverSchemas = {
   'tienlen.lobby'(message) {
     const player = (item) => isRecord(item) && exactKeys(item, ['displayName'], ['skin'])
       && isString(item.displayName, LIMITS.displayName) && (item.skin === undefined || validSkin(item.skin));
-    const table = (item) => isRecord(item) && exactKeys(item, ['id', 'stake', 'mode', 'phase', 'players'])
+    const table = (item) => isRecord(item) && exactKeys(item, ['id', 'stake', 'mode', 'phase', 'players'], ['bots'])
+      && (item.bots === undefined || typeof item.bots === 'boolean')
       && tienLenTableId(item.id) && TIENLEN_STAKES.includes(item.stake) && TIENLEN_MODES.includes(item.mode)
       && ['waiting', 'starting', 'playing', 'result'].includes(item.phase)
       && Array.isArray(item.players) && item.players.length <= TIENLEN_SEATS && item.players.every(player);
@@ -806,10 +816,13 @@ const serverSchemas = {
   // players: đúng 4 chỗ theo số ghế (null = ghế trống); seat: ghế của mình. turn / deadline: ai đang tới lượt, giờ server
   // (ms) hết lượt / hết đếm ngược. top: bộ đang nằm trên bàn. lead: mình đang mở vòng; mustInclude: lá phải đánh kèm.
   // last: nước vừa đi (chop kèm số phần người bị chặt phải trả). result: kết quả ván (ranks / nets theo ghế; lines là các
-  // khoản đã tính ra xu; net / cut: xu của mình thực cộng / trừ sau phế). minCoins: số xu tối thiểu để ngồi bàn này.
+  // khoản đã tính ra xu; net / cut: xu của mình thực cộng / trừ sau phế; before / after: số dư của mình trước / sau ván).
+  // minCoins: số xu tối thiểu để ngồi bàn này. bots: bàn có cho bot vào. players[].missed: số lượt liên tiếp hệ thống đánh
+  // hộ (≥ 2 là đang tự đánh); away: mất kết nối. last.auto: nước vừa rồi do hệ thống đánh hộ.
   'tienlen.table'(message) {
     const player = (item) => item === null || (isRecord(item)
-      && exactKeys(item, ['displayName', 'cards'], ['skin', 'level', 'passed', 'rank', 'cong', 'away', 'leaving'])
+      && exactKeys(item, ['displayName', 'cards'], ['skin', 'level', 'passed', 'rank', 'cong', 'away', 'leaving', 'missed'])
+      && (item.missed === undefined || (isInteger(item.missed) && item.missed >= 1 && item.missed <= 99))
       && isString(item.displayName, LIMITS.displayName)
       && isInteger(item.cards) && item.cards >= 0 && item.cards <= 13
       && (item.skin === undefined || validSkin(item.skin))
@@ -820,20 +833,23 @@ const serverSchemas = {
     const line = (item) => isRecord(item) && exactKeys(item, ['from', 'to', 'units', 'coins', 'reason'])
       && tienLenSeat(item.from) && tienLenSeat(item.to) && item.from !== item.to
       && isInteger(item.units) && item.units >= 0 && isInteger(item.coins) && item.coins >= 0 && TIENLEN_REASONS.includes(item.reason);
-    const result = (value) => isRecord(value) && exactKeys(value, ['ranks', 'nets', 'lines'], ['white', 'net', 'cut'])
+    const result = (value) => isRecord(value) && exactKeys(value, ['ranks', 'nets', 'lines'], ['white', 'net', 'cut', 'before', 'after'])
+      && ['before', 'after'].every((key) => value[key] === undefined || (isInteger(value[key]) && value[key] >= 0))
       && seatList(value.ranks, (rank) => isInteger(rank) && rank >= 1 && rank <= TIENLEN_SEATS)
       && seatList(value.nets, isInteger)
       && Array.isArray(value.lines) && value.lines.length <= 48 && value.lines.every(line)
       && (value.white === undefined || TIENLEN_INSTANT_WINS.includes(value.white))
       && (value.net === undefined || isInteger(value.net))
       && (value.cut === undefined || (isInteger(value.cut) && value.cut >= 0));
-    const last = (value) => isRecord(value) && exactKeys(value, ['seat', 'action'], ['cards', 'units', 'victim'])
+    const last = (value) => isRecord(value) && exactKeys(value, ['seat', 'action'], ['cards', 'units', 'victim', 'auto'])
+      && (value.auto === undefined || value.auto === true)
       && tienLenSeat(value.seat) && ['play', 'pass', 'chop'].includes(value.action)
       && (value.cards === undefined || tienLenCards(value.cards))
       && (value.units === undefined || (isInteger(value.units) && value.units >= 0))
       && (value.victim === undefined || tienLenSeat(value.victim));
     return exactKeys(message, ['v', 'type', 'epoch', 'tableId', 'stake', 'mode', 'phase', 'game', 'seat', 'players', 'minCoins'],
-      ['deadline', 'turn', 'top', 'lead', 'mustInclude', 'hand', 'last', 'result', 'coins'])
+      ['deadline', 'turn', 'top', 'lead', 'mustInclude', 'hand', 'last', 'result', 'coins', 'bots'])
+      && (message.bots === undefined || typeof message.bots === 'boolean')
       && tienLenTableId(message.tableId)
       && TIENLEN_STAKES.includes(message.stake)
       && TIENLEN_MODES.includes(message.mode)

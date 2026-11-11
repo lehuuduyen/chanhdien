@@ -478,6 +478,9 @@ test('tiến lên: chỉ thành viên chơi; bài là số 0–51 không trùng;
   assert.equal(parseClientMessage({ ...base, type: 'tienlen.play', tableId, cards: [52] }, { role: 'member' }).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ ...base, type: 'tienlen.play', tableId, cards: [] }, { role: 'member' }).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ ...base, type: 'tienlen.pass', tableId }, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.back', tableId }, { role: 'member' }).ok, true, 'Tôi đã quay lại');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.open', stake: 50, mode: 'rank', bots: false }, { role: 'member' }).ok, true, 'chọn không cho bot');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.open', stake: 50, mode: 'rank', bots: 'no' }, { role: 'member' }).error, 'INVALID_MESSAGE');
   const player = { displayName: 'Bảo Ngọc', cards: 13, skin: 'woman' };
   const table = { v: PROTOCOL_VERSION, type: 'tienlen.table', epoch: 1, tableId, stake: 50, mode: 'rank', phase: 'playing', game: 2, seat: 0,
     players: [{ displayName: 'An', cards: 12 }, player, null, { ...player, displayName: 'Chi', passed: true }], minCoins: 500,
@@ -491,9 +494,15 @@ test('tiến lên: chỉ thành viên chơi; bài là số 0–51 không trùng;
   assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, lines: [{ from: 3, to: 3, units: 2, coins: 100, reason: 'last' }] } }).ok, false);
   assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, white: 'flush' } }).ok, false);
   assert.equal(parseServerMessage({ ...table, minCoins: undefined, deposit: 500 }).ok, false, 'không còn cọc');
+  assert.equal(parseServerMessage({ ...table, bots: true, players: [{ displayName: 'An', cards: 12, missed: 2 }, null, null, null],
+    last: { seat: 0, action: 'pass', auto: true } }).ok, true, 'đánh hộ: missed + last.auto');
+  assert.equal(parseServerMessage({ ...table, players: [{ displayName: 'An', cards: 12, missed: 0 }, null, null, null] }).ok, false, 'missed ≥ 1 mới gửi');
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, before: 1_000, after: 1_950 } }).ok, true, 'số dư trước / sau');
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, before: -1 } }).ok, false);
   const lobby = { v: PROTOCOL_VERSION, type: 'tienlen.lobby', epoch: 1, playing: 1,
     tables: [{ id: tableId, stake: 100, mode: 'count', phase: 'waiting', players: [{ displayName: 'An' }, { displayName: 'Bình', skin: 'man' }] }] };
   assert.equal(parseServerMessage(lobby).ok, true);
+  assert.equal(parseServerMessage({ ...lobby, tables: [{ ...lobby.tables[0], bots: false }] }).ok, true);
   assert.equal(parseServerMessage({ ...lobby, tables: [{ ...lobby.tables[0], phase: 'closed' }] }).ok, false);
 });
 

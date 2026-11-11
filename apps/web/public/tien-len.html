@@ -146,7 +146,7 @@
     .board-message { min-height: 18px; margin: 0; text-align: center; font-size: 12.5px; font-weight: 700; color: var(--lose); }
 
     /* Kết quả ván. */
-    .result { position: absolute; z-index: 5; inset: 8% 4% auto; display: grid; gap: 8px; padding: 14px; background: rgba(4, 24, 16, .95); border: 2px solid var(--gold); border-radius: 18px; box-shadow: 0 16px 40px rgba(0, 0, 0, .6); text-align: center; }
+    .result { position: absolute; z-index: 5; inset: 8% 4% auto; display: grid; gap: 8px; padding: 14px; background: #04180f; border: 2px solid var(--gold); border-radius: 18px; box-shadow: 0 16px 40px rgba(0, 0, 0, .6); text-align: center; }
     .result h3 { margin: 0; color: var(--gold); font-family: Georgia, serif; font-size: 22px; }
     .result ol { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
     .result li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 6px; padding: 5px 8px; background: rgba(255, 255, 255, .06); border-radius: 10px; font-size: 13.5px; text-align: left; }
@@ -157,6 +157,39 @@
     .result .lines { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
     .result .mine-net { margin: 0; font-size: 20px; font-weight: 900; }
     .result small { color: var(--muted); font-size: 11.5px; }
+
+    /* Màn kết quả: khoản của mình, phế, số dư trước / sau, đếm ngược + nút. */
+    .result { max-height: 84%; overflow-y: auto; }
+    .ledger { display: grid; gap: 3px; padding: 8px 10px; background: rgba(255, 255, 255, .05); border-radius: 12px; text-align: left; }
+    .ledger p { margin: 0; }
+    .ledger-title { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .ledger-row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+    .ledger-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ledger-row b { flex: none; font-variant-numeric: tabular-nums; }
+    .ledger-row.total { margin-top: 2px; padding-top: 4px; border-top: 1px solid var(--line); font-weight: 800; }
+    .ledger-balance { color: var(--gold); font-size: 13px; font-weight: 800; text-align: center; }
+    .ledger .plus { color: var(--win); }
+    .ledger .minus { color: var(--lose); }
+    .result-countdown { margin: 0; color: var(--fg); font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+    .result-actions { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; }
+    .result-actions button { height: 44px; font-size: 14px; }
+
+    /* Bot khi tạo bàn. */
+    .bots-toggle { display: flex; align-items: center; gap: 8px; padding: 6px 2px; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .bots-toggle input { width: 20px; height: 20px; accent-color: var(--gold); }
+    .bots-toggle span { display: grid; gap: 1px; }
+    .bots-toggle small { color: var(--muted); font-size: 10.5px; font-weight: 500; }
+    .bots-toggle:has(input:disabled) { opacity: .6; }
+
+    /* Đánh hộ: hệ thống vừa đánh hộ / đang tự đánh + nút "Tôi đã quay lại". */
+    .idle-bar { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; color: #2a1404; background: #ffd27a; border-radius: 12px; font-size: 12.5px; font-weight: 800; }
+    .idle-bar.auto { color: #fff; background: #a3352a; }
+    .idle-bar span { flex: 1; min-width: 0; }
+    .idle-bar button { flex: none; height: 34px; padding: 0 12px; color: #2a1404; background: #fff; border: 0; border-radius: 999px; font-weight: 900; }
+
+    /* Trạng thái mạng nổi trên cùng. */
+    .net { position: fixed; z-index: 50; top: max(8px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 8px 14px; color: #fff; background: rgba(120, 30, 24, .95); border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, .5); font-size: 12.5px; font-weight: 800; text-align: center; }
+    .net.back { background: rgba(20, 110, 60, .95); }
 
     /* Luật chơi. */
     .sheet { position: fixed; inset: 0; z-index: 40; display: grid; align-items: end; background: rgba(0, 0, 0, .55); }
@@ -206,6 +239,7 @@
       <h2><span>Mức cược (1 phần)</span><span id="playing"></span></h2>
       <div class="stakes" id="stakes" role="group" aria-label="Mức cược"></div>
       <p class="deposit" id="deposit"></p>
+      <label class="bots-toggle"><input type="checkbox" id="botsToggle" checked> <span>🤖 Cho bot vào nếu thiếu người<small id="botsNote"></small></span></label>
       <div class="actions">
         <button type="button" class="primary" id="quick">⚡ Vào nhanh</button>
         <button type="button" class="secondary" id="open">＋ Tạo bàn</button>
@@ -242,6 +276,7 @@
       <div class="result" id="result" hidden></div>
     </div>
     <div class="me">
+      <div class="idle-bar" id="idleBar" hidden role="status"><span id="idleText"></span><button type="button" id="idleBack">🙋 Tôi đã quay lại</button></div>
       <p class="board-message" id="boardMessage" role="status"></p>
       <div class="me-line"><span class="me-name" id="meName"></span><span class="me-tag" id="meTag"></span><span class="me-coins" id="meCoins"></span></div>
       <div class="turnbar" id="turnbar"><i id="turnbarFill"></i></div>
@@ -255,6 +290,8 @@
     </div>
   </section>
 
+  <div class="net" id="net" hidden role="status" aria-live="polite"></div>
+
   <div class="sheet" id="rules" hidden role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
     <div class="sheet-card">
       <header><h2 id="rulesTitle">Luật Tiến Lên</h2><button type="button" class="chip" id="rulesClose" aria-label="Đóng">✕</button></header>
@@ -264,7 +301,7 @@
         <li>Bộ đánh được: rác (1 lá), đôi, sám (3 lá), tứ quý, sảnh (≥ 3 lá liền, không có 2), đôi thông (≥ 3 đôi liền, không có 2).</li>
         <li>Đè bằng bộ cùng loại, cùng số lá, lá cao nhất lớn hơn. Bỏ lượt thì mất quyền đánh tới hết vòng.</li>
         <li>Ván đầu: người cầm lá nhỏ nhất (3♠ khi đủ 4 người) đi trước, phải đánh kèm lá đó. Ván sau: người nhất đi trước.</li>
-        <li>Mỗi lượt 20 giây; hết giờ thì tự bỏ lượt (đang mở vòng thì tự đánh lá nhỏ nhất).</li>
+        <li>Mỗi lượt 20 giây; hết giờ thì hệ thống đánh hộ (bỏ lượt, đang mở vòng thì đánh lá nhỏ nhất). Lỡ 2 lượt liền thì chuyển hẳn sang tự đánh tới khi bạn bấm "Tôi đã quay lại"; lỡ 8 lượt liền thì hết ván phải rời bàn.</li>
       </ul>
       <h3>Chặt</h3>
       <ul>
