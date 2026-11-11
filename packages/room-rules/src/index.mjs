@@ -508,16 +508,19 @@ export const TIENLEN_RULES = defineRoomRules({
     // Đủ 2 người (có ít nhất một người thật): đếm ngược rồi chia bài; đủ 4 thì chỉ chờ fullStartMs.
     startMs: 10_000,
     fullStartMs: 3_000,
-    // Mỗi lượt turnMs; hết giờ thì tự bỏ lượt (đang mở vòng thì tự đánh lá nhỏ nhất). Người vừa hết giờ / mất kết nối:
-    // lượt sau chỉ chờ afkTurnMs cho tới khi tự bấm lại.
+    // Mỗi lượt turnMs; hết giờ thì hệ thống đánh hộ (bỏ lượt, đang mở vòng thì đánh lá nhỏ nhất). Lỡ 2 lượt liên tiếp /
+    // mất kết nối thì chuyển hẳn sang tự đánh: lượt chỉ chờ afkTurnMs cho tới khi bấm "Tôi đã quay lại" hoặc tự đánh. Lỡ
+    // idleKickMissed lượt liên tiếp thì hết ván phải đứng dậy.
     turnMs: 20_000,
     afkTurnMs: 5_000,
-    resultMs: 8_000,
+    idleKickMissed: 8,
+    // Màn kết quả (đếm ngược rồi tự sang ván mới; có nút Rời bàn).
+    resultMs: 10_000,
     botActMs: [900, 2_600],
-    // Bot vào bàn của người thật: bàn có người thật ngồi có botFill.chance khả năng bot lần lượt vào cho đủ 4 (mỗi bot
-    // cách nhau delayMs); không thì chỉ khi người thật ngồi một mình quá aloneMs mới có một bot vào chơi cùng. Bàn mức
-    // cược trên maxStake không có bot (bot đánh theo luật đơn giản, tránh người giỏi "nuôi" xu từ bot ở bàn lớn).
-    botFill: { chance: 0.65, delayMs: [2_500, 8_000], aloneMs: [8_000, 14_000], maxStake: 500 },
+    // Bot vào bàn của người thật khi người tạo bàn cho phép (mặc định có): người thật ngồi xuống xong chờ firstDelayMs mới
+    // có bot đầu tiên (nhường chỗ cho người), các bot sau cách nhau delayMs cho đủ bàn. Bàn mức cược trên maxStake không
+    // có bot (bot đánh theo luật đơn giản, tránh người giỏi "nuôi" xu từ bot ở bàn lớn).
+    botFill: { firstDelayMs: [5_000, 8_000], delayMs: [1_500, 3_000], maxStake: 500 },
     // Bàn bot ngồi sẵn trong sảnh (1–3 bot chờ người vào cho có chỗ "Vào nhanh"), mỗi bàn sống botTableMs rồi giải tán.
     botTables: [1, 3],
     botTableMs: [60_000, 150_000],

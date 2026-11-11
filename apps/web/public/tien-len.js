@@ -23,7 +23,7 @@ const $ = (id) => document.getElementById(id);
 const el = Object.fromEntries(['lobbyView', 'roomChip', 'balance', 'online', 'playing', 'modes', 'stakes', 'deposit', 'quick', 'open', 'signIn', 'message',
   'tables', 'board', 'leave', 'tableInfo', 'seatTop', 'seatLeft', 'seatRight', 'flash', 'pile', 'whoPlayed', 'status', 'result', 'boardMessage',
   'meName', 'meTag', 'meCoins', 'turnbar', 'turnbarFill', 'hand', 'sort', 'hint', 'pass', 'play', 'rules', 'rulesOpen', 'rulesOpen2', 'rulesClose',
-  'travelToggle', 'travelPanel'].map((id) => [id, $(id)]));
+  'travelToggle', 'travelPanel', 'botsToggle', 'botsNote', 'idleBar', 'idleText', 'idleBack', 'net'].map((id) => [id, $(id)]));
 
 let coins = null;
 let signedIn = false;
@@ -36,6 +36,15 @@ let selected = new Set();
 let sortBySuit = false;
 let hintIndex = -1;
 let lastMoveKey = '';
+// Người tạo bàn cho bot vào khi thiếu người (nhớ lựa chọn ở máy).
+let allowBots = true;
+// Đã ẩn màn kết quả của ván này (bấm "Ở lại") — ván mới thì hiện lại.
+let resultHiddenFor = 0;
+// Trạng thái mạng: 'down' đang mất kết nối, 'back' vừa nối lại (hiện 2,5 giây).
+let netState = '';
+let netTimer = null;
+// Vừa bị mời rời bàn vì treo máy: giữ câu báo đó ở sảnh.
+let kickedAt = 0;
 let clockOffset = 0;
 let socket = null;
 let session = null;
@@ -88,6 +97,7 @@ for (const value of TIENLEN_STAKES) {
 
 // Ngồi bàn cần ít nhất 10 lần mức cược trong ví (server kiểm tra lại lúc vào bàn và đầu mỗi ván).
 const canAfford = (value) => coins === null || coins >= tienLenMinCoins(value);
+const BOT_MAX_STAKE = 500;
 
 function renderLobby() {
   el.balance.textContent = coins === null ? '—' : coins.toLocaleString('vi-VN');
@@ -99,6 +109,10 @@ function renderLobby() {
   }
   el.deposit.replaceChildren('1 phần = ', node('b', '', `${stake.toLocaleString('vi-VN')} xu`), ' · cần ít nhất ',
     node('b', '', `${tienLenMinCoins(stake).toLocaleString('vi-VN')} xu`), ' trong ví để ngồi');
+  const botsPossible = stake <= BOT_MAX_STAKE;
+  el.botsToggle.disabled = !botsPossible;
+  el.botsToggle.checked = botsPossible && allowBots;
+  el.botsNote.textContent = botsPossible ? 'Bàn mình tạo: chờ 5–8 giây cho người khác vào trước rồi bot mới vào' : `Bàn trên ${BOT_MAX_STAKE} xu chỉ có người thật`;
   el.signIn.hidden = signedIn;
   el.online.textContent = `👥 ${people} người trong sảnh`;
   el.playing.textContent = lobby ? `${lobby.playing} bàn đang chơi` : '';
@@ -113,7 +127,7 @@ function renderLobby() {
     amount.append(node('small', '', item.mode === 'rank' ? 'A · Xếp hạng' : 'B · Đếm lá'));
     const who = node('span', 'who');
     who.append(node('span', '', item.players.map((player) => `${AVATARS[player.skin] || '🙂'} ${player.displayName}`).join(' · ')),
-      node('small', '', `${item.players.length}/${SEATS} người · ${PHASE_NAMES[item.phase]}`));
+      node('small', '', `${item.players.length}/${SEATS} người · ${PHASE_NAMES[item.phase]}${item.bots === false ? ' · chỉ người thật' : ''}`));
     const join = node('button', '', 'Vào');
     join.type = 'button';
     join.dataset.table = item.id;
@@ -140,7 +154,8 @@ function tagOf(player, seat) {
   if (player.cong) return ['Cóng', 'bad'];
   if (player.rank) return [`${RANK_NAMES[player.rank] || ''} · hết bài`, 'rank'];
   if (player.leaving) return ['Rời sau ván', ''];
-  if (player.away) return ['Đang treo · đánh hộ', 'bad'];
+  if (player.away) return ['Mất kết nối · đánh hộ', 'bad'];
+  if (player.missed >= 2) return ['Đang tự đánh', 'bad'];
   if (player.passed) return ['Bỏ lượt', 'pass'];
   return ['', ''];
 }
@@ -228,9 +243,27 @@ function renderCenter() {
   el.status.replaceChildren(statusText());
 }
 
+// Một khoản trong màn kết quả, nhìn từ phía mình: [nội dung, số xu (+ nhận / − trả)].
+function lineText(line) {
+  const me = table.seat;
+  const xu = line.coins;
+  const who = (seat) => (seat === me ? 'bạn' : nameOf(seat));
+  const mine = line.from === me ? -xu : line.to === me ? xu : 0;
+  const text = {
+    chop: `${who(line.to)} chặt ${who(line.from)}`,
+    last: `${who(line.from)} về bét → trả ${who(line.to)}`,
+    third: `${who(line.from)} về ba → trả ${who(line.to)} (nhì)`,
+    cong: `${who(line.from)} cóng → trả ${who(line.to)}`,
+    cards: `${who(line.from)} còn ${line.units} lá → trả ${who(line.to)}`,
+    leftover: `${who(line.from)} thối heo / hàng → trả ${who(line.to)}`,
+    white: `${who(line.from)} thua trắng → trả ${who(line.to)}`,
+  }[line.reason];
+  return [text.charAt(0).toUpperCase() + text.slice(1), mine];
+}
+
 function renderResult() {
   const result = table?.phase === 'result' ? table.result : null;
-  el.result.hidden = !result;
+  el.result.hidden = !result || resultHiddenFor === table.game;
   if (!result) return;
   const rows = [];
   for (let seat = 0; seat < SEATS; seat += 1) if (result.ranks[seat]) rows.push(seat);
@@ -246,17 +279,73 @@ function renderResult() {
     list.append(item);
   }
   const title = result.white ? `Tới trắng · ${WHITE_NAMES[result.white]}` : `Kết quả ván ${table.game}`;
-  const lines = result.lines.filter((line) => line.coins > 0).slice(0, 6)
-    .map((line) => (line.reason === 'chop'
-      ? `${nameOf(line.to)} chặt ${nameOf(line.from)}: ${line.coins.toLocaleString('vi-VN')} xu`
-      : `${nameOf(line.from)} ${REASONS[line.reason]} → ${nameOf(line.to)}: ${line.coins.toLocaleString('vi-VN')} xu`));
   const parts = [node('h3', '', title), list];
-  if (lines.length) parts.push(node('p', 'lines', lines.join(' · ')));
-  if (result.net !== undefined) {
-    parts.push(node('p', `mine-net ${result.net >= 0 ? 'plus' : 'minus'}`, `Bạn ${money(result.net)}`));
-    if (result.cut) parts.push(node('small', '', `Đã trừ phế ${result.cut.toLocaleString('vi-VN')} xu (5% phần thắng)`));
-  } else if (result.ranks[table.seat]) parts.push(node('small', '', 'Đang chốt tiền…'));
+  // Từng khoản: của mình trước (thắng / thua, chặt, thối, cóng), rồi các khoản khác.
+  const lines = result.lines.filter((line) => line.coins > 0);
+  const mineLines = lines.filter((line) => line.from === table.seat || line.to === table.seat);
+  if (mineLines.length || result.cut || result.before !== undefined) {
+    const box = node('div', 'ledger');
+    box.append(node('p', 'ledger-title', 'Khoản của bạn'));
+    for (const line of mineLines) {
+      const [text, amount] = lineText(line);
+      const row = node('p', 'ledger-row');
+      row.append(node('span', '', text), node('b', amount >= 0 ? 'plus' : 'minus', money(amount)));
+      box.append(row);
+    }
+    if (result.cut) {
+      const row = node('p', 'ledger-row');
+      row.append(node('span', '', 'Phế 5% phần thắng'), node('b', 'minus', money(-result.cut)));
+      box.append(row);
+    }
+    if (result.net !== undefined) {
+      const row = node('p', 'ledger-row total');
+      row.append(node('span', '', 'Tổng ván này'), node('b', result.net >= 0 ? 'plus' : 'minus', money(result.net)));
+      box.append(row);
+    }
+    if (result.before !== undefined && result.after !== undefined) {
+      box.append(node('p', 'ledger-balance', `Số dư: ${result.before.toLocaleString('vi-VN')} → ${result.after.toLocaleString('vi-VN')} xu`));
+    } else if (result.ranks[table.seat]) box.append(node('p', 'ledger-balance', 'Đang chốt tiền…'));
+    parts.push(box);
+  }
+  const others = lines.filter((line) => line.from !== table.seat && line.to !== table.seat);
+  if (others.length) {
+    parts.push(node('p', 'lines', others.slice(0, 8).map((line) => `${lineText(line)[0]}: ${line.coins.toLocaleString('vi-VN')} xu`).join(' · ')));
+  }
+  const countdown = node('p', 'result-countdown');
+  countdown.dataset.countdown = '1';
+  const actions = node('div', 'result-actions');
+  const leave = node('button', 'secondary', '🚪 Rời bàn');
+  leave.type = 'button';
+  leave.dataset.resultLeave = '1';
+  const stay = node('button', 'primary', '▶ Ở lại chơi tiếp');
+  stay.type = 'button';
+  stay.dataset.resultStay = '1';
+  actions.append(leave, stay);
+  parts.push(countdown, actions);
   el.result.replaceChildren(...parts);
+}
+
+// Dải báo đánh hộ: lỡ 1 lượt "vừa đánh hộ", lỡ 2 lượt liền "đang tự đánh"; nút "Tôi đã quay lại".
+function renderIdle() {
+  const missed = table?.phase === 'playing' || table?.phase === 'result' ? table.players[table.seat]?.missed || 0 : 0;
+  el.idleBar.hidden = !missed;
+  if (!missed) return;
+  el.idleText.textContent = missed >= 2 ? '🤖 Đang tự động đánh hộ bạn (lỡ 2 lượt liền)' : '⏱ Bạn vừa hết giờ, hệ thống đã đi hộ';
+  el.idleBar.classList.toggle('auto', missed >= 2);
+}
+
+// Thông báo mạng nổi ở trên cùng.
+function renderNet() {
+  el.net.hidden = !netState;
+  el.net.className = `net ${netState}`;
+  if (netState === 'down') el.net.textContent = table && ['playing', 'starting'].includes(table.phase) ? '📶 Đang kết nối lại… (tự động đánh hộ)' : '📶 Đang kết nối lại…';
+  else if (netState === 'back') el.net.textContent = table ? '✅ Đã vào lại bàn' : '✅ Đã kết nối lại';
+}
+function setNet(state) {
+  clearTimeout(netTimer);
+  netState = state;
+  if (state === 'back') netTimer = setTimeout(() => setNet(''), 2_500);
+  renderNet();
 }
 
 function renderBoard() {
@@ -275,6 +364,7 @@ function renderBoard() {
   renderHand();
   renderButtons();
   renderResult();
+  renderIdle();
   tick();
 }
 
@@ -291,6 +381,13 @@ function noticeMove(previous) {
     noticeMove.timer = setTimeout(() => { el.flash.textContent = ''; }, 3_000);
   }
   if (myTurn() && previous?.turn !== table.seat) navigator.vibrate?.(40);
+  // Hệ thống vừa đánh hộ mình (hết giờ).
+  if (last?.auto && last.seat === table.seat) {
+    el.flash.textContent = last.action === 'pass' ? '⏱ Hệ thống vừa bỏ lượt hộ bạn' : '⏱ Hệ thống vừa đánh hộ bạn';
+    el.flash.className = 'flash';
+    clearTimeout(noticeMove.timer);
+    noticeMove.timer = setTimeout(() => { el.flash.textContent = ''; }, 3_000);
+  }
 }
 
 function tick() {
@@ -309,6 +406,8 @@ function tick() {
     }
   }
   el.status.textContent = statusText();
+  const countdown = el.result.querySelector('[data-countdown]');
+  if (countdown && table.phase === 'result') countdown.textContent = `Ván mới sau ${Math.ceil(left / 1_000)} giây`;
 }
 
 function onTable(message) {
@@ -317,7 +416,7 @@ function onTable(message) {
     if (table && message.tableId === table.tableId) {
       table = null;
       selected = new Set();
-      say(previous?.phase === 'playing' ? '' : 'Đã rời bàn');
+      if (Date.now() - kickedAt > 3_000) say(previous?.phase === 'playing' ? '' : 'Đã rời bàn');
       loadWallet();
     }
     renderBoard();
@@ -348,6 +447,7 @@ function onMessage(event) {
     failedOpens = 0;
     retry = 0;
     el.roomChip.classList.add('online');
+    if (netState === 'down') setNet('back');
   } else if (message.type === 'room.state') {
     people = message.participants.filter((person) => person.connected !== false).length;
     renderLobby();
@@ -365,6 +465,10 @@ function onMessage(event) {
       return;
     }
     const text = ERROR_TEXT[message.code] || message.message;
+    if (message.code === 'IDLE_KICKED') {
+      kickedAt = Date.now();
+      say(text, 'lose');
+    }
     if (table) boardSay(text);
     else say(text, 'lose');
     if (message.code === 'INSUFFICIENT_COINS') loadWallet();
@@ -429,6 +533,7 @@ async function connect() {
       if (socket !== candidate) return;
       socket = null;
       connecting = false;
+      if (!sessionReplaced) setNet('down');
       if (!el.roomChip.classList.contains('online')) failedOpens += 1;
       scheduleReconnect();
     });
@@ -512,7 +617,8 @@ el.quick.addEventListener('click', () => {
   } else if (canPlay(stake) && send('tienlen.find', { stake, mode })) say('Đang tìm bàn…');
 });
 el.open.addEventListener('click', () => {
-  if (canPlay(stake) && send('tienlen.open', { stake, mode })) say(`Đang mở bàn ${stake.toLocaleString('vi-VN')} xu…`);
+  const bots = stake <= BOT_MAX_STAKE && allowBots;
+  if (canPlay(stake) && send('tienlen.open', { stake, mode, bots })) say(`Đang mở bàn ${stake.toLocaleString('vi-VN')} xu${bots ? '' : ' (chỉ người thật)'}…`);
 });
 el.tables.addEventListener('click', (event) => {
   const button = event.target.closest('[data-table]');
@@ -569,6 +675,22 @@ el.pass.addEventListener('click', () => {
     boardSay('');
   }
 });
+el.botsToggle.addEventListener('change', () => {
+  allowBots = el.botsToggle.checked;
+  try { localStorage.setItem('tienlen-bots', allowBots ? '1' : '0'); } catch {}
+  renderLobby();
+});
+el.idleBack.addEventListener('click', () => {
+  if (table && send('tienlen.back', { tableId: table.tableId })) boardSay('');
+});
+el.result.addEventListener('click', (event) => {
+  if (event.target.closest('[data-result-leave]')) {
+    send('tienlen.leave');
+  } else if (event.target.closest('[data-result-stay]') && table) {
+    resultHiddenFor = table.game;
+    renderResult();
+  }
+});
 el.leave.addEventListener('click', () => {
   if (!table) return;
   if (send('tienlen.leave') && table.phase === 'playing') boardSay(table.players[table.seat]?.leaving ? 'Bạn ở lại bàn' : 'Bạn sẽ rời bàn khi hết ván này');
@@ -608,6 +730,7 @@ try {
   if (TIENLEN_STAKES.includes(savedStake)) stake = savedStake;
   const savedMode = localStorage.getItem('tienlen-mode');
   if (TIENLEN_MODES.includes(savedMode)) mode = savedMode;
+  allowBots = localStorage.getItem('tienlen-bots') !== '0';
 } catch {}
 renderLobby();
 renderBoard();

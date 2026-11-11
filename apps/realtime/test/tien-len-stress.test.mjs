@@ -20,7 +20,7 @@ const sorted = (cards) => [...cards].sort((a, b) => a - b);
 // Nhịp rất ngắn để chạy được nhiều ván; lượt người chơi giả đi ngay nên hiếm khi hết giờ (hết giờ vẫn là nước hợp lệ).
 const FAST = {
   ...TIENLEN_RULES.interaction, startMs: 4, fullStartMs: 2, turnMs: 60, afkTurnMs: 15, resultMs: 4, botActMs: [1, 2], tickMs: 2,
-  botFill: { chance: 0, delayMs: [1, 2], aloneMs: [100_000, 100_000], maxStake: 500 }, botTables: [0, 0], botTableMs: [100, 100],
+  botFill: { firstDelayMs: [1, 2], delayMs: [1, 2], maxStake: 500 }, botTables: [0, 0], botTableMs: [100, 100],
 };
 
 function seeded(seed) {
@@ -71,7 +71,7 @@ function fakeBank(wallet) {
 }
 
 // Bàn trong tiến trình test; mọi tin gửi người chơi đi qua bộ kiểm tra lộ bài.
-function setup({ seed, bots = 0, coins = {}, rules = FAST }) {
+function setup({ seed, bots = 0, coins = {}, rules = FAST, randomInt = null }) {
   const wallet = { ...coins };
   const bank = fakeBank(wallet);
   const leaks = [];
@@ -95,7 +95,7 @@ function setup({ seed, bots = 0, coins = {}, rules = FAST }) {
     },
   };
   const random = seeded(seed);
-  table = new TienLenTable({ room, rules, ...bank, random: random.int });
+  table = new TienLenTable({ room, rules, ...bank, random: randomInt || random.int });
   const join = (id) => {
     const participant = { id, accountId: `acc-${id}`, displayName: id.toUpperCase(), connected: true };
     room.participants.set(id, participant);
@@ -131,7 +131,7 @@ function checkView(tables, message, leaks) {
   message.players.forEach((player, seat) => {
     const index = board.players.indexOf(seat);
     if (player && index >= 0 && player.cards !== round.hands[index].length) leaks.push('số lá người khác sai');
-    if (player && Object.keys(player).some((key) => !['displayName', 'cards', 'skin', 'level', 'passed', 'rank', 'cong', 'away', 'leaving'].includes(key))) {
+    if (player && Object.keys(player).some((key) => !['displayName', 'cards', 'skin', 'level', 'passed', 'rank', 'cong', 'away', 'leaving', 'missed'].includes(key))) {
       leaks.push(`ghế mang thêm trường lạ: ${Object.keys(player)}`);
     }
   });
@@ -220,8 +220,7 @@ function humanMove(ctx, board, stats) {
 async function playMany({ seed, humans, bots, mode, stake, games, stats }) {
   const names = Array.from({ length: humans }, (_, index) => `p${seed}-${index}`);
   const coins = Object.fromEntries(names.map((name) => [`acc-${name}`, 10_000_000]));
-  const rules = bots ? { ...FAST, botFill: { ...FAST.botFill, chance: 1 } } : FAST;
-  const ctx = setup({ seed, bots, coins, rules });
+  const ctx = setup({ seed, bots, coins, rules: FAST });
   ctx.outsider = ctx.join(`outsider-${seed}`);
   const people = names.map((name) => ctx.join(name));
   assert.ok((await ctx.table.open(people[0], { stake, mode })).ok);
@@ -343,6 +342,25 @@ test('chống gian lận ở bàn: sửa bài trong tin nhận được không �
   assert.deepEqual(ctx.leaks, []);
 });
 
+test('tới trắng ngay lúc chia: ra thẳng kết quả, mỗi người vẫn chỉ thấy bài của mình, tiền đúng luật', async () => {
+  // randomInt(n) = n − 1: Fisher–Yates không đổi chỗ lá nào → người đầu nhận 3 3 3 3 4 4 4 4 5 5 5 5 6 (6 đôi, tới trắng).
+  const ctx = setup({ seed: 1, coins: { 'acc-an': 5_000, 'acc-binh': 5_000 }, rules: { ...FAST, resultMs: 5_000 }, randomInt: (n) => n - 1 });
+  const [an, binh] = ['an', 'binh'].map((id) => ctx.join(id));
+  await ctx.table.open(an, { stake: 50, mode: 'count' });
+  const board = [...ctx.table.tables.values()][0];
+  await ctx.table.join(binh, { tableId: board.id });
+  while (board.phase !== 'result' || board.settling) await wait(2);
+  const frames = (id) => ctx.sent.get(id).filter((message) => message.type === 'tienlen.table');
+  assert.ok(!frames('an').some((message) => message.phase === 'playing'), 'không có lượt đánh nào');
+  const view = frames('an').at(-1);
+  assert.equal(view.result.white, 'six-pairs');
+  assert.deepEqual(view.result.nets, [650, -650, null, null], 'kiểu B: người thua trả 13 phần');
+  assert.equal(view.result.net, 650 - 32, 'phế 5% phần thắng');
+  assert.equal(frames('binh').at(-1).hand.filter((card) => view.hand.includes(card)).length, 0);
+  ctx.table.stop();
+  assert.deepEqual(ctx.leaks, []);
+});
+
 test('bài chia bằng crypto.randomInt (không đoán trước được), bot chỉ được đọc bài của chính nó', () => {
   const table = new TienLenTable({ room: { id: 'tienlen-1', epoch: 1, participants: new Map() }, rules: TIENLEN_RULES.interaction });
   assert.equal(table.random, randomInt, 'mặc định dùng crypto.randomInt, không dùng Math.random');
@@ -403,7 +421,8 @@ test('qua WebSocket: người chơi chỉ nhận bài của mình, người xem 
   const guest = await connect(port, 'u-khach', 'Khách');
   clients.push(an, binh, guest);
   const table = registry.rooms.get('tienlen-1').table;
-  table.rules = { ...table.rules, startMs: 30, fullStartMs: 20, resultMs: 300, turnMs: 3_000, afkTurnMs: 300 };
+  // Màn kết quả giữ lâu: trong lúc test chỉ có đúng một ván (không chia sang ván sau).
+  table.rules = { ...table.rules, startMs: 30, fullStartMs: 20, resultMs: 30_000, turnMs: 3_000, afkTurnMs: 300 };
 
   // Khách (chưa đăng nhập) không chơi được.
   const guestFind = guest.send('tienlen.find');
@@ -413,10 +432,15 @@ test('qua WebSocket: người chơi chỉ nhận bài của mình, người xem 
   an.send('tienlen.open', { stake: 100, mode: 'count' });
   await until(() => an.latest(), 2_000, 'mở bàn');
   binh.send('tienlen.join', { tableId: an.latest().tableId });
-  await until(() => an.latest()?.phase === 'playing' && binh.latest()?.phase === 'playing', 5_000, 'chia bài');
+  // Chia bài xong: thường là "playing"; có người tới trắng thì ra thẳng "result" (không có khung playing nào).
+  const dealtPhase = (person) => ['playing', 'result'].includes(person.latest()?.phase);
+  await until(() => dealtPhase(an) && dealtPhase(binh), 5_000, 'chia bài');
   const tableId = an.latest().tableId;
-  const dealt = { an: sorted(an.latest().hand), binh: sorted(binh.latest().hand) };
+  // Bài được chia của mỗi người theo từng ván = bài trong khung đầu tiên của ván đó có bài (13 lá).
+  const dealtOf = (person, game) => sorted(person.frames.find((frame) => frame.type === 'tienlen.table' && frame.game === game && frame.hand)?.hand || []);
+  const dealt = { an: dealtOf(an, an.latest().game), binh: dealtOf(binh, binh.latest().game) };
   assert.equal(dealt.an.length, 13);
+  assert.equal(dealt.binh.length, 13);
   assert.equal(dealt.an.filter((card) => dealt.binh.includes(card)).length, 0);
 
   // Tin sai định dạng / giả mạo: thêm trường ghế, lá ngoài bộ bài, lá trùng, đánh lá của người kia.
@@ -428,7 +452,8 @@ test('qua WebSocket: người chơi chỉ nhận bài của mình, người xem 
   const stolen = an.send('tienlen.play', { tableId, cards: [dealt.binh[0]] });
   await until(() => [...bad, stolen].every((id) => an.frames.some((frame) => frame.type === 'protocol.error' && frame.requestId === id)), 2_000, 'từ chối tin xấu');
   for (const id of bad) assert.equal(an.frames.find((frame) => frame.requestId === id).code, 'INVALID_MESSAGE');
-  assert.ok(['NOT_YOUR_CARDS', 'NOT_YOUR_TURN'].includes(an.frames.find((frame) => frame.requestId === stolen).code));
+  // Ván tới trắng thì đã xong: GAME_OVER cũng là bị từ chối.
+  assert.ok(['NOT_YOUR_CARDS', 'NOT_YOUR_TURN', 'GAME_OVER'].includes(an.frames.find((frame) => frame.requestId === stolen).code));
 
   // Chơi hết một ván qua WebSocket, mỗi người chỉ dùng bài trong tin mình nhận.
   const people = { an, binh };
@@ -447,11 +472,13 @@ test('qua WebSocket: người chơi chỉ nhận bài của mình, người xem 
     return false;
   }, 20_000, 'hết ván');
 
-  // Đối chiếu mọi khung tin hai bên đã nhận: lá của người kia chỉ xuất hiện khi chính họ vừa đánh ra.
+  const games = new Set(an.frames.filter((frame) => frame.type === 'tienlen.table' && frame.hand).map((frame) => frame.game));
+  assert.deepEqual([...games], [an.latest().game], 'trong lúc test chỉ chia đúng một ván');
+
+  // Đối chiếu mọi khung tin hai bên đã nhận (theo đúng ván của khung đó): lá của người kia chỉ xuất hiện khi chính họ
+  // vừa đánh ra.
   for (const [name, person] of Object.entries(people)) {
-    const own = new Set(dealt[name]);
     const otherName = name === 'an' ? 'binh' : 'an';
-    const other = new Set(dealt[otherName]);
     const otherSeat = people[otherName].latest().seat;
     for (const frame of person.frames) {
       const text = JSON.stringify(frame);
@@ -459,7 +486,10 @@ test('qua WebSocket: người chơi chỉ nhận bài của mình, người xem 
         assert.ok(!/"(hand|top|mustInclude)"/.test(text), `${frame.type} không mang bài`);
         continue;
       }
-      for (const card of frame.hand || []) assert.ok(own.has(card), `${name}: bài trên tay chỉ là của mình`);
+      const own = new Set(dealtOf(person, frame.game));
+      const other = new Set(dealtOf(people[otherName], frame.game));
+      for (const card of frame.hand || []) assert.ok(own.has(card), `${name}: bài trên tay chỉ là của mình (ván ${frame.game}, ${frame.phase})`);
+      for (const card of frame.hand || []) assert.ok(!other.has(card), `${name}: không thấy lá của người kia`);
       if (frame.mustInclude !== undefined) assert.ok(own.has(frame.mustInclude));
       for (const card of frame.top?.cards || []) if (other.has(card)) assert.equal(frame.top.seat, otherSeat, 'lá của người kia trên bàn là lá họ đã đánh');
       for (const card of frame.last?.cards || []) if (other.has(card)) assert.equal(frame.last.seat, otherSeat);

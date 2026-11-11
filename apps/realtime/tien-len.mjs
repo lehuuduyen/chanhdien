@@ -4,9 +4,13 @@
 //   đủ xu thì đứng dậy) → chia bài → playing (lượt turnMs; hết giờ tự bỏ / tự đánh lá nhỏ nhất) → result (API trừ / cộng
 //   theo các khoản, ai thiếu xu thì trả hết số có, phế phần thắng) → ván mới (người bấm rời / mất kết nối thì đứng dậy) …
 // - Bài trên tay chỉ gửi cho chủ bài; người khác chỉ thấy số lá. Bot chỉ được đọc bài của chính nó (botChoice).
-// - Bot vào bàn của người thật theo rules.botFill (bàn mức cao không có bot); vài bàn bot ngồi sẵn trong sảnh cho người
-//   bấm "Vào nhanh". Bàn không còn người thật thì giải tán (bàn bot trong sảnh thì hết hạn mới giải tán). Ván chỉ chia
-//   khi có ít nhất một người thật.
+// - Bot: người tạo bàn chọn có cho bot vào không (mặc định có; bàn mức trên botFill.maxStake không có bot). Bàn cho bot
+//   thì người thật ngồi xuống xong chờ botFill.firstDelayMs mới có bot đầu tiên vào (nhường chỗ cho người), rồi lần lượt
+//   cách nhau botFill.delayMs cho đủ bàn. Vài bàn bot ngồi sẵn trong sảnh cho người bấm "Vào nhanh". Bàn không còn người
+//   thật thì giải tán (bàn bot trong sảnh thì hết hạn mới giải tán). Ván chỉ chia khi có ít nhất một người thật.
+// - Hết giờ: hệ thống đánh hộ (bỏ lượt / đánh lá nhỏ nhất), nước đó gắn cờ auto; lỡ 2 lượt liên tiếp mới chuyển hẳn sang tự
+//   đánh (lượt ngắn afkTurnMs) cho tới khi người chơi bấm "Tôi đã quay lại" (tienlen.back) hoặc tự đánh. Lỡ idleKickMissed
+//   lượt liên tiếp thì hết ván phải đứng dậy.
 // - Đấu với bot: hệ thống là bên đối ứng (API trả / giữ phần của bot).
 // - Rút máy (deploy) / phòng đóng: ván đang chơi bị hủy (chưa ai bị trừ xu vì chỉ trừ lúc chốt).
 import { createHash, randomInt } from 'node:crypto';
@@ -127,8 +131,10 @@ export class TienLenTable {
       ...(level ? { level } : {}),
       ready: false,
       coins: undefined,
+      before: undefined,
       leaving: false,
-      afk: 0,
+      // Số lượt liên tiếp hệ thống phải đánh hộ.
+      missed: 0,
     };
   }
 
@@ -149,34 +155,28 @@ export class TienLenTable {
     return null;
   }
 
-  createTable(stake, mode, botHosted = false) {
+  // bots: người tạo bàn cho bot vào (bàn mức trên botFill.maxStake thì không bao giờ có bot).
+  createTable(stake, mode, { botHosted = false, bots = true } = {}) {
     const table = {
       id: this.newId(), stake, mode, createdAt: this.now(), phase: 'waiting', seats: new Array(SEATS).fill(null),
       game: 0, matchId: null, round: null, players: [], deadline: 0, botActAt: 0, lastWinner: null, beginning: false,
-      fillBots: botHosted ? null : this.random(1_000) < this.rules.botFill.chance * 1_000, nextBotAt: 0, aloneSince: 0, aloneMs: 0,
-      botHosted, expiresAt: 0, result: null, settling: null,
+      bots: Boolean(bots), nextBotAt: 0, botHosted, expiresAt: 0, result: null, settling: null,
     };
     this.tables.set(table.id, table);
     return table;
+  }
+
+  botsAllowed(table) {
+    return table.bots && table.stake <= this.rules.botFill.maxStake;
   }
 
   sit(table, seat) {
     const index = table.seats.findIndex((item) => item === null);
     if (index < 0) return -1;
     table.seats[index] = seat;
-    if (!seat.bot && table.fillBots === null) table.fillBots = this.random(1_000) < this.rules.botFill.chance * 1_000;
-    if (!seat.bot) table.nextBotAt = this.now() + between(this.random, this.rules.botFill.delayMs);
-    this.armAlone(table);
+    // Người thật vừa ngồi: chờ firstDelayMs mới cho bot vào (để người khác kịp vào); bot vừa vào: bot kế cách delayMs.
+    table.nextBotAt = this.now() + between(this.random, seat.bot ? this.rules.botFill.delayMs : this.rules.botFill.firstDelayMs);
     return index;
-  }
-
-  // Người thật ngồi một mình: hẹn giờ cho một bot vào chơi cùng.
-  armAlone(table) {
-    const alone = this.seatedOf(table) === 1 && this.humansOf(table).length === 1;
-    if (alone && !table.aloneSince) {
-      table.aloneSince = this.now();
-      table.aloneMs = between(this.random, this.rules.botFill.aloneMs);
-    } else if (!alone) table.aloneSince = 0;
   }
 
   // Số xu trong ví (hỏi API). Trả { ok, coins } hoặc lỗi để báo người chơi.
@@ -191,7 +191,7 @@ export class TienLenTable {
     return { ok: false, code: 'INSUFFICIENT_COINS', message: `Cần ít nhất ${tienLenMinCoins(stake).toLocaleString('vi-VN')} xu (10 lần mức cược) để ngồi bàn này` };
   }
 
-  async open(participant, { stake, mode }) {
+  async open(participant, { stake, mode, bots = true }) {
     const blocked = this.guard(participant);
     if (blocked) return blocked;
     if (this.seatOf(participant)) return { ok: false, code: 'BUSY', message: 'Bạn đang ngồi ở một bàn rồi' };
@@ -200,7 +200,7 @@ export class TienLenTable {
     if (!wallet.ok) return wallet;
     if (wallet.coins < tienLenMinCoins(stake)) return this.poor(stake);
     if (this.seatOf(participant)) return { ok: false, code: 'BUSY', message: 'Bạn đang ngồi ở một bàn rồi' };
-    const table = this.createTable(stake, mode);
+    const table = this.createTable(stake, mode, { bots: bots !== false });
     this.sit(table, this.seatFor(participant));
     this.sendTable(table);
     this.scheduleState();
@@ -255,7 +255,7 @@ export class TienLenTable {
       .filter((table) => tienLenMinCoins(table.stake) <= wallet.coins)
       .sort((a, b) => this.humansOf(b).length - this.humansOf(a).length || this.seatedOf(b) - this.seatedOf(a) || a.createdAt - b.createdAt);
     if (candidates.length) return this.join(participant, { tableId: candidates[0].id }, wallet.coins);
-    return this.open(participant, { stake: stake ?? this.rules.stakes[1], mode: mode ?? this.rules.modes[0] });
+    return this.open(participant, { stake: stake ?? this.rules.stakes[1], mode: mode ?? this.rules.modes[0], bots: true });
   }
 
   // Rời bàn: đang chơi thì rời sau ván (bot đánh hộ cho hết ván), không thì đứng dậy ngay.
@@ -278,10 +278,7 @@ export class TienLenTable {
     table.seats[index] = null;
     if (!seat.bot) this.sendToAccount(seat.accountId, this.view(table, index, seat, true));
     if (!this.humansOf(table).length) this.dissolve(table);
-    else {
-      this.armAlone(table);
-      this.sendTable(table);
-    }
+    else this.sendTable(table);
     this.scheduleState();
   }
 
@@ -313,7 +310,7 @@ export class TienLenTable {
     if (table.phase !== 'playing' || !table.round) return { ok: false, code: 'GAME_OVER', message: 'Ván chưa bắt đầu hoặc đã xong' };
     const result = table.round.play(table.players.indexOf(index), cards);
     if (!result.ok) return { ok: false, code: result.code, message: ERRORS[result.code] || 'Chưa đánh được' };
-    seat.afk = 0;
+    seat.missed = 0;
     this.afterMove(table);
     return { ok: true };
   }
@@ -325,8 +322,22 @@ export class TienLenTable {
     if (table.phase !== 'playing' || !table.round) return { ok: false, code: 'GAME_OVER', message: 'Ván chưa bắt đầu hoặc đã xong' };
     const result = table.round.pass(table.players.indexOf(index));
     if (!result.ok) return { ok: false, code: result.code, message: ERRORS[result.code] || 'Chưa bỏ lượt được' };
-    seat.afk = 0;
+    seat.missed = 0;
     this.afterMove(table);
+    return { ok: true };
+  }
+
+  // "Tôi đã quay lại": thôi tự đánh. Đang tới lượt mình mà lượt đang ngắn (do tự đánh) thì được đủ thời gian lượt.
+  back(participant, { tableId }) {
+    const found = this.seatOf(participant);
+    if (!found || found.table.id !== tableId) return { ok: false, code: 'NOT_IN_GAME', message: 'Bạn không ngồi bàn này' };
+    const { table, index, seat } = found;
+    if (!seat.missed) return { ok: true };
+    seat.missed = 0;
+    if (table.phase === 'playing' && table.round && table.players[table.round.turn] === index) {
+      table.deadline = Math.max(table.deadline, this.now() + this.rules.turnMs);
+    }
+    this.sendTable(table);
     return { ok: true };
   }
 
@@ -372,15 +383,10 @@ export class TienLenTable {
   }
 
   fillBots(table, now) {
-    const { botFill } = this.rules;
-    if (table.stake > botFill.maxStake || this.seatedOf(table) >= SEATS) return;
-    const alone = table.aloneSince && now >= table.aloneSince + table.aloneMs;
-    if (!(table.fillBots && now >= table.nextBotAt) && !alone) return;
+    if (!this.botsAllowed(table) || this.seatedOf(table) >= SEATS || now < table.nextBotAt) return;
     const idle = this.idleBots();
     if (!idle.length) return;
-    const bot = idle[this.random(idle.length)];
-    this.sit(table, this.seatFor(bot, true));
-    table.nextBotAt = now + between(this.random, botFill.delayMs);
+    this.sit(table, this.seatFor(idle[this.random(idle.length)], true));
     this.sendTable(table);
     this.scheduleState();
   }
@@ -406,10 +412,7 @@ export class TienLenTable {
       for (const seat of table.seats) if (seat) seat.ready = false;
       table.phase = 'waiting';
       if (!this.humansOf(table).length) this.dissolve(table);
-      else {
-        this.armAlone(table);
-        this.sendTable(table);
-      }
+      else this.sendTable(table);
       this.scheduleState();
       return;
     }
@@ -425,6 +428,7 @@ export class TienLenTable {
     if (result?.ok) {
       seat.ready = true;
       seat.coins = result.coins;
+      seat.before = result.coins;
       return { ok: true };
     }
     if (result?.code === 'INSUFFICIENT_COINS') return this.poor(table.stake);
@@ -446,7 +450,6 @@ export class TienLenTable {
     table.game += 1;
     table.phase = 'playing';
     table.result = null;
-    for (const index of players) table.seats[index].afk = 0;
     this.scheduleState();
     if (table.round.over) this.finishGame(table);
     else this.startTurn(table);
@@ -454,7 +457,8 @@ export class TienLenTable {
 
   startTurn(table) {
     const seat = table.seats[table.players[table.round.turn]];
-    const quick = !seat.bot && (seat.afk > 0 || seat.leaving || !this.connected(seat));
+    // Lỡ 2 lượt liên tiếp / đã bấm rời / mất kết nối: tự đánh, lượt ngắn.
+    const quick = !seat.bot && (seat.missed >= 2 || seat.leaving || !this.connected(seat));
     table.deadline = this.now() + (quick ? this.rules.afkTurnMs : this.rules.turnMs);
     table.botActAt = seat.bot ? this.now() + between(this.random, this.rules.botActMs) : 0;
     this.sendTable(table);
@@ -468,9 +472,10 @@ export class TienLenTable {
       return;
     }
     if (now < table.deadline) return;
-    // Hết giờ: bỏ lượt / đánh lá nhỏ nhất; lần sau lượt của người này ngắn lại tới khi họ tự bấm.
-    if (!turnSeat.bot) turnSeat.afk += 1;
-    round.auto(round.turn);
+    // Hết giờ: hệ thống đánh hộ (bỏ lượt / đánh lá nhỏ nhất), gắn cờ để trang báo "Hệ thống vừa đánh hộ bạn".
+    if (!turnSeat.bot) turnSeat.missed += 1;
+    const result = round.auto(round.turn);
+    if (result.ok && round.last) round.last.auto = true;
     this.afterMove(table);
   }
 
@@ -578,7 +583,11 @@ export class TienLenTable {
     for (const [index, seat] of table.seats.entries()) {
       if (!seat) continue;
       seat.paid = undefined;
-      const gone = seat.bot ? !this.room.participants.get(seat.pid) || this.random(100) < BOT_LEAVE_PERCENT : seat.leaving || !this.connected(seat);
+      const idle = !seat.bot && seat.missed >= (this.rules.idleKickMissed || Infinity);
+      const gone = seat.bot ? !this.room.participants.get(seat.pid) || this.random(100) < BOT_LEAVE_PERCENT : seat.leaving || idle || !this.connected(seat);
+      if (idle && this.connected(seat)) {
+        this.sendToAccount(seat.accountId, { v: PROTOCOL_VERSION, type: 'protocol.error', epoch: this.room.epoch, code: 'IDLE_KICKED', message: 'Bạn đã rời bàn vì nhiều lượt liền không thao tác' });
+      }
       if (gone) {
         table.seats[index] = null;
         if (!seat.bot) this.sendToAccount(seat.accountId, this.view(table, index, seat, true));
@@ -590,7 +599,6 @@ export class TienLenTable {
     }
     if (table.lastWinner !== null && !table.seats[table.lastWinner]) table.lastWinner = null;
     table.nextBotAt = this.now() + between(this.random, this.rules.botFill.delayMs);
-    this.armAlone(table);
     this.sendTable(table);
     this.scheduleState();
   }
@@ -608,7 +616,7 @@ export class TienLenTable {
     const weights = stakes.map((_, index) => Math.max(1, 5 - index));
     let roll = this.random(weights.reduce((sum, value) => sum + value, 0));
     const stake = stakes.find((_, index) => (roll -= weights[index]) < 0) || stakes[0];
-    const table = this.createTable(stake, this.rules.modes[this.random(this.rules.modes.length)], true);
+    const table = this.createTable(stake, this.rules.modes[this.random(this.rules.modes.length)], { botHosted: true, bots: true });
     table.expiresAt = now + between(this.random, this.rules.botTableMs);
     const count = 1 + this.random(3);
     for (let added = 0; added < count; added += 1) {
@@ -635,6 +643,7 @@ export class TienLenTable {
       game: table.game,
       seat: index,
       minCoins: tienLenMinCoins(table.stake),
+      bots: this.botsAllowed(table),
       players: table.seats.map((item, seatIndex) => {
         if (!item) return null;
         const player = playerOf(seatIndex);
@@ -645,7 +654,8 @@ export class TienLenTable {
         if (player >= 0 && round.order.includes(player)) entry.rank = round.order.indexOf(player) + 1;
         if (table.result?.ranks[seatIndex]) entry.rank = table.result.ranks[seatIndex];
         if ((player >= 0 && round.out[player]) || table.result?.cong.includes(seatIndex)) entry.cong = true;
-        if (!item.bot && (item.afk > 0 || !this.connected(item))) entry.away = true;
+        if (!item.bot && !this.connected(item)) entry.away = true;
+        if (!item.bot && item.missed > 0) entry.missed = Math.min(item.missed, 99);
         if (item.leaving) entry.leaving = true;
         return entry;
       }),
@@ -669,12 +679,14 @@ export class TienLenTable {
         action: last.action,
         ...(last.cards ? { cards: [...last.cards] } : {}),
         ...(last.action === 'chop' ? { units: last.units, victim: table.players[last.victim] } : {}),
+        ...(last.auto ? { auto: true } : {}),
       };
     }
     if (table.result) {
       const { ranks, nets, lines, white } = table.result;
       message.result = { ranks, nets, lines, ...(white ? { white } : {}) };
       if (seat.paid) Object.assign(message.result, { net: seat.paid.net, cut: seat.paid.cut });
+      if (seat.paid && Number.isSafeInteger(seat.before) && Number.isSafeInteger(seat.coins)) Object.assign(message.result, { before: seat.before, after: seat.coins });
     }
     if (Number.isSafeInteger(seat.coins) && seat.coins >= 0) message.coins = seat.coins;
     return message;
@@ -697,6 +709,7 @@ export class TienLenTable {
         stake: table.stake,
         mode: table.mode,
         phase: table.phase,
+        bots: this.botsAllowed(table),
         players: table.seats.filter(Boolean).map((seat) => ({ displayName: seat.name, ...(seat.skin ? { skin: seat.skin } : {}) })),
       }));
     const playing = [...this.tables.values()].filter((table) => table.phase === 'playing').length;

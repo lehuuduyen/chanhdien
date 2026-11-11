@@ -3677,7 +3677,7 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     const participant = room.participants.get(context.participantId);
-    const action = { 'tienlen.find': 'find', 'tienlen.open': 'open', 'tienlen.join': 'join', 'tienlen.leave': 'leave', 'tienlen.play': 'play', 'tienlen.pass': 'pass' }[message.type];
+    const action = { 'tienlen.find': 'find', 'tienlen.open': 'open', 'tienlen.join': 'join', 'tienlen.leave': 'leave', 'tienlen.play': 'play', 'tienlen.pass': 'pass', 'tienlen.back': 'back' }[message.type];
     // Vào bàn / mở bàn phải hỏi ví (bất đồng bộ); đánh / bỏ lượt trả ngay.
     Promise.resolve(room.table[action](participant, message)).then((result) => {
       if (!result?.ok) protocolError(socket, room.epoch, result?.code || 'GAME_UNAVAILABLE', result?.message || 'Thử lại sau', message.requestId);
