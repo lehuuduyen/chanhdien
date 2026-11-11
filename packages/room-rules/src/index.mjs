@@ -473,6 +473,57 @@ export const RPS_RULES = defineRoomRules({
   },
 });
 
+// Tiến lên miền Nam (phòng tienlen, bàn 2–4 người). Máy realtime chia bài, làm trọng tài, điều khiển bot; API giữ cọc
+// từng ván bằng xu ví vườn. Luật đánh và cách tính tiền ở @chanh-dien/tien-len (stakes / modes / depositUnits /
+// minCoinsUnits / houseCutPercent dưới đây phải khớp hằng số ở đó). Hai kiểu tính tiền: rank (A: xếp hạng, nhất ăn bét,
+// nhì ăn ba) và count (B: đếm lá). Không giữ cọc: ví phải có ít nhất mức cược × minCoinsUnits mới được ngồi bàn (kiểm
+// tra lúc vào bàn và đầu mỗi ván), hết ván mới cộng / trừ xu.
+export const TIENLEN_RULES = defineRoomRules({
+  id: 'tienlen',
+  activity: 'play-together',
+  maxParticipants: 500,
+  lang: 'vi',
+  moderation: 'standard',
+  bots: {
+    count: 18,
+    alwaysOn: true,
+    max: 120,
+    initial: 10,
+    arrivalMs: [3_000, 9_000],
+    actionMs: [2_000, 6_000],
+    churnMs: [240_000, 600_000],
+    play: 'tienlen',
+    skins: ['man', 'woman', 'child', 'pilgrim', 'lotusgirl', 'granny', 'monk', 'nun'],
+    names: uniqueNames(['Thanh Tùng', 'Ngọc Hân', 'Minh Triết', 'Bảo Trâm', 'Đăng Khoa', 'Thùy Dung', 'Quang Vinh', 'Hải Yến',
+      'Trọng Nhân', 'Kim Ngân', 'Phúc Thịnh', 'Lan Chi', 'Gia Bảo', 'Mỹ Duyên', 'Tấn Phát', 'Ánh Dương', 'Hữu Nghĩa', 'Diệu Linh'],
+    familyFirstNames(['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hồ', 'Vũ', 'Đỗ', 'Ngô'], ['Sang', 'Thư', 'Lộc', 'My', 'Hiếu', 'Uyên', 'Toàn', 'Quyên'])),
+  },
+  interaction: {
+    game: 'tienlen',
+    stakes: [20, 50, 100, 200, 500, 1_000, 2_000],
+    modes: ['rank', 'count'],
+    minCoinsUnits: 10,
+    houseCutPercent: 5,
+    maxPlayers: 4,
+    // Đủ 2 người (có ít nhất một người thật): đếm ngược rồi chia bài; đủ 4 thì chỉ chờ fullStartMs.
+    startMs: 10_000,
+    fullStartMs: 3_000,
+    // Mỗi lượt turnMs; hết giờ thì tự bỏ lượt (đang mở vòng thì tự đánh lá nhỏ nhất). Người vừa hết giờ / mất kết nối:
+    // lượt sau chỉ chờ afkTurnMs cho tới khi tự bấm lại.
+    turnMs: 20_000,
+    afkTurnMs: 5_000,
+    resultMs: 8_000,
+    botActMs: [900, 2_600],
+    // Bot vào bàn của người thật: bàn có người thật ngồi có botFill.chance khả năng bot lần lượt vào cho đủ 4 (mỗi bot
+    // cách nhau delayMs); không thì chỉ khi người thật ngồi một mình quá aloneMs mới có một bot vào chơi cùng. Bàn mức
+    // cược trên maxStake không có bot (bot đánh theo luật đơn giản, tránh người giỏi "nuôi" xu từ bot ở bàn lớn).
+    botFill: { chance: 0.65, delayMs: [2_500, 8_000], aloneMs: [8_000, 14_000], maxStake: 500 },
+    // Bàn bot ngồi sẵn trong sảnh (1–3 bot chờ người vào cho có chỗ "Vào nhanh"), mỗi bàn sống botTableMs rồi giải tán.
+    botTables: [1, 3],
+    botTableMs: [60_000, 150_000],
+  },
+});
+
 // Shop nhân vật: mua bằng kim cương (💎, chỉ có khi nạp tiền qua Stripe). Người thật không bao giờ được chia ngẫu
 // nhiên hình trong PREMIUM_SKINS; máy realtime chỉ nhận avatar.set khi vé vào phòng ghi đã sở hữu. Bot được phép lấy
 // danh mục shop đang bật từ API để cảnh có nhiều nhân vật hơn, nhưng không mang quyền sở hữu của tài khoản.
@@ -589,7 +640,7 @@ export const CINEMA_PRIVATE_RULES = defineRoomRules({
   private: { game: 'cinema', ...PRIVATE_CINEMA, botSkins: CINEMA_RULES.bots.skins },
 });
 
-export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES, 'loto-private': LOTO_PRIVATE_RULES, 'cinema-private': CINEMA_PRIVATE_RULES, rps: RPS_RULES });
+export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES, 'loto-private': LOTO_PRIVATE_RULES, 'cinema-private': CINEMA_PRIVATE_RULES, rps: RPS_RULES, tienlen: TIENLEN_RULES });
 
 // Danh mục phòng công khai. API và máy realtime cùng đọc để biết phòng nào thuộc loại nào.
 export const ROOM_CATALOG = deepFreeze([
@@ -599,6 +650,7 @@ export const ROOM_CATALOG = deepFreeze([
   { id: 'taixiu-1', type: 'taixiu', name: 'Tài Xỉu #1' },
   { id: 'loto-1', type: 'loto', name: 'Lô Tô #1' },
   { id: 'oantuti-1', type: 'rps', name: 'Oẳn Tù Tì #1' },
+  { id: 'tienlen-1', type: 'tienlen', name: 'Tiến Lên #1' },
 ]);
 
 export function getRoomRules(type) {

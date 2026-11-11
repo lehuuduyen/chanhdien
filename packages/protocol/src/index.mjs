@@ -115,6 +115,22 @@ const RPS_MATCH_ID = /^rp-[a-z0-9-]{4,76}$/;
 const RPS_LOBBY_TABLES = 20;
 const RPS_FEED = 10;
 const rpsMatchId = (value) => typeof value === 'string' && RPS_MATCH_ID.test(value);
+// Tiến lên (phòng tienlen, bàn 2–4 người): khớp TIENLEN_STAKES / TIENLEN_MODES / INSTANT_WINS của @chanh-dien/tien-len
+// (test protocol so hai bên). Lá bài là số 0–51 (hạng = lá >> 2, 3 → 2; chất = lá & 3, ♠ ♣ ♦ ♥). Mã bàn "tl-…".
+// Pha của bàn: waiting (chờ người) → starting (đếm ngược chia bài) → playing → result (kết quả ván, rồi ván mới) |
+// closed (mình đã rời / bàn giải tán).
+export const TIENLEN_STAKES = Object.freeze([20, 50, 100, 200, 500, 1_000, 2_000]);
+export const TIENLEN_MODES = Object.freeze(['rank', 'count']);
+export const TIENLEN_PHASES = Object.freeze(['waiting', 'starting', 'playing', 'result', 'closed']);
+export const TIENLEN_INSTANT_WINS = Object.freeze(['four-twos', 'dragon', 'six-pairs', 'five-pairs']);
+export const TIENLEN_REASONS = Object.freeze(['chop', 'last', 'third', 'cong', 'cards', 'leftover', 'white']);
+const TIENLEN_TABLE_ID = /^tl-[a-z0-9-]{4,76}$/;
+const TIENLEN_SEATS = 4;
+const TIENLEN_LOBBY_TABLES = 30;
+const tienLenTableId = (value) => typeof value === 'string' && TIENLEN_TABLE_ID.test(value);
+const tienLenSeat = (value) => isInteger(value) && value >= 0 && value < TIENLEN_SEATS;
+const tienLenCards = (value, min = 1) => Array.isArray(value) && value.length >= min && value.length <= 13
+  && value.every((card) => isInteger(card) && card >= 0 && card <= 51) && new Set(value).size === value.length;
 export const WORLD_LIMIT = 1_000;
 export const MOVES_PER_BATCH = 500;
 
@@ -151,6 +167,12 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'rps.leave': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
   'rps.pick': { roles: ['member', 'moderator', 'host'], rate: '10/10 giây, chỉ trong pha chọn, một lần mỗi lượt' },
   'rps.rematch': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
+  'tienlen.find': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, mỗi người một bàn một lúc' },
+  'tienlen.open': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, mỗi người một bàn một lúc' },
+  'tienlen.join': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
+  'tienlen.leave': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
+  'tienlen.play': { roles: ['member', 'moderator', 'host'], rate: '30/10 giây (chung với pass), đúng lượt (4 đôi thông chặt ngoài lượt)' },
+  'tienlen.pass': { roles: ['member', 'moderator', 'host'], rate: '30/10 giây (chung với play), đúng lượt' },
   'prayer.announce': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'friend.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'friend.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
@@ -368,6 +390,40 @@ const clientSchemas = {
     return exactKeys(message, ['v', 'type', 'requestId', 'matchId'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && rpsMatchId(message.matchId);
+  },
+  // Tiến lên: vào nhanh (lọc theo mức cược / kiểu nếu có), mở bàn, ngồi vào bàn, rời bàn (đang chơi thì rời sau ván),
+  // đánh bài, bỏ lượt.
+  'tienlen.find'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId'], ['stake', 'mode'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && (message.stake === undefined || TIENLEN_STAKES.includes(message.stake))
+      && (message.mode === undefined || TIENLEN_MODES.includes(message.mode));
+  },
+  'tienlen.open'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'stake', 'mode'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && TIENLEN_STAKES.includes(message.stake)
+      && TIENLEN_MODES.includes(message.mode);
+  },
+  'tienlen.join'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'tableId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && tienLenTableId(message.tableId);
+  },
+  'tienlen.leave'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'tienlen.play'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'tableId', 'cards'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && tienLenTableId(message.tableId)
+      && tienLenCards(message.cards);
+  },
+  'tienlen.pass'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'tableId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && tienLenTableId(message.tableId);
   },
   'bet.cancel'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'roundId'])
@@ -733,6 +789,68 @@ const serverSchemas = {
       && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0))
       && (message.prize === undefined || (isInteger(message.prize) && message.prize > 0))
       && (message.rematch === undefined || pair(message.rematch));
+  },
+  // Sảnh Tiến lên (cả phòng): các bàn (đang chờ / đang chơi), người ngồi từng bàn, số bàn đang chơi.
+  'tienlen.lobby'(message) {
+    const player = (item) => isRecord(item) && exactKeys(item, ['displayName'], ['skin'])
+      && isString(item.displayName, LIMITS.displayName) && (item.skin === undefined || validSkin(item.skin));
+    const table = (item) => isRecord(item) && exactKeys(item, ['id', 'stake', 'mode', 'phase', 'players'])
+      && tienLenTableId(item.id) && TIENLEN_STAKES.includes(item.stake) && TIENLEN_MODES.includes(item.mode)
+      && ['waiting', 'starting', 'playing', 'result'].includes(item.phase)
+      && Array.isArray(item.players) && item.players.length <= TIENLEN_SEATS && item.players.every(player);
+    return exactKeys(message, ['v', 'type', 'epoch', 'tables', 'playing'])
+      && Array.isArray(message.tables) && message.tables.length <= TIENLEN_LOBBY_TABLES && message.tables.every(table)
+      && isInteger(message.playing) && message.playing >= 0;
+  },
+  // Bàn của chính mình (chỉ gửi người ngồi bàn; bài trên tay `hand` chỉ là của mình, người khác chỉ thấy số lá).
+  // players: đúng 4 chỗ theo số ghế (null = ghế trống); seat: ghế của mình. turn / deadline: ai đang tới lượt, giờ server
+  // (ms) hết lượt / hết đếm ngược. top: bộ đang nằm trên bàn. lead: mình đang mở vòng; mustInclude: lá phải đánh kèm.
+  // last: nước vừa đi (chop kèm số phần người bị chặt phải trả). result: kết quả ván (ranks / nets theo ghế; lines là các
+  // khoản đã tính ra xu; net / cut: xu của mình thực cộng / trừ sau phế). minCoins: số xu tối thiểu để ngồi bàn này.
+  'tienlen.table'(message) {
+    const player = (item) => item === null || (isRecord(item)
+      && exactKeys(item, ['displayName', 'cards'], ['skin', 'level', 'passed', 'rank', 'cong', 'away', 'leaving'])
+      && isString(item.displayName, LIMITS.displayName)
+      && isInteger(item.cards) && item.cards >= 0 && item.cards <= 13
+      && (item.skin === undefined || validSkin(item.skin))
+      && (item.level === undefined || (isInteger(item.level) && item.level >= 1 && item.level <= 99))
+      && ['passed', 'cong', 'away', 'leaving'].every((key) => item[key] === undefined || typeof item[key] === 'boolean')
+      && (item.rank === undefined || (isInteger(item.rank) && item.rank >= 1 && item.rank <= TIENLEN_SEATS)));
+    const seatList = (value, valid) => Array.isArray(value) && value.length === TIENLEN_SEATS && value.every((item) => item === null || valid(item));
+    const line = (item) => isRecord(item) && exactKeys(item, ['from', 'to', 'units', 'coins', 'reason'])
+      && tienLenSeat(item.from) && tienLenSeat(item.to) && item.from !== item.to
+      && isInteger(item.units) && item.units >= 0 && isInteger(item.coins) && item.coins >= 0 && TIENLEN_REASONS.includes(item.reason);
+    const result = (value) => isRecord(value) && exactKeys(value, ['ranks', 'nets', 'lines'], ['white', 'net', 'cut'])
+      && seatList(value.ranks, (rank) => isInteger(rank) && rank >= 1 && rank <= TIENLEN_SEATS)
+      && seatList(value.nets, isInteger)
+      && Array.isArray(value.lines) && value.lines.length <= 48 && value.lines.every(line)
+      && (value.white === undefined || TIENLEN_INSTANT_WINS.includes(value.white))
+      && (value.net === undefined || isInteger(value.net))
+      && (value.cut === undefined || (isInteger(value.cut) && value.cut >= 0));
+    const last = (value) => isRecord(value) && exactKeys(value, ['seat', 'action'], ['cards', 'units', 'victim'])
+      && tienLenSeat(value.seat) && ['play', 'pass', 'chop'].includes(value.action)
+      && (value.cards === undefined || tienLenCards(value.cards))
+      && (value.units === undefined || (isInteger(value.units) && value.units >= 0))
+      && (value.victim === undefined || tienLenSeat(value.victim));
+    return exactKeys(message, ['v', 'type', 'epoch', 'tableId', 'stake', 'mode', 'phase', 'game', 'seat', 'players', 'minCoins'],
+      ['deadline', 'turn', 'top', 'lead', 'mustInclude', 'hand', 'last', 'result', 'coins'])
+      && tienLenTableId(message.tableId)
+      && TIENLEN_STAKES.includes(message.stake)
+      && TIENLEN_MODES.includes(message.mode)
+      && TIENLEN_PHASES.includes(message.phase)
+      && isInteger(message.game) && message.game >= 0
+      && tienLenSeat(message.seat)
+      && Array.isArray(message.players) && message.players.length === TIENLEN_SEATS && message.players.every(player)
+      && isInteger(message.minCoins) && message.minCoins > 0
+      && (message.deadline === undefined || (isInteger(message.deadline) && message.deadline >= 0))
+      && (message.turn === undefined || tienLenSeat(message.turn))
+      && (message.top === undefined || (isRecord(message.top) && exactKeys(message.top, ['seat', 'cards']) && tienLenSeat(message.top.seat) && tienLenCards(message.top.cards)))
+      && (message.lead === undefined || typeof message.lead === 'boolean')
+      && (message.mustInclude === undefined || (isInteger(message.mustInclude) && message.mustInclude >= 0 && message.mustInclude <= 51))
+      && (message.hand === undefined || tienLenCards(message.hand, 0))
+      && (message.last === undefined || last(message.last))
+      && (message.result === undefined || result(message.result))
+      && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0));
   },
   // Ví kim cương vừa đổi vì việc trong phòng (mở phim): chỉ gửi cho chủ ví để ô 💎 cập nhật ngay.
   // spent: vừa trừ (mở phim), refunded: vừa hoàn (hủy phim, video lỗi, rạp đóng); đúng một trong hai. currency mặc định

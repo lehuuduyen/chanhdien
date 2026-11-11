@@ -8,6 +8,7 @@
 // FRUIT_KEEP_DAYS ngày mới expired. Lịch sử vụ, tưới, hái, giao dịch xu đều được giữ lại để đối soát.
 
 import { createHash, randomInt } from 'node:crypto';
+import { capTransfers, TIENLEN_MAX_PLAYERS, TIENLEN_MODES, TIENLEN_STAKES, tienLenCut, tienLenMinCoins } from '@chanh-dien/tien-len';
 export const PLOT_COUNT = 50;
 // Bot làm vườn (Phật tử ảo ở các phòng chánh điện) giữ tối đa 30% số luống, phần còn lại luôn để người chơi.
 export const BOT_PLOT_SHARE = 0.3;
@@ -108,6 +109,14 @@ const STALE_SCAN_MS = 30_000;
 const RPS_MATCH_ID = /^rp-[a-z0-9-]{4,76}$/;
 // Tiền người thắng nhận từ cọc 2 × stake (phế làm tròn xuống, mức cược nào cũng chia hết).
 export const rpsPrize = (stake) => 2 * stake - Math.floor((2 * stake * RPS_HOUSE_CUT_PERCENT) / 100);
+
+// Tiến lên (phòng tienlen, bàn 2–4 người, mã ván tl-…). Không giữ cọc: ví phải có ít nhất tienLenMinCoins(mức cược) mới
+// được ngồi bàn (máy realtime hỏi lúc vào bàn và đầu mỗi ván, đầu ván thì ghi tên người chơi vào ván). Hết ván máy realtime
+// gửi các khoản phải trả (đã tính theo luật @chanh-dien/tien-len); ở đây mới trừ / cộng ví: ai phải trả nhiều hơn số xu
+// đang có thì chỉ trả hết số đó (người nhận nhận ít đi tương ứng); phế TIENLEN_HOUSE_CUT_PERCENT trên phần thắng. Phía bot
+// (null) do hệ thống trả / nhận.
+const TIENLEN_MATCH_ID = /^tl-[a-z0-9-]{4,76}$/;
+const TIENLEN_MAX_TRANSFERS = 64;
 
 // Lô Tô chơi chung: mua vé (lưới 3 × 9, mỗi hàng 5 số 1–90) bằng xu, máy realtime gọi số, ai kinh (đủ 5 số một
 // hàng) thì thắng và kết thúc ván. Tiền vé gom vào quỹ; người kinh nhận quỹ trừ phế, nhiều vé kinh cùng nhịp thì chia
@@ -522,6 +531,22 @@ const MIGRATIONS = [
     at INTEGER NOT NULL,
     PRIMARY KEY (account_id, idem_key)
   );`,
+  // Tiến lên: người thật trong từng ván (một dòng / người / ván, không giữ tiền) và ván đã chốt (kết quả từng người).
+  `CREATE TABLE IF NOT EXISTS tienlen_players (
+    match_id TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    stake INTEGER NOT NULL CHECK (stake > 0),
+    mode TEXT NOT NULL CHECK (mode IN ('rank', 'count')),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (match_id, account_id)
+  );
+  CREATE INDEX IF NOT EXISTS tienlen_players_time ON tienlen_players(at);
+  CREATE TABLE IF NOT EXISTS tienlen_matches (
+    match_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('settled', 'void')),
+    results TEXT NOT NULL,
+    at INTEGER NOT NULL
+  );`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -702,6 +727,10 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     rpsStale: db.prepare(`SELECT DISTINCT s.match_id AS id FROM rps_stakes s LEFT JOIN rps_matches m ON m.match_id = s.match_id
       WHERE s.at >= ? AND s.at < ? AND m.match_id IS NULL`),
     rpsLastAt: db.prepare('SELECT MAX(at) AS at FROM rps_stakes WHERE match_id = ?'),
+    tienLenJoin: db.prepare('INSERT INTO tienlen_players (match_id, account_id, stake, mode, at) VALUES (?, ?, ?, ?, ?)'),
+    tienLenPlayers: db.prepare('SELECT account_id AS accountId, stake, mode FROM tienlen_players WHERE match_id = ? ORDER BY rowid'),
+    tienLenDone: db.prepare('SELECT status, results FROM tienlen_matches WHERE match_id = ?'),
+    tienLenClose: db.prepare('INSERT INTO tienlen_matches (match_id, status, results, at) VALUES (?, ?, ?, ?)'),
     coinSpend: db.prepare('SELECT amount, reason, ref, refunded FROM coin_spends WHERE account_id = ? AND idem_key = ?'),
     addCoinSpend: db.prepare('INSERT INTO coin_spends (account_id, idem_key, amount, reason, ref, at) VALUES (?, ?, ?, ?, ?, ?)'),
     markCoinRefunded: db.prepare('UPDATE coin_spends SET refunded = 1 WHERE account_id = ? AND idem_key = ?'),
@@ -1496,6 +1525,70 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
 
     refundStaleRps() {
       return transaction(refundStaleRps);
+    },
+
+    // Tiến lên — xem một người có đủ xu ngồi bàn mức cược này không (không đổi gì). Trả { ok, coins, need } hoặc
+    // { ok: false, code: 'INSUFFICIENT_COINS', coins, need }.
+    checkTienLen({ accountId, stake }) {
+      if (!TIENLEN_STAKES.includes(stake)) return { ok: false, code: 'INVALID' };
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      const coins = ensureWallet(accountId);
+      const need = tienLenMinCoins(stake);
+      return coins >= need ? { ok: true, coins, need } : { ok: false, code: 'INSUFFICIENT_COINS', coins, need };
+    },
+
+    // Tiến lên — đầu ván: ghi người này vào ván nếu còn đủ xu ngồi bàn (không trừ xu). Mọi người trong ván cùng mức cược và
+    // kiểu; tối đa TIENLEN_MAX_PLAYERS người. Gửi lại cùng người cùng ván trả kết quả cũ.
+    beginTienLen({ accountId, matchId, stake, mode }) {
+      if (typeof matchId !== 'string' || !TIENLEN_MATCH_ID.test(matchId) || !TIENLEN_STAKES.includes(stake) || !TIENLEN_MODES.includes(mode)) {
+        return { ok: false, code: 'INVALID' };
+      }
+      if (!q.account.get(accountId)) return { ok: false, code: 'NOT_SIGNED_IN' };
+      return transaction(() => {
+        if (q.tienLenDone.get(matchId)) return { ok: false, code: 'ROUND_CLOSED' };
+        const players = q.tienLenPlayers.all(matchId);
+        const coins = ensureWallet(accountId);
+        if (players.some((row) => row.accountId === accountId)) return { ok: true, coins, replayed: true };
+        if (players.length >= TIENLEN_MAX_PLAYERS || players.some((row) => row.stake !== stake || row.mode !== mode)) return { ok: false, code: 'INVALID' };
+        const need = tienLenMinCoins(stake);
+        if (coins < need) return { ok: false, code: 'INSUFFICIENT_COINS', coins, need };
+        q.tienLenJoin.run(matchId, accountId, stake, mode, now());
+        return { ok: true, coins };
+      });
+    },
+
+    // Tiến lên — chốt ván. transfers: [{ from, to, coins }] (from / to là accountId đã ghi vào ván, hoặc null = bot khi
+    // bots = true); [] để đóng ván không đổi gì (ván bị hủy). Người trả thiếu xu thì chỉ trả hết số đang có. Gọi lại cùng
+    // ván trả kết quả cũ. Trả { ok, results: [{ accountId, paid, received, net, cut, coins }] } (net: số xu thực cộng / trừ
+    // sau phế).
+    settleTienLen({ matchId, transfers, bots }) {
+      if (typeof matchId !== 'string' || !TIENLEN_MATCH_ID.test(matchId) || typeof bots !== 'boolean'
+        || !Array.isArray(transfers) || transfers.length > TIENLEN_MAX_TRANSFERS) return { ok: false, code: 'INVALID' };
+      return transaction(() => {
+        const done = q.tienLenDone.get(matchId);
+        if (done) return { ok: true, results: JSON.parse(done.results), void: done.status === 'void', replayed: true };
+        const players = q.tienLenPlayers.all(matchId);
+        const known = new Set(players.map((row) => row.accountId));
+        const limit = (players[0]?.stake || 0) * 60;
+        const side = (value) => (value === null ? bots : known.has(value));
+        const valid = transfers.every((item) => item && side(item.from) && side(item.to) && item.from !== item.to
+          && Number.isSafeInteger(item.coins) && item.coins >= 0 && item.coins <= limit);
+        if (!valid) return { ok: false, code: 'INVALID' };
+        // Người thật trả tối đa bằng số xu đang có; bot (null) do hệ thống trả đủ.
+        const balance = new Map(players.map((row) => [row.accountId, ensureWallet(row.accountId)]));
+        const paid = capTransfers(transfers, (from) => (from === null ? undefined : balance.get(from)));
+        const results = players.map(({ accountId }) => {
+          const out = paid.filter((item) => item.from === accountId).reduce((sum, item) => sum + item.coins, 0);
+          const received = paid.filter((item) => item.to === accountId).reduce((sum, item) => sum + item.coins, 0);
+          const cut = tienLenCut(received - out);
+          const net = received - out - cut;
+          const coins = net ? changeCoins(accountId, net, net > 0 ? 'game_win' : 'game_bet', null, null) : ensureWallet(accountId);
+          return { accountId, paid: out, received, net, cut, coins };
+        });
+        const empty = !transfers.length;
+        q.tienLenClose.run(matchId, empty ? 'void' : 'settled', JSON.stringify(results), now());
+        return { ok: true, results, void: empty };
+      });
     },
 
     // Hoàn cược các ván treo (không được chốt sau BAU_CUA_STALE_MS). Trả số ván đã hủy.
