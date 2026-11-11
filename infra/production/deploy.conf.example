@@ -6,3 +6,5 @@ API_UNIT=lotusgather-api.service
 API_HEALTH_URL=http://127.0.0.1:4000/health
 REALTIME_UNITS=(lotusgather-realtime@1.service lotusgather-realtime@2.service)
 REALTIME_HEALTH_URLS=(http://127.0.0.1:4001/health http://127.0.0.1:4002/health)
+# Số release giữ lại trên đĩa sau mỗi lần deploy (tính cả bản đang chạy; bản vừa bị thay luôn được giữ để rollback).
+KEEP_RELEASES=5
