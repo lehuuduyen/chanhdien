@@ -28,6 +28,7 @@ import {
 import { WebSocket, WebSocketServer } from 'ws';
 import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
 import { rpsBank, RpsTable } from './rps.mjs';
+import { tienLenBank, TienLenTable } from './tien-len.mjs';
 import { HideSeekGame } from './hide-seek.mjs';
 import { BOT_AI_MODEL, createBotAi, guessLang } from './bot-ai.mjs';
 import { botNavFor } from './bot-nav.mjs';
@@ -356,7 +357,9 @@ export class Room {
       ? new BauCuaTable({ room: this, rules: this.rules.interaction, ...(options.bauCua || {}) })
       : game === 'loto' ? new LottoTable({ room: this, rules: this.rules.interaction, ...(options.lotto || {}) })
         // Oẳn Tù Tì cược (đấu 1–1): options.rps { stake, settle } gọi API giữ cọc / chốt trận.
-        : game === 'rps' ? new RpsTable({ room: this, rules: this.rules.interaction, ...(options.rps || {}) }) : null;
+        : game === 'rps' ? new RpsTable({ room: this, rules: this.rules.interaction, ...(options.rps || {}) })
+          // Tiến lên (bàn 2–4 người): options.tienlen { stake, settle } gọi API giữ cọc / chốt từng ván.
+          : game === 'tienlen' ? new TienLenTable({ room: this, rules: this.rules.interaction, ...(options.tienlen || {}) }) : null;
     // Trốn tìm trong sân (rules.hideSeek, phòng có thế giới 3D): ván do máy giữ phòng điều khiển.
     this.hideSeek = this.rules.hideSeek && this.rules.world ? new HideSeekGame({ room: this, rules: this.rules.hideSeek }) : null;
     // Phòng game công cộng cấu hình alwaysOn tự tạo đủ bot ngay khi room actor mở, giữ bàn chạy khi chưa có người
@@ -2691,8 +2694,8 @@ export class Room {
       this.botBuyTicket(bot, config.tickets);
       return;
     }
-    // Oẳn Tù Tì: bàn tự điều khiển bot (mở bàn, nhận bàn, ra tay); bot không nói gì thêm.
-    if (config.play === 'rps') return;
+    // Oẳn Tù Tì / Tiến lên: bàn tự điều khiển bot (mở bàn, nhận bàn, ra tay / đánh bài); bot không nói gì thêm.
+    if (config.play === 'rps' || config.play === 'tienlen') return;
     const { lines } = this.botWords();
     const line = () => lines[Math.floor(Math.random() * lines.length)];
     // Bot đang đi ngoài sân chỉ trò chuyện/niệm Phật; lễ vật được dâng bởi bot đang ở chánh điện. Ngoài sân nói ít
@@ -3173,6 +3176,7 @@ export class RoomRegistry {
     this.moderation = options.moderation || null;
     this.bauCua = options.bauCua;
     this.rps = options.rps;
+    this.tienlen = options.tienlen;
     this.lotto = options.lotto;
     this.videoPay = options.videoPay;
     this.videoReview = options.videoReview;
@@ -3218,8 +3222,8 @@ export class RoomRegistry {
     if (!Number.isSafeInteger(total) || total < 0 || total > 1_000) return null;
     this.botManaged = true;
     this.botPlanReplacesDefaults = true;
-    for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto', 'rps']) this.botCounts[type] = 0;
-    const baseRooms = ['thien-1', 'game-1', 'taixiu-1', 'loto-1', 'oantuti-1'];
+    for (const type of ['thien', 'cinema', 'game', 'taixiu', 'loto', 'rps', 'tienlen']) this.botCounts[type] = 0;
+    const baseRooms = ['thien-1', 'game-1', 'taixiu-1', 'loto-1', 'oantuti-1', 'tienlen-1'];
     if (total > 0) await Promise.all(baseRooms.map((roomId) => this.open(roomId)));
 
     // Phòng có bots.range (rạp) tự giữ số bot trong khoảng của nó, addbot không chia vào.
@@ -3227,7 +3231,7 @@ export class RoomRegistry {
     const allocations = new Map(rooms.map((room) => [room.id, 0]));
     const capacity = (room) => Math.max(0, Math.min(room.botLimit, room.maxParticipants - room.realCount));
     let remaining = total;
-    const games = ['game-1', 'taixiu-1', 'loto-1', 'oantuti-1'].map((roomId) => this.rooms.get(roomId)).filter((room) => room?.rules.bots);
+    const games = ['game-1', 'taixiu-1', 'loto-1', 'oantuti-1', 'tienlen-1'].map((roomId) => this.rooms.get(roomId)).filter((room) => room?.rules.bots);
     // Hai người là đủ để Lô Tô bắt đầu; Bầu Cua/Tài Xỉu cũng không còn cảnh bàn trống.
     for (let pass = 0; pass < 2 && remaining > 0; pass += 1) {
       for (const room of games) {
@@ -3315,7 +3319,7 @@ export class RoomRegistry {
 
   roomName(roomId) {
     return cinemaRoomName(roomId)
-      || ({ 'thien-1': 'Chánh điện', 'game-1': 'Bầu Cua', 'taixiu-1': 'Tài Xỉu', 'loto-1': 'Lô Tô', 'oantuti-1': 'Oẳn Tù Tì' })[roomId]
+      || ({ 'thien-1': 'Chánh điện', 'game-1': 'Bầu Cua', 'taixiu-1': 'Tài Xỉu', 'loto-1': 'Lô Tô', 'oantuti-1': 'Oẳn Tù Tì', 'tienlen-1': 'Tiến Lên' })[roomId]
       || roomId;
   }
 
@@ -3352,6 +3356,7 @@ export class RoomRegistry {
       bauCua: this.bauCua,
       lotto: this.lotto,
       rps: this.rps,
+      tienlen: this.tienlen,
       videoPay: this.videoPay,
       videoReview: this.videoReview,
       gardenBots: this.gardenBots,
@@ -3655,6 +3660,25 @@ function handleRoomMessage(socket, context, raw) {
     }
     const participant = room.participants.get(context.participantId);
     const action = { 'rps.open': 'open', 'rps.find': 'find', 'rps.join': 'join', 'rps.leave': 'leave', 'rps.pick': 'pick', 'rps.rematch': 'rematch' }[message.type];
+    Promise.resolve(room.table[action](participant, message)).then((result) => {
+      if (!result?.ok) protocolError(socket, room.epoch, result?.code || 'GAME_UNAVAILABLE', result?.message || 'Thử lại sau', message.requestId);
+    });
+    return;
+  }
+  if (message.type.startsWith('tienlen.')) {
+    if (room.table?.kind !== 'tienlen') {
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có bàn Tiến lên', message.requestId);
+      return;
+    }
+    const moving = message.type === 'tienlen.play' || message.type === 'tienlen.pass';
+    // Đánh / bỏ lượt: 30 nước / 10 giây (hai người đánh nhanh qua lại vẫn không chạm), đủ chặn bấm dồn.
+    if (!room.allow(`${context.participantId}:${moving ? 'tienlen-move' : 'tienlen'}`, moving ? 30 : 5, 10_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn bấm quá nhanh', message.requestId);
+      return;
+    }
+    const participant = room.participants.get(context.participantId);
+    const action = { 'tienlen.find': 'find', 'tienlen.open': 'open', 'tienlen.join': 'join', 'tienlen.leave': 'leave', 'tienlen.play': 'play', 'tienlen.pass': 'pass' }[message.type];
+    // Vào bàn / mở bàn phải hỏi ví (bất đồng bộ); đánh / bỏ lượt trả ngay.
     Promise.resolve(room.table[action](participant, message)).then((result) => {
       if (!result?.ok) protocolError(socket, room.epoch, result?.code || 'GAME_UNAVAILABLE', result?.message || 'Thử lại sau', message.requestId);
     });
@@ -4481,6 +4505,7 @@ export function createRealtimeServer(options = {}) {
     bauCua: options.bauCua || (options.apiInternalUrl ? bauCuaBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     lotto: options.lotto || (options.apiInternalUrl ? lottoBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     rps: options.rps || (options.apiInternalUrl ? rpsBank(options.apiInternalUrl, internalKey(secret)) : undefined),
+    tienlen: options.tienlen || (options.apiInternalUrl ? tienLenBank(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Ví kim cương (mở phim): trừ / hoàn qua API.
     videoPay: options.videoPay || (options.apiInternalUrl ? cinemaVideoPay(options.apiInternalUrl, internalKey(secret)) : undefined),
     // Kiểm duyệt video người chơi mở (AI ở API) trước khi trừ tiền.
@@ -4614,7 +4639,7 @@ if (isMain) {
   // Số bot theo loại phòng: BOTS_THIEN / BOTS_GAME / BOTS_TAIXIU / BOTS_LOTO (0 để tắt). Rạp phim (bots.range trong room
   // rules) luôn giữ số bot trong khoảng của nó nên bỏ qua BOTS_CINEMA (file env cũ có thể còn BOTS_CINEMA=0).
   const botCounts = {};
-  for (const type of ['thien', 'game', 'taixiu', 'loto', 'rps']) {
+  for (const type of ['thien', 'game', 'taixiu', 'loto', 'rps', 'tienlen']) {
     const value = process.env[`BOTS_${type.toUpperCase()}`];
     if (value !== undefined && /^\d+$/.test(value)) botCounts[type] = Number(value);
   }

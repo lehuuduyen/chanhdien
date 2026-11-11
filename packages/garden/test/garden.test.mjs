@@ -512,8 +512,9 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
     DROP TABLE garden_plots;
     ALTER TABLE garden_plots_old RENAME TO garden_plots;
     PRAGMA foreign_keys = ON;`);
-  // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm, hai bản Linh thú, bản Oẳn Tù Tì và bản tiêu xu trong phòng).
-  db.prepare("UPDATE garden_meta SET value = CAST(value - 6 AS TEXT) WHERE key = 'schema_version'").run();
+  // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm, hai bản Linh thú, bản Oẳn Tù Tì,
+  // bản tiêu xu trong phòng và bản Tiến lên).
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 7 AS TEXT) WHERE key = 'schema_version'").run();
   assert.throws(() => db.prepare('INSERT INTO garden_plots (id, created_at) VALUES (11, 1)').run());
   const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
   assert.equal(upgraded.plot(3).crop.ownerName, 'an_lac');
@@ -610,6 +611,56 @@ test('oẳn tù tì với bot: thắng nhận cọc + phần của bot trừ ph�
   assert.equal(garden.settleRps({ matchId: 'rp-stale-1', winner: an, bot: true }).void, true, 'trận đã hoàn không trả thưởng nữa');
   assert.equal(garden.me(an).coins, coins - 2);
   assert.deepEqual(garden.history(an).slice(0, 2).map((row) => row.kind), ['game_refund', 'game_bet']);
+});
+
+test('tiến lên: không giữ cọc; ngồi bàn cần 10 lần mức cược; hết ván mới trừ / cộng, phế 5% phần thắng, chốt lại không trả hai lần', () => {
+  const { garden, user } = setup();
+  const [an, binh, chi] = [user('an_lac'), user('binh_an'), user('chi_mai')];
+  for (const [index, id] of [an, binh, chi].entries()) garden.adjustCoins({ accountId: id, amount: 5_000, key: `tl-grant-000${index}` });
+  const coins = garden.me(an).coins;
+  const poor = user('ngheo_lam');
+  assert.deepEqual(garden.checkTienLen({ accountId: an, stake: 500 }), { ok: true, coins, need: 5_000 });
+  assert.equal(garden.checkTienLen({ accountId: an, stake: 1_000 }).code, 'INSUFFICIENT_COINS', 'cần 10.000 xu cho bàn 1.000');
+  assert.equal(garden.checkTienLen({ accountId: poor, stake: 20 }).code, 'INSUFFICIENT_COINS');
+  assert.equal(garden.checkTienLen({ accountId: an, stake: 30 }).code, 'INVALID');
+  const match = 'tl-tienlen-1-1-1-abcd';
+  assert.equal(garden.beginTienLen({ accountId: an, matchId: match, stake: 50, mode: 'all' }).code, 'INVALID');
+  assert.deepEqual(garden.beginTienLen({ accountId: an, matchId: match, stake: 50, mode: 'rank' }), { ok: true, coins });
+  assert.equal(garden.me(an).coins, coins, 'không trừ xu đầu ván');
+  assert.equal(garden.beginTienLen({ accountId: an, matchId: match, stake: 50, mode: 'rank' }).replayed, true);
+  assert.equal(garden.beginTienLen({ accountId: binh, matchId: match, stake: 50, mode: 'count' }).code, 'INVALID', 'cả ván cùng kiểu');
+  assert.equal(garden.beginTienLen({ accountId: poor, matchId: match, stake: 50, mode: 'rank' }).code, 'INSUFFICIENT_COINS');
+  assert.ok(garden.beginTienLen({ accountId: binh, matchId: match, stake: 50, mode: 'rank' }).ok);
+  assert.ok(garden.beginTienLen({ accountId: chi, matchId: match, stake: 50, mode: 'rank' }).ok);
+  // Khoản lạ bị từ chối: người không trong ván, bot ở ván không có bot, tự trả mình.
+  assert.equal(garden.settleTienLen({ matchId: match, transfers: [{ from: poor, to: an, coins: 100 }], bots: false }).code, 'INVALID');
+  assert.equal(garden.settleTienLen({ matchId: match, transfers: [{ from: null, to: an, coins: 100 }], bots: false }).code, 'INVALID');
+  assert.equal(garden.settleTienLen({ matchId: match, transfers: [{ from: an, to: an, coins: 100 }], bots: false }).code, 'INVALID');
+  const transfers = [{ from: binh, to: an, coins: 200 }, { from: chi, to: an, coins: 100 }, { from: an, to: binh, coins: 50 }];
+  const settled = garden.settleTienLen({ matchId: match, transfers, bots: false });
+  assert.equal(settled.ok, true);
+  assert.deepEqual(settled.results.map(({ accountId, net, cut }) => [accountId, net, cut]), [[an, 238, 12], [binh, -150, 0], [chi, -100, 0]]);
+  assert.equal(garden.me(an).coins, coins + 238);
+  assert.equal(garden.settleTienLen({ matchId: match, transfers, bots: false }).replayed, true);
+  assert.equal(garden.me(an).coins, coins + 238, 'chốt lại không trả hai lần');
+  assert.equal(garden.beginTienLen({ accountId: poor, matchId: match, stake: 50, mode: 'rank' }).code, 'ROUND_CLOSED');
+});
+
+test('tiến lên: người thua không đủ xu chỉ trả hết số đang có (người nhận nhận ít đi); với bot thì hệ thống trả / nhận', () => {
+  const { garden, user } = setup();
+  const [an, binh] = [user('an_lac'), user('binh_an')];
+  garden.adjustCoins({ accountId: an, amount: 5_000, key: 'tl-grant-short-1' });
+  garden.adjustCoins({ accountId: binh, amount: 450, key: 'tl-grant-short-2' });
+  const start = garden.me(an).coins;
+  garden.beginTienLen({ accountId: an, matchId: 'tl-short-1', stake: 50, mode: 'count' });
+  garden.beginTienLen({ accountId: binh, matchId: 'tl-short-1', stake: 50, mode: 'count' });
+  // Bình chỉ còn 500 xu mà thua 1.300 xu.
+  const short = garden.settleTienLen({ matchId: 'tl-short-1', transfers: [{ from: binh, to: an, coins: 1_300 }], bots: false });
+  assert.deepEqual(short.results.map(({ net, coins }) => [net, coins]), [[475, start + 475], [-500, 0]]);
+  garden.beginTienLen({ accountId: an, matchId: 'tl-bot-1', stake: 20, mode: 'count' });
+  const bot = garden.settleTienLen({ matchId: 'tl-bot-1', transfers: [{ from: null, to: an, coins: 260 }, { from: an, to: null, coins: 40 }], bots: true });
+  assert.equal(bot.results[0].net, 209, 'thắng bot 260, thua bot 40 → +220, phế 11');
+  assert.equal(garden.settleTienLen({ matchId: 'tl-void-1', transfers: [], bots: true }).void, true);
 });
 
 test('dọn ván treo theo từng khoảng thời gian: ván còn cược mới chưa bị hoàn, quá hạn kể từ lần cược cuối thì hoàn', () => {

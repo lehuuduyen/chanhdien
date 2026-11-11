@@ -10,6 +10,11 @@
 // Oẳn Tù Tì cược (đấu 1–1, mã trận rp-…):
 //   POST /internal/games/rps/stake  { accountId, matchId, amount, key } → trừ cọc khi vào bàn
 //   POST /internal/games/rps/settle { matchId, winner, bot }            → trả người thắng (trừ phế) / hoàn cọc khi hòa, hủy
+// Tiến lên (bàn 2–4 người, mã ván tl-…; luật tính tiền ở @chanh-dien/tien-len, máy realtime gửi các khoản đã tính). Không
+// giữ cọc: ngồi bàn cần ít nhất 10 lần mức cược trong ví, hết ván mới trừ / cộng:
+//   POST /internal/games/tienlen/check  { accountId, stake }               → đủ xu ngồi bàn không (không đổi gì)
+//   POST /internal/games/tienlen/begin  { accountId, matchId, stake, mode } → đầu ván: ghi người vào ván nếu còn đủ xu
+//   POST /internal/games/tienlen/settle { matchId, transfers, bots }        → trừ / cộng theo các khoản (thiếu xu thì trả hết số có), phế 5% phần thắng
 // Trình duyệt không gọi trực tiếp được (không có khóa nội bộ).
 import { DEFAULT_LOCAL_SECRET, internalKey } from '@chanh-dien/session-token';
 import { timingSafeEqual } from 'node:crypto';
@@ -25,7 +30,7 @@ function internalAllowed(req, options) {
 }
 
 export async function handleGameRequest(req, res, pathname, options) {
-  const match = pathname.match(/^\/internal\/games\/(bau-cua|loto|rps)\/(stake|unstake|settle|buy)$/);
+  const match = pathname.match(/^\/internal\/games\/(bau-cua|loto|rps|tienlen)\/(stake|unstake|settle|buy|check|begin)$/);
   if (!match && !pathname.startsWith('/api/v1/games')) return false;
   if (!match || req.method !== 'POST') {
     json(req, res, 404, { error: 'not_found' });
@@ -42,7 +47,13 @@ export async function handleGameRequest(req, res, pathname, options) {
   const input = await body(req, res);
   if (!input) return true;
   const [, game, action] = match;
-  const result = game === 'rps'
+  const result = game === 'tienlen'
+    ? action === 'check'
+      ? options.garden.checkTienLen({ accountId: input.accountId, stake: input.stake })
+      : action === 'begin'
+        ? options.garden.beginTienLen({ accountId: input.accountId, matchId: input.matchId, stake: input.stake, mode: input.mode })
+        : action === 'settle' ? options.garden.settleTienLen({ matchId: input.matchId, transfers: input.transfers, bots: input.bots }) : { ok: false, code: 'INVALID' }
+    : game === 'rps'
     ? action === 'stake'
       ? options.garden.stakeRps({ accountId: input.accountId, matchId: input.matchId, amount: input.amount, key: input.key })
       : action === 'settle' ? options.garden.settleRps({ matchId: input.matchId, winner: input.winner, bot: input.bot }) : { ok: false, code: 'INVALID' }

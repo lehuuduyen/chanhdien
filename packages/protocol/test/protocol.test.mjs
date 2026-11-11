@@ -6,7 +6,11 @@ import {
   parseClientMessage,
   parseServerMessage,
   TAI_XIU_SPOTS,
+  TIENLEN_INSTANT_WINS,
+  TIENLEN_MODES,
+  TIENLEN_STAKES,
 } from '../src/index.mjs';
+import { INSTANT_WINS, TIENLEN_MODES as RULE_MODES, TIENLEN_STAKES as RULE_STAKES } from '../../tien-len/src/index.mjs';
 
 test('protocol danh hiệu, khung và tương tác thú cưng ở version 3', () => {
   assert.equal(PROTOCOL_VERSION, 3);
@@ -455,6 +459,42 @@ test('oẳn tù tì cược: thao tác chỉ cho thành viên, mức cược c�
     feed: [{ a: 'An', b: 'Bình', stake: 20, winner: 'b' }] };
   assert.equal(parseServerMessage(lobby).ok, true);
   assert.equal(parseServerMessage({ ...lobby, feed: [{ a: 'An', b: 'Bình', stake: 20, winner: 'an' }] }).ok, false);
+});
+
+test('tiến lên: chỉ thành viên chơi; bài là số 0–51 không trùng; bàn chỉ mang bài của mình và không mang cờ bot', () => {
+  assert.deepEqual([...TIENLEN_STAKES], [...RULE_STAKES], 'mức cược khớp luật @chanh-dien/tien-len');
+  assert.deepEqual([...TIENLEN_MODES], [...RULE_MODES]);
+  assert.deepEqual([...TIENLEN_INSTANT_WINS], [...INSTANT_WINS]);
+  const base = { v: PROTOCOL_VERSION, requestId: 'r-1' };
+  const tableId = 'tl-tienlen-1-1-3-abcd';
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.find' }, { role: 'member' }).ok, true, 'vào nhanh không cần chọn mức');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.find', stake: 500, mode: 'count' }, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.find' }, { role: 'guest' }).error, 'FORBIDDEN');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.open', stake: 30, mode: 'rank' }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.open', stake: 50, mode: 'all' }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.join', tableId: 'rp-oantuti-1-1-1-abcd' }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.play', tableId, cards: [0, 4, 8] }, { role: 'member' }).ok, true);
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.play', tableId, cards: [0, 0] }, { role: 'member' }).error, 'INVALID_MESSAGE', 'trùng lá');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.play', tableId, cards: [52] }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.play', tableId, cards: [] }, { role: 'member' }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.pass', tableId }, { role: 'member' }).ok, true);
+  const player = { displayName: 'Bảo Ngọc', cards: 13, skin: 'woman' };
+  const table = { v: PROTOCOL_VERSION, type: 'tienlen.table', epoch: 1, tableId, stake: 50, mode: 'rank', phase: 'playing', game: 2, seat: 0,
+    players: [{ displayName: 'An', cards: 12 }, player, null, { ...player, displayName: 'Chi', passed: true }], minCoins: 500,
+    deadline: 10, turn: 1, top: { seat: 0, cards: [3] }, hand: [5, 9, 12], last: { seat: 0, action: 'play', cards: [3] }, coins: 900 };
+  assert.equal(parseServerMessage(table).ok, true);
+  assert.equal(parseServerMessage({ ...table, players: [{ displayName: 'An', cards: 12, bot: true }, null, null, null] }).ok, false, 'không mang cờ bot');
+  assert.equal(parseServerMessage({ ...table, players: [null, null, null] }).ok, false, 'đủ 4 ghế');
+  assert.equal(parseServerMessage({ ...table, hand: [5, 5] }).ok, false);
+  const result = { ranks: [1, 2, null, 3], nets: [1_000, -500, null, -500], lines: [{ from: 3, to: 0, units: 2, coins: 100, reason: 'last' }], net: 950, cut: 50 };
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result }).ok, true);
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, lines: [{ from: 3, to: 3, units: 2, coins: 100, reason: 'last' }] } }).ok, false);
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, white: 'flush' } }).ok, false);
+  assert.equal(parseServerMessage({ ...table, minCoins: undefined, deposit: 500 }).ok, false, 'không còn cọc');
+  const lobby = { v: PROTOCOL_VERSION, type: 'tienlen.lobby', epoch: 1, playing: 1,
+    tables: [{ id: tableId, stake: 100, mode: 'count', phase: 'waiting', players: [{ displayName: 'An' }, { displayName: 'Bình', skin: 'man' }] }] };
+  assert.equal(parseServerMessage(lobby).ok, true);
+  assert.equal(parseServerMessage({ ...lobby, tables: [{ ...lobby.tables[0], phase: 'closed' }] }).ok, false);
 });
 
 test('trốn tìm: xin chơi / rời / bắt; trạng thái không mang vị trí và vai hợp lệ', () => {

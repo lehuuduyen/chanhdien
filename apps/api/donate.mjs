@@ -181,6 +181,7 @@ const BOT_ROOM_ALIASES = Object.freeze({
   taixiu: 'taixiu-1', 'tai-xiu': 'taixiu-1',
   loto: 'loto-1', 'lo-to': 'loto-1',
   oantuti: 'oantuti-1', 'oan-tu-ti': 'oantuti-1', rps: 'oantuti-1', keobuabao: 'oantuti-1',
+  tienlen: 'tienlen-1', 'tien-len': 'tienlen-1',
 });
 
 export function botRoomId(value) {
@@ -294,7 +295,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
     if (!roomId) {
       json(req, res, 200, {
         method: 'sendMessage', chat_id: message.chat.id,
-        text: 'Không nhận ra phòng. Dùng: chanhdien, cinema, baucua, taixiu, loto, oantuti hoặc mã phòng.',
+        text: 'Không nhận ra phòng. Dùng: chanhdien, cinema, baucua, taixiu, loto, oantuti, tienlen hoặc mã phòng.',
       });
       return true;
     }
@@ -378,7 +379,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
   if (!match) {
     json(req, res, 200, {
       method: 'sendMessage', chat_id: message.chat.id,
-      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\naddbot baucua 20\naddbot taixiu 20\naddbot loto 20\naddbot oantuti 20\naddbot cinema 20\naddbot chanhdien 20\n/tl <mã> <nội dung> (trả lời thay bot)\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
+      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\naddbot baucua 20\naddbot taixiu 20\naddbot loto 20\naddbot oantuti 20\naddbot tienlen 20\naddbot cinema 20\naddbot chanhdien 20\n/tl <mã> <nội dung> (trả lời thay bot)\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
     });
     return true;
   }

@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.mjs",
+  "dependencies": {
+    "@chanh-dien/tien-len": "0.1.0"
+  },
   "devDependencies": {
     "@chanh-dien/accounts": "0.1.0"
   }
