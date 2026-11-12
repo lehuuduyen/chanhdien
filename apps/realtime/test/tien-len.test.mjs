@@ -9,7 +9,7 @@ const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 // Nhịp ngắn cho test; còn lại giống luật thật. Mặc định không có bot (bật riêng từng test).
 const RULES = {
   ...TIENLEN_RULES.interaction, startMs: 40, fullStartMs: 15, turnMs: 400, afkTurnMs: 30, resultMs: 60, botActMs: [3, 8], tickMs: 5,
-  botFill: { firstDelayMs: [10, 20], delayMs: [10, 20], maxStake: 500 }, botTables: [0, 0], botTableMs: [80, 80],
+  botFill: { always: false, players: [2, 4], firstDelayMs: [10, 20], delayMs: [10, 20] }, botTables: [0, 0], botTableMs: [80, 80],
 };
 
 function seeded(seed = 42) {
@@ -106,7 +106,35 @@ test('luật phòng khớp hằng số của bộ luật (mức cược, kiểu,
   assert.deepEqual(rules.modes, [...TIENLEN_MODES]);
   assert.equal(rules.minCoinsUnits, TIENLEN_MIN_COINS_UNITS);
   assert.equal(rules.houseCutPercent, TIENLEN_HOUSE_CUT_PERCENT);
-  assert.ok(rules.stakes.some((stake) => stake > rules.botFill.maxStake), 'có bàn mức cao không có bot');
+  assert.equal(rules.botFill.always, true, 'mọi ván luôn có bot');
+  assert.deepEqual(rules.botFill.players, [2, 4], 'mỗi ván chọn ngẫu nhiên 2–4 người');
+});
+
+test('mỗi ván chọn lại ngẫu nhiên mục tiêu 2, 3 hoặc 4 người', () => {
+  let roll = -1;
+  const room = { id: 'tienlen-1', epoch: 1, participants: new Map() };
+  const table = new TienLenTable({ room, rules: TIENLEN_RULES.interaction, random: (size) => (roll += 1) % size });
+  const board = table.createTable(20, 'rank');
+  const targets = [board.targetPlayers];
+  table.resetPlayerTarget(board);
+  targets.push(board.targetPlayers);
+  table.resetPlayerTarget(board);
+  targets.push(board.targetPlayers);
+  assert.deepEqual(targets, [2, 3, 4]);
+});
+
+test('bàn thật chia đúng 2, 3 hoặc 4 người theo mục tiêu và mỗi bàn đều có bot', async () => {
+  for (const target of [2, 3, 4]) {
+    const botFill = { always: true, players: [target, target], firstDelayMs: [1, 1], delayMs: [1, 1] };
+    const { table, join } = setup({ bots: 6, rules: { ...RULES, botFill, startMs: 20, fullStartMs: 5 } });
+    const person = join(`nguoi-${target}`);
+    await table.open(person, { stake: 50, mode: 'rank' });
+    const board = [...table.tables.values()][0];
+    await until(() => board.phase === 'playing' || board.phase === 'result');
+    assert.equal(board.players.length, target, `ván ${target} người`);
+    assert.ok(board.players.some((seatIndex) => board.seats[seatIndex]?.bot), `ván ${target} người có bot`);
+    table.stop();
+  }
 });
 
 test('mở bàn, người thứ hai vào là đếm ngược; chia bài: mỗi người chỉ nhận bài của mình; không trừ xu đầu ván', async () => {
@@ -237,12 +265,15 @@ test('hết xu: màn kết quả biết số dư không đủ; hết đếm ngư
   table.stop();
 });
 
-test('bot vào cho đủ bàn (bàn mức thấp), hết giờ thì tự bỏ lượt / tự đánh; bàn mức cao không có bot', async () => {
-  const { table, join, last, settles, sent } = setup({ bots: 6, rules: { ...RULES, idleKickMissed: 2 } });
+test('bot vào tới mục tiêu ngẫu nhiên 2–4 người, luôn có cả ở bàn mức cao; hết giờ thì tự đánh', async () => {
+  const botFill = { ...RULES.botFill, always: true };
+  const { table, join, last, settles, sent } = setup({ bots: 6, rules: { ...RULES, botFill, idleKickMissed: 2 } });
   const an = join('an');
   await table.open(an, { stake: 50, mode: 'rank' });
-  await until(() => last('an').players.filter(Boolean).length === 4);
-  assert.ok(table.hasBotBet('bot-0') || table.hasBotBet('bot-1') || table.hasBotBet('bot-2'));
+  const board = [...table.tables.values()][0];
+  await until(() => last('an').players.filter(Boolean).length === board.targetPlayers);
+  assert.ok(board.targetPlayers >= 2 && board.targetPlayers <= 4);
+  assert.ok(board.seats.some((seat) => seat?.bot), 'bàn luôn có ít nhất một bot');
   // Người thật không bấm gì: hết giờ thì hệ thống đánh hộ (gắn cờ auto); ván vẫn xong.
   await until(() => last('an').phase === 'result', 8_000);
   assert.ok(last('an').players[0].missed >= 2, 'đã lỡ nhiều lượt');
@@ -254,35 +285,34 @@ test('bot vào cho đủ bàn (bàn mức thấp), hết giờ thì tự bỏ l�
   assert.ok(settles[0].transfers.every((item) => item.from === 'acc-an' || item.to === 'acc-an'), 'chỉ gửi khoản có người thật');
   table.stop();
 
-  const rich = setup({ bots: 6 });
+  const rich = setup({ bots: 6, rules: { ...RULES, botFill } });
   const binh = rich.join('binh');
   await rich.table.open(binh, { stake: 1_000, mode: 'rank' });
-  await wait(150);
-  assert.equal(rich.last('binh').players.filter(Boolean).length, 1, 'bàn 1.000 xu không có bot');
+  const richBoard = [...rich.table.tables.values()][0];
+  await until(() => rich.last('binh').players.filter(Boolean).length === richBoard.targetPlayers);
+  assert.ok(rich.last('binh').players.filter(Boolean).length >= 2, 'bàn 1.000 xu cũng có bot');
+  assert.ok(richBoard.seats.some((seat) => seat?.bot));
   rich.table.stop();
 });
 
-test('bot vào như người thật: chờ firstDelayMs rồi mới vào, tin gửi trình duyệt không có cờ bot; bàn mở với bots: false thì không có bot', async () => {
-  const rules = { ...RULES, startMs: 5_000, fullStartMs: 5_000, botFill: { firstDelayMs: [150, 150], delayMs: [10, 10], maxStake: 500 } };
+test('bot vào như người thật: chờ firstDelayMs, bots:false cũ bị bỏ qua, tin trình duyệt không có cờ bot', async () => {
+  const rules = { ...RULES, startMs: 5_000, fullStartMs: 5_000,
+    botFill: { always: true, players: [2, 4], firstDelayMs: [150, 150], delayMs: [10, 10] } };
   const { table, join, last, room } = setup({ bots: 4, rules });
   const an = join('an');
   await table.open(an, { stake: 20, mode: 'rank', bots: false });
-  await wait(300);
-  assert.equal(last('an').players.filter(Boolean).length, 1, 'bàn không cho bot');
-  await until(() => room.lastLobby?.tables.length === 1);
-  const binh = join('binh');
-  await table.open(binh, { stake: 20, mode: 'rank' });
-  assert.equal('bots' in last('binh'), false, 'tin bàn không có cờ bot');
   await wait(80);
-  assert.equal(last('binh').players.filter(Boolean).length, 1, 'chưa tới firstDelayMs: chưa có bot');
-  await until(() => last('binh').players.filter(Boolean).length === 4, 2_000);
-  assert.ok(!/"bot/.test(JSON.stringify(last('binh'))), 'ghế bot trông như người thật');
-  await until(() => room.lastLobby?.tables.some((item) => item.players.length === 4));
+  assert.equal(last('an').players.filter(Boolean).length, 1, 'chưa tới firstDelayMs: chưa có bot');
+  const board = [...table.tables.values()][0];
+  await until(() => last('an').players.filter(Boolean).length === board.targetPlayers, 2_000);
+  assert.equal('bots' in last('an'), false, 'tin bàn không có cờ bot');
+  assert.ok(!/"bot/.test(JSON.stringify(last('an'))), 'ghế bot trông như người thật');
+  await until(() => room.lastLobby?.tables.some((item) => item.players.length === board.targetPlayers));
   assert.ok(!/"bot/.test(JSON.stringify(room.lastLobby)), 'sảnh không có cờ bot');
   // Trước khi chia bài vẫn rời bàn ngay được.
-  assert.equal(last('binh').phase, 'starting');
-  assert.ok(table.leave(binh).ok);
-  assert.equal(last('binh').phase, 'closed');
+  assert.equal(last('an').phase, 'starting');
+  assert.ok(table.leave(an).ok);
+  assert.equal(last('an').phase, 'closed');
   table.stop();
 });
 

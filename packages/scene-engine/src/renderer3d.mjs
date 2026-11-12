@@ -10,6 +10,7 @@ import {
 } from './temple3d-models.mjs';
 import { clampToBounds, defaultCameraFor } from './world.mjs';
 import { buildCourtyard } from './courtyard3d.mjs';
+import { sunElevation } from './daylight3d.mjs';
 import { loadStatues } from './statues3d.mjs';
 import { disposeSprite, textSprite } from './sprites3d.mjs';
 
@@ -47,7 +48,9 @@ function glowTexture(inner, outer) {
 // plugin (tùy chọn): hàm nhận các phần bên trong (scene, camera, controls…) và trả { update(dt, time), dispose(),
 // ownsCamera, handlesTaps, api }; dùng cho chế độ nhập vai (explore3d.mjs) mà không phải sửa bộ vẽ này.
 // personFactory (tùy chọn): bộ dựng người ngồi/hành lễ thay cho người hình khối mặc định (vd: chú tiểu chibi).
-export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatClick, plugin: pluginFactory, personFactory }) {
+// theme, themeBase (tùy chọn): vùng phong cảnh của sân và thư mục dữ liệu vùng (vd. '/scenes/thien-default/themes/');
+// đổi vùng sau bằng setTheme. Không có themeBase thì chỉ có cảnh gốc.
+export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatClick, plugin: pluginFactory, personFactory, theme = 'default', themeBase = null }) {
   const world = sceneData.world;
   const seatsWorld = new Map(world.seats.map((seat) => [seat.id, seat]));
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -119,10 +122,12 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   const hall = hallLayout(world);
   buildHall(root, materials, { openFront: Boolean(world.courtyard), hall });
   // Sân ngoài chùa (khi scene có world.courtyard): mặt tiền, sân đá, lư hương lớn, cây, trời, nắng có bóng đổ.
-  const courtyard = world.courtyard ? buildCourtyard({ root, scene3d, renderer, camera, world }) : null;
+  const courtyard = world.courtyard ? buildCourtyard({ root, scene3d, renderer, camera, world, themeBase }) : null;
   if (courtyard) {
     scene3d.background = null;
     scene3d.fog = new THREE.Fog('#d9c3a0', 30, 150);
+    // Cảnh gốc đã dựng sẵn; vùng khác tải dữ liệu + bộ đồ rồi mới đổi (không chặn lúc hiện cảnh).
+    courtyard.setTheme(theme);
   }
   const altarParts = buildAltar(root, materials, hall);
   const buddha = buildBuddha(root, materials);
@@ -683,6 +688,9 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   let lowPower = false;
   let paused = false;
   let lastDrawn = 0;
+  // Trời theo giờ ở sân: nơi đặt chùa [vĩ độ, kinh độ]; độ cao mặt trời tính lại mỗi 30 giây (đổi chưa tới 0,2°).
+  let skyPlace = null;
+  let skyCheckedAt = -Infinity;
   function render(time) {
     if (destroyed) return;
     requestAnimationFrame(render);
@@ -718,6 +726,10 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
       controls.target.set(target.x, target.y, target.z);
     }
     plugin?.update(dt, time);
+    if (skyPlace && time - skyCheckedAt > 30_000) {
+      skyCheckedAt = time;
+      courtyard?.setDaylight(sunElevation(new Date(), skyPlace[0], skyPlace[1]));
+    }
     courtyard?.update(dt, time);
     updateEffects(dt, time);
     updateCeremony(time);
@@ -824,6 +836,22 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     setCommunityProject(project) {
       courtyard?.setCommunityProject(project);
     },
+    // Đổi vùng phong cảnh của sân (chỉ phần nhìn); trả Promise tên vùng đang dùng.
+    setTheme(name) {
+      return courtyard ? courtyard.setTheme(name) : Promise.resolve('default');
+    },
+    // Trời theo giờ thật ở sân: nơi đặt chùa [vĩ độ, kinh độ] (THIEN_PLACES trong room rules); null = ban ngày cố định.
+    setSkyPlace(place) {
+      skyPlace = Array.isArray(place) && place.length === 2 && place.every(Number.isFinite) ? [...place] : null;
+      skyCheckedAt = -Infinity;
+      if (!skyPlace) courtyard?.setDaylight(null);
+      else courtyard?.setDaylight(sunElevation(new Date(), skyPlace[0], skyPlace[1]));
+    },
+    // Xem thử / chụp: đặt cố định độ cao mặt trời (độ, âm là dưới chân trời), bỏ giờ thật.
+    setDaylight(degrees) {
+      skyPlace = null;
+      courtyard?.setDaylight(degrees);
+    },
     setCeremonyActive(active) {
       ceremonyActive = Boolean(active);
     },
@@ -854,6 +882,9 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
         seats: world.seats.length,
         drawCalls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
+        geometries: renderer.info.memory.geometries,
+        landscape: courtyard?.landscapeStats() || null,
+        daylight: courtyard?.daylight() || null,
         pixelRatio: renderer.getPixelRatio(),
         shadows: courtyard?.shadowsEnabled() || false,
         paused,

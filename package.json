@@ -15,6 +15,7 @@
     "dev:cluster": "node scripts/dev.mjs --cluster",
     "online": "node scripts/online.mjs",
     "telegram:setup": "node scripts/telegram-setup.mjs",
+    "theme:shots": "node scripts/theme-shots.mjs",
     "dev:web": "node apps/web/server.mjs",
     "dev:api": "node apps/api/server.mjs",
     "dev:realtime": "node apps/realtime/server.mjs",

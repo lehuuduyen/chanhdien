@@ -1,7 +1,7 @@
 import { createSceneRenderer } from '/engine/renderer.mjs';
 // Bộ vẽ 3D (Three.js) chỉ tải khi dùng chế độ 3D.
 import { createRoomSession } from '/realtime-session.js';
-import { cinemaRoomId, parseThienRoomId, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, thienRoomName, US_STATES } from '/shared/room-rules.mjs';
+import { cinemaRoomId, parseThienRoomId, THIEN_EVENT, THIEN_LANGS, THIEN_RULES, thienPlaceOf, thienRoomName, thienThemeOf, US_STATES } from '/shared/room-rules.mjs';
 import { BELL_PERIOD_MS, createTempleAudio, MO_PERIOD_MS } from '/temple-audio.js';
 import { createAccountUI } from '/account-ui.js';
 import { createGemUI } from '/gem-ui.js';
@@ -34,6 +34,10 @@ const PARAMS = new URLSearchParams(location.search);
 let currentInviteCode = PARAMS.get('invite') || null;
 let URL_ROOM = null;
 const TEST_EVENT_NOW = PARAMS.get('event') === 'now';
+// ?theme=<vùng> xem thử phong cảnh một vùng (desert, snow, default…) mà không đổi tiểu bang.
+const THEME_PREVIEW = /^[a-z0-9-]{1,32}$/.test(PARAMS.get('theme') || '') ? PARAMS.get('theme') : null;
+// ?sun=<độ> xem thử trời ở một độ cao mặt trời cố định (vd. 50 trưa, 2 nắng chiều, -3 ráng, -15 đêm) thay giờ thật.
+const SUN_PREVIEW = /^-?\d{1,2}(\.\d+)?$/.test(PARAMS.get('sun') || '') ? Number(PARAMS.get('sun')) : null;
 // Quay về từ map khác (rạp phim gửi ?go=…): vào thẳng bằng tên đã nhập, không hỏi lại, không chào lại.
 const ARRIVED_FROM_MAP = ['hall', 'courtyard', 'garden', 'pets'].includes(PARAMS.get('go'));
 const OFFERINGS = THIEN_RULES.interaction.offerings;
@@ -455,6 +459,7 @@ elements.stateSelect.addEventListener('change', () => {
   selectedState = elements.stateSelect.value;
   try { localStorage.setItem('thien-state', selectedState); } catch {}
   updateGateInfo();
+  applySceneTheme();
 });
 elements.langSelect.addEventListener('change', () => {
   selectedLang = elements.langSelect.value;
@@ -582,6 +587,20 @@ function watchSceneLoading(current) {
   tick();
 }
 
+// Phong cảnh sân chùa theo tiểu bang đang chọn (ở cổng) / đang ở (selectedState luôn theo phòng hiện tại).
+function sceneTheme() {
+  return THEME_PREVIEW || thienThemeOf(selectedState);
+}
+function applySceneTheme() {
+  renderer?.setTheme?.(sceneTheme());
+  applySceneSky();
+}
+// Trời theo giờ thật nơi đặt chùa của tiểu bang đang chọn / đang ở (cả phòng cùng một bầu trời).
+function applySceneSky() {
+  if (SUN_PREVIEW !== null) renderer?.setDaylight?.(SUN_PREVIEW);
+  else renderer?.setSkyPlace?.(thienPlaceOf(selectedState));
+}
+
 async function setupScene() {
   const sourceScene = await (await fetch('/scenes/thien-default/scene.json')).json();
   capacityNeeds3D = THIEN_RULES.seats < sourceScene.seats.length && supportsWebGL();
@@ -614,9 +633,10 @@ async function setViewMode(mode) {
       const { createChibiPersonFactory } = await import('/engine/chibi3d.mjs');
       // Hình mua trong shop (chibigirl) dùng mô hình .glb: tải xong mới dựng người, lỗi thì tự dùng hình khối.
       await loadShopCharacters();
-      renderer = await createTempleRenderer3D({ canvas: elements.scene3d, scene: sceneData, onSeatClick: moveTo, plugin: explore.plugin, personFactory: createChibiPersonFactory });
+      renderer = await createTempleRenderer3D({ canvas: elements.scene3d, scene: sceneData, onSeatClick: moveTo, plugin: explore.plugin, personFactory: createChibiPersonFactory, theme: sceneTheme(), themeBase: '/scenes/thien-default/themes/' });
       // Trình duyệt thu hồi WebGL (thiếu bộ nhớ, chuyển app): cảnh đen và chạm không ăn → tải lại trang.
       guardWebGL(elements.scene3d, { onLost: (willReload) => showToast(t(willReload ? 'toast.webglLost' : 'toast.webglLostManual')) });
+      applySceneSky();
       explore.attach(renderer);
       if (elements.gate.hidden) renderer.activateAssets?.();
       if (explore.active) elements.hint3d.textContent = t('explore.hint');
@@ -1346,6 +1366,7 @@ async function switchRoom(target) {
     renderBoard();
     selectedState = info.state;
     elements.stateSelect.value = selectedState;
+    applySceneTheme();
     if (info.lang !== selectedLang) {
       selectedLang = info.lang;
       elements.langSelect.value = selectedLang;

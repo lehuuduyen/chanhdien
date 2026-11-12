@@ -400,7 +400,7 @@ const clientSchemas = {
       && (message.stake === undefined || TIENLEN_STAKES.includes(message.stake))
       && (message.mode === undefined || TIENLEN_MODES.includes(message.mode));
   },
-  // bots: cho bot vào bàn khi thiếu người (mặc định có; bàn mức cao thì không bao giờ có bot).
+  // bots là trường cũ, chỉ còn nhận để client đang mở không bị rớt khi deploy; server luôn tự ghép bot và bỏ qua giá trị.
   'tienlen.open'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'stake', 'mode'], ['bots'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)

@@ -479,7 +479,8 @@ test('tiến lên: chỉ thành viên chơi; bài là số 0–51 không trùng;
   assert.equal(parseClientMessage({ ...base, type: 'tienlen.play', tableId, cards: [] }, { role: 'member' }).error, 'INVALID_MESSAGE');
   assert.equal(parseClientMessage({ ...base, type: 'tienlen.pass', tableId }, { role: 'member' }).ok, true);
   assert.equal(parseClientMessage({ ...base, type: 'tienlen.back', tableId }, { role: 'member' }).ok, true, 'Tôi đã quay lại');
-  assert.equal(parseClientMessage({ ...base, type: 'tienlen.open', stake: 50, mode: 'rank', bots: false }, { role: 'member' }).ok, true, 'chọn không cho bot');
+  assert.equal(parseClientMessage({ ...base, type: 'tienlen.open', stake: 50, mode: 'rank', bots: false }, { role: 'member' }).ok, true,
+    'client cũ gửi bots:false vẫn hợp lệ; server bỏ qua');
   assert.equal(parseClientMessage({ ...base, type: 'tienlen.open', stake: 50, mode: 'rank', bots: 'no' }, { role: 'member' }).error, 'INVALID_MESSAGE');
   const player = { displayName: 'Bảo Ngọc', cards: 13, skin: 'woman' };
   const table = { v: PROTOCOL_VERSION, type: 'tienlen.table', epoch: 1, tableId, stake: 50, mode: 'rank', phase: 'playing', game: 2, seat: 0,

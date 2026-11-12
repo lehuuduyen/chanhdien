@@ -1,5 +1,6 @@
 // Nhãn chữ dùng chung cho các cảnh 3D (chánh điện, rạp phim): tên, bong bóng chat vẽ lên canvas rồi làm sprite.
 import * as THREE from 'three';
+import { LABEL_ORDER } from './daylight3d.mjs';
 
 export function roundRect(ctx, x, y, width, height, radius) {
   ctx.beginPath();
@@ -42,6 +43,8 @@ export function textSprite(text, { background, color, height = 0.16, bold = fals
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
+  // Vẽ sau lớp phủ đêm của sân (daylight3d.mjs) để chữ không tối theo cảnh.
+  sprite.renderOrder = LABEL_ORDER;
   const worldHeight = height * (canvas.height / boxHeight);
   sprite.scale.set(worldHeight * (canvas.width / canvas.height), worldHeight, 1);
   sprite.center.set(0.5, 0);

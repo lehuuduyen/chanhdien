@@ -34,7 +34,21 @@ npm run online
 
 Lệnh sẽ in link HTTPS dạng `https://...trycloudflare.com` và chuyển tiếp cả API lẫn WebSocket. Link tồn tại trong
 thời gian lệnh đang chạy; URL hiện tại cũng được ghi vào `.data/public-url.txt`. Nếu tunnel rớt, bộ chạy sẽ tự
-mở lại. Nếu muốn dùng ngrok theo cách cũ, chạy `TUNNEL_PROVIDER=ngrok npm run online`.
+mở lại (Cloudflare báo 429 vì tạo Quick Tunnel quá nhiều lần thì đợi ít nhất 1 phút mới thử lại). Nếu muốn dùng
+ngrok theo cách cũ, chạy `TUNNEL_PROVIDER=ngrok npm run online`; không có tài khoản nào thì
+`TUNNEL_PROVIDER=localhostrun npm run online` mở tunnel miễn phí của localhost.run qua `ssh` (link `https://….lhr.life`,
+đổi mỗi lần nối lại).
+
+Link cố định trên domain riêng (miễn phí, không bị giới hạn lượt như Quick Tunnel): trong Cloudflare Zero Trust →
+Networks → Tunnels tạo một tunnel kiểu Cloudflared, chép token (chuỗi sau `--token`, không cần cài service), thêm
+Public Hostname (vd. `dev.<domain>`) trỏ về `http://localhost:3100`, rồi ghi vào `.env.online`:
+
+```bash
+CLOUDFLARE_TUNNEL_TOKEN=<token>
+PUBLIC_URL=https://dev.<domain>
+```
+
+Có token thì `npm run online` tự chạy tunnel đó và in link `PUBLIC_URL`.
 
 Từ sảnh có thể mở hai trải nghiệm:
 

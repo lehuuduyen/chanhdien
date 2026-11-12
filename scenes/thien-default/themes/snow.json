@@ -1,0 +1,48 @@
+{
+  "sky": {
+    "top": "#6c93c2",
+    "horizon": "#e8eef4"
+  },
+  "fog": "#dfe6ee",
+  "light": {
+    "sun": "#f3f6ff",
+    "sky": "#dfe9ff",
+    "ground": "#c9d3de"
+  },
+  "field": "snow",
+  "lawn": {
+    "surface": "snow"
+  },
+  "colors": {
+    "roof": "#e9eef4",
+    "brick": "#d9d4cf"
+  },
+  "mountains": {
+    "shape": "snowpeak",
+    "colors": [
+      "#56677a",
+      "#4b5b6d"
+    ]
+  },
+  "trees": "snowpine",
+  "treeScale": 1.7,
+  "pines": "snowpine",
+  "scatter": [
+    {
+      "kind": "snowpine",
+      "count": 110
+    },
+    {
+      "kind": "snowrock",
+      "count": 35
+    },
+    {
+      "kind": "snowman",
+      "count": 8,
+      "band": [
+        6,
+        16
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "sky": {
+    "top": "#5b8fd0",
+    "horizon": "#f3dcb0"
+  },
+  "fog": "#e4d3b6",
+  "light": {
+    "sun": "#ffe2b8",
+    "sky": "#d9e4f5",
+    "ground": "#7a5a3a"
+  },
+  "field": "leafgrass",
+  "lawn": {
+    "surface": "leafgrass"
+  },
+  "colors": {
+    "roof": "#3d3f44",
+    "wall": "#6b4a32",
+    "pillar": "#7a1f14",
+    "brick": "#b9a48a"
+  },
+  "mountains": {
+    "shape": "hills",
+    "colors": [
+      "#9c4a28",
+      "#b8742c",
+      "#7a6a30",
+      "#5f6b3a"
+    ]
+  },
+  "trees": "maple",
+  "treeScale": 1.1,
+  "pines": "birch",
+  "scatter": [
+    {
+      "kind": "maple",
+      "count": 80
+    },
+    {
+      "kind": "birch",
+      "count": 35
+    },
+    {
+      "kind": "pine",
+      "count": 30
+    },
+    {
+      "kind": "boulder",
+      "count": 25
+    },
+    {
+      "kind": "leafpile",
+      "count": 40
+    }
+  ],
+  "temple": {
+    "tiers": 2
+  }
+}

@@ -162,6 +162,7 @@ test('trang gắn phiên bản cho mọi module để deploy mới có hiệu l�
   assert.equal(imports['/chanh-dien.js'], `/chanh-dien.js?v=${entry[1]}`, 'script trong trang và import map cùng một URL');
   assert.match(imports['/hide-seek-ui.js'], /^\/hide-seek-ui\.js\?v=[0-9a-f]{10}$/);
   assert.match(imports['/engine/explore3d.mjs'], /^\/engine\/explore3d\.mjs\?v=[0-9a-f]{10}$/);
+  assert.match(imports['/engine/landscape/common.mjs'], /^\/engine\/landscape\/common\.mjs\?v=[0-9a-f]{10}$/, 'bộ đồ phong cảnh trong thư mục con');
   assert.match(imports['/shared/room-rules.mjs'], /^\/shared\/room-rules\.mjs\?v=/);
 
   // Đúng phiên bản: giữ lâu; phiên bản cũ hoặc không có: luôn hỏi lại.

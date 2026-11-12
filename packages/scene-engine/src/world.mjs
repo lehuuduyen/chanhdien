@@ -4,6 +4,58 @@ import { validateWalk } from './walk.mjs';
 // Loại thú ngoài sân: chó mèo (dựng bằng khối hoặc mô hình) và thú Nông trại nhỏ (mô hình Meshy).
 const ANIMAL_TYPES = ['dog', 'cat', 'rabbit', 'duck', 'goat', 'pig', 'deer', 'pony'];
 
+// Dữ liệu một vùng phong cảnh (scenes/<scene>/themes/<vùng>.json, dựng ở landscape3d.mjs). Chỉ kiểm tra dạng: tên
+// kiểu (cây, vật rải, núi, đất) do bộ đồ landscape/<vùng>.mjs hoặc landscape/common.mjs định nghĩa, test
+// themes.test.mjs kiểm tra kiểu có thật. Bố cục đi lại không nằm trong dữ liệu vùng nên vùng nào cũng không đổi được.
+const THEME_KEYS = ['sky', 'fog', 'light', 'field', 'lawn', 'colors', 'mountains', 'trees', 'treeScale', 'pines', 'scatter', 'temple'];
+const THEME_COLOR_KEYS = ['roof', 'wall', 'brick', 'pillar'];
+const isHex = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+const isKind = (value) => typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value);
+const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+export function validateTheme(name, theme) {
+  const errors = [];
+  const at = `vùng ${name}`;
+  if (!isKind(name) || name === 'default') return [`${at}: tên vùng không hợp lệ`];
+  if (!isObject(theme)) return [`${at}: dữ liệu phải là object`];
+  for (const key of Object.keys(theme)) if (!THEME_KEYS.includes(key)) errors.push(`${at}: khóa ${key} không hỗ trợ`);
+  for (const key of ['sky', 'light', 'lawn', 'colors', 'mountains', 'temple']) {
+    if (theme[key] !== undefined && !isObject(theme[key])) errors.push(`${at}: ${key} phải là object`);
+  }
+  const colors = [
+    ['sky.top', theme.sky?.top], ['sky.horizon', theme.sky?.horizon], ['fog', theme.fog],
+    ['light.sun', theme.light?.sun], ['light.sky', theme.light?.sky], ['light.ground', theme.light?.ground],
+    ['lawn.tint', theme.lawn?.tint],
+    ...THEME_COLOR_KEYS.map((key) => [`colors.${key}`, theme.colors?.[key]]),
+  ];
+  for (const [key, value] of colors) if (value !== undefined && !isHex(value)) errors.push(`${at}: ${key} phải là màu #rrggbb`);
+  if (isObject(theme.colors)) for (const key of Object.keys(theme.colors)) if (!THEME_COLOR_KEYS.includes(key)) errors.push(`${at}: colors.${key} không hỗ trợ`);
+  for (const key of ['field', 'trees', 'pines']) if (theme[key] !== undefined && !isKind(theme[key])) errors.push(`${at}: ${key} không phải tên kiểu hợp lệ`);
+  if (theme.lawn?.surface !== undefined && !isKind(theme.lawn.surface)) errors.push(`${at}: lawn.surface không phải tên kiểu hợp lệ`);
+  if (theme.treeScale !== undefined && (!Number.isFinite(theme.treeScale) || theme.treeScale < 0.5 || theme.treeScale > 2.5)) {
+    errors.push(`${at}: treeScale cần số từ 0,5 đến 2,5`);
+  }
+  const mountains = theme.mountains;
+  if (isObject(mountains) && (!isKind(mountains.shape)
+    || (mountains.colors !== undefined && (!Array.isArray(mountains.colors) || !mountains.colors.length || mountains.colors.length > 4 || !mountains.colors.every(isHex))))) {
+    errors.push(`${at}: mountains cần shape hợp lệ và 1–4 màu`);
+  }
+  if (theme.scatter !== undefined && (!Array.isArray(theme.scatter) || theme.scatter.length > 8
+    || theme.scatter.some((item) => !isKind(item?.kind) || !Number.isInteger(item.count) || item.count < 0 || item.count > 200))) {
+    errors.push(`${at}: scatter cần tối đa 8 nhóm { kind, count 0–200 }`);
+  }
+  // band: chỉ rải cách tường sân từ band[0] tới band[1] mét.
+  for (const item of Array.isArray(theme.scatter) ? theme.scatter : []) {
+    const band = item?.band;
+    if (band !== undefined && (!Array.isArray(band) || band.length !== 2 || !band.every(Number.isFinite) || band[0] < 0 || band[1] <= band[0] || band[1] > 120)) {
+      errors.push(`${at}: scatter.band cần [gần, xa] mét, 0 ≤ gần < xa ≤ 120`);
+    }
+  }
+  // Tham số chùa (do bộ đồ của vùng đọc): JSON nhỏ, chỉ số / chữ / bool / màu.
+  if (isObject(theme.temple) && JSON.stringify(theme.temple).length > 2000) errors.push(`${at}: temple quá lớn (tối đa 2000 ký tự JSON)`);
+  return errors;
+}
+
 export function validateWorld(scene) {
   const errors = [];
   const world = scene.world;
@@ -153,6 +205,7 @@ export function validateWorld(scene) {
       for (const kind of kinds) if (!seenKinds.has(kind)) errors.push(`thiếu công việc ${kind}`);
     }
   }
+  if (world.courtyard?.themes !== undefined) errors.push('world.courtyard.themes đã chuyển sang scenes/<scene>/themes/<vùng>.json');
   errors.push(...validateWalk(world.walk));
   return { ok: errors.length === 0, errors };
 }

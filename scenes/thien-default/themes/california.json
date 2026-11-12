@@ -1,0 +1,48 @@
+{
+  "sky": {
+    "top": "#4a90d9",
+    "horizon": "#f7e3b5"
+  },
+  "fog": "#eadbbd",
+  "light": {
+    "sun": "#fff3d6",
+    "sky": "#d6e6ff",
+    "ground": "#a08048"
+  },
+  "field": "goldgrass",
+  "colors": {
+    "roof": "#b04a2e",
+    "wall": "#f2ede3",
+    "pillar": "#9b1d16",
+    "brick": "#eadfcb"
+  },
+  "mountains": {
+    "shape": "goldhills",
+    "colors": [
+      "#c9a35a",
+      "#b8914a",
+      "#d4b06a",
+      "#8a97a8"
+    ]
+  },
+  "trees": "oak",
+  "pines": "fanpalm",
+  "scatter": [
+    {
+      "kind": "oak",
+      "count": 45
+    },
+    {
+      "kind": "fanpalm",
+      "count": 18
+    },
+    {
+      "kind": "chaparral",
+      "count": 70
+    },
+    {
+      "kind": "sandstone",
+      "count": 20
+    }
+  ]
+}
