@@ -2703,6 +2703,9 @@ test('bot đi dạo không đứng chồng lên nhau (dừng lệch, tránh ch�
   Date.now = () => now;
   let overlapping = 0;
   const ticks = 900;
+  // Bot đang có đường đi (không chờ, không nói, không làm vườn) mà 40 giây liền chỉ loanh quanh trong 2 m: kẹt.
+  const tracks = new Map();
+  const stuck = new Set();
   try {
     for (let tick = 0; tick < ticks; tick += 1) {
       // Thời gian giả: bỏ kiểm tra tốc độ / tần suất theo đồng hồ thật của server. Bot bước theo nhịp riêng 250 ms.
@@ -2718,13 +2721,29 @@ test('bot đi dạo không đứng chồng lên nhau (dừng lệch, tránh ch�
       const close = walkers.some((one, index) => walkers.slice(index + 1)
         .some((other) => Math.hypot(one.pos.x - other.pos.x, one.pos.z - other.pos.z) < 0.4));
       if (close) overlapping += 1;
+      for (const bot of walkers) {
+        const going = bot.walk?.route?.length && now >= bot.walk.waitUntil && !((bot.talkUntil || 0) > now) && !bot.errand;
+        const track = tracks.get(bot.id) || [];
+        track.push(going ? { x: bot.pos.x, z: bot.pos.z } : null);
+        if (track.length > 40) track.shift();
+        tracks.set(bot.id, track);
+        if (track.length === 40 && track.every(Boolean)) {
+          const xs = track.map((point) => point.x);
+          const zs = track.map((point) => point.z);
+          if (Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) < 2) stuck.add(`${bot.id} ở ${bot.pos.x},${bot.pos.z}`);
+        }
+      }
     }
   } finally {
     Date.now = realNow;
     room.close();
   }
-  // Trước khi sửa: ~80% số nhịp có hai bot đứng chồng lên nhau.
+  // Trước khi sửa: ~80% số nhịp có hai bot đứng chồng lên nhau. Sau đó còn hỏng thỉnh thoảng (~1/10 lần chạy, tới 21 nhịp)
+  // vì hai bot ngược chiều nhích từng bước khi đã chồng lên nhau rồi đứng lại nói chuyện; nay qua 100 lần chạy tối đa 8.
   assert.ok(overlapping / ticks < 0.02, `${overlapping}/${ticks} nhịp có bot chồng lên nhau`);
+  // Trước khi sửa: bước chếch tránh người đặt lại đồng hồ chờ, hai bot (hay bot và người ngồi ghế đá cạnh điểm đường)
+  // chếch qua chếch lại quanh một điểm hàng chục giây.
+  assert.deepEqual([...stuck], []);
 });
 
 test('bot đi khắp sân theo bản đồ scene: không đi xuyên vật cản, ra xa lối giữa, có ngồi ghế đá', async () => {

@@ -1,0 +1,54 @@
+{
+  "sky": {
+    "top": "#79a8dc",
+    "horizon": "#e6e6f0"
+  },
+  "fog": "#bccbe0",
+  "light": {
+    "sun": "#fff4e6",
+    "sky": "#dde8fb",
+    "ground": "#5f7a45"
+  },
+  "field": "meadow",
+  "lawn": {
+    "surface": "meadow"
+  },
+  "colors": {
+    "roof": "#2f7d7a",
+    "wall": "#efe2c8",
+    "pillar": "#a3241a",
+    "brick": "#d8c7b0"
+  },
+  "mountains": {
+    "shape": "ridges",
+    "colors": [
+      "#3f6b5e",
+      "#5f86a0",
+      "#8ea9c1"
+    ]
+  },
+  "trees": "cherry",
+  "treeScale": 1.15,
+  "pines": "dogwood",
+  "scatter": [
+    {
+      "kind": "cherry",
+      "count": 55
+    },
+    {
+      "kind": "dogwood",
+      "count": 30
+    },
+    {
+      "kind": "redbud",
+      "count": 25
+    },
+    {
+      "kind": "greentree",
+      "count": 60
+    }
+  ],
+  "temple": {
+    "hook": 1.8
+  }
+}

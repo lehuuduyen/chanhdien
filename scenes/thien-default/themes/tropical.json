@@ -1,0 +1,66 @@
+{
+  "sky": {
+    "top": "#279bd0",
+    "horizon": "#bdeff0"
+  },
+  "fog": "#b8e8df",
+  "light": {
+    "sun": "#fff2c5",
+    "sky": "#d7f5ff",
+    "ground": "#78a77a"
+  },
+  "field": "coral-sand",
+  "lawn": {
+    "surface": "coral-sand",
+    "tint": "#fff6df"
+  },
+  "colors": {
+    "roof": "#287f82",
+    "wall": "#fff5dc",
+    "brick": "#e7b28f",
+    "pillar": "#fffdf4"
+  },
+  "mountains": {
+    "shape": "tropical-ocean",
+    "colors": [
+      "#159ca7",
+      "#55d6cf",
+      "#2b8d76"
+    ]
+  },
+  "trees": "coconut",
+  "treeScale": 1.08,
+  "pines": "coconut",
+  "scatter": [
+    {
+      "kind": "coconut",
+      "count": 32,
+      "band": [
+        6,
+        14
+      ]
+    },
+    {
+      "kind": "hibiscus",
+      "count": 55,
+      "band": [
+        6,
+        14
+      ]
+    },
+    {
+      "kind": "coral-rock",
+      "count": 28,
+      "band": [
+        10,
+        22
+      ]
+    }
+  ],
+  "temple": {
+    "porchDepth": 3.8,
+    "porchRise": 0.75,
+    "roofRise": 1.9,
+    "hook": 0.55
+  }
+}

@@ -517,10 +517,9 @@ export const TIENLEN_RULES = defineRoomRules({
     // Màn kết quả (đếm ngược rồi tự sang ván mới; có nút Rời bàn).
     resultMs: 10_000,
     botActMs: [900, 2_600],
-    // Bot vào bàn của người thật khi người tạo bàn cho phép (mặc định có): người thật ngồi xuống xong chờ firstDelayMs mới
-    // có bot đầu tiên (nhường chỗ cho người), các bot sau cách nhau delayMs cho đủ bàn. Bàn mức cược trên maxStake không
-    // có bot (bot đánh theo luật đơn giản, tránh người giỏi "nuôi" xu từ bot ở bàn lớn).
-    botFill: { firstDelayMs: [5_000, 8_000], delayMs: [1_500, 3_000], maxStake: 500 },
+    // Mỗi ván luôn có ít nhất một bot và chọn lại ngẫu nhiên tổng 2–4 người. Người thật ngồi xuống xong chờ
+    // firstDelayMs mới có bot đầu tiên (nhường chỗ cho người), các bot sau cách nhau delayMs cho tới mục tiêu của ván.
+    botFill: { always: true, players: [2, 4], firstDelayMs: [5_000, 8_000], delayMs: [1_500, 3_000] },
     // Bàn bot ngồi sẵn trong sảnh (1–3 bot chờ người vào cho có chỗ "Vào nhanh"), mỗi bàn sống botTableMs rồi giải tán.
     botTables: [1, 3],
     botTableMs: [60_000, 150_000],
@@ -692,6 +691,51 @@ export const US_STATES = deepFreeze([
   ['vt', 'Vermont', 'America/New_York'], ['va', 'Virginia', 'America/New_York'], ['wa', 'Washington', 'America/Los_Angeles'],
   ['wv', 'West Virginia', 'America/New_York'], ['wi', 'Wisconsin', 'America/Chicago'], ['wy', 'Wyoming', 'America/Denver'],
 ].map(([code, name, timeZone]) => ({ code, name, timeZone })));
+
+// Phong cảnh sân chùa theo vùng (KE_HOACH_VUNG.md): mỗi mã của Mỹ thuộc đúng một vùng. Vùng chỉ đổi phần nhìn (chùa
+// nhìn từ ngoài, nền đất, núi, cây, trời); bố cục sân giữ nguyên nên bot, trốn tìm, vườn không đổi. Dữ liệu vùng ở
+// scenes/thien-default/themes/<vùng>.json, hình dựng ở packages/scene-engine/src/landscape/<vùng>.mjs; vùng chưa có
+// dữ liệu thì hiện cảnh gốc ('default', cũng dùng cho mã không có ở đây). Việt Nam có vùng riêng `vietnam` (đồng lúa,
+// lũy tre, núi đá vôi).
+export const THIEN_THEMES = deepFreeze({
+  vietnam: ['vn'],
+  desert: ['az', 'nv', 'nm', 'ut'],
+  snow: ['ak', 'co', 'mt', 'wy', 'id'],
+  tropical: ['fl', 'hi'],
+  autumn: ['ct', 'me', 'ma', 'mi', 'mn', 'nh', 'nj', 'ny', 'pa', 'ri', 'vt', 'wi'],
+  plains: ['il', 'in', 'ia', 'ks', 'mo', 'ne', 'nd', 'oh', 'ok', 'sd'],
+  south: ['al', 'ar', 'ga', 'la', 'ms', 'sc', 'tx'],
+  blossom: ['dc', 'de', 'ky', 'md', 'nc', 'tn', 'va', 'wv'],
+  pacific: ['or', 'wa'],
+  california: ['ca'],
+});
+
+export function thienThemeOf(state) {
+  for (const [theme, states] of Object.entries(THIEN_THEMES)) if (states.includes(state)) return theme;
+  return 'default';
+}
+
+// Trời theo giờ thật ở sân chánh điện (packages/scene-engine/src/daylight3d.mjs): [vĩ độ, kinh độ] của nơi đông dân
+// hoặc giữa mỗi tiểu bang, chỉ để tính độ cao mặt trời (bình minh, hoàng hôn, đêm) nên không cần chính xác. Cả phòng
+// thấy cùng một bầu trời theo nơi đặt chùa, không theo giờ máy người xem.
+export const THIEN_PLACES = deepFreeze({
+  vn: [16.05, 108.2],
+  al: [33.52, -86.8], ak: [61.22, -149.9], az: [33.45, -112.07], ar: [34.75, -92.29], ca: [36.78, -119.42],
+  co: [39.74, -104.99], ct: [41.76, -72.67], de: [39.74, -75.55], dc: [38.9, -77.04], fl: [28.54, -81.38],
+  ga: [33.75, -84.39], hi: [21.31, -157.86], id: [43.62, -116.2], il: [41.88, -87.63], in: [39.77, -86.16],
+  ia: [41.59, -93.62], ks: [37.69, -97.34], ky: [38.25, -85.76], la: [29.95, -90.07], me: [43.66, -70.26],
+  md: [39.29, -76.61], ma: [42.36, -71.06], mi: [42.33, -83.05], mn: [44.98, -93.27], ms: [32.3, -90.18],
+  mo: [38.58, -92.17], mt: [45.78, -108.5], ne: [41.26, -95.93], nv: [36.17, -115.14], nh: [42.99, -71.46],
+  nj: [40.74, -74.17], nm: [35.08, -106.65], ny: [40.71, -74.01], nc: [35.23, -80.84], nd: [46.88, -96.79],
+  oh: [39.96, -83], ok: [35.47, -97.52], or: [45.52, -122.68], pa: [40.27, -76.88], ri: [41.82, -71.41],
+  sc: [34, -81.03], sd: [43.55, -96.73], tn: [36.16, -86.78], tx: [31.97, -97.74], ut: [40.76, -111.89],
+  vt: [44.48, -73.21], va: [37.54, -77.44], wa: [47.61, -122.33], wv: [38.35, -81.63], wi: [43.04, -87.91],
+  wy: [41.14, -104.82],
+});
+
+export function thienPlaceOf(state) {
+  return THIEN_PLACES[state] || null;
+}
 
 // Sự kiện hằng ngày: đúng giờ này theo giờ địa phương của tiểu bang, cả phòng cùng nghe bài giảng YouTube của
 // ngôn ngữ phòng (phát từ đầu video lúc bắt đầu; ai vào trễ nghe tiếp đúng đoạn đang giảng). Đổi video ở đây.

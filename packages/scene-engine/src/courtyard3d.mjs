@@ -10,6 +10,9 @@ import { addPlayground, loadParkModel, loadStaticModel, playgroundMaterials } fr
 import { addFlowerGarden, spriteMaterial } from './flowers3d.mjs';
 import { createWaterMaterial } from './water3d.mjs';
 import { instanceProp, placeProp } from './props3d.mjs';
+import { createLandscape } from './landscape3d.mjs';
+import { seeded } from './landscape/common.mjs';
+import { daylightGrade, GLOW_ORDER, SKY_LIGHTS_ORDER, VEIL_ORDER } from './daylight3d.mjs';
 
 const SCENE_MODELS = '/models/scene';
 
@@ -295,26 +298,6 @@ function softDot(color) {
 
 function lathe(points, segments = 28) {
   return new THREE.LatheGeometry(points.map(([x, y]) => new THREE.Vector2(x, y)), segments);
-}
-
-// Mái ngói hai dốc phủ cả chánh điện, đầu đao cong vàng ở bốn góc.
-function addRoof(batch, m, { x0, x1, z0, z1, y, rise }) {
-  const width = x1 - x0;
-  const depth = z1 - z0;
-  const slope = Math.hypot(depth / 2, rise);
-  const angle = Math.atan2(rise, depth / 2);
-  for (const side of [-1, 1]) {
-    batch.add(new THREE.BoxGeometry(width + 1.2, 0.18, slope + 0.6), m.roof, {
-      position: [(x0 + x1) / 2, y + rise / 2, (z0 + z1) / 2 + side * depth / 4],
-      rotation: [side * angle, 0, 0],
-    });
-  }
-  batch.add(new THREE.BoxGeometry(width + 1.6, 0.22, 0.32), m.gold, { position: [(x0 + x1) / 2, y + rise + 0.08, (z0 + z1) / 2] });
-  for (const x of [x0 - 0.6, x1 + 0.6]) {
-    for (const z of [z0 - 0.3, z1 + 0.3]) {
-      batch.add(new THREE.ConeGeometry(0.12, 0.7, 8), m.gold, { position: [x, y + 0.35, z], rotation: [0, 0, x < 0 ? 0.6 : -0.6] });
-    }
-  }
 }
 
 // Đại hồng chung và trống hai bên thềm. Vị trí nằm trong scene JSON; hình khối dùng chung batch để không tăng
@@ -1225,7 +1208,7 @@ function addPetZone(root, batch, m, zone, signs) {
   }
 }
 
-export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
+export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBase = null }) {
   const data = world.courtyard;
   // Mặt nước hồ sen lớn và ao vịt dùng chung một vật liệu (một lần biên dịch shader).
   const lakeWater = createWaterMaterial();
@@ -1278,7 +1261,6 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     lakeWater: lakeWater.material,
     rock: new THREE.MeshStandardMaterial({ color: '#7d7a72', roughness: 0.95, flatShading: true }),
     koi: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5 }),
-    mountain: new THREE.MeshStandardMaterial({ color: '#4f6a63', roughness: 1, flatShading: true }),
   };
   const glowTexture = softDot('rgba(255, 210, 140, 1)');
   const smokeTexture = softDot('rgba(238, 232, 222, 0.6)');
@@ -1334,55 +1316,12 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   field.receiveShadow = true;
   root.add(field);
 
-  // ---- Mặt tiền chánh điện: tường đỏ mở cửa giữa, thềm đá, hàng cột son, hoành phi, mái ngói ----
-  const door = data.door;
+  // ---- Mặt tiền, mái, hiên chánh điện và cổng tam quan: dựng theo vùng phong cảnh (landscape/common.mjs: buildTemple) ----
   const frontZ = ground.z[0];
   // Kích thước chánh điện (world.hall): tường, mái và thềm ôm theo.
   const hall = hallLayout(world);
   const hw = hall.halfWidth;
-  const wallHeight = hall.height - 0.4;
-  const side = hw - door.width / 2;
-  for (const s of [-1, 1]) {
-    batch.add(new THREE.BoxGeometry(side, wallHeight, 0.3), m.wall, { position: [s * (door.width / 2 + side / 2), wallHeight / 2, frontZ + 0.15] });
-  }
-  batch.add(new THREE.BoxGeometry(door.width, wallHeight - door.height, 0.3), m.wall, { position: [0, door.height + (wallHeight - door.height) / 2, frontZ + 0.15] });
-  // Khung cửa gỗ, cánh cửa mở vào trong.
-  for (const s of [-1, 1]) {
-    batch.add(new THREE.BoxGeometry(0.18, door.height, 0.36), m.wood, { position: [s * (door.width / 2 + 0.05), door.height / 2, frontZ + 0.16] });
-    batch.add(new THREE.BoxGeometry(door.width / 2, door.height - 0.1, 0.08), m.pillar, {
-      position: [s * (door.width / 2 - 0.12), door.height / 2, frontZ - door.width / 4 + 0.1], rotation: [0, s * 1.35, 0],
-    });
-  }
-  batch.add(new THREE.BoxGeometry(door.width + 0.4, 0.22, 0.4), m.wood, { position: [0, door.height + 0.1, frontZ + 0.16] });
-  // Tường ngoài hai bên và phía sau chánh điện (tường trong chỉ nhìn được từ bên trong).
-  const back = hall.back - 0.3;
-  for (const s2 of [-1, 1]) batch.add(new THREE.BoxGeometry(0.3, wallHeight, frontZ - back), m.wall, { position: [s2 * (hw + 0.16), wallHeight / 2, (frontZ + back) / 2] });
-  batch.add(new THREE.BoxGeometry(hw * 2 + 0.6, wallHeight, 0.3), m.wall, { position: [0, wallHeight / 2, hall.back - 0.16] });
-  // Thềm đá thấp trước cửa (chỉ là hình, người đi lại vẫn trên mặt sân).
-  batch.add(new THREE.BoxGeometry(hw * 2 + 1, 0.08, 2.4), m.stone, { position: [0, 0.04, frontZ + 1.2] });
-  batch.add(new THREE.BoxGeometry(hw * 2 + 1.4, 0.04, 2.8), m.darkStone, { position: [0, 0.02, frontZ + 1.3] });
-  for (const [x, z] of data.porchPillars) {
-    batch.add(new THREE.CylinderGeometry(0.42, 0.46, 0.3, 8), m.stone, { position: [x, 0.15, z] });
-    batch.add(new THREE.CylinderGeometry(0.24, 0.27, 5.2, 10), m.pillar, { position: [x, 2.9, z] });
-    batch.add(new THREE.TorusGeometry(0.26, 0.03, 6, 16), m.gold, { position: [x, 5.3, z], rotation: [Math.PI / 2, 0, 0] });
-  }
-  // Mái hiên trước thềm và mái chính.
-  batch.add(new THREE.BoxGeometry(hw * 2 + 1.4, 0.22, 2.6), m.wood, { position: [0, 5.6, frontZ + 1.25] });
-  addRoof(batch, m, { x0: -(hw + 0.6), x1: hw + 0.6, z0: frontZ - 0.2, z1: frontZ + 2.6, y: 5.7, rise: 1.0 });
-  addRoof(batch, m, { x0: -(hw + 0.4), x1: hw + 0.4, z0: hall.back - 0.4, z1: frontZ + 0.4, y: wallHeight + 0.1, rise: 3.2 + (hw - 6) * 0.25 });
-  // Hoành phi trên cửa.
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.1), new THREE.MeshStandardMaterial({ map: textBoard(data.sign || ''), roughness: 0.6, emissive: '#2a0606', emissiveIntensity: 0.4 }));
-  sign.position.set(0, Math.max(6.4, wallHeight - 1.2), frontZ + 0.33);
-  root.add(sign);
-  // Đèn lồng đỏ treo hiên.
   const lanternGlows = [];
-  for (const [x] of data.porchPillars) {
-    const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), m.lantern);
-    lantern.scale.y = 1.25;
-    lantern.position.set(x + (x < 0 ? 1.4 : -1.4), 4.7, frontZ + 1.6);
-    root.add(lantern);
-    lanternGlows.push(lantern.position.clone());
-  }
 
   // ---- Lư hương đồng lớn trên bệ đá giữa sân ----
   const burner = new THREE.Group();
@@ -1429,38 +1368,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   // ---- Đại hồng chung và trống lớn hai bên thềm ----
   for (const item of data.instruments || []) addInstrument(batch, m, item);
 
-  // ---- Cây đa lớn, tùng, bụi cây: gộp chung thành vài lượt vẽ (đổ bóng) ----
+  // ---- Cây đa lớn, tùng: dựng theo vùng phong cảnh (landscape3d.mjs, setTheme bên dưới); bồ đề, bụi cây ở đây ----
   const treeBatch = new StaticBatch();
-  for (const tree of data.trees || []) {
-    const size = tree.size || 1;
-    treeBatch.add(new THREE.CylinderGeometry(0.32 * size, 0.55 * size, 3.4 * size, 9), m.bark, { position: [tree.x, 1.7 * size, tree.z] });
-    // Rễ nổi ôm gốc và rễ phụ buông từ tán làm cây đa nhận ra được cả khi nhìn xa.
-    for (let rootIndex = 0; rootIndex < 7; rootIndex += 1) {
-      const angle = (rootIndex / 7) * Math.PI * 2;
-      treeBatch.add(new THREE.CylinderGeometry(0.035 * size, 0.14 * size, 1.65 * size, 6), m.bark, {
-        position: [tree.x + Math.cos(angle) * 0.38 * size, 0.82 * size, tree.z + Math.sin(angle) * 0.38 * size],
-        rotation: [Math.sin(angle) * 0.18, 0, -Math.cos(angle) * 0.18],
-      });
-      if (rootIndex < 5) {
-        treeBatch.add(new THREE.CylinderGeometry(0.018 * size, 0.045 * size, 2.8 * size, 5), m.bark, {
-          position: [tree.x + Math.cos(angle + 0.35) * 1.05 * size, 1.55 * size, tree.z + Math.sin(angle + 0.35) * 1.05 * size],
-        });
-      }
-    }
-    for (let blob = 0; blob < 7; blob += 1) {
-      const angle = blob * 0.9;
-      treeBatch.add(new THREE.IcosahedronGeometry((1.3 + (blob % 3) * 0.35) * size, 1), blob % 2 ? m.leaf : m.leafDark, {
-        position: [tree.x + Math.cos(angle) * 1.4 * size, (3.6 + (blob % 3) * 0.6) * size, tree.z + Math.sin(angle) * 1.4 * size],
-        scale: [1, 0.75, 1],
-      });
-    }
-  }
-  for (const [x, z] of data.pines || []) {
-    treeBatch.add(new THREE.CylinderGeometry(0.12, 0.18, 1.4, 7), m.bark, { position: [x, 0.7, z] });
-    for (let tier = 0; tier < 4; tier += 1) {
-      treeBatch.add(new THREE.ConeGeometry(1.1 - tier * 0.22, 1.2, 8), tier % 2 ? m.leaf : m.leafDark, { position: [x, 1.5 + tier * 0.75, z] });
-    }
-  }
   if (data.bodhi && !data.bodhi.projectId) addBodhi(treeBatch, batch, m, data.bodhi);
   const trees = new THREE.Group();
   treeBatch.build(trees, { castShadow: true });
@@ -1803,7 +1712,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     root.add(fountainWater);
   }
 
-  // ---- Tường gạch thấp hai bên và phía trước, cột đèn lồng; cổng tam quan ----
+  // ---- Tường gạch thấp hai bên, cột đèn lồng (cổng tam quan và tường hai bên cổng dựng cùng chùa) ----
   const wallLength = ground.z[1] - frontZ;
   for (const s of [-1, 1]) {
     batch.add(new THREE.BoxGeometry(0.4, 1.3, wallLength), m.brick, { position: [s * (ground.x[1] - 0.2), 0.65, frontZ + wallLength / 2] });
@@ -1813,40 +1722,6 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       batch.add(new THREE.SphereGeometry(0.22, 12, 10), m.lantern, { position: [s * (ground.x[1] - 0.6), 2.55, z], scale: [1, 1.25, 1] });
       lanternGlows.push(new THREE.Vector3(s * (ground.x[1] - 0.6), 2.55, z));
     }
-  }
-  if (data.gate) {
-    const gz = data.gate.z;
-    const openings = data.gate.openings || [
-      { x: -2.4, width: 1.6, height: 3.05 },
-      { x: 0, width: 3.2, height: 3.5 },
-      { x: 2.4, width: 1.6, height: 3.05 },
-    ];
-    for (const s of [-1, 1]) {
-      batch.add(new THREE.BoxGeometry((ground.x[1] - 3.4), 1.3, 0.4), m.brick, { position: [s * (3.4 + (ground.x[1] - 3.4) / 2), 0.65, gz] });
-    }
-    const pillarXs = new Set();
-    for (const opening of openings) {
-      pillarXs.add(opening.x - opening.width / 2);
-      pillarXs.add(opening.x + opening.width / 2);
-      const radius = opening.width / 2 - 0.08;
-      batch.add(new THREE.TorusGeometry(radius, 0.11, 6, 24, Math.PI), m.gold, {
-        position: [opening.x, opening.height - radius, gz - 0.24],
-      });
-      addRoof(batch, m, {
-        x0: opening.x - opening.width / 2 - 0.18,
-        x1: opening.x + opening.width / 2 + 0.18,
-        z0: gz - 0.65,
-        z1: gz + 0.65,
-        y: opening.x === 0 ? 4 : 3.65,
-        rise: opening.x === 0 ? 0.9 : 0.62,
-      });
-    }
-    for (const x of pillarXs) batch.add(new THREE.BoxGeometry(0.5, 3.6, 0.5), m.pillar, { position: [x, 1.8, gz] });
-    batch.add(new THREE.BoxGeometry(7.4, 0.5, 0.8), m.wood, { position: [0, 3.75, gz] });
-    const gateSign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.55), new THREE.MeshStandardMaterial({ map: textBoard(data.gateSign || 'TAM QUAN'), roughness: 0.6 }));
-    gateSign.position.set(0, 3.75, gz - 0.42);
-    gateSign.rotation.y = Math.PI;
-    root.add(gateSign);
   }
   // Bảng vàng công đức.
   if (data.board) {
@@ -1920,12 +1795,6 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   );
   sky.renderOrder = -1;
   scene3d.add(sky);
-  const mountains = new StaticBatch();
-  for (let index = 0; index < 9; index += 1) {
-    const angle = -1.2 + (index / 8) * 2.4;
-    mountains.add(new THREE.ConeGeometry(18 + (index % 3) * 8, 14 + (index % 4) * 6, 6), m.mountain, { position: [Math.sin(angle) * 95, 5, midZ + 40 + Math.cos(angle) * 70] });
-  }
-  mountains.build(root);
 
   // ---- Ánh nắng (chỉ khi camera ở ngoài sân) và bóng đổ ----
   const sun = new THREE.DirectionalLight('#fff1d6', 0);
@@ -1951,12 +1820,115 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
   renderer.shadowMap.enabled = !touch;
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
-  // Quầng sáng đèn (sprite cộng sáng, không thêm nguồn sáng).
-  const glowMaterial = new THREE.SpriteMaterial({ map: glowTexture, color: '#ffbf6a', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  // Quầng sáng đèn (sprite cộng sáng, không thêm nguồn sáng); ban đêm sáng hơn và vẽ sau lớp phủ đêm.
+  const GLOW_COLOR = new THREE.Color('#ffbf6a');
+  const glowMaterial = new THREE.SpriteMaterial({ map: glowTexture, color: GLOW_COLOR.clone(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+
+  // ---- Trời theo giờ (daylight3d.mjs): sao, trăng, lớp phủ đêm ----
+  // Lớp phủ: một tấm phủ kín màn hình nhân màu khung hình (ZERO, SRC_COLOR), làm tối mọi thứ vẽ trước nó kể cả phần
+  // sáng do ánh sáng môi trường (three.js 0.160 chưa giảm được cường độ envmap cho cả cảnh). Trời và sương đã chia
+  // sẵn cho màu phủ nên vẫn đúng màu đích. Ban ngày ẩn hẳn, không tốn gì.
+  const veil = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    uniforms: { tint: { value: new THREE.Color(1, 1, 1) } },
+    vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: 'uniform vec3 tint; void main() { gl_FragColor = vec4(tint, 1.0); }',
+    transparent: true, depthTest: false, depthWrite: false, fog: false,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor,
+  }));
+  veil.frustumCulled = false;
+  veil.renderOrder = VEIL_ORDER;
+  veil.visible = false;
+  scene3d.add(veil);
+  const starRand = seeded('stars');
+  const starPositions = [];
+  for (let index = 0; index < 420; index += 1) {
+    const angle = starRand() * Math.PI * 2;
+    const height = Math.sin((6 + starRand() * 84) * Math.PI / 180);
+    const across = Math.sqrt(1 - height * height);
+    starPositions.push(midX + Math.cos(angle) * across * 165, height * 165, midZ + Math.sin(angle) * across * 165);
+  }
+  const starGeometry = new THREE.BufferGeometry();
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+  const stars = new THREE.Points(starGeometry, new THREE.PointsMaterial({
+    color: '#eef3ff', size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, fog: false,
+  }));
+  stars.renderOrder = SKY_LIGHTS_ORDER;
+  stars.visible = false;
+  scene3d.add(stars);
+  // Trăng treo trên mái chánh điện (người chơi thường nhìn về phía điện).
+  const moonCanvas = document.createElement('canvas');
+  moonCanvas.width = moonCanvas.height = 128;
+  const moonCtx = moonCanvas.getContext('2d');
+  const halo = moonCtx.createRadialGradient(64, 64, 10, 64, 64, 64);
+  halo.addColorStop(0, 'rgba(220, 230, 255, 0.35)');
+  halo.addColorStop(1, 'rgba(220, 230, 255, 0)');
+  moonCtx.fillStyle = halo;
+  moonCtx.fillRect(0, 0, 128, 128);
+  moonCtx.fillStyle = '#f4f1e6';
+  moonCtx.beginPath();
+  moonCtx.arc(64, 64, 17, 0, Math.PI * 2);
+  moonCtx.fill();
+  moonCtx.fillStyle = 'rgba(190, 186, 170, 0.45)';
+  for (const [x, y, r] of [[58, 58, 4], [69, 66, 3], [61, 71, 2.5]]) {
+    moonCtx.beginPath();
+    moonCtx.arc(x, y, r, 0, Math.PI * 2);
+    moonCtx.fill();
+  }
+  const moonTexture = new THREE.CanvasTexture(moonCanvas);
+  moonTexture.colorSpace = THREE.SRGBColorSpace;
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTexture, transparent: true, opacity: 0, depthWrite: false, fog: false, toneMapped: false }));
+  moon.position.set(midX - 38, 82, Math.min(frontZ, midZ) - 120);
+  moon.scale.set(30, 30, 1);
+  moon.renderOrder = SKY_LIGHTS_ORDER;
+  moon.visible = false;
+  scene3d.add(moon);
+
+  // Màu ban ngày của vùng (landscape gửi qua paint) + độ cao mặt trời → màu đích; update() chia trời / sương cho màu
+  // phủ đang dùng (lớp phủ mờ dần khi vào điện) rồi mới đặt.
+  let palette = null;
+  let elevation = null;
+  let grade = null;
+  let shownTint = null;
+  const regrade = () => {
+    grade = daylightGrade(palette, elevation);
+    sun.color.copy(grade.sun);
+    skyFill.color.copy(grade.sky);
+    skyFill.groundColor.copy(grade.ground);
+    glowMaterial.color.copy(GLOW_COLOR).multiplyScalar(grade.glow);
+    stars.visible = moon.visible = grade.stars > 0.01;
+    stars.material.opacity = grade.stars;
+    moon.material.opacity = grade.stars;
+    shownTint = null;
+  };
+  const paintSky = (outside) => {
+    const tint = grade.tint.map((value) => 1 + (value - 1) * outside);
+    if (shownTint && tint.every((value, index) => Math.abs(value - shownTint[index]) < 0.002)) return;
+    shownTint = tint;
+    const divide = (target, from) => target.setRGB(
+      Math.min(1, from.r / tint[0]), Math.min(1, from.g / tint[1]), Math.min(1, from.b / tint[2]), THREE.LinearSRGBColorSpace,
+    );
+    divide(sky.material.uniforms.top.value, grade.top);
+    divide(sky.material.uniforms.horizon.value, grade.horizon);
+    if (scene3d.fog) divide(scene3d.fog.color, grade.fog);
+    veil.material.uniforms.tint.value.setRGB(tint[0], tint[1], tint[2], THREE.LinearSRGBColorSpace);
+    veil.visible = tint.some((value) => value < 0.998);
+  };
+
+  // Phong cảnh theo vùng (landscape3d.mjs): cây đa / tùng, núi xa, đất, màu mái, chùa nhìn từ ngoài. Dựng cảnh gốc
+  // ngay; renderer gọi setTheme để đổi vùng.
+  const landscape = createLandscape({
+    root, renderer, data, materials: m, field, lawns: [m.grass, m.petGrass], sun, themeBase,
+    paint: (next) => {
+      palette = next;
+      regrade();
+    },
+    temple: { hall, textBoard, glowMaterial },
+  });
   for (const position of lanternGlows) {
     const glow = new THREE.Sprite(glowMaterial);
     glow.position.copy(position);
     glow.scale.set(1.1, 1.1, 1);
+    glow.renderOrder = GLOW_ORDER;
     root.add(glow);
   }
 
@@ -1993,6 +1965,23 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
     guidePickables,
     activateAssets() {
       flowerGarden?.activate?.();
+    },
+    // Vùng phong cảnh: tên trong world.courtyard.themes, 'default' là cảnh gốc.
+    setTheme(name) {
+      return landscape.setTheme(name);
+    },
+    landscapeStats() {
+      return landscape.stats();
+    },
+    // Trời theo giờ: độ cao mặt trời (độ, âm là dưới chân trời) tại chùa; null = ban ngày cố định như cảnh gốc.
+    setDaylight(degrees) {
+      const next = Number.isFinite(degrees) ? Math.max(-90, Math.min(90, degrees)) : null;
+      if (next === elevation) return;
+      elevation = next;
+      regrade();
+    },
+    daylight() {
+      return { elevation, ...grade.level };
     },
     setCommunityProject(project) {
       if (project?.id === data.bodhi?.projectId) communityBodhi?.set(project);
@@ -2031,8 +2020,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world }) {
       const inHall = camera.position.z < frontZ - 0.5 && Math.abs(camera.position.x) < hw + 0.5;
       const target = inHall ? 0 : 1;
       outside += (target - outside) * Math.min(1, dt * 3);
-      sun.intensity = 2.1 * outside;
-      skyFill.intensity = 0.9 * outside;
+      sun.intensity = 2.1 * outside * grade.sunFactor;
+      skyFill.intensity = 0.9 * outside * grade.fillFactor;
+      paintSky(outside);
       // Không bật/tắt đèn (đổi số nguồn sáng làm mọi vật liệu biên dịch lại shader, giật mỗi lần qua cửa):
       // trong điện chỉ để cường độ 0 và ngừng vẽ lại bóng.
       sun.shadow.autoUpdate = !shadowsCleared && outside > 0.02;

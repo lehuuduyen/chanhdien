@@ -55,7 +55,9 @@ function stop(exitCode = 0) {
 }
 
 for (const [name, file, env] of services) {
-  const child = spawn(process.execPath, [file], { env: { ...process.env, ...env, SESSION_SECRET: secret }, stdio: 'inherit' });
+  // Token tunnel chỉ dành cho cloudflared, không đưa vào web / API / realtime.
+  const { CLOUDFLARE_TUNNEL_TOKEN: _tunnelToken, ...serviceEnv } = process.env;
+  const child = spawn(process.execPath, [file], { env: { ...serviceEnv, ...env, SESSION_SECRET: secret }, stdio: 'inherit' });
   child.once('exit', (code, signal) => {
     if (!stopping) {
       console.error(`${name} đã dừng (${signal || code}).`);
@@ -65,7 +67,16 @@ for (const [name, file, env] of services) {
   children.push(child);
 }
 
-const tunnelProvider = String(process.env.TUNNEL_PROVIDER || 'cloudflare').toLowerCase();
+// Cloudflare Tunnel có tên (miễn phí, link cố định trên domain riêng, không bị giới hạn lượt tạo như Quick Tunnel):
+// tạo tunnel trong Cloudflare Zero Trust, trỏ Public Hostname về http://localhost:<WEB_PORT>, rồi ghi token
+// (CLOUDFLARE_TUNNEL_TOKEN) và link (PUBLIC_URL, vd. https://dev.example.com) vào .env.online. Có token thì tự dùng.
+const namedTunnelToken = process.env.CLOUDFLARE_TUNNEL_TOKEN || '';
+const tunnelProvider = String(process.env.TUNNEL_PROVIDER || (namedTunnelToken ? 'cloudflare-named' : 'cloudflare')).toLowerCase();
+const namedTunnelUrl = /^https:\/\/[a-z0-9.-]+\/?$/i.test(process.env.PUBLIC_URL || '') ? process.env.PUBLIC_URL : '';
+if (tunnelProvider === 'cloudflare-named' && (!namedTunnelToken || !namedTunnelUrl)) {
+  console.error('Tunnel có tên cần CLOUDFLARE_TUNNEL_TOKEN và PUBLIC_URL=https://<tên miền> trong .env.online.');
+  stop(1);
+}
 let announcedUrl = '';
 function announce(url) {
   if (!url || announcedUrl) return;
@@ -80,12 +91,31 @@ function announce(url) {
   console.log('Ai có link đều vào được. Ctrl+C để tắt.\n');
 }
 
+// Link Quick Tunnel là vài từ nối gạch ngang (vd. https://quiet-river-moon-lake.trycloudflare.com). Dòng lỗi của
+// cloudflared cũng chứa https://api.trycloudflare.com (máy chủ cấp tunnel): không được coi đó là link công khai.
+const QUICK_TUNNEL_URL = /https:\/\/(?!api\.)[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com/i;
 let ngrokBuffer = '';
+let tunnelRateLimited = false;
 function readTunnelOutput(chunk) {
   const text = chunk.toString();
+  if (tunnelProvider === 'cloudflare-named') {
+    // Link do Public Hostname quyết định; có kết nối tới Cloudflare là link dùng được.
+    for (const line of text.split('\n')) {
+      if (/Registered tunnel connection/i.test(line)) announce(namedTunnelUrl);
+      else if (/\bERR\b|\b(error|failed|unable)\b/i.test(line)) process.stderr.write(`${line}\n`);
+    }
+    return;
+  }
+  if (tunnelProvider === 'localhostrun') {
+    // localhost.run in link dạng https://<mã>.lhr.life (banner còn có link tài liệu của localhost.run, bỏ qua).
+    announce(text.match(/https:\/\/[a-z0-9-]+\.lhr\.life/i)?.[0]);
+    if (/\b(error|failed|denied|refused)\b/i.test(text)) process.stderr.write(text);
+    return;
+  }
   if (tunnelProvider !== 'ngrok') {
-    const url = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i)?.[0];
+    const url = text.match(QUICK_TUNNEL_URL)?.[0];
     announce(url);
+    if (/status 429|Too Many Requests/i.test(text)) tunnelRateLimited = true;
     if (!url && /\b(error|failed|unable)\b/i.test(text)) process.stderr.write(text);
     return;
   }
@@ -101,27 +131,50 @@ function readTunnelOutput(chunk) {
   }
 }
 
+// Thử lại giãn dần (3 giây, 6, 12… tối đa 5 phút) khi tunnel chưa lên được; đã có link rồi mới rớt thì thử lại nhanh.
+// Cloudflare báo 429 (tạo Quick Tunnel quá nhiều lần) thì chờ ít nhất 1 phút: thử dồn chỉ làm bị chặn lâu hơn.
+let tunnelFailures = 0;
 function startTunnel() {
   if (stopping) return;
   announcedUrl = '';
   ngrokBuffer = '';
+  tunnelRateLimited = false;
   const tunnel = tunnelProvider === 'ngrok'
     ? spawn('ngrok', ['http', WEB_PORT, '--log', 'stdout', '--log-format', 'json'], { stdio: ['ignore', 'pipe', 'pipe'] })
-    : spawn('cloudflared', ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${WEB_PORT}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+    // Token đưa qua biến môi trường TUNNEL_TOKEN (cloudflared tự đọc), không nằm trên dòng lệnh để `ps` không thấy.
+    : tunnelProvider === 'cloudflare-named'
+      ? spawn('cloudflared', ['tunnel', '--no-autoupdate', 'run'], { env: { ...process.env, TUNNEL_TOKEN: namedTunnelToken }, stdio: ['ignore', 'pipe', 'pipe'] })
+      // localhost.run: tunnel miễn phí qua ssh, không cần tài khoản; link đổi mỗi lần nối. stdin để mở (không ghi gì):
+      // đóng stdin thì phiên ssh kết thúc kéo theo tunnel.
+      : tunnelProvider === 'localhostrun'
+        ? spawn('ssh', ['-T', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ServerAliveInterval=30', '-o', 'ExitOnForwardFailure=yes',
+          '-R', `80:127.0.0.1:${WEB_PORT}`, 'nokey@localhost.run'], { stdio: ['pipe', 'pipe', 'pipe'] })
+        : spawn('cloudflared', ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${WEB_PORT}`], { stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(tunnel);
   let retryScheduled = false;
   const retry = (reason) => {
+    const index = children.indexOf(tunnel);
+    if (index >= 0) children.splice(index, 1);
     if (stopping || retryScheduled) return;
     retryScheduled = true;
-    console.error(`${reason} Thử mở lại sau 3 giây…`);
-    tunnelRetryTimer = setTimeout(startTunnel, 3_000);
+    tunnelFailures = announcedUrl ? 0 : tunnelFailures + 1;
+    let delay = Math.min(300_000, 3_000 * 2 ** Math.max(0, tunnelFailures - 1));
+    if (tunnelRateLimited) {
+      delay = Math.max(60_000, delay);
+      console.error('Cloudflare đang giới hạn tạo Quick Tunnel (429). Đợi vài phút, dùng tunnel có tên (CLOUDFLARE_TUNNEL_TOKEN, xem README) '
+        + 'hoặc localhost.run: TUNNEL_PROVIDER=localhostrun npm run online');
+    }
+    console.error(`${reason} Thử mở lại sau ${delay >= 60_000 ? `${Math.round(delay / 60_000)} phút` : `${delay / 1_000} giây`}…`);
+    tunnelRetryTimer = setTimeout(startTunnel, delay);
   };
   tunnel.stdout.on('data', readTunnelOutput);
   tunnel.stderr.on('data', readTunnelOutput);
-  tunnel.once('error', () => retry(tunnelProvider === 'ngrok'
-    ? 'Không chạy được ngrok. Cài và cấu hình authtoken trước.'
-    : 'Không chạy được Cloudflare Tunnel. Cài bằng `brew install cloudflared` trước.'));
-  tunnel.once('exit', (code, signal) => retry(`${tunnelProvider === 'ngrok' ? 'ngrok' : 'cloudflared'} đã dừng (${signal || code}).`));
+  const program = { ngrok: 'ngrok', localhostrun: 'ssh (localhost.run)' }[tunnelProvider] || 'cloudflared';
+  tunnel.once('error', () => retry({
+    ngrok: 'Không chạy được ngrok. Cài và cấu hình authtoken trước.',
+    localhostrun: 'Không chạy được ssh.',
+  }[tunnelProvider] || 'Không chạy được Cloudflare Tunnel. Cài bằng `brew install cloudflared` trước.'));
+  tunnel.once('exit', (code, signal) => retry(`${program} đã dừng (${signal || code}).`));
 }
 
 startTunnel();

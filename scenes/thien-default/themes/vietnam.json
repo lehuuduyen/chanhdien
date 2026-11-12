@@ -1,0 +1,41 @@
+{
+  "sky": {
+    "top": "#6d9fd3",
+    "horizon": "#e9efe6"
+  },
+  "fog": "#c9d6cb",
+  "light": {
+    "sun": "#fff3dc",
+    "sky": "#d8e8ff",
+    "ground": "#6b7a45"
+  },
+  "field": "ruong-lua",
+  "colors": {
+    "roof": "#7a3e2b",
+    "wall": "#d9a948",
+    "pillar": "#8e1f15",
+    "brick": "#b0603f"
+  },
+  "mountains": {
+    "shape": "karst",
+    "colors": [
+      "#76827a",
+      "#66726a",
+      "#466f3d"
+    ]
+  },
+  "trees": "banyan",
+  "pines": "cau",
+  "scatter": [
+    { "kind": "tre", "count": 40, "band": [5, 18] },
+    { "kind": "cau", "count": 26, "band": [4, 30] },
+    { "kind": "chuoi", "count": 20, "band": [4, 24] },
+    { "kind": "rom", "count": 16, "band": [16, 50] },
+    { "kind": "nha", "count": 7, "band": [30, 55] },
+    { "kind": "trau", "count": 5, "band": [14, 45] }
+  ],
+  "temple": {
+    "tiers": 2,
+    "hook": 1.7
+  }
+}

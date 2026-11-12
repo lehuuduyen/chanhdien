@@ -1,0 +1,46 @@
+{
+  "sky": {
+    "top": "#3f86cf",
+    "horizon": "#f2c48e"
+  },
+  "fog": "#e9c79c",
+  "light": {
+    "sun": "#ffe9c4",
+    "sky": "#d7e6ff",
+    "ground": "#a8703f"
+  },
+  "field": "sand",
+  "lawn": {
+    "surface": "sand"
+  },
+  "colors": {
+    "roof": "#9c4a2a",
+    "wall": "#c98d5a",
+    "brick": "#f0c79a"
+  },
+  "mountains": {
+    "shape": "mesa",
+    "colors": [
+      "#b4552f",
+      "#cf7a45",
+      "#9c4628"
+    ]
+  },
+  "trees": "palm",
+  "treeScale": 1.15,
+  "pines": "saguaro",
+  "scatter": [
+    {
+      "kind": "saguaro",
+      "count": 40
+    },
+    {
+      "kind": "rock",
+      "count": 45
+    },
+    {
+      "kind": "shrub",
+      "count": 80
+    }
+  ]
+}

@@ -20,7 +20,7 @@ const sorted = (cards) => [...cards].sort((a, b) => a - b);
 // Nhịp rất ngắn để chạy được nhiều ván; lượt người chơi giả đi ngay nên hiếm khi hết giờ (hết giờ vẫn là nước hợp lệ).
 const FAST = {
   ...TIENLEN_RULES.interaction, startMs: 4, fullStartMs: 2, turnMs: 60, afkTurnMs: 15, resultMs: 4, botActMs: [1, 2], tickMs: 2,
-  botFill: { firstDelayMs: [1, 2], delayMs: [1, 2], maxStake: 500 }, botTables: [0, 0], botTableMs: [100, 100],
+  botFill: { always: false, players: [2, 4], firstDelayMs: [1, 2], delayMs: [1, 2] }, botTables: [0, 0], botTableMs: [100, 100],
 };
 
 function seeded(seed) {
@@ -435,7 +435,8 @@ test('qua WebSocket: người chơi chỉ nhận bài của mình, người xem 
   clients.push(an, binh, guest);
   const table = registry.rooms.get('tienlen-1').table;
   // Màn kết quả giữ lâu: trong lúc test chỉ có đúng một ván (không chia sang ván sau).
-  table.rules = { ...table.rules, startMs: 30, fullStartMs: 20, resultMs: 30_000, turnMs: 3_000, afkTurnMs: 300 };
+  table.rules = { ...table.rules, startMs: 30, fullStartMs: 20, resultMs: 30_000, turnMs: 3_000, afkTurnMs: 300,
+    botFill: { ...table.rules.botFill, always: false } };
 
   // Khách (chưa đăng nhập) không chơi được.
   const guestFind = guest.send('tienlen.find');

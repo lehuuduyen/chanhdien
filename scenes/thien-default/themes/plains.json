@@ -1,0 +1,57 @@
+{
+  "sky": {
+    "top": "#2878bd",
+    "horizon": "#d9eff5"
+  },
+  "fog": "#d8e3d2",
+  "light": {
+    "sun": "#fff0bd",
+    "sky": "#dceeff",
+    "ground": "#9a874f"
+  },
+  "field": "wheat-rows",
+  "lawn": {
+    "surface": "grass",
+    "tint": "#9daf66"
+  },
+  "colors": {
+    "roof": "#76513a",
+    "wall": "#f2e4c8",
+    "brick": "#b86f48",
+    "pillar": "#a57c48"
+  },
+  "mountains": {
+    "shape": "prairie-horizon",
+    "colors": [
+      "#c9a955",
+      "#6f844b",
+      "#b7b5a6",
+      "#8a6750"
+    ]
+  },
+  "trees": "cottonwood",
+  "treeScale": 1.02,
+  "pines": "redcedar",
+  "scatter": [
+    {
+      "kind": "farm-windmill",
+      "count": 5,
+      "band": [
+        28,
+        56
+      ]
+    },
+    {
+      "kind": "red-barn",
+      "count": 4,
+      "band": [
+        32,
+        58
+      ]
+    }
+  ],
+  "temple": {
+    "tiers": 1,
+    "hook": 0.65
+  }
+}

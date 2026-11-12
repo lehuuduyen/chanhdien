@@ -125,13 +125,17 @@ const BOT_LEAVE_WAIT_EXCESS = 3;
 const BOT_APPROACH_RANGE = 8;
 const BOT_APPROACH_PERSON_MS = 30 * 60_000;
 const BOT_APPROACH_HOLD_MS = 25_000;
-// Hai bot đi dạo cách nhau trong khoảng này thì có thể đứng lại đối đáp vài câu.
+// Hai bot đi dạo cách nhau trong khoảng này thì có thể đứng lại đối đáp vài câu (không gần hơn BOT_SPOT_GAP: hai bot
+// đang lướt qua nhau mà đứng lại nói chuyện thì đứng chồng lên nhau suốt cuộc nói chuyện).
 const BOT_DIALOGUE_RANGE = 7;
 // Bot đi dạo dừng lệch quanh điểm đường (bán kính, m) và cách người khác ít nhất BOT_SPOT_GAP m (xem botSpot).
 const BOT_SPOT_RADIUS = 0.6;
 const BOT_LANE = 0.5;
 const BOT_SPOT_GAP = 0.9;
 const BOT_YIELD_MS = 3_000;
+// Chờ quá BOT_YIELD_MS mà vẫn bị chắn: đi thẳng qua luôn trong quãng này, không dừng chờ lại sau mỗi bước (trước đây hai
+// bot ngược chiều trên lối hẹp nhích từng bước một trong khi đã đứng chồng lên nhau).
+const BOT_PASS_MS = 2_000;
 // Bot đi khắp sân (có bản đồ scene): tỉ lệ chọn ghế đá / chỗ ngắm cảnh (phần còn lại đi loanh quanh), thời gian ngồi
 // ghế, đứng lại theo loại chỗ, và dừng nhìn quanh giữa đường.
 // Ghế gồm cả xích đu / cầu tuột ở khu vui chơi (bench có kind); chơi ngắn hơn ngồi ghế đá.
@@ -2131,42 +2135,45 @@ export class Room {
     const elapsed = Math.min(1.5, Math.max(0.05, (now - bot.walk.lastAt) / 1_000));
     const step = Math.min(distance, speed * elapsed);
     // Có người ngay phía trước (bước tới sẽ đứng chồng lên): bước chếch sang bên để vòng qua; không chếch được thì
-    // đứng chờ, chờ quá BOT_YIELD_MS (hai bot chặn nhau) thì cứ đi thẳng.
+    // đứng chờ. Thời gian bị chắn tính từ lúc không đi thẳng được, kể cả lúc đang bước chếch (trước đây mỗi bước chếch
+    // đặt lại đồng hồ: hai bot cùng qua một điểm đường, hay điểm đường sát người ngồi ghế đá, chếch qua chếch lại hàng
+    // chục giây). Bị chắn quá BOT_YIELD_MS thì vòng rộng hơn (lùi chếch ra sau cũng được); quá 2 × BOT_YIELD_MS hoặc
+    // không còn đường vòng thì đi thẳng qua luôn trong BOT_PASS_MS.
+    const passing = (bot.walk.passUntil || 0) > now;
+    const blockedFor = bot.walk.yieldSince == null ? 0 : now - bot.walk.yieldSince;
+    // Trong vườn (lối hẹp giữa các luống) không bước chếch để khỏi giẫm lên luống.
+    const turns = passing || blockedFor >= 2 * BOT_YIELD_MS ? []
+      : bot.errand ? [0]
+        : blockedFor < BOT_YIELD_MS || !this.nav ? [0, 0.7, -0.7, 1.3, -1.3] : [0, 0.7, -0.7, 1.3, -1.3, 1.9, -1.9, 2.6, -2.6];
     let next = null;
     let heading = 0;
-    // Trong vườn (lối hẹp giữa các luống) không bước chếch để khỏi giẫm lên luống.
-    for (const turn of bot.errand ? [0] : [0, 0.7, -0.7, 1.3, -1.3]) {
+    let turned = 0;
+    for (const turn of turns) {
       const angle = Math.atan2(dz, dx) + turn;
       const candidate = { x: bot.pos.x + Math.cos(angle) * step, z: bot.pos.z + Math.sin(angle) * step };
       if (turn && this.nav && !this.nav.walkable(candidate)) continue;
-      if (!this.botBlocked(bot, candidate)) {
-        next = candidate;
-        heading = headingOf(candidate.x - bot.pos.x, candidate.z - bot.pos.z);
-        bot.walk.detoured = Boolean(turn);
-        break;
-      }
+      if (this.botBlocked(bot, candidate)) continue;
+      next = candidate;
+      turned = turn;
+      heading = headingOf(candidate.x - bot.pos.x, candidate.z - bot.pos.z);
+      break;
     }
-    if (!next && now - (bot.walk.yieldSince ??= now) < BOT_YIELD_MS) {
+    if (next && !turned) bot.walk.yieldSince = null;
+    else if (!passing) bot.walk.yieldSince ??= now;
+    if (!next && !passing && blockedFor < BOT_YIELD_MS) {
       bot.walk.lastAt = now;
       if (bot.moving) this.move(bot.id, { ...bot.pos, ry: bot.pos.ry, moving: false });
       return false;
     }
-    // Chờ lâu mà vẫn bị chắn (người đứng ngắm cảnh giữa lối): vòng rộng hơn, lùi chếch ra sau một bước cũng được.
-    for (const turn of !next && !bot.errand && this.nav ? [1.9, -1.9, 2.6, -2.6] : []) {
-      const angle = Math.atan2(dz, dx) + turn;
-      const candidate = { x: bot.pos.x + Math.cos(angle) * step, z: bot.pos.z + Math.sin(angle) * step };
-      if (this.nav.walkable(candidate) && !this.botBlocked(bot, candidate)) {
-        next = candidate;
-        heading = headingOf(candidate.x - bot.pos.x, candidate.z - bot.pos.z);
-        bot.walk.detoured = true;
-        break;
-      }
-    }
     if (!next) {
+      if (!passing) {
+        bot.walk.passUntil = now + BOT_PASS_MS;
+        bot.walk.yieldSince = null;
+      }
       next = { x: bot.pos.x + (dx / distance) * step, z: bot.pos.z + (dz / distance) * step };
       heading = headingOf(dx, dz);
     }
-    bot.walk.yieldSince = null;
+    bot.walk.detoured = Boolean(turned);
     bot.walk.lastAt = now;
     this.move(bot.id, { ...next, ry: heading, moving: step < distance });
     return false;
@@ -2533,7 +2540,7 @@ export class Room {
     for (const other of this.participants.values()) {
       if (!other.bot || other === bot || !other.pos || other.handWith || (other.talkUntil || 0) > now || this.activeChallengeOf(other.id)) continue;
       const distance = Math.hypot(other.pos.x - bot.pos.x, other.pos.z - bot.pos.z);
-      if (distance <= best) {
+      if (distance <= best && distance >= BOT_SPOT_GAP) {
         best = distance;
         partner = other;
       }
