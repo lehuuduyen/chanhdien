@@ -4,8 +4,8 @@
 // server (không tin giờ client): lần đầu có thể tưới ngay, các lần sau cách nhau 8 giờ; quá 24 giờ thì cây héo.
 //
 // Vòng đời một vụ: gieo (growing, 0 lần tưới) → mầm (1) → cây non (2) → tưới đủ 3 lần: ra 10 quả
-// (fruiting) → hái hết: harvested, luống trống. Cây héo không bị xóa và tưới lại sẽ hồi phục. Quả chín để quá
-// FRUIT_KEEP_DAYS ngày mới expired. Lịch sử vụ, tưới, hái, giao dịch xu đều được giữ lại để đối soát.
+// (fruiting) → hái hết: harvested, luống trống. Cây héo không bị xóa và tưới lại sẽ hồi phục. Sau khi ra quả đúng
+// FRUIT_KEEP_MS, vụ tự expired và luống trống. Lịch sử vụ, tưới, hái, giao dịch xu đều được giữ lại để đối soát.
 
 import { createHash, randomInt } from 'node:crypto';
 import { capTransfers, TIENLEN_MAX_PLAYERS, TIENLEN_MODES, TIENLEN_STAKES, tienLenCut, tienLenMinCoins } from '@chanh-dien/tien-len';
@@ -25,7 +25,7 @@ export const HIDESEEK_REWARD_DAILY_LIMIT = 5;
 export const CHORE_REWARD_KINDS = Object.freeze(['sweep', 'water', 'light', 'feed', 'clean', 'tea']);
 export const WATER_INTERVAL_MS = 8 * 60 * 60 * 1_000;
 export const WILT_AFTER_MS = 24 * 60 * 60 * 1_000;
-export const FRUIT_KEEP_DAYS = 7;
+export const FRUIT_KEEP_MS = 24 * 60 * 60 * 1_000;
 export const MAX_ITEMS_PER_REQUEST = 20;
 // Khu tưởng niệm: 36 ô mộ, đắp một mộ tốn 100 xu, giữ 24 giờ rồi ô trống lại. Tên trên bia 1–24 ký tự.
 export const GRAVE_COUNT = 36;
@@ -547,6 +547,16 @@ const MIGRATIONS = [
     results TEXT NOT NULL,
     at INTEGER NOT NULL
   );`,
+  // Mốc ra quả chính xác theo giờ server. Vụ cũ lấy lần tưới thứ ba (lúc chuyển sang fruiting); nếu dữ liệu rất cũ
+  // thiếu sự kiện thì dùng mốc tưới cuối / gieo làm phương án an toàn.
+  `ALTER TABLE crop_cycles ADD COLUMN fruiting_at INTEGER;
+  UPDATE crop_cycles
+    SET fruiting_at = COALESCE(
+      (SELECT at FROM crop_watering_events WHERE crop_id = crop_cycles.id ORDER BY at LIMIT 1 OFFSET 2),
+      last_water_at,
+      planted_at
+    )
+    WHERE status = 'fruiting' AND fruiting_at IS NULL;`,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -655,7 +665,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       VALUES (?, ?, ?, 'growing', ?, ?)`),
     endCrop: db.prepare('UPDATE crop_cycles SET status = ?, ended_at = ? WHERE id = ?'),
     waterCrop: db.prepare('UPDATE crop_cycles SET water_days = water_days + ?, last_water_day = ?, last_water_at = ? WHERE id = ?'),
-    fruitCrop: db.prepare("UPDATE crop_cycles SET status = 'fruiting', fruits_total = ?, fruits_left = ?, fruiting_day = ? WHERE id = ?"),
+    fruitCrop: db.prepare("UPDATE crop_cycles SET status = 'fruiting', fruits_total = ?, fruits_left = ?, fruiting_day = ?, fruiting_at = ? WHERE id = ?"),
     takeFruit: db.prepare('UPDATE crop_cycles SET fruits_left = fruits_left - ? WHERE id = ? AND fruits_left >= ?'),
     waterEvent: db.prepare('INSERT INTO crop_watering_events (crop_id, account_id, day, counted, at) VALUES (?, ?, ?, ?, ?)'),
     harvestEvent: db.prepare('INSERT INTO crop_harvest_events (crop_id, account_id, quantity, is_owner, at) VALUES (?, ?, ?, ?, ?)'),
@@ -778,14 +788,15 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     }
   }
 
-  // Quả để quá lâu → expired, luống trống. Thiếu nước chỉ làm cây héo, không xóa vụ.
+  // Quả chín đủ 24 giờ → expired, luống trống. Thiếu nước chỉ làm cây héo, không xóa vụ.
   function expireStale() {
-    const day = today();
+    const timestamp = now();
     const changed = [];
     for (const crop of q.activeAll.all()) {
-      const rotten = crop.status === 'fruiting' && daysBetween(crop.fruiting_day, day) > FRUIT_KEEP_DAYS;
+      const fruitingAt = crop.fruiting_at ?? crop.last_water_at ?? crop.planted_at;
+      const rotten = crop.status === 'fruiting' && timestamp >= fruitingAt + FRUIT_KEEP_MS;
       if (rotten) {
-        q.endCrop.run('expired', now(), crop.id);
+        q.endCrop.run('expired', timestamp, crop.id);
         changed.push(crop.plot_id);
       }
     }
@@ -1025,7 +1036,7 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
       const grows = crop.status === 'growing';
       q.waterEvent.run(crop.id, accountId, day, 1, timestamp);
       q.waterCrop.run(grows ? 1 : 0, day, timestamp, crop.id);
-      if (grows && crop.water_days + 1 >= WATER_DAYS_TO_FRUIT) q.fruitCrop.run(FRUITS_PER_CROP, FRUITS_PER_CROP, day, crop.id);
+      if (grows && crop.water_days + 1 >= WATER_DAYS_TO_FRUIT) q.fruitCrop.run(FRUITS_PER_CROP, FRUITS_PER_CROP, day, timestamp, crop.id);
       return { plotIds: [plotId], counted: grows, revived: timestamp > hydratedAt + WILT_AFTER_MS };
     },
     harvest(accountId, { plotId, quantity }) {

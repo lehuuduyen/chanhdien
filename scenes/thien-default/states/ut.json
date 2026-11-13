@@ -1,6 +1,6 @@
 {
   "landmarks": [
-    { "kind": "delicate-arch", "side": "gate", "distance": 54, "offset": 9, "haze": 0.3 },
+    { "kind": "delicate-arch", "side": "gate", "distance": 62, "offset": 9, "haze": 0.3 },
     { "kind": "la-sal", "side": "gate", "distance": 120, "haze": 0.35, "params": { "span": 380, "height": 52 } },
     { "kind": "hoodoos", "side": "gate", "distance": 24, "offset": -54, "haze": 0.3, "params": { "width": 64, "depth": 26, "count": 80 } },
     { "kind": "hoodoos", "side": "east", "distance": 26, "offset": 8, "haze": 0.3, "params": { "width": 90, "depth": 24, "count": 80 } }

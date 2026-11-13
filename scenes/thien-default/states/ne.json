@@ -1,10 +1,33 @@
 {
   "landmarks": [
-    { "kind": "chimney-rock", "side": "gate", "distance": 48, "offset": -13, "scale": 1.05, "haze": 0.2 },
-    { "kind": "platte-cranes", "side": "east", "distance": 34, "offset": 14, "scale": 0.9, "haze": 0.22 }
+    {
+      "kind": "chimney-rock",
+      "side": "gate",
+      "distance": 62,
+      "offset": -13,
+      "scale": 1.05,
+      "haze": 0.2
+    },
+    {
+      "kind": "platte-cranes",
+      "side": "east",
+      "distance": 34,
+      "offset": 14,
+      "scale": 0.9,
+      "haze": 0.22
+    }
   ],
-  "hide": ["mountains"],
+  "hide": [
+    "mountains"
+  ],
   "scatter": [
-    { "kind": "irrigation", "count": 26, "band": [9, 24] }
+    {
+      "kind": "irrigation",
+      "count": 26,
+      "band": [
+        9,
+        24
+      ]
+    }
   ]
 }

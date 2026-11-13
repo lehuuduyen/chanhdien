@@ -136,6 +136,137 @@ function groundShape(rect, holes = [], y = 0) {
   return geometry;
 }
 
+// Đài ngắm cảnh: mặt lối đá + mặt đài bát giác (gạch lát theo mét như lối trong sân), bó vỉa hai bên lối, lan can đá
+// (trụ + tay vịn + chân) quanh đài, chừa chỗ lối vào.
+function buildOverlook(batch, root, m, { path, terrace }) {
+  const tiles = stoneTiles([1, 1]);
+  tiles.repeat.set(1 / 6, 1 / 6);
+  const material = new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.92 });
+  const slab = new THREE.Mesh(groundShape(path, [], 0.1), material);
+  slab.receiveShadow = true;
+  root.add(slab);
+  const length = path.z[1] - path.z[0];
+  for (const x of [path.x[0] - 0.18, path.x[1] + 0.18]) {
+    batch.add(new THREE.BoxGeometry(0.36, 0.3, length), m.stone, { position: [x, 0.15, (path.z[0] + path.z[1]) / 2] });
+  }
+  const { x: [x0, x1], z: [z0, z1], cut } = terrace;
+  const corners = [[x0 + cut, z0], [x1 - cut, z0], [x1, z0 + cut], [x1, z1 - cut], [x1 - cut, z1], [x0 + cut, z1], [x0, z1 - cut], [x0, z0 + cut]];
+  const shape = new THREE.Shape();
+  corners.forEach(([x, z], index) => (index ? shape.lineTo(x, -z) : shape.moveTo(x, -z)));
+  shape.lineTo(corners[0][0], -corners[0][1]);
+  const deck = new THREE.ShapeGeometry(shape);
+  deck.rotateX(-Math.PI / 2);
+  deck.translate(0, 0.11, 0);
+  const deckMesh = new THREE.Mesh(deck, material);
+  deckMesh.receiveShadow = true;
+  root.add(deckMesh);
+  // Lan can: theo từng cạnh, trụ cách ~2,4 m, tay vịn + chân; cạnh gần chùa chừa lối vào bằng bề rộng lối đá.
+  const rail = (ax, az, bx, bz) => {
+    const dx = bx - ax;
+    const dz = bz - az;
+    const span = Math.hypot(dx, dz);
+    if (span < 0.3) return;
+    const angle = Math.atan2(-dz, dx);
+    const mid = [(ax + bx) / 2, (az + bz) / 2];
+    batch.add(new THREE.BoxGeometry(span, 0.3, 0.42), m.stone, { position: [mid[0], 0.15, mid[1]], rotation: [0, angle, 0] });
+    batch.add(new THREE.BoxGeometry(span, 0.12, 0.3), m.stone, { position: [mid[0], 0.95, mid[1]], rotation: [0, angle, 0] });
+    const posts = Math.max(1, Math.round(span / 2.4));
+    for (let index = 0; index <= posts; index += 1) {
+      const t = index / posts;
+      batch.add(new THREE.BoxGeometry(0.32, 1.05, 0.32), m.stone, { position: [ax + dx * t, 0.52, az + dz * t] });
+    }
+  };
+  corners.forEach(([ax, az], index) => {
+    const [bx, bz] = corners[(index + 1) % corners.length];
+    if (index === 0) {
+      // Cạnh gần chùa (z0): hai đoạn hai bên lối vào.
+      rail(ax, az, path.x[0] - 0.2, az);
+      rail(path.x[1] + 0.2, az, bx, bz);
+      return;
+    }
+    rail(ax, az, bx, bz);
+  });
+}
+
+// Rừng thiền: cổng gỗ trên tường sân, lối đá vào, vòng lối đá quanh hồ (elip có lỗ), mặt hồ + bờ đá + lá sen, bến gỗ
+// sát mặt nước ra thủy đình lục giác giữa hồ. Mặt lối / bến sát đất (nhân vật đứng cao độ 0).
+function buildGrove(batch, root, m, { gate, entry, pond, loop, pier, pavilion }) {
+  const tiles = stoneTiles([1, 1]);
+  tiles.repeat.set(1 / 6, 1 / 6);
+  const stone = new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.92 });
+  const entryMesh = new THREE.Mesh(groundShape(entry, [], 0.02), stone);
+  entryMesh.receiveShadow = true;
+  root.add(entryMesh);
+  const ring = new THREE.Shape();
+  ring.absellipse(loop.x, -loop.z, loop.rx + loop.width / 2, loop.rz + loop.width / 2, 0, Math.PI * 2, false);
+  const hole = new THREE.Path();
+  hole.absellipse(loop.x, -loop.z, loop.rx - loop.width / 2, loop.rz - loop.width / 2, 0, Math.PI * 2, true);
+  ring.holes.push(hole);
+  const ringGeometry = new THREE.ShapeGeometry(ring, 64);
+  ringGeometry.rotateX(-Math.PI / 2);
+  ringGeometry.translate(0, 0.021, 0);
+  const ringMesh = new THREE.Mesh(ringGeometry, stone);
+  ringMesh.receiveShadow = true;
+  root.add(ringMesh);
+  // Mặt hồ, bờ đá, lá sen, vài bông sen.
+  const water = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshStandardMaterial({ color: '#3f7d84', roughness: 0.15, metalness: 0.1 }));
+  water.rotation.x = -Math.PI / 2;
+  water.scale.set(pond.rx, pond.rz, 1);
+  water.position.set(pond.x, 0.03, pond.z);
+  root.add(water);
+  const pad = new THREE.MeshStandardMaterial({ color: '#4f8a3f', roughness: 0.8 });
+  const lotus = new THREE.MeshStandardMaterial({ color: '#f2a0b8', roughness: 0.7 });
+  let seed = 5;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rimCount = Math.round((Math.PI * (pond.rx + pond.rz)) / 1.1);
+  for (let index = 0; index < rimCount; index += 1) {
+    const angle = (index / rimCount) * Math.PI * 2;
+    const px = pond.x + Math.cos(angle) * (pond.rx + 0.2);
+    const pz = pond.z + Math.sin(angle) * (pond.rz + 0.2);
+    // Chừa chỗ bến gỗ đi qua bờ.
+    if (Math.abs(px - pier.x) < pier.width / 2 + 0.3 && pz < pond.z) continue;
+    const r = 0.45 + rand() * 0.35;
+    batch.add(new THREE.DodecahedronGeometry(r, 0), m.stone, { position: [px, r * 0.25, pz], rotation: [rand() * 3, rand() * 3, 0], scale: [1.4, 0.6, 1.1] });
+  }
+  for (let index = 0; index < 26; index += 1) {
+    const angle = rand() * Math.PI * 2;
+    const reach = 0.35 + rand() * 0.55;
+    const px = pond.x + Math.cos(angle) * pond.rx * reach;
+    const pz = pond.z + Math.sin(angle) * pond.rz * reach;
+    if (Math.abs(px - pier.x) < pier.width / 2 + 0.6 && pz < pond.z) continue;
+    if (Math.hypot(px - pavilion.x, pz - pavilion.z) < pavilion.radius + 0.6) continue;
+    batch.add(new THREE.CylinderGeometry(0.42 + rand() * 0.2, 0.42, 0.02, 10), pad, { position: [px, 0.05, pz] });
+    if (index % 4 === 0) batch.add(new THREE.ConeGeometry(0.16, 0.28, 6), lotus, { position: [px + 0.1, 0.2, pz] });
+  }
+  // Bến gỗ: ván sát mặt nước, cọc hai bên.
+  const deckLength = pier.z[1] - pier.z[0];
+  batch.add(new THREE.BoxGeometry(pier.width, 0.06, deckLength), m.wood, { position: [pier.x, 0.04, (pier.z[0] + pier.z[1]) / 2] });
+  for (let z = pier.z[0] + 0.6; z < pier.z[1]; z += 2) {
+    for (const side of [-1, 1]) batch.add(new THREE.CylinderGeometry(0.09, 0.09, 0.9, 6), m.wood, { position: [pier.x + side * (pier.width / 2 + 0.05), 0.3, z] });
+  }
+  // Thủy đình lục giác: sàn gỗ, sáu cột, mái chóp sáu cạnh, chóp nhọn.
+  const r = pavilion.radius;
+  batch.add(new THREE.CylinderGeometry(r, r, 0.08, 6), m.wood, { position: [pavilion.x, 0.03, pavilion.z] });
+  for (let index = 0; index < 6; index += 1) {
+    const angle = ((index + 0.5) / 6) * Math.PI * 2;
+    if (Math.abs(Math.sin(angle) + 1) < 0.2) continue;
+    batch.add(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 8), m.pillar, { position: [pavilion.x + Math.cos(angle) * (r - 0.3), 1.3, pavilion.z + Math.sin(angle) * (r - 0.3)] });
+  }
+  batch.add(new THREE.CylinderGeometry(r * 1.05, r * 1.08, 0.2, 6), m.wood, { position: [pavilion.x, 2.65, pavilion.z] });
+  batch.add(new THREE.ConeGeometry(r * 1.35, 1.6, 6), m.roof, { position: [pavilion.x, 3.55, pavilion.z] });
+  batch.add(new THREE.SphereGeometry(0.16, 8, 6), m.gold, { position: [pavilion.x, 4.4, pavilion.z] });
+  // Cổng gỗ trên tường sân: hai cột, xà đôi, mái nhỏ hai mái.
+  const gx = gate.x + 0.2;
+  for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.42, 3.2, 0.42), m.pillar, { position: [gx, 1.6, gate.z + side * (gate.width / 2 + 0.15)] });
+  batch.add(new THREE.BoxGeometry(0.36, 0.3, gate.width + 1.2), m.wood, { position: [gx, 3.0, gate.z] });
+  batch.add(new THREE.BoxGeometry(0.3, 0.22, gate.width + 0.6), m.wood, { position: [gx, 2.55, gate.z] });
+  for (const side of [-1, 1]) {
+    const slope = new THREE.BoxGeometry(1.2, 0.12, gate.width + 1.8);
+    slope.rotateZ(-side * 0.5);
+    batch.add(slope, m.roof, { position: [gx + side * 0.5, 3.4, gate.z] });
+  }
+}
+
 // Hình cá chép (koi) nhỏ: thân thoi, đuôi xoè, hai vây; đầu hướng +z. Một geometry cho InstancedMesh.
 function koiGeometry() {
   const body = new THREE.SphereGeometry(1, 12, 8);
@@ -1355,6 +1486,13 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   burner.traverse((item) => { if (item.isMesh) casters.push(item); });
   root.add(burner);
 
+  // ---- Đài ngắm cảnh ngoài cổng (data.overlook): lối đá + đài bát giác lan can đá, mặt đá sát đất (0,1 m, nằm trên mặt
+  // nước của các bang ven biển); bó vỉa / chân lan can che khe giữa mặt đá và nền. ----
+  if (data.overlook) buildOverlook(batch, root, m, data.overlook);
+  // ---- Rừng thiền ngoài cổng hông phía tây (data.grove): cổng gỗ, lối đá, vòng lối quanh hồ sen, bến gỗ, thủy đình. Cây
+  // của rừng do lớp phong cảnh vẽ theo vùng (landscape3d: grove.trees). ----
+  if (data.grove) buildGrove(batch, root, m, data.grove);
+
   // ---- Đèn đá hai bên lối đi ----
   for (const [x, z] of data.lanterns) {
     batch.add(new THREE.BoxGeometry(0.5, 0.18, 0.5), m.darkStone, { position: [x, 0.09, z] });
@@ -1713,11 +1851,18 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   }
 
   // ---- Tường gạch thấp hai bên, cột đèn lồng (cổng tam quan và tường hai bên cổng dựng cùng chùa) ----
-  const wallLength = ground.z[1] - frontZ;
+  // Tường phía tây chừa cổng hông ra Rừng thiền (data.grove.gate).
+  const sideGate = data.grove?.gate;
   for (const s of [-1, 1]) {
-    batch.add(new THREE.BoxGeometry(0.4, 1.3, wallLength), m.brick, { position: [s * (ground.x[1] - 0.2), 0.65, frontZ + wallLength / 2] });
-    batch.add(new THREE.BoxGeometry(0.6, 0.12, wallLength), m.roof, { position: [s * (ground.x[1] - 0.2), 1.36, frontZ + wallLength / 2] });
+    const spans = s < 0 && sideGate
+      ? [[frontZ, sideGate.z - sideGate.width / 2], [sideGate.z + sideGate.width / 2, ground.z[1]]]
+      : [[frontZ, ground.z[1]]];
+    for (const [z0, z1] of spans) {
+      batch.add(new THREE.BoxGeometry(0.4, 1.3, z1 - z0), m.brick, { position: [s * (ground.x[1] - 0.2), 0.65, (z0 + z1) / 2] });
+      batch.add(new THREE.BoxGeometry(0.6, 0.12, z1 - z0), m.roof, { position: [s * (ground.x[1] - 0.2), 1.36, (z0 + z1) / 2] });
+    }
     for (let z = frontZ + 2; z < ground.z[1]; z += 5) {
+      if (s < 0 && sideGate && Math.abs(z - sideGate.z) < sideGate.width / 2 + 1) continue;
       batch.add(new THREE.BoxGeometry(0.3, 2.4, 0.3), m.pillar, { position: [s * (ground.x[1] - 0.6), 1.2, z] });
       batch.add(new THREE.SphereGeometry(0.22, 12, 10), m.lantern, { position: [s * (ground.x[1] - 0.6), 2.55, z], scale: [1, 1.25, 1] });
       lanternGlows.push(new THREE.Vector3(s * (ground.x[1] - 0.6), 2.55, z));

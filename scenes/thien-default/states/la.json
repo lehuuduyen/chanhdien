@@ -1,7 +1,22 @@
 {
   "landmarks": [
-    { "kind": "causeway", "side": "gate", "distance": 35, "scale": 0.95, "haze": 0.18 },
-    { "kind": "bayou-stilt-house", "side": "east", "distance": 34, "offset": 15, "scale": 0.9, "haze": 0.22 }
+    {
+      "kind": "causeway",
+      "side": "gate",
+      "distance": 48,
+      "scale": 0.95,
+      "haze": 0.18
+    },
+    {
+      "kind": "bayou-stilt-house",
+      "side": "east",
+      "distance": 34,
+      "offset": 15,
+      "scale": 0.9,
+      "haze": 0.22
+    }
   ],
-  "hide": ["mountains"]
+  "hide": [
+    "mountains"
+  ]
 }

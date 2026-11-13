@@ -18,6 +18,9 @@ const STATE_DIR = path.join(ROOT, 'scenes/thien-default/states');
 const KIT_DIR = path.join(ROOT, 'packages/scene-engine/src/landmarks');
 const scene = resolveScene(JSON.parse(readFileSync(path.join(ROOT, 'scenes/thien-default/scene.json'), 'utf8')));
 const ground = scene.world.courtyard.ground;
+// Khu đi lại ngoài tường như landscape3d truyền cho bộ đồ: lối + Đài ngắm cảnh ngoài cổng, Rừng thiền ngoài cổng tây.
+const { overlook, grove } = scene.world.courtyard;
+const walkways = [...(overlook ? [overlook.path, overlook.terrace] : []), ...(grove ? [grove.area] : [])];
 const hallBack = hallLayout(scene.world).back;
 const stateFiles = existsSync(STATE_DIR) ? readdirSync(STATE_DIR).filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -5)) : [];
 const kitNames = readdirSync(KIT_DIR).filter((name) => name.endsWith('.mjs') && name !== 'common.mjs').map((name) => name.slice(0, -4));
@@ -38,6 +41,7 @@ function recorder() {
   };
 }
 const envFor = (extras) => ({
+  walkways,
   m: new Proxy({}, { get: (cache, key) => (cache[key] ||= new THREE.MeshStandardMaterial()) }),
   material: () => new THREE.MeshStandardMaterial(),
   far: () => new THREE.MeshStandardMaterial(),
@@ -112,6 +116,40 @@ function footprintHitsCourt({ geometry, matrix }) {
   }
   return true;
 }
+// Đài ngắm cảnh ngoài cổng (lối + đài, nới 1 m): lớp bang không dựng vật nhô lên trên đó (mặt nước phẳng nằm dưới mặt đá
+// thì được). Trả tên vùng bị lấn hoặc null.
+const overlookRects = walkways.map((rect) => ({ x: [rect.x[0] - 1, rect.x[1] + 1], z: [rect.z[0] - 1, rect.z[1] + 1] }));
+function hitsOverlook(geometry, matrix) {
+  const positions = geometry.attributes.position;
+  const point = new THREE.Vector3();
+  const local = [];
+  for (let index = 0; index < positions.count; index += 1) {
+    point.fromBufferAttribute(positions, index);
+    if (matrix) point.applyMatrix4(matrix);
+    local.push([point.x, point.y, point.z]);
+  }
+  if (Math.max(...local.map(([, y]) => y)) < 0.25) return false;
+  // Theo từng tam giác: phần cao nằm trong tầm người đi (0,25–4,5 m — vật treo cao như khinh khí cầu, tán cây thì được)
+  // và có một đỉnh hoặc tâm (khối to phủ ngang) nằm trong khung.
+  const index = geometry.index ? geometry.index.array : [...local.keys()];
+  const hit = (x, y, z) => y > 0.25 && y < 4.5 && overlookRects.some((rect) => x > rect.x[0] && x < rect.x[1] && z > rect.z[0] && z < rect.z[1]);
+  for (let at = 0; at + 2 < index.length; at += 3) {
+    const a = local[index[at]];
+    const b = local[index[at + 1]];
+    const c = local[index[at + 2]];
+    if (Math.max(a[1], b[1], c[1]) < 0.25 || Math.min(a[1], b[1], c[1]) > 4.5) continue;
+    // Lấy mẫu lưới trên tam giác (bắt cả mặt tháp cao đứng giữa khung).
+    for (let i = 0; i <= 4; i += 1) {
+      for (let j = 0; i + j <= 4; j += 1) {
+        const u = i / 4;
+        const v = j / 4;
+        const w = 1 - u - v;
+        if (hit(a[0] * w + b[0] * u + c[0] * v, a[1] * w + b[1] * u + c[1] * v, a[2] * w + b[2] * u + c[2] * v)) return true;
+      }
+    }
+  }
+  return false;
+}
 const triangles = (items) => items.reduce((sum, item) => sum + (item.geometry.index?.count ?? item.geometry.attributes.position.count) / 3, 0);
 let seed = 7;
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -142,7 +180,8 @@ test('dữ liệu bang: hợp lệ, mã có trong US_STATES (không phải vn), 
   assert.ok(validateState('vn1', {}).length);
 });
 
-test('điểm nhìn xa từng bang: ngoài sân, không lấn vào điện, đủ cao để đứng xa thấy, trong ngân sách', async () => {
+test('điểm nhìn xa từng bang: ngoài sân, không lấn vào điện / lối và Đài ngắm cảnh, đủ cao để đứng xa thấy, trong ngân sách', async () => {
+  const overlookHits = new Set();
   for (const code of stateFiles) {
     const state = readState(code);
     const kit = await loadKit(code);
@@ -164,11 +203,16 @@ test('điểm nhìn xa từng bang: ngoài sân, không lấn vào điện, đ�
       // Có thể chỉ có đèn đêm (cực quang).
       assert.ok(own.length || objects.length || extras.lights.length > lit, `${code}.landmarks[${index}] không dựng gì`);
       for (const object of objects) {
+        object.updateMatrixWorld(true);
+        object.traverse((child) => {
+          if (child.isMesh && hitsOverlook(child.geometry, child.matrixWorld)) overlookHits.add(`${code}.${item.kind}`);
+        });
         const point = intruder(object);
         assert.ok(!point, `${code}.${item.kind} lấn vào sân / điện ở (${point?.x.toFixed(1)}, ${point?.z.toFixed(1)})`);
         tallest = Math.max(tallest, new THREE.Box3().setFromObject(object).max.y);
       }
       for (const piece of own) {
+        if (hitsOverlook(piece.geometry, piece.matrix)) overlookHits.add(`${code}.${item.kind}`);
         const { box } = piece;
         const inside = box.max.x > ground.x[0] && box.min.x < ground.x[1] && box.max.z > hallBack - 4 && box.min.z < ground.z[1] && footprintHitsCourt(piece);
         assert.ok(!inside, `${code}.${item.kind} lấn vào sân / điện (${box.min.x.toFixed(1)}…${box.max.x.toFixed(1)}, ${box.min.z.toFixed(1)}…${box.max.z.toFixed(1)})`);
@@ -188,6 +232,7 @@ test('điểm nhìn xa từng bang: ngoài sân, không lấn vào điện, đ�
       for (const object of extras.objects) assert.ok(!intruder(object), `${code}: vật chuyển động lấn vào sân lúc ${seconds} giây`);
     }
   }
+  assert.deepEqual([...overlookHits], [], 'lấn lên lối / Đài ngắm cảnh ngoài cổng');
 });
 
 test('vị trí điểm nhìn xa theo phía: cổng / sau điện / đông / tây, cách tường đúng khoảng', () => {

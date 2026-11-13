@@ -845,6 +845,12 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
       if (memorialBounds && self.x >= memorialBounds.x[0] && self.x <= memorialBounds.x[1]
         && self.z >= memorialBounds.z[0] && self.z <= memorialBounds.z[1]) return 'memorial';
+      // Ra khỏi cổng: lối đá và Đài ngắm cảnh.
+      const overlook = world.courtyard?.overlook;
+      if (overlook && self.z >= overlook.path.z[0]) return 'overlook';
+      // Ra khỏi cổng hông phía tây: Rừng thiền.
+      const grove = world.courtyard?.grove;
+      if (grove && self.x <= grove.area.x[1]) return 'grove';
       return 'courtyard';
     }
     function reportPlace(self) {

@@ -69,6 +69,10 @@ const VIEWS = [
   // thấy" của lớp tiểu bang.
   ['7-vuon-hoa-tay', [-46, 3.4, 24], [-43.8, 5, 30.6]],
   ['8-nong-trai-dong', [48, 3.4, 46], [45.3, 5, 52.5]],
+  // Đài ngắm cảnh ngoài cổng: đứng trên đài nhìn ra cảnh tiểu bang, và từ đài nhìn ngược về cổng chùa.
+  ['9-dai-ngam-canh', [0, 3.4, 119], [0, 5, 126]],
+  ['10-dai-nhin-ve', [7, 3.8, 131], [3.8, 4.6, 124]],
+  ['11-rung-thien', [-57, 3.6, 29], [-62.5, 3, 32.4]],
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

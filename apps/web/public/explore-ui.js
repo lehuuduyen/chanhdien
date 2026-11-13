@@ -301,8 +301,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelPanel.setAttribute('role', 'menu');
   travelPanel.hidden = true;
   // exits: map khác (vd: rạp phim) — { id, icon, go() }; bấm vào thì trang tự chuyển, không gửi travel.go.
-  const travelIcons = { hall: '🛕', courtyard: '🌳', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', farm: '🐐', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
-  const travelButtons = ['hall', 'courtyard', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
+  const travelIcons = { hall: '🛕', courtyard: '🌳', overlook: '🌄', grove: '🌲', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', farm: '🐐', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
+  const travelButtons = ['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.destination = destination;
@@ -526,7 +526,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     },
     // Vào phòng xong thì đi thẳng tới khu này, dùng khi quay về từ map khác.
     arriveAt(destination) {
-      if (['hall', 'courtyard', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial'].includes(destination)) arrival = destination;
+      if (['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial'].includes(destination)) arrival = destination;
     },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {

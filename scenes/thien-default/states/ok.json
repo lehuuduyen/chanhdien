@@ -1,10 +1,33 @@
 {
   "landmarks": [
-    { "kind": "golden-driller", "side": "gate", "distance": 48, "offset": -16, "scale": 1.05, "haze": 0.18 },
-    { "kind": "oil-derrick", "side": "east", "distance": 34, "offset": 12, "scale": 0.86, "haze": 0.22 }
+    {
+      "kind": "golden-driller",
+      "side": "gate",
+      "distance": 56,
+      "offset": -16,
+      "scale": 1.05,
+      "haze": 0.18
+    },
+    {
+      "kind": "oil-derrick",
+      "side": "east",
+      "distance": 34,
+      "offset": 12,
+      "scale": 0.86,
+      "haze": 0.22
+    }
   ],
-  "hide": ["mountains"],
+  "hide": [
+    "mountains"
+  ],
   "scatter": [
-    { "kind": "prairie", "count": 95, "band": [7, 25] }
+    {
+      "kind": "prairie",
+      "count": 95,
+      "band": [
+        7,
+        25
+      ]
+    }
   ]
 }

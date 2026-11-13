@@ -45,7 +45,7 @@ const landmarks = {
       beam(batch, [(ax + bx) / 2, 38 * scale, (az + bz) / 2], [bx, 55 * scale, bz], 0.08 * scale, steel);
     }
     // Tháp nước tròn trên chân.
-    const [wx, , wz] = at(-26 * scale, 0, -16 * scale);
+    const [wx, , wz] = at(30 * scale, 0, -22 * scale);
     batch.add(new THREE.SphereGeometry(4 * scale, 12, 8), steel, { position: [wx, 22 * scale, wz] });
     for (const a of [0, 2.1, 4.2]) beam(batch, [wx + Math.cos(a) * 3 * scale, 0, wz + Math.sin(a) * 3 * scale], [wx, 20 * scale, wz], 0.4 * scale, steel);
     // Tên lửa: thân cam, tầng trên trắng, khoang + tháp thoát hiểm, hai tầng đẩy phụ trắng có chóp.

@@ -52,7 +52,7 @@ test('ghế đá ngoài sân có đúng mã realtime, nhỏ vừa nhân vật v�
 
 test('Vườn Hoa: vào được qua ba cổng, đi tới ghế và điểm ngắm, không giẫm lên luống', () => {
   const garden = scene.world.courtyard.flowerGarden;
-  const benches = scene.world.courtyard.benches.filter((item) => /^B-1\d$/.test(item.id));
+  const benches = scene.world.courtyard.benches.filter((item) => /^B-1[0-3]$/.test(item.id));
   assert.equal(benches.length, 4);
   const start = THIEN_RULES.world.travel.flowers;
   const reach = (point, label) => {
@@ -141,9 +141,15 @@ test('va chạm: đi vào cột thì bị đẩy ra mép cột; đi ra ngoài th
   const headOn = resolveMove(walk, { x: 0, z: 24 }, { x: 0, z: 23.1 });
   assert.ok(Math.abs(headOn.x) > 0.1, 'đi thẳng vào tâm lư hương thì trượt tiếp tuyến ngay');
   assert.equal(isWalkable(walk, headOn.x, headOn.z), true);
-  const atGate = resolveMove(walk, { x: 0, z: 30 }, { x: 0, z: 200 });
-  assert.equal(atGate.z, walk.bounds.z[1]);
-  assert.equal(isWalkable(walk, atGate.x, atGate.z), true, 'đi xa vẫn né vật cản và dừng trong cổng');
+  const far = resolveMove(walk, { x: 0, z: 30 }, { x: 0, z: 200 });
+  assert.ok(far.z <= walk.bounds.z[1]);
+  assert.equal(isWalkable(walk, far.x, far.z), true, 'đi xa vẫn né vật cản, không ra ngoài vùng đi được');
+  // Đứng trước cổng đi thẳng ra: qua cửa giữa, theo lối đá, tới cuối Đài ngắm cảnh.
+  const out = resolveMove(walk, { x: 0, z: 96 }, { x: 0, z: 200 });
+  assert.equal(out.z, walk.bounds.z[1]);
+  assert.equal(isWalkable(walk, out.x, out.z), true);
+  const sideways = resolveMove(walk, { x: 0, z: 108 }, { x: 30, z: 108 });
+  assert.ok(sideways.x <= scene.world.courtyard.overlook.path.x[1], 'không bước ra khỏi lối đá');
   const atWall = resolveMove(walk, { x: 4, z: 15.5 }, { x: 4, z: 16.2 });
   assert.ok(atWall.z <= 15.7, 'không nhảy qua khoảng tường kín trước chánh điện');
 });
@@ -233,4 +239,41 @@ test('Nông trại nhỏ: từ sân vào qua cổng nam, từ khu thú cưng qua
   for (const animal of scene.world.courtyard.animals.filter((item) => item.id.startsWith('farm-'))) {
     assert.equal(isWalkable({ ...walk, radius: 0.3 }, animal.x, animal.z), true, `${animal.id} đứng được`);
   }
+});
+
+test('Đài ngắm cảnh ngoài cổng: tìm được đường từ sân ra đài, điểm đi nhanh đứng được, hai ghế đá tới được', () => {
+  const { overlook, benches } = scene.world.courtyard;
+  assert.ok(overlook?.path && overlook?.terrace);
+  const goal = THIEN_RULES.world.travel.overlook;
+  assert.equal(isWalkable(walk, goal.x, goal.z), true, 'điểm đi nhanh nằm trên lối đi được');
+  const route = findPath(walk, THIEN_RULES.world.travel.courtyard, { x: 6, z: 126 });
+  assert.ok(route.length > 0, 'từ giữa sân đi ra tới đài');
+  for (const id of ['B-14', 'B-15']) {
+    const bench = benches.find((item) => item.id === id);
+    assert.ok(bench, id);
+    assert.ok(findPath(walk, goal, { x: bench.x, z: bench.z - 1.1 }).length > 0, `tới được chỗ ngồi ${id}`);
+  }
+  // Vùng thô server kiểm tra phải bao cả đài.
+  assert.ok(THIEN_RULES.world.bounds.z[1] >= walk.bounds.z[1]);
+});
+
+test('Rừng thiền ngoài cổng tây: qua cổng hông tới hồ, ra thủy đình bằng bến gỗ, ba ghế đá tới được, không lội hồ', () => {
+  const { grove, benches } = scene.world.courtyard;
+  assert.ok(grove?.area && grove?.gate && grove?.pond);
+  const goal = THIEN_RULES.world.travel.grove;
+  assert.equal(isWalkable(walk, goal.x, goal.z), true, 'điểm đi nhanh nằm trên lối đi được');
+  assert.ok(findPath(walk, THIEN_RULES.world.travel.flowers, goal).length > 0, 'từ Vườn Hoa qua cổng hông ra Rừng thiền');
+  assert.ok(findPath(walk, THIEN_RULES.world.travel.courtyard, goal).length > 0, 'từ giữa sân ra Rừng thiền');
+  // Thủy đình giữa hồ: tới được qua bến gỗ, nhưng mặt hồ hai bên bến không đi được.
+  assert.ok(findPath(walk, goal, { x: grove.pavilion.x + 1, z: grove.pavilion.z }).length > 0, 'ra tới thủy đình');
+  assert.equal(isWalkable(walk, grove.pond.x + 4, grove.pond.z - 3), false, 'không lội xuống hồ');
+  assert.equal(isWalkable(walk, grove.gate.x, grove.gate.z - grove.gate.width), false, 'tường hai bên cổng hông vẫn chắn');
+  for (const id of ['B-16', 'B-17', 'B-18']) {
+    const bench = benches.find((item) => item.id === id);
+    assert.ok(bench, id);
+    const seat = { x: bench.x - 1.1 * Math.sin(bench.ry), z: bench.z - 1.1 * Math.cos(bench.ry) };
+    assert.ok(findPath(walk, goal, seat).length > 0, `tới được chỗ ngồi ${id}`);
+  }
+  // Vùng thô server kiểm tra phải bao cả Rừng thiền.
+  assert.ok(THIEN_RULES.world.bounds.x[0] <= walk.bounds.x[0]);
 });
