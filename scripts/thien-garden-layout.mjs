@@ -233,6 +233,34 @@ const FLOWER = { x: [-51, -15.5], z: [18, 54] };
 const FLOWER_WING_X = -27; // cánh bắc (z 44–54) chỉ rộng tới x = −27, chừa chỗ cho cây bồ đề
 const FLOWER_MAIN_Z = 44;
 const FLOWER_CENTER = { x: -33, z: 31.5 };
+// Đình Meshy (apps/web/public/models/flowers/pavilion.glb, dùng ở Vườn Hoa và Rừng thiền), đặt với bề ngang
+// (radius + 1) × 2. Cột đo từ chính mô hình (cạnh đứng có cùng x, z ở chân và đầu cột): [góc gốc (°, cos → x, sin → z),
+// bán kính / nửa bề ngang]. Chín cột, lan can kín vòng; nhịp rộng nhất (giữa cột 313° và 34°, giữa ở ~354,5°) làm cửa:
+// engine bỏ lan can trong khoảng góc `door` ở dải cao `rail` (phần chiều cao mô hình; mặt bệ ở ~7 %). Xoay ry cho cửa
+// quay về hướng `facing` (độ thế giới, cos → x, sin → z); hạ y để mặt bệ (~0,34 m) sát đất, người đứng trong đình không
+// lún chân. Trả { radius, ry, y, door, rail, posts } với posts là tọa độ thế giới (làm vật cản).
+const PAVILION_POSTS = [[34.3, 0.73], [71.2, 0.74], [112.6, 0.74], [146.1, 0.73], [181.5, 0.77], [222.1, 0.79], [252.7, 0.79], [287.8, 0.79], [313, 0.78]];
+// Vật cản của đình: cột đúng chỗ cột mô hình + lan can (vòng tròn nhỏ dọc từng nhịp), chừa nhịp cửa (cột cuối → đầu).
+function pavilionObstacles({ posts }) {
+  const list = posts.map(([x, z]) => ({ x, z, r: 0.22 }));
+  posts.slice(0, -1).forEach(([x, z], index) => {
+    const [nx, nz] = posts[index + 1];
+    const steps = Math.max(1, Math.round(Math.hypot(nx - x, nz - z) / 0.45));
+    for (let step = 1; step < steps; step += 1) list.push({ x: round3(x + ((nx - x) * step) / steps), z: round3(z + ((nz - z) * step) / steps), r: 0.18 });
+  });
+  return list;
+}
+function pavilionModel(x, z, facing, radius = 2.3) {
+  const ry = ((354.5 - facing) * Math.PI) / 180;
+  const half = radius + 1;
+  return {
+    radius, ry: round3(Math.atan2(Math.sin(ry), Math.cos(ry))), y: -0.3, door: [318, 29], rail: [0.08, 0.2],
+    posts: PAVILION_POSTS.map(([deg, r]) => {
+      const angle = (deg * Math.PI) / 180 - ry;
+      return [round3(x + Math.cos(angle) * r * half), round3(z + Math.sin(angle) * r * half)];
+    }),
+  };
+}
 const FLOWER_HEDGE = 0.6;
 // Cổng hông phía tây (trên tường sân, thẳng cổng tây Vườn Hoa) ra Rừng thiền ngoài tường.
 const GROVE_GATE_Z = 31.5;
@@ -455,7 +483,8 @@ const GROVE_GATE_Z = 31.5;
     beds,
     bedCenters: bedCenters.map((item) => item && { x: item.x, z: item.z }),
     plaza: { radius: 5.2 },
-    pavilion: { radius: 2.3, height: 3.1 },
+    // Cửa đình quay về phía đông, nơi hai lối chính từ sân vào quảng trường.
+    pavilion: { height: 3.1, ...pavilionModel(FLOWER_CENTER.x, FLOWER_CENTER.z, 0) },
     pond,
     trees,
     lamps,
@@ -569,8 +598,9 @@ const GROVE = { x: [-94, -53.5], z: [18, 70] };
   const loop = { x: pond.x, z: pond.z, rx: 15, rz: 12, width: 2.4 };
   const loopX = (z) => loop.x + loop.rx * Math.sqrt(Math.max(0, 1 - ((z - loop.z) / loop.rz) ** 2));
   const entry = { x: [round3(loopX(GROVE_GATE_Z) - 0.8), -HALF], z: [GROVE_GATE_Z - 1.3, GROVE_GATE_Z + 1.3] };
-  const pavilion = { x: pond.x, z: pond.z, radius: 2.8 };
-  const pier = { x: pond.x, z: [round3(loop.z - loop.rz + 0.4), round3(pond.z - pavilion.radius + 0.2)], width: 2.2 };
+  // Thủy đình: đình Meshy của Vườn Hoa (pavilionModel), cửa quay về bến (−z), mặt bệ ngang mặt nước.
+  const pavilion = { x: pond.x, z: pond.z, ...pavilionModel(pond.x, pond.z, 270) };
+  const pier = { x: pond.x, z: [round3(loop.z - loop.rz + 0.4), round3(pond.z - 2.75)], width: 2.2 };
   // Cây: lưới lệch ngẫu nhiên (cố định) ngoài vòng lối, tránh lối vào, sát tường; cứ 7 cây có một cây lớn.
   let seed = 11;
   const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -763,11 +793,8 @@ const obstacles = [
     return points;
   })(),
   { x: c.flowerGarden.pond.x, z: c.flowerGarden.pond.z, rx: round3(c.flowerGarden.pond.rx + 0.2), rz: round3(c.flowerGarden.pond.rz + 0.2) },
-  ...Array.from({ length: 8 }, (_, index) => {
-    const angle = ((index + 0.5) / 8) * Math.PI * 2;
-    const { x, z } = c.flowerGarden.center;
-    return circle(round3(x + Math.cos(angle) * c.flowerGarden.pavilion.radius), round3(z + Math.sin(angle) * c.flowerGarden.pavilion.radius), 0.24);
-  }),
+  // Cột + lan can đình (cửa quay về phía đông).
+  ...pavilionObstacles(c.flowerGarden.pavilion),
   ...c.flowerGarden.lamps.map((lamp) => circle(lamp.x, lamp.z, 0.2)),
   ...c.flowerGarden.trees.map((tree) => circle(tree.x, tree.z, round3(0.45 * (tree.size || 1)))),
   ...c.benches.filter((item) => /^B-1\d$/.test(item.id)).flatMap((item) => [-0.4, 0.4].map((lx) => {
@@ -791,12 +818,8 @@ obstacles.push(circle(-1.6, GATE, 0.3), circle(1.6, GATE, 0.3));
       obstacles.push(circle(round3(x), round3(z), 0.8));
     }
   }
-  for (let index = 0; index < 6; index += 1) {
-    const angle = ((index + 0.5) / 6) * Math.PI * 2;
-    // Chừa cột phía bến (hướng −z) để đi vào.
-    if (Math.abs(Math.sin(angle) + 1) < 0.2) continue;
-    obstacles.push(circle(round3(pavilion.x + Math.cos(angle) * (pavilion.radius - 0.3)), round3(pavilion.z + Math.sin(angle) * (pavilion.radius - 0.3)), 0.18));
-  }
+  // Cột + lan can thủy đình (cửa quay về bến).
+  obstacles.push(...pavilionObstacles(pavilion));
   obstacles.push(...c.benches.filter((item) => ['B-16', 'B-17', 'B-18'].includes(item.id)).flatMap((item) => [-0.4, 0.4].map((lx) => {
     const point = localPoint(item, lx, 0);
     return circle(round3(point.x), round3(point.z), 0.42);

@@ -179,62 +179,62 @@ quen bộ đồ vùng đó), riêng vùng `autumn` (12 bang) chia đôi:
 
 | Mã | Vùng | Điểm nhìn xa | Chi tiết gần | Ban đêm | Trạng thái |
 | --- | --- | --- | --- | --- | --- |
-| AZ | desert | Hẻm vực Grand Canyon: vách đỏ nhiều tầng chạy ngang chân trời ngoài cổng (mẫu) | Xương rồng ocotillo | Vách hắt ánh trăng | Chờ duyệt (Claude, 12/11/2026) |
-| NV | desert | Đập Hoover cong trong hẻm Black Canyon + cầu vòm bê tông đôi phía trước; phía đông xa là đường chân trời kiểu Las Vegas (không dựng tòa sòng bạc có thật) | Cây Joshua | Thành phố rực đèn | Chờ duyệt (Claude, 12/11/2026) |
-| NM | desert | Hàng chục khinh khí cầu lễ hội Albuquerque trôi trên trời (ngoài cổng và hai bên) + vách núi Sandia hồng | Nhà adobe | Khinh khí cầu phát sáng | Chờ duyệt (Claude, 12/11/2026) |
-| UT | desert | Vòm đá Delicate Arch trước dãy La Sal phủ tuyết + rừng cột đá hoodoo (ngoài cổng bên trái, phía đông) | Đá đỏ | Bóng vòm trên nền sao | Chờ duyệt (Claude, 12/11/2026) |
-| AK | snow | Núi Denali tuyết phủ khổng lồ (hai đỉnh) + đồi lãnh nguyên có sông băng chảy qua khe | Nai sừng tấm, nhà gỗ | Cực quang xanh lục gợn sóng | Chờ duyệt (Claude, 12/11/2026) |
-| CO | snow | Hai chóp Maroon Bells đỏ tía, gờ tuyết trên cao, hồ Maroon trước chân; hai sườn thung lũng dương vàng + vân sam | Cây dương vàng, nhà gỗ | Đèn nhà gỗ | Chờ duyệt (Claude, 12/11/2026) |
-| MT | snow | Dãy răng cưa công viên Glacier (sọc đá xám / đỏ / xanh, chóp sừng giữa) + hồ băng xanh ngọc + khách sạn nhà gỗ bên hồ | Bò rừng, hàng rào trại zíc zắc | Cửa sổ khách sạn sáng đèn | Chờ duyệt (Claude, 12/11/2026) |
-| WY | snow | Dãy Grand Teton nhọn dựng đứng + mạch nước phun Old Faithful (phun ~20 giây mỗi 75 giây) cạnh hồ nước nóng nhiều màu | Bò rừng | Hơi nước sáng bạc | Chờ duyệt (Claude, 12/11/2026) |
-| ID | snow | Thác Shoshone rộng nhiều nhánh đổ từ vách bazan (nước chảy), bụi nước, sông về phía sân | Ruộng khoai tây (luống đất phủ tuyết) | Thác bạc dưới trăng | Chờ duyệt (Claude, 12/11/2026) |
-| CA | california | Cầu Cổng Vàng cam đỏ vắt qua eo biển (tháp art deco, cáp võng) + đồi Marin cỏ vàng; phía đông rừng gỗ đỏ | Vườn nho, hoa anh túc | Đèn dọc cáp và mặt cầu, đèn đỏ đỉnh tháp | Chờ duyệt (Claude, 12/11/2026) |
-| DC | blossom | Đài tưởng niệm Washington (obelisk) + tòa Capitol mái vòm phía xa + hồ Tidal Basin viền anh đào, đài Jefferson; phía đông đài Lincoln | Ghế công viên | Tháp và mái vòm rọi sáng, đèn đỏ đỉnh tháp | Chờ duyệt (Claude, 12/11/2026) |
-| DE | blossom | Cầu treo đôi Delaware Memorial tháp xanh lục qua sông rộng + đụn cát; phía đông tháp quan sát bê tông thời Thế chiến II | Cỏ biển | Đèn cầu | Chờ duyệt (Claude, 12/11/2026) |
-| KY | blossom | Đồi cỏ xanh lam, hàng rào trắng chạy theo sườn đồi, chuồng ngựa đen mái gãy (không dựng tháp đôi Churchill Downs); có cả phía đông | Đàn ngựa | Đèn cửa chuồng | Chờ duyệt (Claude, 12/11/2026) |
-| MD | blossom | Cầu Chesapeake Bay (cầu treo đôi tháp xám, cầu dẫn dài dốc xuống chạy chéo qua vịnh) + thuyền buồm; phía đông hải đăng chân cọc Thomas Point | Cỏ biển, thuyền buồm | Đèn cầu, hải đăng | Chờ duyệt (Claude, 12/11/2026) |
-| NC | blossom | Hải đăng Cape Hatteras sọc xoắn đen trắng trên bệ gạch + đụn cát + biển | Cỏ biển, hàng rào chắn cát | Đèn hải đăng + luồng sáng quay | Chờ duyệt (Claude, 12/11/2026) |
-| TN | blossom | Dãy Great Smoky nhiều lớp núi rừng xanh thẫm → lam, dải sương nằm trong thung lũng giữa các lớp | Nhà gỗ | Sương sáng bạc, cửa sổ nhà gỗ | Chờ duyệt (Claude, 12/11/2026) |
-| VA | blossom | Dãy Blue Ridge sống dài đều xếp lớp + đường Skyline Drive men sườn (tường đá điểm ngắm) + trang trại chuồng đỏ, silo (cả phía đông) | Hàng rào gỗ zíc zắc | Đèn xe trên Skyline Drive, đèn trang trại | Chờ duyệt (Claude, 12/11/2026) |
-| WV | blossom | Cầu vòm dàn thép gỉ sắt New River Gorge vượt hẻm sâu rừng phủ, sông có bè dưới đáy; phía đông đồi rừng | Bè trên sông (trong hẻm) | Đèn mặt cầu | Chờ duyệt (Claude, 12/11/2026) |
-| CT | autumn | Tàu săn cá voi cổ ba cột buồm neo ở cảng Mystic Seaport + làng cảng nhà gỗ nhiều màu + đồi rừng thu (cả phía đông) | Tường đá khô | Đèn cầu tàu, đèn lồng trên tàu | Chờ duyệt (Claude, 12/11/2026) |
-| ME | autumn | Hải đăng Portland Head trên mỏm đá + biển (mẫu) | Phao bẫy tôm hùm | Đèn hải đăng quay | Chờ duyệt (Claude, 12/11/2026) |
-| MA | autumn | Cầu dây văng Zakim trắng (tháp chữ Y ngược) trước đường chân trời Boston + thuyền buồm trên cảng; phía đông đầm việt quất đỏ | Thuyền buồm | Thành phố sáng đèn, tháp và dây cầu xanh lam | Chờ duyệt (Claude, 12/11/2026) |
-| NH | autumn | Núi Washington: đỉnh trọc có trạm khí tượng + cột ăng-ten, sườn rừng thu lốm đốm + hồ dưới chân; phía đông đồi rừng thu | Rừng lá đỏ (vùng) | Đèn trạm, đèn đỏ đỉnh ăng-ten | Chờ duyệt (Claude, 12/11/2026) |
-| RI | autumn | Cầu treo Newport (cầu dẫn dốc) qua vịnh đầy thuyền buồm; phía đông biệt thự đá thời Gilded Age trên vách đá ven biển | Cỏ biển | Đèn cầu, cửa sổ biệt thự | Chờ duyệt (Claude, 12/11/2026) |
-| VT | autumn | Đồi lá đỏ của vùng + dãy Green Mountains rừng thu phía xa + cầu gỗ có mái đỏ qua suối + nhà nấu đường phong bốc hơi; phía đông trại bò sữa | Bò sữa | Hơi nước sáng bạc, đèn nhà | Chờ duyệt (Claude, 12/11/2026) |
-| NY | autumn | Tượng Nữ thần Tự do trên đảo trước đường chân trời Manhattan (tháp art deco nhiều nấc giản lược); phía đông cầu Brooklyn tháp đá cửa vòm nhọn | Vườn táo | Đuốc sáng vàng, tượng rọi sáng, thành phố rực đèn | Chờ duyệt (Claude, 12/11/2026) |
+| AZ | desert | Hẻm vực Grand Canyon: vách đỏ nhiều tầng chạy ngang chân trời ngoài cổng (mẫu) | Xương rồng ocotillo | Vách hắt ánh trăng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| NV | desert | Đập Hoover cong trong hẻm Black Canyon + cầu vòm bê tông đôi phía trước; phía đông xa là đường chân trời kiểu Las Vegas (không dựng tòa sòng bạc có thật) | Cây Joshua | Thành phố rực đèn | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| NM | desert | Hàng chục khinh khí cầu lễ hội Albuquerque trôi trên trời (ngoài cổng và hai bên) + vách núi Sandia hồng | Nhà adobe | Khinh khí cầu phát sáng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| UT | desert | Vòm đá Delicate Arch trước dãy La Sal phủ tuyết + rừng cột đá hoodoo (ngoài cổng bên trái, phía đông) | Đá đỏ | Bóng vòm trên nền sao | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| AK | snow | Núi Denali tuyết phủ khổng lồ (hai đỉnh) + đồi lãnh nguyên có sông băng chảy qua khe | Nai sừng tấm, nhà gỗ | Cực quang xanh lục gợn sóng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| CO | snow | Hai chóp Maroon Bells đỏ tía, gờ tuyết trên cao, hồ Maroon trước chân; hai sườn thung lũng dương vàng + vân sam | Cây dương vàng, nhà gỗ | Đèn nhà gỗ | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| MT | snow | Dãy răng cưa công viên Glacier (sọc đá xám / đỏ / xanh, chóp sừng giữa) + hồ băng xanh ngọc + khách sạn nhà gỗ bên hồ | Bò rừng, hàng rào trại zíc zắc | Cửa sổ khách sạn sáng đèn | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| WY | snow | Dãy Grand Teton nhọn dựng đứng + mạch nước phun Old Faithful (phun ~20 giây mỗi 75 giây) cạnh hồ nước nóng nhiều màu | Bò rừng | Hơi nước sáng bạc | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| ID | snow | Thác Shoshone rộng nhiều nhánh đổ từ vách bazan (nước chảy), bụi nước, sông về phía sân | Ruộng khoai tây (luống đất phủ tuyết) | Thác bạc dưới trăng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| CA | california | Cầu Cổng Vàng cam đỏ vắt qua eo biển (tháp art deco, cáp võng) + đồi Marin cỏ vàng; phía đông rừng gỗ đỏ | Vườn nho, hoa anh túc | Đèn dọc cáp và mặt cầu, đèn đỏ đỉnh tháp | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| DC | blossom | Đài tưởng niệm Washington (obelisk) + tòa Capitol mái vòm phía xa + hồ Tidal Basin viền anh đào, đài Jefferson; phía đông đài Lincoln | Ghế công viên | Tháp và mái vòm rọi sáng, đèn đỏ đỉnh tháp | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| DE | blossom | Cầu treo đôi Delaware Memorial tháp xanh lục qua sông rộng + đụn cát; phía đông tháp quan sát bê tông thời Thế chiến II | Cỏ biển | Đèn cầu | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| KY | blossom | Đồi cỏ xanh lam, hàng rào trắng chạy theo sườn đồi, chuồng ngựa đen mái gãy (không dựng tháp đôi Churchill Downs); có cả phía đông | Đàn ngựa | Đèn cửa chuồng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| MD | blossom | Cầu Chesapeake Bay (cầu treo đôi tháp xám, cầu dẫn dài dốc xuống chạy chéo qua vịnh) + thuyền buồm; phía đông hải đăng chân cọc Thomas Point | Cỏ biển, thuyền buồm | Đèn cầu, hải đăng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| NC | blossom | Hải đăng Cape Hatteras sọc xoắn đen trắng trên bệ gạch + đụn cát + biển | Cỏ biển, hàng rào chắn cát | Đèn hải đăng + luồng sáng quay | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| TN | blossom | Dãy Great Smoky nhiều lớp núi rừng xanh thẫm → lam, dải sương nằm trong thung lũng giữa các lớp | Nhà gỗ | Sương sáng bạc, cửa sổ nhà gỗ | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| VA | blossom | Dãy Blue Ridge sống dài đều xếp lớp + đường Skyline Drive men sườn (tường đá điểm ngắm) + trang trại chuồng đỏ, silo (cả phía đông) | Hàng rào gỗ zíc zắc | Đèn xe trên Skyline Drive, đèn trang trại | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| WV | blossom | Cầu vòm dàn thép gỉ sắt New River Gorge vượt hẻm sâu rừng phủ, sông có bè dưới đáy; phía đông đồi rừng | Bè trên sông (trong hẻm) | Đèn mặt cầu | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| CT | autumn | Tàu săn cá voi cổ ba cột buồm neo ở cảng Mystic Seaport + làng cảng nhà gỗ nhiều màu + đồi rừng thu (cả phía đông) | Tường đá khô | Đèn cầu tàu, đèn lồng trên tàu | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| ME | autumn | Hải đăng Portland Head trên mỏm đá + biển (mẫu) | Phao bẫy tôm hùm | Đèn hải đăng quay | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| MA | autumn | Cầu dây văng Zakim trắng (tháp chữ Y ngược) trước đường chân trời Boston + thuyền buồm trên cảng; phía đông đầm việt quất đỏ | Thuyền buồm | Thành phố sáng đèn, tháp và dây cầu xanh lam | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| NH | autumn | Núi Washington: đỉnh trọc có trạm khí tượng + cột ăng-ten, sườn rừng thu lốm đốm + hồ dưới chân; phía đông đồi rừng thu | Rừng lá đỏ (vùng) | Đèn trạm, đèn đỏ đỉnh ăng-ten | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| RI | autumn | Cầu treo Newport (cầu dẫn dốc) qua vịnh đầy thuyền buồm; phía đông biệt thự đá thời Gilded Age trên vách đá ven biển | Cỏ biển | Đèn cầu, cửa sổ biệt thự | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| VT | autumn | Đồi lá đỏ của vùng + dãy Green Mountains rừng thu phía xa + cầu gỗ có mái đỏ qua suối + nhà nấu đường phong bốc hơi; phía đông trại bò sữa | Bò sữa | Hơi nước sáng bạc, đèn nhà | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| NY | autumn | Tượng Nữ thần Tự do trên đảo trước đường chân trời Manhattan (tháp art deco nhiều nấc giản lược); phía đông cầu Brooklyn tháp đá cửa vòm nhọn | Vườn táo | Đuốc sáng vàng, tượng rọi sáng, thành phố rực đèn | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
 
 ### GPT/Codex (26 bang)
 
 | Mã | Vùng | Điểm nhìn xa | Chi tiết gần | Ban đêm | Trạng thái |
 | --- | --- | --- | --- | --- | --- |
-| FL | tropical | Bệ phóng mũi Canaveral trên doi cát giữa biển: tên lửa nhiều tầng dáng chung (không logo), tháp phóng, ba cột thu sét; cứ 150 giây phóng một lần (lửa, vệt khói); phía đông nhà lắp ráp khổng lồ trên đảo Merritt (không dựng lâu đài Disney) | Vườn cam, hồng hạc | Lửa tên lửa, đèn bệ phóng | Chờ duyệt (Claude, 12/11/2026) |
-| HI | tropical | Núi Diamond Head nhô lên từ biển (vành nón, sườn rãnh xói); phía đông núi lửa hình khiên Kīlauea giữa biển đang phun: vòi dung nham, dòng dung nham, cột khói | Ruộng khoai môn | Dung nham đỏ rực | Chờ duyệt (Claude, 12/11/2026) |
-| IL | plains | Đường chân trời Chicago bên hồ Michigan, giản lược (không dựng Cloud Gate) | Đồng ngô | Thành phố rực đèn soi hồ | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| IN | plains | Cồn cát Indiana Dunes bên hồ + tháp chứa ngũ cốc | Đồng ngô | Đèn tháp | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| IA | plains | Hàng cối gió điện quay + mái vòm vàng Điện Capitol Iowa | Đồng ngô | Đèn đỏ đỉnh cối gió | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| KS | plains | Biển hoa hướng dương + lốc xoáy xa | Lúa mì | Chớp xa | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| MO | plains | Cổng vòm Gateway Arch thép bạc bên sông + tàu guồng | Hàng cây ven sông | Vòm phản chiếu đèn | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| NE | plains | Cột đá Chimney Rock + đàn sếu bay | Ruộng tưới vòng tròn | Đàn chim dưới trăng | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| ND | plains | Đồi Badlands Theodore Roosevelt + giếng dầu + hướng dương | Đường đất | Lửa khí đốt | Chờ duyệt (GPT/Codex; Claude rà đạt 12/11/2026) |
-| OH | plains | Hải đăng Marblehead bên hồ Erie + máy bay cánh đôi anh em Wright bay vòng | Nhà kho vẽ ô chăn | Đèn hải đăng | Chờ duyệt (GPT/Codex; Claude rà đạt 12/11/2026) |
-| OK | plains | Tượng Golden Driller (thợ dầu khổng lồ) + tháp khoan dầu + đất đỏ | Cỏ đồng | Đèn tháp khoan | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| SD | plains | Núi Rushmore: bốn khuôn mặt tạc trên vách granite xám giữa rừng thông Black Hills (ngoài cổng); đồi Badlands sọc màu một bên (mục 2: nghiêm trang, không thêm gì lên mặt tượng) | Bò rừng | Đèn rọi sáng bốn khuôn mặt | Chờ duyệt (GPT/Codex; Claude rà đạt 12/11/2026) |
-| AL | south | Tên lửa Saturn V dựng đứng ở Huntsville + đồng bông | Kiện bông | Đèn chiếu tên lửa | Chờ duyệt (GPT/Codex; Claude rà lại đạt 12/11/2026) |
-| AR | south | Núi Ozark + suối nước nóng Hot Springs bốc hơi | Hồ, thuyền câu | Hơi nước dưới trăng | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| GA | south | Đại lộ sồi rủ rêu kiểu Savannah + vườn đào (không dựng tượng khắc Stone Mountain) | Rổ đào | Đèn hiên | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| LA | south | Cầu Lake Pontchartrain Causeway dài tít trên hồ + đầm lầy bách | Nhà sàn, thuyền | Đèn cầu nối dài | Chờ duyệt (GPT/Codex; Claude rà lại đạt 12/11/2026) |
-| MS | south | Sông Mississippi rất rộng + cầu Vicksburg + đoàn sà lan | Mộc lan nở | Đèn sà lan | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| SC | south | Cầu dây văng Ravenel + dãy nhà nhiều màu Rainbow Row | Cọ palmetto | Đèn cầu | Chờ duyệt (GPT/Codex; Claude rà lại đạt 12/11/2026) |
-| TX | south | Tượng đài San Jacinto (cột cao có ngôi sao) + đồng hoa bluebonnet + tháp khoan dầu | Bò sừng dài | Ngôi sao chiếu sáng | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| OR | pacific | Núi Hood + đá Haystack ngoài biển + thác Multnomah | Gỗ trôi dạt | Sóng dưới trăng | Chờ duyệt (GPT/Codex; Claude rà đạt 12/11/2026) |
-| WA | pacific | Núi Rainier khổng lồ chiếm một phần trời (không dựng Space Needle) | Vườn táo, phà | Tuyết hắt ánh trăng | Chờ duyệt (GPT/Codex; Claude rà đạt 12/11/2026) |
-| NJ | autumn | Vòng đu quay lớn cuối cầu tàu gỗ chìa ra biển Atlantic City (cabin nhiều màu, quay chậm) + đụn cát cỏ biển + biển cả hai phía (không dựng tòa sòng bạc) | Ô che nắng, cỏ biển | Vòng đèn nhiều màu quay theo vòng | Chờ duyệt (Claude, 12/11/2026) |
-| PA | autumn | Cầu cạn đá Starrucca nhiều vòm vắt qua thung lũng, hai đầu vùi vào đồi rừng thu, đoàn tàu chạy qua theo nhịp; phía đông cầu gỗ có mái đỏ | Hàng rào zíc zắc | Cửa sổ tàu sáng | Chờ duyệt (Claude, 12/11/2026) |
-| MI | autumn | Cầu treo Mackinac dài (tháp màu ngà, dàn xanh, cầu dẫn dốc) qua eo hồ; phía đông hải đăng đỏ cuối đê chắn sóng | Vườn anh đào quả | Đèn cáp cầu, đèn hải đăng quay | Chờ duyệt (Claude, 12/11/2026) |
-| MN | autumn | Hải đăng Split Rock (tháp vàng thấp, nhà người gác) trên đỉnh mỏm đá dựng đứng bên hồ Superior + bờ xa rừng thông, bạch dương; phía đông đồi rừng | Bến gỗ có xuồng | Đèn hải đăng + luồng sáng quay | Chờ duyệt (Claude, 12/11/2026) |
-| WI | autumn | Điện Capitol Madison mái vòm trắng trên eo đất giữa hai hồ + đồi rừng thu phía xa; phía đông trại bò sữa | Bò sữa | Mái vòm rọi sáng | Chờ duyệt (Claude, 12/11/2026) |
+| FL | tropical | Bệ phóng mũi Canaveral trên doi cát giữa biển: tên lửa nhiều tầng dáng chung (không logo), tháp phóng, ba cột thu sét; cứ 150 giây phóng một lần (lửa, vệt khói); phía đông nhà lắp ráp khổng lồ trên đảo Merritt (không dựng lâu đài Disney) | Vườn cam, hồng hạc | Lửa tên lửa, đèn bệ phóng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| HI | tropical | Núi Diamond Head nhô lên từ biển (vành nón, sườn rãnh xói); phía đông núi lửa hình khiên Kīlauea giữa biển đang phun: vòi dung nham, dòng dung nham, cột khói | Ruộng khoai môn | Dung nham đỏ rực | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| IL | plains | Đường chân trời Chicago bên hồ Michigan, giản lược (không dựng Cloud Gate) | Đồng ngô | Thành phố rực đèn soi hồ | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| IN | plains | Cồn cát Indiana Dunes bên hồ + tháp chứa ngũ cốc | Đồng ngô | Đèn tháp | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| IA | plains | Hàng cối gió điện quay + mái vòm vàng Điện Capitol Iowa | Đồng ngô | Đèn đỏ đỉnh cối gió | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| KS | plains | Biển hoa hướng dương + lốc xoáy xa | Lúa mì | Chớp xa | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| MO | plains | Cổng vòm Gateway Arch thép bạc bên sông + tàu guồng | Hàng cây ven sông | Vòm phản chiếu đèn | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| NE | plains | Cột đá Chimney Rock + đàn sếu bay | Ruộng tưới vòng tròn | Đàn chim dưới trăng | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| ND | plains | Đồi Badlands Theodore Roosevelt + giếng dầu + hướng dương | Đường đất | Lửa khí đốt | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà đạt 12/11/2026) |
+| OH | plains | Hải đăng Marblehead bên hồ Erie + máy bay cánh đôi anh em Wright bay vòng | Nhà kho vẽ ô chăn | Đèn hải đăng | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà đạt 12/11/2026) |
+| OK | plains | Tượng Golden Driller (thợ dầu khổng lồ) + tháp khoan dầu + đất đỏ | Cỏ đồng | Đèn tháp khoan | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| SD | plains | Núi Rushmore: bốn khuôn mặt tạc trên vách granite xám giữa rừng thông Black Hills (ngoài cổng); đồi Badlands sọc màu một bên (mục 2: nghiêm trang, không thêm gì lên mặt tượng) | Bò rừng | Đèn rọi sáng bốn khuôn mặt | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà đạt 12/11/2026) |
+| AL | south | Tên lửa Saturn V dựng đứng ở Huntsville + đồng bông | Kiện bông | Đèn chiếu tên lửa | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà lại đạt 12/11/2026) |
+| AR | south | Núi Ozark + suối nước nóng Hot Springs bốc hơi | Hồ, thuyền câu | Hơi nước dưới trăng | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| GA | south | Đại lộ sồi rủ rêu kiểu Savannah + vườn đào (không dựng tượng khắc Stone Mountain) | Rổ đào | Đèn hiên | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| LA | south | Cầu Lake Pontchartrain Causeway dài tít trên hồ + đầm lầy bách | Nhà sàn, thuyền | Đèn cầu nối dài | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà lại đạt 12/11/2026) |
+| MS | south | Sông Mississippi rất rộng + cầu Vicksburg + đoàn sà lan | Mộc lan nở | Đèn sà lan | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| SC | south | Cầu dây văng Ravenel + dãy nhà nhiều màu Rainbow Row | Cọ palmetto | Đèn cầu | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà lại đạt 12/11/2026) |
+| TX | south | Tượng đài San Jacinto (cột cao có ngôi sao) + đồng hoa bluebonnet + tháp khoan dầu | Bò sừng dài | Ngôi sao chiếu sáng | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| OR | pacific | Núi Hood + đá Haystack ngoài biển + thác Multnomah | Gỗ trôi dạt | Sóng dưới trăng | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà đạt 12/11/2026) |
+| WA | pacific | Núi Rainier khổng lồ chiếm một phần trời (không dựng Space Needle) | Vườn táo, phà | Tuyết hắt ánh trăng | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà đạt 12/11/2026) |
+| NJ | autumn | Vòng đu quay lớn cuối cầu tàu gỗ chìa ra biển Atlantic City (cabin nhiều màu, quay chậm) + đụn cát cỏ biển + biển cả hai phía (không dựng tòa sòng bạc) | Ô che nắng, cỏ biển | Vòng đèn nhiều màu quay theo vòng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| PA | autumn | Cầu cạn đá Starrucca nhiều vòm vắt qua thung lũng, hai đầu vùi vào đồi rừng thu, đoàn tàu chạy qua theo nhịp; phía đông cầu gỗ có mái đỏ | Hàng rào zíc zắc | Cửa sổ tàu sáng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| MI | autumn | Cầu treo Mackinac dài (tháp màu ngà, dàn xanh, cầu dẫn dốc) qua eo hồ; phía đông hải đăng đỏ cuối đê chắn sóng | Vườn anh đào quả | Đèn cáp cầu, đèn hải đăng quay | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| MN | autumn | Hải đăng Split Rock (tháp vàng thấp, nhà người gác) trên đỉnh mỏm đá dựng đứng bên hồ Superior + bờ xa rừng thông, bạch dương; phía đông đồi rừng | Bến gỗ có xuồng | Đèn hải đăng + luồng sáng quay | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| WI | autumn | Điện Capitol Madison mái vòm trắng trên eo đất giữa hai hồ + đồi rừng thu phía xa; phía đông trại bò sữa | Bò sữa | Mái vòm rọi sáng | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
 
 ## 6. Ngân sách và "Xong khi" mỗi bang
 
@@ -584,3 +584,7 @@ Ghi theo dạng: ngày, người, cần gì, vì sao. Claude làm, hoặc hỏi 
   tây vì 43 bang đặt công trình phía đông, chỉ OR dùng phía tây (biển 46 m, đá Haystack 58 m — nằm ngoài khu, test qua).
   Phần chung đổi tên cho cả hai khu: `env.overlook` → `env.walkways`, `overlookCut` → `walkwayCut` (chừa khe theo mọi
   phía), `onOverlook` → `onWalkway`; test lấn khu đi lại tính cả Rừng thiền. Góc chụp mới `11-rung-thien`.
+- 13/11/2026, người dùng: **duyệt cả 51 bang** (cùng Đài ngắm cảnh và Rừng thiền); trạng thái mục 5 đổi thành `Đã duyệt`.
+  Đo lại đủ 51 bang sau khi có Đài ngắm cảnh (11 góc): **51/51 đạt**. Lần đo chạy nền gặp đúng lúc đổi tên hàm chung nên
+  KS, KY tải bộ đồ lỗi; đo lại riêng hai bang trên server khởi động lại: KS 5 mesh / 31.416 tam giác / 38 ms, KY 4 mesh /
+  17.832 tam giác / 16 ms, không cảnh báo.

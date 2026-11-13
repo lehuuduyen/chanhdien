@@ -2,7 +2,8 @@
 //   outline / hedge / hedgeHeight: đa giác hàng rào và các đoạn cây xén [x0, z0, x1, z1] (đường giữa lớp cây).
 //   entrances: [{ x, z, ry, width, arch }] — cổng vòm hoa có biển tên.
 //   paths: lối sỏi cong; beds: luống hình tự do, mỗi luống một bộ cây theo tầng { edge, mid, back } (xem flower-layout.mjs).
-//   plaza: { radius }, pavilion: { radius, height } — quảng trường đá và đình bát giác ở center.
+//   plaza: { radius }, pavilion: { radius, height, ry?, y?, door?, rail?, posts? } — quảng trường đá và đình ở center (mô
+//   hình Meshy xoay ry, hạ y; door / rail: nhịp lan can mở làm cửa, xem openRail trong props3d.mjs; posts: chỗ cột).
 //   pond?: { x, z, rx, rz, lilies } — hồ súng; trees: [{ x, z, size, kind }] — cây hoa; lamps: [{ x, z }] — đèn vườn.
 //   bedCenters, butterflies: bướm bay quanh tâm các luống.
 // Nền (bãi cỏ cắt sọc, gốc luống phủ lá thấp, lối sỏi có viền) vẽ trên một texture canvas phủ cả vườn. Hoa / cây bụi / cây hoa
@@ -12,7 +13,7 @@
 // Ảnh và việc tính chỗ trồng chỉ chạy khi camera tới gần (activate + lazyDistance).
 import * as THREE from 'three';
 import { StaticBatch } from './temple3d-models.mjs';
-import { instanceProp, placeProp } from './props3d.mjs';
+import { instanceProp, openRail, placeProp } from './props3d.mjs';
 import { flowerLayout, insidePolygon, polylineDistance } from './flower-layout.mjs';
 
 const MODELS = '/models/flowers';
@@ -420,13 +421,14 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
     const radius = data.pavilion.radius || 2.3;
     const height = data.pavilion.height || 2.7;
     pavilionBatch.add(new THREE.CylinderGeometry(radius + 0.55, radius + 0.65, 0.05, 8), m.stone, { position: [center.x, 0.025, center.z], rotation: [0, Math.PI / 8, 0] });
-    const pillars = Array.from({ length: 8 }, (_, index) => {
+    // Cột: đúng chỗ cột của mô hình (pavilion.posts, đo từ mô hình) nếu scene có, không thì tám cột đều.
+    const pillars = data.pavilion.posts || Array.from({ length: 8 }, (_, index) => {
       const angle = ((index + 0.5) / 8) * Math.PI * 2;
       return [center.x + Math.cos(angle) * radius, center.z + Math.sin(angle) * radius];
     });
     pillars.forEach(([x, z], index) => {
       pavilionBatch.add(new THREE.CylinderGeometry(0.11, 0.13, height, 8), m.pillar, { position: [x, height / 2, z] });
-      const [nx, nz] = pillars[(index + 1) % 8];
+      const [nx, nz] = pillars[(index + 1) % pillars.length];
       const length = Math.hypot(nx - x, nz - z);
       pavilionBatch.add(new THREE.BoxGeometry(0.14, 0.2, length + 0.1), m.pillar, { position: [(x + nx) / 2, height - 0.05, (z + nz) / 2], rotation: [0, Math.atan2(nx - x, nz - z), 0] });
     });
@@ -502,7 +504,10 @@ export function addFlowerGarden({ root, batch, m, data, lanternGlows }) {
   }
   if (data.pavilion) {
     const radius = data.pavilion.radius || 2.3;
-    swap(pavilionBatch, 'pavilion', () => [placeProp(root, `${MODELS}/pavilion.glb`, { x: center.x, z: center.z, ry: Math.PI / 8, width: (radius + 1.0) * 2 }, { receiveShadow: false })]);
+    // Mô hình có lan can kín vòng: scene cho hướng xoay (ry), độ hạ (y, mặt bệ sát đất) và nhịp mở làm cửa (door, rail).
+    const { ry = Math.PI / 8, y = 0, door, rail } = data.pavilion;
+    swap(pavilionBatch, 'pavilion', () => [placeProp(root, `${MODELS}/pavilion.glb`, { x: center.x, y, z: center.z, ry, width: (radius + 1.0) * 2 }, { receiveShadow: false })
+      .then((group) => (group && door && rail ? openRail(group, door, rail) : group))]);
   }
 
   // ---- Billboard: hoa trong luống (tính chỗ trồng lúc tải) và cây hoa ----

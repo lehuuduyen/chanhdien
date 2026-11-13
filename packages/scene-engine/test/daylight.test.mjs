@@ -30,6 +30,7 @@ test('ban ngày (mặt trời cao / không đặt giờ) giữ nguyên màu củ
     assert.equal(grade.sunFactor, 1);
     assert.equal(grade.fillFactor, 1);
     assert.equal(grade.glow, 1);
+    assert.equal(grade.lamp, 0);
     assert.equal(grade.stars, 0);
   }
 });
@@ -49,9 +50,10 @@ test('mặt trời càng thấp cảnh càng tối, đêm có sao và đèn sán
   }
   const night = daylightGrade(BASE, -20);
   assert.equal(night.stars, 1);
-  assert.ok(night.glow > 2);
-  // Đêm vẫn đủ sáng để đi lại / tìm người: lớp phủ không tối hơn một nửa.
-  assert.ok(Math.min(...night.tint) >= 0.45);
+  assert.equal(night.lamp, 1);
+  assert.ok(night.glow >= 1.9 && night.glow <= 2.1);
+  // Đêm tối rõ hơn trước, còn lối đi được bù bằng các cụm đèn vàng.
+  assert.ok(Math.min(...night.tint) >= 0.35 && Math.max(...night.tint) <= 0.6);
   // Ráng chiều: chân trời ngả cam (đỏ > lam rõ rệt) khi mặt trời vừa lặn.
   const dusk = daylightGrade(BASE, -2).horizon;
   assert.ok(dusk.r > dusk.b * 1.5);

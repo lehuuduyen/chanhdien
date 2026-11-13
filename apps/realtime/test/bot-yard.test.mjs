@@ -162,13 +162,13 @@ test('vườn hoa: bot có điểm ngắm hoa và ghế quảng trường, đi t
   for (const spot of benches) assert.ok(nav.route({ x: 0, z: 33 }, spot)?.length, `đi tới được ${spot.bench}`);
 });
 
-test('Rừng thiền: bot có điểm ngắm quanh hồ và trong thủy đình, ba ghế ven hồ, đi tới được từ giữa sân qua cổng hông', async () => {
+test('Rừng thiền: bot có điểm ngắm quanh hồ và trên bến trước thủy đình, ba ghế ven hồ, đi tới được từ giữa sân qua cổng hông', async () => {
   const { readFileSync } = await import('node:fs');
   const { createBotNav } = await import('../bot-nav.mjs');
   const scene = JSON.parse(readFileSync(new URL('../../../scenes/thien-default/scene.json', import.meta.url), 'utf8'));
   const nav = createBotNav(scene.world);
   const views = nav.spots.filter((spot) => spot.kind === 'grove');
-  assert.equal(views.length, 9, '8 điểm trên vòng lối + thủy đình');
+  assert.equal(views.length, 9, '8 điểm trên vòng lối + bến gỗ');
   for (const spot of views) {
     assert.ok(spot.face, 'đứng ngắm quay mặt vào hồ');
     assert.ok(nav.route({ x: 0, z: 33 }, spot)?.length, `đi tới được (${spot.x}, ${spot.z})`);

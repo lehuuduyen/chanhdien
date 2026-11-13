@@ -40,16 +40,16 @@ Không rò geometry khi đổi qua lại. Vùng chưa có dữ liệu thì hiệ
 
 | # | Vùng (khóa) | Tiểu bang | Phong cảnh gợi ý | Chùa gợi ý | Người làm | Trạng thái |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `desert` Sa mạc | AZ, NV, NM, UT | Cát gợn, xương rồng saguaro, chà là, núi bàn đỏ, trời cam | Tường vàng đất, mái ngói cam | Claude | Chờ duyệt (Claude, 12/11/2026) |
-| 2 | `snow` Núi tuyết | AK, CO, MT, WY, ID | Tuyết, vân sam phủ tuyết, núi chóp trắng | Mái phủ tuyết, thêm nhũ băng, đèn lồng ấm | Claude | Chờ duyệt (Claude, 12/11/2026) |
-| 3 | `tropical` Biển nhiệt đới | FL, HI | Cát trắng, dừa nghiêng, biển xanh ngọc ở chân trời (mặt nước lớn ngoài tường, sóng nhẹ), dâm bụt | Hiên rộng mái thấp, cột trắng | GPT | Chờ duyệt lại (GPT/Codex, 12/11/2026) |
-| 4 | `autumn` Rừng lá đỏ | CT, ME, MA, MI, MN, NH, NJ, NY, PA, RI, VT, WI | Phong đỏ / cam / vàng, bạch dương, lá rụng trên cỏ, đồi rừng nhiều màu | Gỗ nâu, mái xám đen | Claude | Chờ duyệt (Claude, 12/11/2026) |
-| 5 | `plains` Đồng bằng | IL, IN, IA, KS, MO, NE, ND, OH, OK, SD | Đồng lúa mì vàng theo luống, trời rộng mây trắng, cối xay gió, kho thóc đỏ ở xa | Mái thấp ngói nâu, hiên rộng | GPT | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| 6 | `south` Miền Nam | AL, AR, GA, LA, MS, SC, TX | Sồi lớn rủ rêu, đầm lầy có cây bách, cỏ xanh đậm, mộc lan | Tường trắng, cột xanh rêu | GPT | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| 7 | `blossom` Đồi hoa | DC, DE, KY, MD, NC, TN, VA, WV | Đồi xanh nhấp nhô, dãy núi xanh lam ở xa, anh đào và sơn thù du nở hoa | Mái cong nhẹ, ngói xanh ngọc | Claude | Chờ duyệt (Claude, 12/11/2026) |
-| 8 | `pacific` Tây Bắc | OR, WA | Thông Douglas rất cao, sương mù, đá phủ rêu, một núi lửa chóp tuyết đơn độc ở xa | Gỗ tối, mái xám đá | GPT | Chờ duyệt (GPT/Codex; Claude rà đạt 12/11/2026) |
-| 9 | `california` California | CA | Đồi cỏ vàng, sồi rải rác, cọ cao mảnh, biển ở xa, nắng vàng | Tường trắng, mái ngói đỏ | Claude | Chờ duyệt (Claude, 12/11/2026) |
-| 10 | `vietnam` Việt Nam | VN | Ruộng lúa nước chia thửa, lũy tre, cau, chuối, đống rơm, trâu, nhà ngói, núi đá vôi | Tường vàng, mái chồng diêm đầu đao cong, lưỡng long chầu nguyệt | Claude | Chờ duyệt (Claude, 12/11/2026) |
+| 1 | `desert` Sa mạc | AZ, NV, NM, UT | Cát gợn, xương rồng saguaro, chà là, núi bàn đỏ, trời cam | Tường vàng đất, mái ngói cam | Claude | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| 2 | `snow` Núi tuyết | AK, CO, MT, WY, ID | Tuyết, vân sam phủ tuyết, núi chóp trắng | Mái phủ tuyết, thêm nhũ băng, đèn lồng ấm | Claude | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| 3 | `tropical` Biển nhiệt đới | FL, HI | Cát trắng, dừa nghiêng, biển xanh ngọc ở chân trời (mặt nước lớn ngoài tường, sóng nhẹ), dâm bụt | Hiên rộng mái thấp, cột trắng | GPT | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| 4 | `autumn` Rừng lá đỏ | CT, ME, MA, MI, MN, NH, NJ, NY, PA, RI, VT, WI | Phong đỏ / cam / vàng, bạch dương, lá rụng trên cỏ, đồi rừng nhiều màu | Gỗ nâu, mái xám đen | Claude | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| 5 | `plains` Đồng bằng | IL, IN, IA, KS, MO, NE, ND, OH, OK, SD | Đồng lúa mì vàng theo luống, trời rộng mây trắng, cối xay gió, kho thóc đỏ ở xa | Mái thấp ngói nâu, hiên rộng | GPT | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| 6 | `south` Miền Nam | AL, AR, GA, LA, MS, SC, TX | Sồi lớn rủ rêu, đầm lầy có cây bách, cỏ xanh đậm, mộc lan | Tường trắng, cột xanh rêu | GPT | Đã duyệt 13/11/2026 (GPT/Codex, 12/11/2026) |
+| 7 | `blossom` Đồi hoa | DC, DE, KY, MD, NC, TN, VA, WV | Đồi xanh nhấp nhô, dãy núi xanh lam ở xa, anh đào và sơn thù du nở hoa | Mái cong nhẹ, ngói xanh ngọc | Claude | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| 8 | `pacific` Tây Bắc | OR, WA | Thông Douglas rất cao, sương mù, đá phủ rêu, một núi lửa chóp tuyết đơn độc ở xa | Gỗ tối, mái xám đá | GPT | Đã duyệt 13/11/2026 (GPT/Codex; Claude rà đạt 12/11/2026) |
+| 9 | `california` California | CA | Đồi cỏ vàng, sồi rải rác, cọ cao mảnh, biển ở xa, nắng vàng | Tường trắng, mái ngói đỏ | Claude | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
+| 10 | `vietnam` Việt Nam | VN | Ruộng lúa nước chia thửa, lũy tre, cau, chuối, đống rơm, trâu, nhà ngói, núi đá vôi | Tường vàng, mái chồng diêm đầu đao cong, lưỡng long chầu nguyệt | Claude | Đã duyệt 13/11/2026 (Claude, 12/11/2026) |
 | — | `default` cảnh gốc | (vùng chưa có dữ liệu) | Cảnh gốc | Chùa gốc | — | Giữ làm dự phòng |
 
 Đủ 51 mã của Mỹ (50 bang + DC), mỗi mã đúng một vùng.
@@ -393,3 +393,11 @@ nếu đụng nguyên tắc.
 - 12/11/2026, Claude: rà vùng `south` của GPT: đạt (+3 mesh, 24.300 tam giác, đổi vùng 35 ms, không rò; đầm lầy, bách,
   tường trắng cột xanh rêu). Chờ người dùng duyệt ảnh.
 - 12/11/2026 20:51, Claude: rà vùng `pacific` của GPT (bản hiện tại): đạt (+2 mesh, 15.700 tam giác, đổi vùng 30 ms, không rò).
+- 13/11/2026, người dùng: **duyệt cả 10 vùng** (mục 2 đổi thành `Đã duyệt`).
+- 13/11/2026, Claude: Rừng thiền ngoài cổng tây (55 cây theo kiểu cây của vùng) làm đổi vùng chậm thêm 30–40 ms (đo A/B:
+  Việt Nam 54 → 93 ms, quá ngưỡng 80). Cây rừng tách ra nhóm `landscape-grove`, dựng ở `tick()` khung kế tiếp
+  (`buildGrove` trong `landscape3d.mjs`), không chung khung đổi vùng. Đo lại cả 10 vùng (đổi lần sau): vietnam 53–56,
+  desert 36–38, snow 48–49, tropical 35, autumn 52, plains 12, south 33, blossom 41, pacific 26, california 35–36 ms;
+  không rò. Rừng thiền có thảm nền dùng vật liệu cỏ của sân trong (`m.grass`, đổi theo `lawn` của vùng) nên không còn nằm
+  trên ruộng lúa (Việt Nam), luống lúa mì (đồng bằng), cỏ vàng (California); vùng sa mạc vẫn là cát như sân trong.
+

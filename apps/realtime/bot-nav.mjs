@@ -258,14 +258,15 @@ export function createBotNav(world) {
   }
   // Vườn Hoa: điểm ngắm trên lối sỏi, nhìn vào luống.
   for (const view of yard.flowerGarden?.views || []) add('flowers', { x: view.x, z: view.z }, view.face || null);
-  // Rừng thiền ngoài cổng tây: đứng trên vòng lối quanh hồ nhìn vào hồ, và trong thủy đình.
+  // Rừng thiền ngoài cổng tây: đứng trên vòng lối quanh hồ nhìn vào hồ, và trên bến gỗ trước thủy đình nhìn ra mặt hồ
+  // (khe giữa hai cột đình hẹp hơn thân bot nên bot không vào trong đình, như đình Vườn Hoa).
   if (yard.grove) {
-    const { loop, pond, pavilion } = yard.grove;
+    const { loop, pond, pier, pavilion } = yard.grove;
     for (let index = 0; index < 8; index += 1) {
       const angle = ((index + 0.5) / 8) * Math.PI * 2;
       add('grove', { x: loop.x + Math.cos(angle) * loop.rx, z: loop.z + Math.sin(angle) * loop.rz }, { x: pond.x, z: pond.z });
     }
-    add('grove', { x: pavilion.x + 1, z: pavilion.z }, { x: pavilion.x + 6, z: pavilion.z + 2 });
+    add('grove', { x: pier.x, z: pavilion.z - pavilion.radius - 1.4 }, { x: pier.x - 6, z: pavilion.z - 1 });
   }
   // Đài ngắm cảnh ngoài cổng: đứng sát lan can phía xa / hai bên, nhìn ra cảnh tiểu bang.
   if (yard.overlook) {
