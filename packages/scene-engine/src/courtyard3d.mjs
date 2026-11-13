@@ -9,7 +9,7 @@ import { buildAnimals } from './animals3d.mjs';
 import { addPlayground, loadParkModel, loadStaticModel, playgroundMaterials } from './park3d.mjs';
 import { addFlowerGarden, spriteMaterial } from './flowers3d.mjs';
 import { createWaterMaterial } from './water3d.mjs';
-import { instanceProp, placeProp } from './props3d.mjs';
+import { instanceProp, openRail, placeProp } from './props3d.mjs';
 import { createLandscape } from './landscape3d.mjs';
 import { seeded } from './landscape/common.mjs';
 import { daylightGrade, GLOW_ORDER, SKY_LIGHTS_ORDER, VEIL_ORDER } from './daylight3d.mjs';
@@ -349,23 +349,23 @@ function buildGrove(batch, root, m, { area, gate, entry, pond, loop, pier, pavil
   for (let z = pier.z[0] + 0.6; z < pier.z[1]; z += 2) {
     for (const side of [-1, 1]) batch.add(new THREE.CylinderGeometry(0.09, 0.09, 0.9, 6), m.wood, { position: [pier.x + side * (pier.width / 2 + 0.05), 0.3, z] });
   }
-  // Thủy đình: đình bát giác Meshy của Vườn Hoa cùng cỡ và cùng hướng (xoay π/8: tám cột trên vòng bán kính
-  // pavilion.radius, hai cột kẹp lối vào phía bến −z, khớp vật cản trong scene). Chưa tải / tải lỗi thì hiện đình dựng
-  // bằng khối cùng tám cột.
+  // Thủy đình: đình Meshy của Vườn Hoa cùng cỡ (bề ngang (radius + 1) × 2), xoay pavilion.ry cho cửa vào quay về bến,
+  // hạ pavilion.y cho mặt bệ ngang mặt nước. Cột (pavilion.posts, đo từ mô hình) khớp vật cản trong scene. Chưa tải /
+  // tải lỗi thì hiện đình dựng bằng khối có cột đúng các chỗ đó.
   const r = pavilion.radius;
-  const octagon = [0, Math.PI / 8, 0];
   const pavilionBatch = new StaticBatch();
-  pavilionBatch.add(new THREE.CylinderGeometry(r + 0.4, r + 0.4, 0.08, 8), m.wood, { position: [pavilion.x, 0.03, pavilion.z], rotation: octagon });
-  for (let index = 0; index < 8; index += 1) {
-    const angle = ((index + 0.5) / 8) * Math.PI * 2;
-    pavilionBatch.add(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 8), m.pillar, { position: [pavilion.x + Math.cos(angle) * r, 1.3, pavilion.z + Math.sin(angle) * r] });
-  }
-  pavilionBatch.add(new THREE.CylinderGeometry(r + 0.35, r + 0.4, 0.2, 8), m.wood, { position: [pavilion.x, 2.65, pavilion.z], rotation: octagon });
-  pavilionBatch.add(new THREE.ConeGeometry((r + 0.4) * 1.35, 1.6, 8), m.roof, { position: [pavilion.x, 3.55, pavilion.z], rotation: octagon });
+  pavilionBatch.add(new THREE.CylinderGeometry(r + 0.5, r + 0.5, 0.08, 9), m.wood, { position: [pavilion.x, 0.03, pavilion.z] });
+  for (const [x, z] of pavilion.posts || []) pavilionBatch.add(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 8), m.pillar, { position: [x, 1.3, z] });
+  pavilionBatch.add(new THREE.CylinderGeometry(r + 0.45, r + 0.5, 0.2, 9), m.wood, { position: [pavilion.x, 2.65, pavilion.z] });
+  pavilionBatch.add(new THREE.ConeGeometry((r + 0.5) * 1.35, 1.6, 9), m.roof, { position: [pavilion.x, 3.55, pavilion.z] });
   pavilionBatch.add(new THREE.SphereGeometry(0.16, 8, 6), m.gold, { position: [pavilion.x, 4.4, pavilion.z] });
   const pavilionFallback = fallback(pavilionBatch, 'grove-pavilion-fallback');
-  placeProp(root, '/models/flowers/pavilion.glb', { x: pavilion.x, z: pavilion.z, ry: Math.PI / 8, width: (r + 1.0) * 2 }, { receiveShadow: false })
-    .then((group) => { if (group) pavilionFallback.visible = false; });
+  placeProp(root, '/models/flowers/pavilion.glb', { x: pavilion.x, y: pavilion.y || 0, z: pavilion.z, ry: pavilion.ry || 0, width: (r + 1) * 2 }, { receiveShadow: false })
+    .then((group) => {
+      if (!group) return;
+      if (pavilion.door && pavilion.rail) openRail(group, pavilion.door, pavilion.rail);
+      pavilionFallback.visible = false;
+    });
   // Cổng gỗ trên tường sân: hai cột, xà đôi, mái nhỏ hai mái.
   const gx = gate.x + 0.2;
   for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.42, 3.2, 0.42), m.pillar, { position: [gx, 1.6, gate.z + side * (gate.width / 2 + 0.15)] });

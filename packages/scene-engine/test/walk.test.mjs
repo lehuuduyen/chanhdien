@@ -277,3 +277,24 @@ test('Rừng thiền ngoài cổng tây: qua cổng hông tới hồ, ra thủy 
   // Vùng thô server kiểm tra phải bao cả Rừng thiền.
   assert.ok(THIEN_RULES.world.bounds.x[0] <= walk.bounds.x[0]);
 });
+
+test('đình Meshy (Vườn Hoa, thủy đình Rừng thiền): cột và lan can là vật cản đúng chỗ mô hình, chỉ vào được qua nhịp cửa', () => {
+  const { flowerGarden, grove } = scene.world.courtyard;
+  const cases = [
+    { name: 'Vườn Hoa', center: flowerGarden.center, pavilion: flowerGarden.pavilion, door: { x: flowerGarden.center.x + 4.5, z: flowerGarden.center.z } },
+    { name: 'Rừng thiền', center: grove.pavilion, pavilion: grove.pavilion, door: { x: grove.pier.x, z: grove.pier.z[1] - 0.6 } },
+  ];
+  for (const { name, center, pavilion, door } of cases) {
+    assert.equal(pavilion.posts.length, 9, `${name}: chín cột như mô hình`);
+    for (const [x, z] of pavilion.posts) assert.equal(isWalkable(walk, x, z), false, `${name}: không đi xuyên cột (${x}, ${z})`);
+    // Vòng lan can (giữa hai cột liền nhau, trừ nhịp cửa cột cuối → đầu) không đi qua được.
+    pavilion.posts.slice(0, -1).forEach(([x, z], index) => {
+      const [nx, nz] = pavilion.posts[index + 1];
+      assert.equal(isWalkable(walk, (x + nx) / 2, (z + nz) / 2), false, `${name}: lan can nhịp ${index + 1} chắn`);
+    });
+    const [lx, lz] = pavilion.posts.at(-1);
+    const [fx, fz] = pavilion.posts[0];
+    assert.equal(isWalkable(walk, (lx + fx) / 2, (lz + fz) / 2), true, `${name}: nhịp cửa mở`);
+    assert.ok(findPath(walk, door, { x: center.x, z: center.z }).length > 0, `${name}: từ phía cửa vào giữa đình`);
+  }
+});

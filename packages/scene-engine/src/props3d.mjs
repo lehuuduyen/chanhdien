@@ -113,3 +113,44 @@ export function instanceProp(root, url, items, base = {}, { shadow = true, brigh
     return group;
   });
 }
+
+// Mở lan can một nhịp của mô hình đình (lan can kín vòng) làm cửa vào: bỏ các tam giác có tâm nằm trong khoảng góc
+// door = [từ, tới] (độ, quanh trục đứng của mô hình, cos → x, sin → z, có thể vắt qua 0°) và dải cao rail = [dưới, trên]
+// (phần chiều cao mô hình), ngoài 55 % bán kính. Làm trên bản sao hình vì mô hình được dùng chung (cache).
+export function openRail(group, [from, to], [low, high]) {
+  const box = new THREE.Box3();
+  group.traverse((node) => {
+    if (!node.isMesh) return;
+    node.geometry.computeBoundingBox();
+    box.union(node.geometry.boundingBox);
+  });
+  const height = box.max.y - box.min.y;
+  const half = (box.max.x - box.min.x) / 2;
+  const inDoor = (degrees) => (from <= to ? degrees >= from && degrees <= to : degrees >= from || degrees <= to);
+  const point = new THREE.Vector3();
+  group.traverse((node) => {
+    if (!node.isMesh) return;
+    const geometry = node.geometry.clone();
+    const position = geometry.getAttribute('position');
+    const source = geometry.index ? geometry.index.array : Array.from({ length: position.count }, (_, index) => index);
+    const kept = [];
+    for (let index = 0; index + 2 < source.length; index += 3) {
+      let x = 0;
+      let y = 0;
+      let z = 0;
+      for (let corner = 0; corner < 3; corner += 1) {
+        point.fromBufferAttribute(position, source[index + corner]);
+        x += point.x / 3;
+        y += point.y / 3;
+        z += point.z / 3;
+      }
+      const level = (y - box.min.y) / height;
+      const degrees = ((Math.atan2(z, x) * 180) / Math.PI + 360) % 360;
+      if (level > low && level < high && Math.hypot(x, z) > 0.55 * half && inDoor(degrees)) continue;
+      kept.push(source[index], source[index + 1], source[index + 2]);
+    }
+    geometry.setIndex(kept);
+    node.geometry = geometry;
+  });
+  return group;
+}
