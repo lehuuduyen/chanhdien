@@ -1,0 +1,13 @@
+{
+  "landmarks": [
+    { "kind": "dunes", "side": "gate", "distance": 18, "haze": 0.3, "params": { "span": 540, "height": 13, "depth": 30, "sand": "#dcc690", "back": "#cdb57e" } },
+    { "kind": "sea", "side": "gate", "distance": 48, "haze": 0.5, "params": { "color": "#3f7690", "shallow": "#6aa2b0", "width": 640, "rocks": false } },
+    { "kind": "skyline", "side": "gate", "distance": 138, "offset": -40, "haze": 0.75, "params": { "width": 130, "depth": 20, "count": 18, "low": 10, "high": 40, "colors": ["#7d8794", "#8f99a4"], "windows": 0.4, "towers": [{ "t": 0, "height": 58, "width": 10, "steps": 3, "spire": 0.12, "color": "#5d6670" }] } },
+    { "kind": "grain-elevator", "side": "east", "distance": 30, "offset": 18, "scale": 0.82, "haze": 0.28 }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 16 }],
+  "scatter": [
+    { "kind": "corn", "count": 58, "band": [7, 16] }
+  ]
+}

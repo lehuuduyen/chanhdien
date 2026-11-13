@@ -1,0 +1,7 @@
+{
+  "landmarks": [
+    { "kind": "vicksburg-bridge", "side": "gate", "distance": 46, "scale": 1.02, "haze": 0.18 },
+    { "kind": "river-barges", "side": "east", "distance": 35, "offset": 15, "scale": 0.82, "haze": 0.22 }
+  ],
+  "hide": ["mountains"]
+}

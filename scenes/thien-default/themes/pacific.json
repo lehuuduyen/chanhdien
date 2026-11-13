@@ -1,0 +1,72 @@
+{
+  "sky": {
+    "top": "#47779a",
+    "horizon": "#cfddd8"
+  },
+  "fog": "#aebfba",
+  "light": {
+    "sun": "#e8eee6",
+    "sky": "#d9e7eb",
+    "ground": "#30473a"
+  },
+  "field": "rainforest-floor",
+  "lawn": {
+    "surface": "rainforest-floor",
+    "tint": "#496b45"
+  },
+  "colors": {
+    "roof": "#484d52",
+    "wall": "#6b503d",
+    "brick": "#807466",
+    "pillar": "#425047"
+  },
+  "mountains": {
+    "shape": "cascade-volcano",
+    "colors": [
+      "#405a4b",
+      "#4b6353",
+      "#536c5b"
+    ]
+  },
+  "trees": "douglas-fir",
+  "treeScale": 1.12,
+  "pines": "douglas-fir",
+  "scatter": [
+    {
+      "kind": "douglas-fir",
+      "count": 72,
+      "band": [
+        12,
+        48
+      ]
+    },
+    {
+      "kind": "moss-rock",
+      "count": 34,
+      "band": [
+        8,
+        36
+      ]
+    },
+    {
+      "kind": "sword-fern",
+      "count": 55,
+      "band": [
+        7,
+        32
+      ]
+    },
+    {
+      "kind": "fallen-log",
+      "count": 10,
+      "band": [
+        18,
+        42
+      ]
+    }
+  ],
+  "temple": {
+    "tiers": 2,
+    "hook": 1.05
+  }
+}

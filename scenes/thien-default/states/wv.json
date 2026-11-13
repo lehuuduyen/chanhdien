@@ -1,0 +1,9 @@
+{
+  "landmarks": [
+    { "kind": "new-river-gorge", "side": "gate", "distance": 24, "offset": 8, "haze": 0.3, "params": { "span": 480, "height": 44, "slope": 50 } },
+    { "kind": "hills", "side": "east", "distance": 18, "haze": 0.3, "params": { "span": 240, "height": 24, "depth": 40, "colors": ["#335d3a", "#3c6b42", "#467548"], "wave": 0.4, "freq": 0.04 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 22 }, { "side": "east", "from": 16 }],
+  "scatter": []
+}

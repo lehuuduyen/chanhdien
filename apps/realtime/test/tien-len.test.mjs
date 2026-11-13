@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseServerMessage } from '@chanh-dien/protocol';
 import { TIENLEN_RULES } from '@chanh-dien/room-rules';
-import { botChoice, capTransfers, TIENLEN_HOUSE_CUT_PERCENT, TIENLEN_MIN_COINS_UNITS, TIENLEN_MODES, TIENLEN_STAKES, tienLenMinCoins } from '@chanh-dien/tien-len';
+import { botChoice, capTransfers, playOptions, smartSelect, TIENLEN_HOUSE_CUT_PERCENT, TIENLEN_MIN_COINS_UNITS, TIENLEN_MODES, TIENLEN_STAKES, tienLenMinCoins } from '@chanh-dien/tien-len';
 import { TienLenTable } from '../tien-len.mjs';
 
 const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
@@ -175,6 +175,54 @@ test('mở bàn, người thứ hai vào là đếm ngược; chia bài: mỗi n
   assert.deepEqual(last(other === an ? 'an' : 'binh').top, { seat: leader === an ? 0 : 1, cards: [low] });
   await until(() => room.lastLobby?.tables.some((item) => item.id === tableId && item.phase === 'playing'));
   assert.deepEqual(room.lastLobby.tables[0].players.map((item) => item.displayName), ['AN', 'BINH']);
+  table.stop();
+});
+
+// Xáo bài ra đúng thứ tự deck (xáo Fisher–Yates gọi random(52), random(51) … random(2) liên tiếp); các lần gọi khác dùng random gốc.
+function stackedDeck(deck, fallback) {
+  const swaps = [];
+  const cards = Array.from({ length: deck.length }, (_, card) => card);
+  for (let index = deck.length - 1; index > 0; index -= 1) {
+    const from = cards.indexOf(deck[index]);
+    swaps.push(from);
+    [cards[index], cards[from]] = [cards[from], cards[index]];
+  }
+  let step = -1;
+  return (n) => {
+    if (n === deck.length) step = 0;
+    if (step >= 0 && n === deck.length - step) return swaps[step++];
+    step = -1;
+    return fallback(n);
+  };
+}
+
+test('ván đầu 2 người không ai có 3, 4: người cầm 5♠ đi trước, đánh được sảnh 5♠ 6 7 (phải có 5♠)', async () => {
+  const { table, join, last } = setup({ coins: { 'acc-an': 5_000, 'acc-binh': 5_000 } });
+  // Lá = hạng × 4 + chất (hạng 0 = 3, 1 = 4, 2 = 5…; chất 0 ♠, 1 ♣, 2 ♦, 3 ♥). Cả 8 lá 3 và 4 (0–7) nằm ở phần không chia.
+  const anHand = [8, 13, 18, 23, 27, 28, 30, 33, 35, 38, 43, 44, 49]; // 5♠ 6♣ 7♦ 8♥ 9♥ 10♠ 10♦ J♣ J♥ Q♦ K♥ A♠ 2♣
+  const binhHand = [9, 10, 12, 16, 20, 24, 29, 32, 36, 40, 45, 48, 51]; // 5♣ 5♦ 6♠ 7♠ 8♠ 9♠ 10♣ J♠ Q♠ K♠ A♣ 2♠ 2♥
+  const rest = Array.from({ length: 52 }, (_, card) => card).filter((card) => !anHand.includes(card) && !binhHand.includes(card));
+  table.random = stackedDeck([...anHand, ...binhHand, ...rest], table.random);
+  const an = join('an');
+  const binh = join('binh');
+  assert.ok((await table.open(an, { stake: 50, mode: 'rank' })).ok);
+  const tableId = last('an').tableId;
+  assert.ok((await table.join(binh, { tableId })).ok);
+  await until(() => last('an').phase === 'playing');
+  assert.deepEqual(last('an').hand, anHand, 'chia đúng bài dựng sẵn');
+  assert.equal(last('an').lead, true, 'người cầm lá nhỏ nhất (5♠) đi trước');
+  assert.equal(last('an').mustInclude, 8, 'lá bắt buộc là 5♠, không phải 3♠');
+  // Sảnh không có 5♠ (dù có 5 khác) hay rác khác: không được.
+  assert.equal(table.play(an, { tableId, cards: [13, 18, 23] }).code, 'MUST_INCLUDE');
+  assert.equal(table.play(an, { tableId, cards: [44] }).code, 'MUST_INCLUDE');
+  // Trang: tự chọn từ 5♠ + 6 ra sảnh có 5♠; gợi ý có sảnh 5♠ 6♣ 7♦.
+  assert.deepEqual(smartSelect({ hand: anHand, picked: [8, 13] }).slice(0, 3), [8, 13, 18]);
+  assert.ok(playOptions(anHand, null).some((cards) => cards.length === 3 && [8, 13, 18].every((card) => cards.includes(card))));
+  assert.ok(table.play(an, { tableId, cards: [8, 13, 18] }).ok, 'đánh sảnh 5♠ 6♣ 7♦');
+  assert.deepEqual(last('binh').top, { seat: 0, cards: [8, 13, 18] });
+  assert.equal(last('binh').mustInclude, undefined, 'sau nước đầu không còn lá bắt buộc');
+  // Bình chặn bằng sảnh 3 lá lớn hơn (6♠ 7♠ 8♠).
+  assert.ok(table.play(binh, { tableId, cards: [12, 16, 20] }).ok);
   table.stop();
 });
 

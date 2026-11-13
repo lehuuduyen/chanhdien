@@ -1,0 +1,111 @@
+{
+  "landmarks": [
+    {
+      "kind": "sea",
+      "side": "gate",
+      "distance": 26,
+      "haze": 0.5,
+      "params": {
+        "color": "#2f5f78",
+        "shallow": "#55889a",
+        "width": 640
+      }
+    },
+    {
+      "kind": "split-rock",
+      "side": "gate",
+      "distance": 34,
+      "offset": -14,
+      "haze": 0.3,
+      "params": {
+        "height": 24,
+        "span": 110,
+        "depth": 36,
+        "light": {
+          "height": 12,
+          "body": "#d2a85e",
+          "roof": "#222222",
+          "houseWall": "#c99a5c",
+          "houseRoof": "#4a4a4a"
+        }
+      }
+    },
+    {
+      "kind": "hills",
+      "side": "gate",
+      "distance": 120,
+      "haze": 0.5,
+      "params": {
+        "span": 560,
+        "height": 34,
+        "colors": [
+          "#36513a",
+          "#3f5a3c",
+          "#4a6142"
+        ],
+        "wave": 0.3,
+        "trees": {
+          "count": 140,
+          "size": 5,
+          "colors": [
+            "#2f4a32",
+            "#3f5a38",
+            "#d9a03a",
+            "#e9e4d6"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "hills",
+      "side": "east",
+      "distance": 18,
+      "haze": 0.3,
+      "params": {
+        "span": 240,
+        "height": 22,
+        "depth": 40,
+        "colors": [
+          "#36513a",
+          "#3f5a3c",
+          "#4a6142"
+        ],
+        "wave": 0.4,
+        "freq": 0.04,
+        "trees": {
+          "count": 90,
+          "size": 3,
+          "colors": [
+            "#2f4a32",
+            "#3f5a38",
+            "#d9a03a",
+            "#e9e4d6"
+          ]
+        }
+      }
+    }
+  ],
+  "hide": [
+    "mountains"
+  ],
+  "clear": [
+    {
+      "side": "gate",
+      "from": 22
+    },
+    {
+      "side": "east",
+      "from": 16
+    }
+  ],
+  "scatter": [
+    {
+      "kind": "canoe-dock",
+      "count": 6,
+      "band": [
+        18,
+        22
+      ]
+    }
+  ]
+}

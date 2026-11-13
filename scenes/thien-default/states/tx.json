@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "san-jacinto", "side": "gate", "distance": 55, "offset": -18, "scale": 1.02, "haze": 0.16 },
+    { "kind": "texas-derrick", "side": "east", "distance": 37, "offset": 18, "scale": 0.9, "haze": 0.22 }
+  ],
+  "scatter": [
+    { "kind": "bluebonnet", "count": 150, "band": [6, 22] },
+    { "kind": "longhorn", "count": 7, "band": [13, 30] }
+  ]
+}

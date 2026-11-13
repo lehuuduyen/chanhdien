@@ -1,0 +1,15 @@
+{
+  "landmarks": [
+    { "kind": "mount-hood", "side": "gate", "distance": 88, "haze": 0.24, "params": { "span": 300, "height": 62 } },
+    { "kind": "sea", "side": "west", "distance": 46, "haze": 0.5, "params": { "color": "#416e80", "shallow": "#6d98a0", "width": 420, "rocks": false } },
+    { "kind": "haystack-rock", "side": "west", "distance": 58, "offset": -8, "scale": 0.9, "haze": 0.24 },
+    { "kind": "multnomah-falls", "side": "east", "distance": 55, "offset": 20, "scale": 0.75, "haze": 0.24 }
+  ],
+  "hide": ["mountains"],
+  "clear": [
+    { "side": "west", "from": 30 }
+  ],
+  "scatter": [
+    { "kind": "driftwood", "count": 12, "band": [28, 45] }
+  ]
+}

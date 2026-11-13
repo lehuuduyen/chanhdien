@@ -1,4 +1,5 @@
 // `npm run theme:shots -- [vùng…] [--base http://localhost:3000] [--out .data/theme-shots] [--sun 50]`
+// `npm run theme:shots -- --state az,me [--base …] [--out …]`: đo lớp điểm đặc trưng tiểu bang (KE_HOACH_BANG.md).
 //
 // Chụp phong cảnh sân chùa theo vùng (KE_HOACH_VUNG.md) để duyệt và so sánh: mở chánh điện trong Chrome chạy ngầm
 // (khung điện thoại 390×844), ẩn mọi lớp giao diện, đặt camera tự do ở 6 góc chuẩn rồi chụp từng vùng. Không vào phòng
@@ -11,6 +12,9 @@
 //   với ngân sách trong KE_HOACH_VUNG.md (lệnh vẽ cả khung hình dao động theo khói hương, thú đi lại nên chỉ để tham khảo);
 // - FPS: chỉ để so giữa các vùng trên cùng một máy;
 // - geometry trên GPU trước / sau khi đổi qua lại 5 lần: tăng ≥ 5 (mỗi lần đổi rò ít nhất một) là rò bộ nhớ.
+// Chế độ --state: mỗi bang chụp 8 góc ban ngày và ban đêm (--sun -15), đo "độ thấy" của lớp bang ở từng góc (phần trăm
+// điểm ảnh đổi khi ẩn lớp bang, renderer.debugLandmarkShare), số mesh / tam giác / ms của riêng lớp bang và rò bộ nhớ;
+// so với tiêu chí KE_HOACH_BANG.md mục 1.
 // Trời cố định ở độ cao mặt trời --sun (độ, mặc định 50 = ban ngày, ảnh không đổi theo giờ chạy); vd. --sun -3 chụp
 // ráng chiều, --sun -15 chụp đêm (daylight3d.mjs).
 // Chrome: CHROME_PATH, mặc định bản cài sẵn trên macOS / google-chrome / chromium trên Linux.
@@ -31,6 +35,13 @@ const option = (name, fallback) => {
 const BASE = option('--base', 'http://localhost:3000').replace(/\/$/, '');
 const OUT = path.resolve(ROOT, option('--out', '.data/theme-shots'));
 const SUN = Number(option('--sun', '50'));
+const STATES = option('--state', '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+for (const code of STATES) {
+  if (!/^[a-z]{2}$/.test(code)) {
+    console.error(`Mã bang không hợp lệ: ${code}`);
+    process.exit(1);
+  }
+}
 if (!Number.isFinite(SUN) || SUN < -90 || SUN > 90) {
   console.error('--sun phải là số độ từ -90 tới 90');
   process.exit(1);
@@ -54,6 +65,10 @@ const VIEWS = [
   ['4-tuong-dong', [44, 4, 55], [50, 5.2, 57]],
   ['5-tren-cao', [-20, 22, 70], [-15, 18.5, 64]],
   ['6-vuon-hoa', [-8, 18, 44], [-14, 15, 39]],
+  // Đứng xa ở hai góc sân (Vườn Hoa phía tây, phía đông), nhìn về khoảng ngoài cổng (0, 160) — tiêu chí "đứng xa cũng
+  // thấy" của lớp tiểu bang.
+  ['7-vuon-hoa-tay', [-46, 3.4, 24], [-43.8, 5, 30.6]],
+  ['8-nong-trai-dong', [48, 3.4, 46], [45.3, 5, 52.5]],
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -167,6 +182,12 @@ async function main() {
   }
 
   const stats = () => evaluate('window.chanhDienRenderer.stats()');
+  if (STATES.length) {
+    await measureStates({ evaluate, view, screenshot, stats, cmd, quality, problems });
+    socket.close();
+    cleanup();
+    return;
+  }
   const report = { base: BASE, quality, views: VIEWS.map(([name]) => name), themes: {} };
   for (const name of themes) {
     const firstStart = Date.now();
@@ -247,6 +268,81 @@ async function main() {
   console.log(`\nẢnh: ${OUT}/<vùng>/*.png · ảnh ghép: ${path.join(OUT, 'sheet.png')} · số đo: ${path.join(OUT, 'report.json')}`);
   socket.close();
   cleanup();
+}
+
+// Lớp điểm đặc trưng tiểu bang: độ thấy ngày / đêm ở 8 góc, số đo riêng lớp bang, rò bộ nhớ, ảnh ghép.
+async function measureStates({ evaluate, view, screenshot, stats, cmd, quality, problems }) {
+  const { thienThemeOf } = await import(pathToFileURL(path.join(ROOT, 'packages/room-rules/src/index.mjs')).href);
+  const report = { base: BASE, quality, views: VIEWS.map(([name]) => name), states: {} };
+  for (const code of STATES) {
+    const region = thienThemeOf(code);
+    const set = (state) => evaluate(`window.chanhDienRenderer.setTheme(${JSON.stringify(region)}, { state: ${JSON.stringify(state)} })`);
+    await set(null);
+    const firstStart = Date.now();
+    await set(code);
+    const firstMs = Date.now() - firstStart;
+    const againMs = await evaluate(`(async () => {
+      const r = window.chanhDienRenderer;
+      await r.setTheme(${JSON.stringify(region)});
+      const start = performance.now();
+      await r.setTheme(${JSON.stringify(region)}, { state: ${JSON.stringify(code)} });
+      return Math.round(performance.now() - start);
+    })()`);
+    const { landscape } = await stats();
+    if (landscape.state !== code) console.warn(`  ${code}: chưa có lớp bang (states/${code}.json), chỉ đo cảnh vùng`);
+    mkdirSync(path.join(OUT, code), { recursive: true });
+    const share = { day: {}, night: {} };
+    for (const [phase, sun] of [['day', SUN], ['night', -15]]) {
+      await evaluate(`window.chanhDienRenderer.setDaylight(${sun}), 1`);
+      for (const item of VIEWS) {
+        await view(item);
+        share[phase][item[0]] = await evaluate('window.chanhDienRenderer.debugLandmarkShare()');
+        await screenshot(path.join(OUT, code, `${item[0]}${phase === 'night' ? '-dem' : ''}.png`));
+      }
+    }
+    await evaluate(`window.chanhDienRenderer.setDaylight(${SUN}), 1`);
+    const leak = await evaluate(`(async () => {
+      const r = window.chanhDienRenderer;
+      const frame = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      const cycle = async () => {
+        await r.setTheme('default');
+        await r.setTheme(${JSON.stringify(region)});
+        await r.setTheme(${JSON.stringify(region)}, { state: ${JSON.stringify(code)} });
+        await frame();
+      };
+      await cycle();
+      const before = r.stats().geometries;
+      for (let i = 0; i < 5; i += 1) await cycle();
+      return { before, after: r.stats().geometries };
+    })()`);
+    const seen = (phase, limit) => Object.entries(share[phase]).filter(([, value]) => value >= limit).map(([name]) => name);
+    const day = seen('day', 1.5);
+    const night = seen('night', 0.8);
+    const pass = day.length >= 4 && day.includes('3-cong-nui') && (day.includes('7-vuon-hoa-tay') || day.includes('8-nong-trai-dong')) && night.length >= 2;
+    report.states[code] = { region, firstMs, againMs, landmarks: landscape.landmarks, geometries: leak, share, pass };
+  }
+  console.log(`\nChất lượng renderer khi chụp: ${quality}\n`);
+  console.log(`bang  vùng        đổi đầu / sau     mesh  tam giác   geometry   độ thấy ngày (%) ở ${VIEWS.length} góc / đêm`);
+  for (const [code, item] of Object.entries(report.states)) {
+    const leakNote = item.geometries.after - item.geometries.before >= 5 ? ' RÒ' : '';
+    const fmt = (phase) => VIEWS.map(([name]) => item.share[phase][name].toFixed(1)).join(' ');
+    console.log(`${code.padEnd(5)} ${item.region.padEnd(11)} ${`${item.firstMs} / ${item.againMs} ms`.padEnd(17)} ${String(item.landmarks.meshes).padStart(4)} ${String(item.landmarks.triangles).padStart(9)}   ${item.geometries.before}→${item.geometries.after}${leakNote}   ${fmt('day')}  /  ${fmt('night')}  ${item.pass ? 'ĐẠT' : 'CHƯA ĐẠT'}`);
+  }
+  console.log('Tiêu chí (KE_HOACH_BANG.md): ngày ≥ 1,5 % ở ≥ 4 góc, có 3-cong-nui và một góc đứng xa (7 / 8); đêm ≥ 0,8 % ở ≥ 2 góc;');
+  console.log('lớp bang +mesh ≤ 8, +tam giác ≤ 40.000, đổi bang ≤ 50 ms, không rò.');
+  writeFileSync(path.join(OUT, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
+  const cell = { width: 160, height: 346 };
+  const rows = Object.keys(report.states).flatMap((code) => [['', code], ['-dem', `${code} đêm`]].map(([suffix, label]) => `<div class="row"><b>${label}</b>${VIEWS.map(([key]) => `<img src="${code}/${key}${suffix}.png">`).join('')}</div>`)).join('');
+  writeFileSync(path.join(OUT, 'sheet.html'), `<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#fff;font:14px sans-serif}.row{display:flex;align-items:center;gap:4px;margin:4px}b{width:70px}img{width:${cell.width}px;height:${cell.height}px}</style>${rows}`);
+  const width = 78 + VIEWS.length * (cell.width + 4);
+  const height = Object.keys(report.states).length * 2 * (cell.height + 8) + 8;
+  await cmd('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+  await cmd('Page.navigate', { url: pathToFileURL(path.join(OUT, 'sheet.html')).href });
+  await sleep(1_500);
+  await screenshot(path.join(OUT, 'sheet.png'));
+  const pageProblems = problems.filter((text) => !/AudioContext|api\/v1\/me|401|states\/[a-z]{2}\.json/.test(text));
+  if (pageProblems.length) console.log(`\nLỗi / cảnh báo trong trang:\n- ${[...new Set(pageProblems)].slice(0, 15).join('\n- ')}`);
+  console.log(`\nẢnh: ${OUT}/<bang>/*.png · ảnh ghép: ${path.join(OUT, 'sheet.png')} · số đo: ${path.join(OUT, 'report.json')}`);
 }
 
 main().then(() => process.exit(0), (error) => {

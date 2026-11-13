@@ -1,0 +1,13 @@
+{
+  "landmarks": [
+    { "kind": "washington-monument", "side": "gate", "distance": 52, "offset": -4, "haze": 0.3, "params": { "height": 56 } },
+    { "kind": "capitol", "side": "gate", "distance": 130, "offset": 46, "haze": 0.3, "params": { "width": 110, "height": 46 } },
+    { "kind": "tidal-basin", "side": "gate", "distance": 30, "offset": -62, "haze": 0.3, "params": { "radius": 22, "trees": 30 } },
+    { "kind": "lincoln-memorial", "side": "east", "distance": 40, "offset": 6, "haze": 0.3, "params": { "width": 40 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 14 }, { "side": "east", "from": 14 }],
+  "scatter": [
+    { "kind": "park-bench", "count": 10, "band": [3, 12] }
+  ]
+}

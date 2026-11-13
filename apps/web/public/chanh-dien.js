@@ -36,6 +36,8 @@ let URL_ROOM = null;
 const TEST_EVENT_NOW = PARAMS.get('event') === 'now';
 // ?theme=<vùng> xem thử phong cảnh một vùng (desert, snow, default…) mà không đổi tiểu bang.
 const THEME_PREVIEW = /^[a-z0-9-]{1,32}$/.test(PARAMS.get('theme') || '') ? PARAMS.get('theme') : null;
+// ?state=<mã> xem thử lớp điểm đặc trưng của một tiểu bang (và vùng của bang đó) mà không đổi phòng.
+const STATE_PREVIEW = /^[a-z]{2}$/.test(PARAMS.get('state') || '') ? PARAMS.get('state') : null;
 // ?sun=<độ> xem thử trời ở một độ cao mặt trời cố định (vd. 50 trưa, 2 nắng chiều, -3 ráng, -15 đêm) thay giờ thật.
 const SUN_PREVIEW = /^-?\d{1,2}(\.\d+)?$/.test(PARAMS.get('sun') || '') ? Number(PARAMS.get('sun')) : null;
 // Quay về từ map khác (rạp phim gửi ?go=…): vào thẳng bằng tên đã nhập, không hỏi lại, không chào lại.
@@ -588,17 +590,24 @@ function watchSceneLoading(current) {
 }
 
 // Phong cảnh sân chùa theo tiểu bang đang chọn (ở cổng) / đang ở (selectedState luôn theo phòng hiện tại).
+function sceneState() {
+  return STATE_PREVIEW || selectedState;
+}
 function sceneTheme() {
-  return THEME_PREVIEW || thienThemeOf(selectedState);
+  return THEME_PREVIEW || thienThemeOf(sceneState());
+}
+// Lớp điểm đặc trưng tiểu bang (KE_HOACH_BANG.md); Việt Nam đã có vùng riêng, không có lớp bang.
+function overlayState() {
+  return sceneState() === 'vn' ? null : sceneState();
 }
 function applySceneTheme() {
-  renderer?.setTheme?.(sceneTheme());
+  renderer?.setTheme?.(sceneTheme(), { state: overlayState() });
   applySceneSky();
 }
 // Trời theo giờ thật nơi đặt chùa của tiểu bang đang chọn / đang ở (cả phòng cùng một bầu trời).
 function applySceneSky() {
   if (SUN_PREVIEW !== null) renderer?.setDaylight?.(SUN_PREVIEW);
-  else renderer?.setSkyPlace?.(thienPlaceOf(selectedState));
+  else renderer?.setSkyPlace?.(thienPlaceOf(sceneState()));
 }
 
 async function setupScene() {
@@ -633,7 +642,7 @@ async function setViewMode(mode) {
       const { createChibiPersonFactory } = await import('/engine/chibi3d.mjs');
       // Hình mua trong shop (chibigirl) dùng mô hình .glb: tải xong mới dựng người, lỗi thì tự dùng hình khối.
       await loadShopCharacters();
-      renderer = await createTempleRenderer3D({ canvas: elements.scene3d, scene: sceneData, onSeatClick: moveTo, plugin: explore.plugin, personFactory: createChibiPersonFactory, theme: sceneTheme(), themeBase: '/scenes/thien-default/themes/' });
+      renderer = await createTempleRenderer3D({ canvas: elements.scene3d, scene: sceneData, onSeatClick: moveTo, plugin: explore.plugin, personFactory: createChibiPersonFactory, theme: sceneTheme(), themeBase: '/scenes/thien-default/themes/', state: overlayState(), stateBase: '/scenes/thien-default/states/' });
       // Trình duyệt thu hồi WebGL (thiếu bộ nhớ, chuyển app): cảnh đen và chạm không ăn → tải lại trang.
       guardWebGL(elements.scene3d, { onLost: (willReload) => showToast(t(willReload ? 'toast.webglLost' : 'toast.webglLostManual')) });
       applySceneSky();

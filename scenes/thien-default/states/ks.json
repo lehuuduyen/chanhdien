@@ -1,0 +1,31 @@
+{
+  "landmarks": [
+    {
+      "kind": "sunflower-sea",
+      "side": "gate",
+      "distance": 22,
+      "offset": 18,
+      "scale": 1,
+      "haze": 0.32
+    },
+    {
+      "kind": "kansas-tornado",
+      "side": "gate",
+      "distance": 58,
+      "offset": -18,
+      "scale": 1.05,
+      "haze": 0.2
+    },
+    {
+      "kind": "sunflower-sea",
+      "side": "east",
+      "distance": 29,
+      "offset": 18,
+      "scale": 0.68,
+      "haze": 0.32
+    }
+  ],
+  "hide": [
+    "mountains"
+  ]
+}

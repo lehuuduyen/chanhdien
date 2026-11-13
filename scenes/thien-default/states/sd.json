@@ -1,0 +1,11 @@
+{
+  "landmarks": [
+    { "kind": "rushmore", "side": "gate", "distance": 39, "scale": 1.08, "haze": 0.18 },
+    { "kind": "sd-badlands", "side": "east", "distance": 31, "offset": 16, "scale": 0.95, "haze": 0.22 }
+  ],
+  "hide": ["mountains"],
+  "scatter": [
+    { "kind": "blackhill-pine", "count": 38, "band": [10, 27] },
+    { "kind": "bison", "count": 9, "band": [12, 25] }
+  ]
+}

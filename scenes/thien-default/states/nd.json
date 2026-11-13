@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "nd-badlands", "side": "gate", "distance": 38, "scale": 1.1, "haze": 0.2 },
+    { "kind": "oil-pump", "side": "east", "distance": 34, "offset": 12, "scale": 0.88, "haze": 0.2 }
+  ],
+  "hide": ["mountains"],
+  "scatter": [
+    { "kind": "sunflower", "count": 72, "band": [8, 24] }
+  ]
+}

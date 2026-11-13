@@ -1,0 +1,14 @@
+{
+  "landmarks": [
+    { "kind": "sea", "side": "gate", "distance": 22, "haze": 0.5, "params": { "color": "#3f7590", "shallow": "#6aa2b3", "width": 640, "rocks": false } },
+    { "kind": "suspension-bridge", "side": "gate", "distance": 100, "offset": 60, "haze": 0.3, "params": { "span": 170, "sideSpan": 0.45, "approach": 130, "drop": 0.35, "deck": 18, "tower": 50, "width": 9, "color": "#e8e2c8", "truss": "#5c7d5e", "struts": 3, "yaw": 8 } },
+    { "kind": "sea", "side": "east", "distance": 28, "haze": 0.5, "params": { "color": "#3f7590", "shallow": "#6aa2b3", "width": 400, "rocks": false } },
+    { "kind": "breakwater", "side": "east", "distance": 30, "offset": 10, "haze": 0.3, "params": { "length": 40 } },
+    { "kind": "lighthouse", "side": "east", "distance": 70, "offset": 10, "haze": 0.3, "params": { "height": 15, "body": "#b8322a", "roof": "#2b2b2b", "house": false, "rocks": false } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 20 }, { "side": "east", "from": 26 }],
+  "scatter": [
+    { "kind": "cherry-tree", "count": 14, "band": [4, 20] }
+  ]
+}

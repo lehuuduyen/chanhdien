@@ -1,0 +1,13 @@
+{
+  "landmarks": [
+    { "kind": "mount-rainier", "side": "gate", "distance": 105, "haze": 0.22, "params": { "span": 420, "height": 82 } },
+    { "kind": "puget-ferry", "side": "east", "distance": 55, "offset": 8, "scale": 0.72, "haze": 0.26 }
+  ],
+  "hide": ["mountains"],
+  "clear": [
+    { "side": "east", "from": 30 }
+  ],
+  "scatter": [
+    { "kind": "apple-tree", "count": 26, "band": [8, 28] }
+  ]
+}

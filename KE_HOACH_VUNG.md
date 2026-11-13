@@ -45,9 +45,9 @@ Không rò geometry khi đổi qua lại. Vùng chưa có dữ liệu thì hiệ
 | 3 | `tropical` Biển nhiệt đới | FL, HI | Cát trắng, dừa nghiêng, biển xanh ngọc ở chân trời (mặt nước lớn ngoài tường, sóng nhẹ), dâm bụt | Hiên rộng mái thấp, cột trắng | GPT | Chờ duyệt lại (GPT/Codex, 12/11/2026) |
 | 4 | `autumn` Rừng lá đỏ | CT, ME, MA, MI, MN, NH, NJ, NY, PA, RI, VT, WI | Phong đỏ / cam / vàng, bạch dương, lá rụng trên cỏ, đồi rừng nhiều màu | Gỗ nâu, mái xám đen | Claude | Chờ duyệt (Claude, 12/11/2026) |
 | 5 | `plains` Đồng bằng | IL, IN, IA, KS, MO, NE, ND, OH, OK, SD | Đồng lúa mì vàng theo luống, trời rộng mây trắng, cối xay gió, kho thóc đỏ ở xa | Mái thấp ngói nâu, hiên rộng | GPT | Chờ duyệt (GPT/Codex, 12/11/2026) |
-| 6 | `south` Miền Nam | AL, AR, GA, LA, MS, SC, TX | Sồi lớn rủ rêu, đầm lầy có cây bách, cỏ xanh đậm, mộc lan | Tường trắng, cột xanh rêu | GPT | Đang làm (GPT/Codex, 12/11/2026) |
+| 6 | `south` Miền Nam | AL, AR, GA, LA, MS, SC, TX | Sồi lớn rủ rêu, đầm lầy có cây bách, cỏ xanh đậm, mộc lan | Tường trắng, cột xanh rêu | GPT | Chờ duyệt (GPT/Codex, 12/11/2026) |
 | 7 | `blossom` Đồi hoa | DC, DE, KY, MD, NC, TN, VA, WV | Đồi xanh nhấp nhô, dãy núi xanh lam ở xa, anh đào và sơn thù du nở hoa | Mái cong nhẹ, ngói xanh ngọc | Claude | Chờ duyệt (Claude, 12/11/2026) |
-| 8 | `pacific` Tây Bắc | OR, WA | Thông Douglas rất cao, sương mù, đá phủ rêu, một núi lửa chóp tuyết đơn độc ở xa | Gỗ tối, mái xám đá | GPT | Chưa làm |
+| 8 | `pacific` Tây Bắc | OR, WA | Thông Douglas rất cao, sương mù, đá phủ rêu, một núi lửa chóp tuyết đơn độc ở xa | Gỗ tối, mái xám đá | GPT | Chờ duyệt (GPT/Codex; Claude rà đạt 12/11/2026) |
 | 9 | `california` California | CA | Đồi cỏ vàng, sồi rải rác, cọ cao mảnh, biển ở xa, nắng vàng | Tường trắng, mái ngói đỏ | Claude | Chờ duyệt (Claude, 12/11/2026) |
 | 10 | `vietnam` Việt Nam | VN | Ruộng lúa nước chia thửa, lũy tre, cau, chuối, đống rơm, trâu, nhà ngói, núi đá vôi | Tường vàng, mái chồng diêm đầu đao cong, lưỡng long chầu nguyệt | Claude | Chờ duyệt (Claude, 12/11/2026) |
 | — | `default` cảnh gốc | (vùng chưa có dữ liệu) | Cảnh gốc | Chùa gốc | — | Giữ làm dự phòng |
@@ -215,6 +215,8 @@ export const kit = {
   tọa độ từng bang (`THIEN_PLACES`), không theo múi giờ.
 - **Vùng `vietnam`** cho Việt Nam: xong sớm (12/11/2026, Claude, người dùng yêu cầu), xem bảng mục 2.
 
+Tiếp theo các vùng: điểm đặc trưng riêng từng tiểu bang đặt lên cảnh vùng, xem [KE_HOACH_BANG.md](KE_HOACH_BANG.md).
+
 ## 8. Đề xuất sửa phần chung
 
 Người làm vùng ghi đề xuất vào đây theo dạng: ngày, người, cần gì, vì sao. Người giữ phần chung (Claude) làm, hoặc hỏi người dùng
@@ -377,3 +379,17 @@ nếu đụng nguyên tắc.
     thẳng qua luôn 2 giây (`BOT_PASS_MS`); không chọn bot đang sát mình (< `BOT_SPOT_GAP`) để nói chuyện.
   - Đo 100 lần chạy: nhịp chồng tối đa 21 → 8 (ngưỡng 18), không còn bot nào quanh quẩn một chỗ (test giờ kiểm cả điều này).
   - 450/450 test qua, lint sạch.
+- 12/11/2026, GPT/Codex: làm `south`, chờ duyệt; đồng thời nhận vùng `pacific`.
+  - cảnh: đồng cỏ đầm lầy xanh đậm có kênh nước vẽ bằng canvas; sồi sống tán rộng rủ rêu Tây Ban Nha, bách đầm lầy cao,
+    mộc lan hoa trắng; vũng bayou dùng `band` [20, 45], cây rải dùng `band` [10, 50] nên chỉ nằm ngoài tường;
+  - chân trời: dải nước thấp, bờ đầm và hàng bách trong sương, không có núi nhọn;
+  - chùa: giữ bộ dựng chung và cửa đúng chỗ, tường trắng, cột / mái xanh rêu, mái chồng diêm (`tiers: 2`, `hook: 1.15`);
+  - `npm run theme:shots -- south`: đổi lần sau 44 ms, +3 mesh, +24.327 tam giác, +14 lệnh vẽ; FPS headless 15 → 15,
+    geometry 359 → 359, không rò bộ nhớ;
+  - thử trang thật ở khung 390×844: đi từ sân `z=33` qua cửa vào tận chánh điện `z=8,06`, đi nhanh tới Vườn Hoa,
+    Khu vui chơi và Nông trại nhỏ; cảnh đúng `south`, 58–60 FPS, không lỗi console;
+  - ảnh ghép: `.data/theme-shots/sheet.png`; chưa thấy điểm hình ảnh bắt buộc nào còn chưa ổn;
+  - 454/454 test qua, lint sạch (802 file JavaScript, 40 file JSON).
+- 12/11/2026, Claude: rà vùng `south` của GPT: đạt (+3 mesh, 24.300 tam giác, đổi vùng 35 ms, không rò; đầm lầy, bách,
+  tường trắng cột xanh rêu). Chờ người dùng duyệt ảnh.
+- 12/11/2026 20:51, Claude: rà vùng `pacific` của GPT (bản hiện tại): đạt (+2 mesh, 15.700 tam giác, đổi vùng 30 ms, không rò).

@@ -1,0 +1,13 @@
+{
+  "landmarks": [
+    { "kind": "isthmus-lakes", "side": "gate", "distance": 30, "haze": 0.3, "params": { "isthmus": 60, "width": 180, "depth": 140 } },
+    { "kind": "capitol", "side": "gate", "distance": 80, "haze": 0.3, "params": { "width": 90, "height": 48, "dome": "#f1efe8" } },
+    { "kind": "hills", "side": "gate", "distance": 135, "haze": 0.5, "params": { "span": 560, "height": 30, "colors": ["#8a5a32", "#6f6036", "#55663f"], "wave": 0.3, "trees": { "count": 140, "size": 5 } } },
+    { "kind": "farmstead", "side": "east", "distance": 26, "offset": 8, "haze": 0.3 }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 24 }, { "side": "east", "from": 20 }],
+  "scatter": [
+    { "kind": "cow", "count": 12, "band": [5, 22] }
+  ]
+}

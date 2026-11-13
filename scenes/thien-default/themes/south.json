@@ -1,0 +1,64 @@
+{
+  "sky": {
+    "top": "#397ea7",
+    "horizon": "#dce7c9"
+  },
+  "fog": "#afc2ad",
+  "light": {
+    "sun": "#fff0c8",
+    "sky": "#dcebed",
+    "ground": "#355d3b"
+  },
+  "field": "bayou-marsh",
+  "lawn": {
+    "surface": "grass",
+    "tint": "#527e43"
+  },
+  "colors": {
+    "roof": "#4a6749",
+    "wall": "#f1efe5",
+    "brick": "#a77b64",
+    "pillar": "#486446"
+  },
+  "mountains": {
+    "shape": "bayou-horizon",
+    "colors": [
+      "#58794c",
+      "#456b48",
+      "#6f8258"
+    ]
+  },
+  "trees": "live-oak",
+  "treeScale": 1.03,
+  "pines": "cypress",
+  "scatter": [
+    {
+      "kind": "cypress",
+      "count": 48,
+      "band": [
+        18,
+        50
+      ]
+    },
+    {
+      "kind": "magnolia",
+      "count": 28,
+      "band": [
+        10,
+        34
+      ]
+    },
+    {
+      "kind": "bayou-pool",
+      "count": 12,
+      "band": [
+        20,
+        45
+      ]
+    }
+  ],
+  "temple": {
+    "tiers": 2,
+    "hook": 1.15
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "landmarks": [
+    { "kind": "maroon-bells", "side": "gate", "distance": 100, "haze": 0.3, "params": { "span": 260, "height": 66 } },
+    { "kind": "aspen-valley", "side": "gate", "distance": 24, "haze": 0.35, "params": { "span": 480, "height": 40, "open": 46 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 22 }],
+  "scatter": [
+    { "kind": "aspen", "count": 34, "band": [5, 22] },
+    { "kind": "cabin", "count": 4, "band": [9, 20] }
+  ]
+}

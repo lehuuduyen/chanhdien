@@ -1,0 +1,11 @@
+{
+  "landmarks": [
+    { "kind": "shoshone-falls", "side": "gate", "distance": 48, "offset": 12, "haze": 0.3, "params": { "span": 440, "height": 26, "falls": 90 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 22 }],
+  "scatter": [
+    { "kind": "potatoes", "count": 8, "band": [7, 20] },
+    { "kind": "snowpine", "count": 26, "band": [6, 22] }
+  ]
+}

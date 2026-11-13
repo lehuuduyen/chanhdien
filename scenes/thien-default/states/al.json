@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "saturn-rocket", "side": "gate", "distance": 52, "offset": -14, "scale": 1.02, "haze": 0.18 },
+    { "kind": "cotton-gin", "side": "east", "distance": 35, "offset": 15, "scale": 0.86, "haze": 0.22 }
+  ],
+  "hide": ["mountains"],
+  "scatter": [
+    { "kind": "cotton-bale", "count": 34, "band": [8, 24] }
+  ]
+}

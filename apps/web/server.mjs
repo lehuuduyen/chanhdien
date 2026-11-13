@@ -108,7 +108,8 @@ function versionedPath(pathname) {
   return hash ? `${pathname}?v=${hash}` : null;
 }
 
-// Mọi module trình duyệt tải từ server: /<file>.js, /engine/<file>.mjs, /engine/landscape/<vùng>.mjs, /shared/*.mjs
+// Mọi module trình duyệt tải từ server: /<file>.js, /engine/<file>.mjs, /engine/landscape/<vùng>.mjs,
+// /engine/landmarks/<bang>.mjs, /shared/*.mjs
 // (Three.js đã ghim phiên bản).
 export function moduleImportMap(now = Date.now()) {
   if (moduleMapCache.imports && now - moduleMapCache.at < VERSION_TTL_MS) return moduleMapCache.imports;
@@ -124,6 +125,8 @@ export function moduleImportMap(now = Date.now()) {
     ...list(ENGINE_DIR, '/engine/', /\.mjs$/),
     // Bộ đồ phong cảnh từng vùng (engine nạp bằng import() theo tên vùng).
     ...list(path.join(ENGINE_DIR, 'landscape'), '/engine/landscape/', /\.mjs$/),
+    // Điểm đặc trưng từng tiểu bang (engine nạp bằng import() theo mã bang).
+    ...list(path.join(ENGINE_DIR, 'landmarks'), '/engine/landmarks/', /\.mjs$/),
     '/shared/room-rules.mjs',
     '/shared/prayer-slip.mjs',
     '/shared/tien-len.mjs',

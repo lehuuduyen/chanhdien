@@ -1,0 +1,7 @@
+{
+  "landmarks": [
+    { "kind": "savannah-oaks", "side": "gate", "distance": 31, "scale": 0.9, "haze": 0.2 },
+    { "kind": "peach-estate", "side": "east", "distance": 36, "offset": 15, "scale": 0.88, "haze": 0.2 }
+  ],
+  "hide": ["mountains"]
+}

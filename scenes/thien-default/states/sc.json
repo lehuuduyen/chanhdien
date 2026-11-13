@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "ravenel-bridge", "side": "gate", "distance": 47, "scale": 1, "haze": 0.18 },
+    { "kind": "rainbow-row", "side": "east", "distance": 35, "offset": 15, "scale": 0.86, "haze": 0.22 }
+  ],
+  "hide": ["mountains"],
+  "scatter": [
+    { "kind": "palmetto", "count": 24, "band": [10, 27] }
+  ]
+}

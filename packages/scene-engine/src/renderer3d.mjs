@@ -49,8 +49,9 @@ function glowTexture(inner, outer) {
 // ownsCamera, handlesTaps, api }; dùng cho chế độ nhập vai (explore3d.mjs) mà không phải sửa bộ vẽ này.
 // personFactory (tùy chọn): bộ dựng người ngồi/hành lễ thay cho người hình khối mặc định (vd: chú tiểu chibi).
 // theme, themeBase (tùy chọn): vùng phong cảnh của sân và thư mục dữ liệu vùng (vd. '/scenes/thien-default/themes/');
-// đổi vùng sau bằng setTheme. Không có themeBase thì chỉ có cảnh gốc.
-export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatClick, plugin: pluginFactory, personFactory, theme = 'default', themeBase = null }) {
+// đổi vùng sau bằng setTheme. Không có themeBase thì chỉ có cảnh gốc. state, stateBase: lớp điểm đặc trưng của tiểu bang
+// (mã bang, thư mục dữ liệu bang '/scenes/thien-default/states/'; KE_HOACH_BANG.md).
+export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatClick, plugin: pluginFactory, personFactory, theme = 'default', themeBase = null, state = null, stateBase = null }) {
   const world = sceneData.world;
   const seatsWorld = new Map(world.seats.map((seat) => [seat.id, seat]));
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -122,12 +123,12 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   const hall = hallLayout(world);
   buildHall(root, materials, { openFront: Boolean(world.courtyard), hall });
   // Sân ngoài chùa (khi scene có world.courtyard): mặt tiền, sân đá, lư hương lớn, cây, trời, nắng có bóng đổ.
-  const courtyard = world.courtyard ? buildCourtyard({ root, scene3d, renderer, camera, world, themeBase }) : null;
+  const courtyard = world.courtyard ? buildCourtyard({ root, scene3d, renderer, camera, world, themeBase, stateBase }) : null;
   if (courtyard) {
     scene3d.background = null;
     scene3d.fog = new THREE.Fog('#d9c3a0', 30, 150);
     // Cảnh gốc đã dựng sẵn; vùng khác tải dữ liệu + bộ đồ rồi mới đổi (không chặn lúc hiện cảnh).
-    courtyard.setTheme(theme);
+    courtyard.setTheme(theme, { state });
   }
   const altarParts = buildAltar(root, materials, hall);
   const buddha = buildBuddha(root, materials);
@@ -836,9 +837,29 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     setCommunityProject(project) {
       courtyard?.setCommunityProject(project);
     },
-    // Đổi vùng phong cảnh của sân (chỉ phần nhìn); trả Promise tên vùng đang dùng.
-    setTheme(name) {
-      return courtyard ? courtyard.setTheme(name) : Promise.resolve('default');
+    // Đổi vùng phong cảnh của sân (chỉ phần nhìn) và lớp tiểu bang (options.state = mã bang); trả Promise tên vùng.
+    setTheme(name, options) {
+      return courtyard ? courtyard.setTheme(name, options) : Promise.resolve('default');
+    },
+    // Chỉ để đo khi phát triển: phần trăm điểm ảnh của khung hiện tại đổi khi ẩn lớp tiểu bang ("độ thấy" điểm nhìn xa).
+    debugLandmarkShare(threshold = 14) {
+      if (!courtyard) return 0;
+      const gl = renderer.getContext();
+      const read = () => {
+        renderer.render(scene3d, camera);
+        const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+        gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels;
+      };
+      courtyard.setLandmarksVisible(false);
+      const without = read();
+      courtyard.setLandmarksVisible(true);
+      const shown = read();
+      let changed = 0;
+      for (let index = 0; index < shown.length; index += 4) {
+        if (Math.max(Math.abs(shown[index] - without[index]), Math.abs(shown[index + 1] - without[index + 1]), Math.abs(shown[index + 2] - without[index + 2])) > threshold) changed += 1;
+      }
+      return Math.round((changed / (shown.length / 4)) * 10_000) / 100;
     },
     // Trời theo giờ thật ở sân: nơi đặt chùa [vĩ độ, kinh độ] (THIEN_PLACES trong room rules); null = ban ngày cố định.
     setSkyPlace(place) {

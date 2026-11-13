@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "ozark-ridge", "side": "gate", "distance": 38, "scale": 1.08, "haze": 0.2 },
+    { "kind": "hot-springs", "side": "east", "distance": 33, "offset": 14, "scale": 0.95, "haze": 0.2 }
+  ],
+  "hide": ["mountains"],
+  "scatter": [
+    { "kind": "fishing-boat", "count": 12, "band": [15, 32] }
+  ]
+}

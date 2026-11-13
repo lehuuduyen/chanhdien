@@ -56,6 +56,44 @@ export function validateTheme(name, theme) {
   return errors;
 }
 
+// Lớp điểm đặc trưng một tiểu bang đặt lên cảnh vùng (scenes/<scene>/states/<mã>.json, dựng ở landscape3d.mjs, kế hoạch
+// KE_HOACH_BANG.md). Chỉ kiểm tra dạng; kiểu có thật do test states.test.mjs kiểm tra.
+// - landmarks: tối đa 6 điểm nhìn xa { kind, side: gate | east | west | back, distance (m tính từ tường sân), offset (m,
+//   lệch dọc tường), scale, haze (0–1: phần sương chịu), params (tham số riêng cho kiểu, JSON nhỏ) }.
+// - scatter: tối đa 3 nhóm vật rải ngoài tường như dữ liệu vùng.
+// - hide: ẩn phần của vùng mà cảnh bang thay thế ('mountains').
+// - clear: không rải vật của vùng ở phía `side` cách tường từ `from` mét trở ra (vd. chỗ có biển của bang).
+export const STATE_SIDES = ['gate', 'east', 'west', 'back'];
+const STATE_KEYS = ['landmarks', 'scatter', 'hide', 'clear'];
+export function validateState(code, state) {
+  const errors = [];
+  const at = `bang ${code}`;
+  if (typeof code !== 'string' || !/^[a-z]{2}$/.test(code)) return [`${at}: mã bang không hợp lệ`];
+  if (!isObject(state)) return [`${at}: dữ liệu phải là object`];
+  for (const key of Object.keys(state)) if (!STATE_KEYS.includes(key)) errors.push(`${at}: khóa ${key} không hỗ trợ`);
+  const between = (value, min, max) => value === undefined || (Number.isFinite(value) && value >= min && value <= max);
+  if (state.landmarks !== undefined && (!Array.isArray(state.landmarks) || state.landmarks.length > 6)) errors.push(`${at}: landmarks tối đa 6 mục`);
+  for (const item of Array.isArray(state.landmarks) ? state.landmarks : []) {
+    if (!isObject(item) || !isKind(item.kind) || !STATE_SIDES.includes(item.side) || !between(item.distance, 10, 140) || item.distance === undefined
+      || !between(item.offset, -160, 160) || !between(item.scale, 0.2, 5) || !between(item.haze, 0, 1)
+      || (item.params !== undefined && (!isObject(item.params) || JSON.stringify(item.params).length > 1000))) {
+      errors.push(`${at}: landmark cần { kind, side ${STATE_SIDES.join('/')}, distance 10–140, offset ±160, scale 0,2–5, haze 0–1, params ≤ 1000 ký tự }`);
+    }
+  }
+  const scatter = state.scatter;
+  if (scatter !== undefined && (!Array.isArray(scatter) || scatter.length > 3
+    || scatter.some((item) => !isKind(item?.kind) || !Number.isInteger(item.count) || item.count < 0 || item.count > 200
+      || (item.band !== undefined && (!Array.isArray(item.band) || item.band.length !== 2 || !item.band.every(Number.isFinite) || item.band[0] < 0 || item.band[1] <= item.band[0] || item.band[1] > 120))))) {
+    errors.push(`${at}: scatter cần tối đa 3 nhóm { kind, count 0–200, band? [gần, xa] }`);
+  }
+  if (state.hide !== undefined && (!Array.isArray(state.hide) || !state.hide.every((item) => item === 'mountains'))) errors.push(`${at}: hide chỉ nhận 'mountains'`);
+  if (state.clear !== undefined && (!Array.isArray(state.clear) || state.clear.length > 4
+    || state.clear.some((item) => !isObject(item) || !STATE_SIDES.includes(item.side) || !between(item.from, 0, 140) || item.from === undefined))) {
+    errors.push(`${at}: clear cần tối đa 4 mục { side, from 0–140 }`);
+  }
+  return errors;
+}
+
 export function validateWorld(scene) {
   const errors = [];
   const world = scene.world;

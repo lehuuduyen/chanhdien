@@ -1,0 +1,11 @@
+{
+  "landmarks": [
+    { "kind": "hoover-dam", "side": "gate", "distance": 30, "offset": 10, "haze": 0.3, "params": { "height": 42 } },
+    { "kind": "skyline", "side": "east", "distance": 110, "offset": 30, "haze": 0.5, "params": { "width": 150, "depth": 50, "count": 26, "low": 10, "high": 46, "colors": ["#c9b48e", "#a9adb5", "#d8cfc0", "#8e9aa8"], "lights": "#ffe0a0", "neon": "#ff5fb0", "windows": 0.45 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 18 }],
+  "scatter": [
+    { "kind": "joshua", "count": 34, "band": [5, 18] }
+  ]
+}
