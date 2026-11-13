@@ -1,6 +1,6 @@
 {
   "landmarks": [
-    { "kind": "covered-bridge", "side": "gate", "distance": 24, "offset": -24, "haze": 0.3, "params": { "length": 26 } },
+    { "kind": "covered-bridge", "side": "gate", "distance": 24, "offset": -32, "haze": 0.3, "params": { "length": 26 } },
     { "kind": "sugar-house", "side": "gate", "distance": 26, "offset": 28, "haze": 0.3 },
     { "kind": "farmstead", "side": "east", "distance": 30, "offset": 8, "haze": 0.3 },
     { "kind": "hills", "side": "gate", "distance": 112, "haze": 0.5, "params": { "span": 560, "height": 46, "colors": ["#8a5a32", "#6f6036", "#55663f"], "wave": 0.35, "freq": 0.018, "trees": { "count": 160, "size": 4.5 } } }

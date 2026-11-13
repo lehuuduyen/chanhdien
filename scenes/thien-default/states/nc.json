@@ -2,7 +2,7 @@
   "landmarks": [
     { "kind": "sea", "side": "gate", "distance": 44, "haze": 0.5, "params": { "color": "#2f6a87", "shallow": "#5f9fb0", "width": 620, "rocks": false } },
     { "kind": "dunes", "side": "gate", "distance": 18, "haze": 0.3, "params": { "span": 540, "height": 7, "depth": 22 } },
-    { "kind": "lighthouse", "side": "gate", "distance": 36, "offset": -14, "haze": 0.25, "params": { "height": 36, "body": "#f4f1e8", "band": "#1d1d1d", "spiral": 2, "roof": "#1d1d1d", "plinth": "#9a4a35", "house": false, "rocks": false } }
+    { "kind": "lighthouse", "side": "gate", "distance": 44, "offset": -14, "haze": 0.25, "params": { "height": 36, "body": "#f4f1e8", "band": "#1d1d1d", "spiral": 2, "roof": "#1d1d1d", "plinth": "#9a4a35", "house": false, "rocks": false } }
   ],
   "hide": ["mountains"],
   "clear": [{ "side": "gate", "from": 16 }],

@@ -92,7 +92,9 @@ export function ridge(batch, x, z, { side, span, depth, crest, rise = (v) => v, 
       const rib = Math.sin(t * 0.9 + phase) * 0.6 + Math.sin(t * 0.37 + phase * 2) * 0.4;
       for (let j = 0; j <= steps; j += 1) {
         const v = v0 + (v1 - v0) * (j / steps);
-        const y = crest(t) * rise(v) * (1 + (ribs ? rib * 0.06 * v : 0)) + (hash(i, v) - 0.5) * jag * v - 0.5;
+        // Độ lởm chởm giảm dần ở chỗ đỉnh thấp (khe, lòng sông, lối đi cắt qua) để đáy khe phẳng.
+        const top = crest(t);
+        const y = top * rise(v) * (1 + (ribs ? rib * 0.06 * v : 0)) + (hash(i, v) - 0.5) * jag * v * Math.min(1, top / 4) - 0.5;
         const d = v * depth + rib * ribs * v;
         positions.push(x + ax * t + ox * d, y, z + az * t + oz * d);
       }
@@ -111,6 +113,38 @@ export function ridge(batch, x, z, { side, span, depth, crest, rise = (v) => v, 
     geometry.computeVertexNormals();
     batch.add(geometry, material);
   }
+}
+
+// Khu đi lại ngoài tường (env.walkways: [{ x, z }…] — lối + Đài ngắm cảnh ngoài cổng, Rừng thiền ngoài cổng tây): người
+// chơi đi tới đó, điểm đặc trưng không được dựng vật nhô lên trên (states.test kiểm tra). onWalkway(env, x, z, lề): điểm
+// (x, z) có nằm trên khu nào không (nới lề m).
+export const onWalkway = (env, x, z, margin = 2) => (env.walkways || []).some((rect) => x > rect.x[0] - margin && x < rect.x[1] + margin
+  && z > rect.z[0] - margin && z < rect.z[1] + margin);
+
+// Hệ số 0–1 cho cột t của một dãy (ridge / hills / dunes) đặt ở (x, z) phía `side`, sâu `depth` m ra xa sân: 0 ở cột cắt
+// qua một khu đi lại ngoài tường (khe cho lối đi), lên dần tới 1 sau `soft` m. Nhân vào crest(t).
+export function walkwayCut(env, side, x, z, depth, { margin = 2.5, soft = 10 } = {}) {
+  const [ox, oz] = outward(side);
+  const alongX = Boolean(oz);
+  const base = ox ? x : z;
+  const far = base + (ox || oz) * depth;
+  const [lo, hi] = [Math.min(base, far), Math.max(base, far)];
+  const rects = (env.walkways || []).filter((rect) => {
+    const range = ox ? rect.x : rect.z;
+    return range[0] - margin < hi && range[1] + margin > lo;
+  });
+  if (!rects.length) return () => 1;
+  const origin = alongX ? x : z;
+  return (t) => {
+    const at = origin + t;
+    let away = Infinity;
+    for (const rect of rects) {
+      const range = alongX ? rect.x : rect.z;
+      away = Math.min(away, Math.max(range[0] - margin - at, at - range[1] - margin, 0));
+    }
+    const k = Math.min(1, away / soft);
+    return k * k * (3 - 2 * k);
+  };
 }
 
 // Thanh thẳng (hộp vuông cạnh `size`) nối hai điểm a, b: dây cáp, cột buồm, thanh giằng.
@@ -187,6 +221,7 @@ const landmarks = {
       const size = (0.8 + rand() * 1.8) * scale;
       const px = x + along[0] * t + ox * (rand() * 3 - 1);
       const pz = z + along[1] * t + oz * (rand() * 3 - 1);
+      if (onWalkway(env, px, pz, 2 + size * 1.5)) continue;
       batch.add(new THREE.DodecahedronGeometry(size, 0), rand() < 0.5 ? rock : rockDark, {
         position: [px, size * 0.25, pz], rotation: [rand() * 3, rand() * 3, 0], scale: [1.4, 0.7, 1.1],
       });
@@ -499,7 +534,9 @@ const landmarks = {
       const k = Math.min(1, Math.max(0, (Math.abs(t - (notch.at || 0)) - notch.half * scale) / (notch.slope * scale)));
       return k * k * (3 - 2 * k);
     };
-    const crest = (t) => (height * (1 - wave + wave * (0.5 + 0.5 * Math.sin(t * freq + phase))) + Math.sin(t * freq * 3.7 + phase * 2) * height * 0.05) * open(t);
+    const depthM = (params.depth || 60) * scale;
+    const cut = walkwayCut(env, side, x, z, depthM);
+    const crest = (t) => (height * (1 - wave + wave * (0.5 + 0.5 * Math.sin(t * freq + phase))) + Math.sin(t * freq * 3.7 + phase * 2) * height * 0.05) * open(t) * cut(t);
     const colors = params.colors || ['#4f7a4a', '#3f6845', '#5f7f66'];
     const bands = colors.map((color, index) => [index / colors.length, (index + 1) / colors.length, env.far(color, { haze, flatShading: true, roughness: 1 })]);
     const depth = (params.depth || 60) * scale;
@@ -514,6 +551,7 @@ const landmarks = {
       for (let index = 0; index < (params.trees.count || 120); index += 1) {
         const t = (rand() - 0.5) * span * 0.96;
         const v = 0.04 + rand() * 0.8;
+        if (cut(t) < 0.5) continue;
         const r = (params.trees.size || 3.5) * scale * (0.7 + rand() * 0.6);
         const d = v * depth;
         batch.add(new THREE.IcosahedronGeometry(r, 0), tones[Math.floor(rand() * tones.length)], {
@@ -532,7 +570,8 @@ const landmarks = {
     const height = (params.height || 7) * scale;
     const depth = (params.depth || 18) * scale;
     const phase = rand() * 6;
-    const crest = (t) => height * (0.65 + 0.35 * Math.sin(t * 0.045 + phase)) + Math.sin(t * 0.13) * 0.8;
+    const cut = walkwayCut(env, side, x, z, depth);
+    const crest = (t) => (height * (0.65 + 0.35 * Math.sin(t * 0.045 + phase)) + Math.sin(t * 0.13) * 0.8) * cut(t);
     const rise = (v) => Math.sin(v * Math.PI) ** 0.8;
     ridge(batch, x, z, {
       side, span, depth, crest, rise, columns: 90, rows: 8, phase,
@@ -542,6 +581,7 @@ const landmarks = {
     for (let t = -span / 2; t < span / 2; t += 3 + rand() * 4) {
       const v = 0.35 + rand() * 0.3;
       const d = v * depth;
+      if (cut(t) < 0.3) continue;
       batch.add(new THREE.ConeGeometry(0.7 * scale, 1.6 * scale, 5), grass, { position: [x + ax * t + ox * d, crest(t) * rise(v) - 0.2, z + az * t + oz * d], rotation: [0, rand() * 3, 0] });
     }
   },

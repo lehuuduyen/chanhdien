@@ -121,6 +121,22 @@ test('bộ đồ mỗi vùng: export kit, có dữ liệu vùng đi kèm, cây /
       const hallBack = hallLayout(scene.world).back;
       const outside = (item) => item.box.min.z > g.z[1] || item.box.max.x < g.x[0] || item.box.min.x > g.x[1] || item.box.max.z < hallBack - 4;
       assert.ok(batch.items.every(outside), `${name}.mountains.${shape} lấn vào sân`);
+      // Không lấn lên lối / Đài ngắm cảnh ngoài cổng hay Rừng thiền ngoài cổng tây (khối nhô trong tầm người đi
+      // 0,25–4,5 m, lấy mẫu từng tam giác).
+      const rects = [
+        ...(courtyard.overlook ? [courtyard.overlook.path, courtyard.overlook.terrace] : []),
+        ...(courtyard.grove ? [courtyard.grove.area] : []),
+      ];
+      const onDeck = (item) => {
+        const positions = item.geometry.attributes.position;
+        const point = new THREE.Vector3();
+        for (let index = 0; index < positions.count; index += 1) {
+          point.fromBufferAttribute(positions, index).applyMatrix4(item.matrix);
+          if (point.y > 0.25 && point.y < 4.5 && rects.some((rect) => point.x > rect.x[0] - 1 && point.x < rect.x[1] + 1 && point.z > rect.z[0] - 1 && point.z < rect.z[1] + 1)) return true;
+        }
+        return false;
+      };
+      assert.ok(!batch.items.some(onDeck), `${name}.mountains.${shape} lấn lên Đài ngắm cảnh / Rừng thiền`);
     }
   }
 });

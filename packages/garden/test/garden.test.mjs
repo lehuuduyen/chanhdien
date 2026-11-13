@@ -5,7 +5,7 @@ import { createCommunityProjectStore } from '@chanh-dien/community-project';
 import {
   RPS_STALE_MS, rpsPrize,
   BOT_PLOT_LIMIT, botAccountId, CHORE_REWARD_COINS, cleanGraveName, GRAVE_COUNT, GRAVE_PRICE, GRAVE_TTL_MS, CHORE_REWARD_DAILY_LIMIT, createGardenStore, FRUITS_PER_CROP,
-  gardenDay, PLANTS, PLOT_COUNT, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS,
+  FRUIT_KEEP_MS, gardenDay, PLANTS, PLOT_COUNT, STARTING_COINS, WATER_INTERVAL_MS, WILT_AFTER_MS,
 } from '../src/index.mjs';
 
 function setup() {
@@ -187,6 +187,24 @@ test('quá 24 giờ không tưới thì cây héo nhưng không bị xóa; tư�
   assert.equal(revived.ok, true);
   assert.equal(revived.revived, true);
   assert.equal(revived.plots[0].crop.wilted, false);
+});
+
+test('cây đã ra quả giữ đúng 24 giờ rồi tự biến mất và trả luống trống', () => {
+  const { garden, user, act, tick } = setup();
+  const an = user('an_lac');
+  act(an, 'buy', { plantType: 'orange', quantity: 1 });
+  act(an, 'plant', { plotId: 8, plantType: 'orange' });
+  for (let watering = 0; watering < 3; watering += 1) {
+    act(an, 'water', { plotId: 8 });
+    if (watering < 2) tick(WATER_INTERVAL_MS);
+  }
+  assert.equal(garden.plot(8).crop.stage, 'fruiting');
+  tick(FRUIT_KEEP_MS - 1);
+  assert.equal(garden.snapshot().plots[7].crop.stage, 'fruiting', 'chưa đủ 24 giờ vẫn còn cây và quả');
+  tick(1);
+  const expired = garden.snapshot();
+  assert.deepEqual(expired.expired, [8]);
+  assert.equal(expired.plots[7].crop, null, 'đủ 24 giờ thì cây biến mất');
 });
 
 test('ràng buộc cơ sở dữ liệu: không thể có hai vụ đang trồng trên một luống', () => {
@@ -513,8 +531,9 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
     ALTER TABLE garden_plots_old RENAME TO garden_plots;
     PRAGMA foreign_keys = ON;`);
   // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm, hai bản Linh thú, bản Oẳn Tù Tì,
-  // bản tiêu xu trong phòng và bản Tiến lên).
-  db.prepare("UPDATE garden_meta SET value = CAST(value - 7 AS TEXT) WHERE key = 'schema_version'").run();
+  // bản tiêu xu trong phòng, bản Tiến lên và mốc ra quả). Bỏ cột mới để mô phỏng đúng cơ sở dữ liệu cũ.
+  db.exec('ALTER TABLE crop_cycles DROP COLUMN fruiting_at;');
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 8 AS TEXT) WHERE key = 'schema_version'").run();
   assert.throws(() => db.prepare('INSERT INTO garden_plots (id, created_at) VALUES (11, 1)').run());
   const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
   assert.equal(upgraded.plot(3).crop.ownerName, 'an_lac');
@@ -522,6 +541,27 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
   assert.equal(upgraded.perform(an, 'plant', { plotId: 42, plantType: 'peach' }, 'key-upgrade-1').ok, true);
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.equal(garden.plot(42).crop.ownerName, 'an_lac');
+});
+
+test('nâng cấp cây cũ đã ra quả: suy ra đúng mốc lần tưới thứ ba và hết hạn sau 24 giờ', () => {
+  const { accounts, garden, user, act, now, tick } = setup();
+  const an = user('an_lac');
+  act(an, 'buy', { plantType: 'apple', quantity: 1 });
+  act(an, 'plant', { plotId: 6, plantType: 'apple' });
+  for (let watering = 0; watering < 3; watering += 1) {
+    act(an, 'water', { plotId: 6 });
+    if (watering < 2) tick(WATER_INTERVAL_MS);
+  }
+  const ripenedAt = now();
+  const db = accounts.database;
+  db.exec('ALTER TABLE crop_cycles DROP COLUMN fruiting_at;');
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 1 AS TEXT) WHERE key = 'schema_version'").run();
+  const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
+  assert.equal(db.prepare('SELECT fruiting_at AS fruitingAt FROM crop_cycles WHERE plot_id = 6').get().fruitingAt, ripenedAt);
+  tick(FRUIT_KEEP_MS - 1);
+  assert.equal(upgraded.snapshot().plots[5].crop.stage, 'fruiting');
+  tick(1);
+  assert.deepEqual(upgraded.snapshot().expired, [6]);
 });
 
 test('khu tưởng niệm: đắp mộ trừ 100 xu, giữ 24 giờ rồi ô trống lại; ô đang có mộ, thiếu xu, gửi lại cùng khóa', () => {

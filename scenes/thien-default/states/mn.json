@@ -14,7 +14,7 @@
     {
       "kind": "split-rock",
       "side": "gate",
-      "distance": 34,
+      "distance": 42,
       "offset": -14,
       "haze": 0.3,
       "params": {

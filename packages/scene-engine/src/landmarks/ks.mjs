@@ -1,7 +1,7 @@
 // Kansas: biển hướng dương sát chân trời và một lốc xoáy lớn ở xa. Lốc là khối đục ít sương để vẫn nhận ra ban ngày;
 // ban đêm thêm một tia chớp dạng ống mảnh, không dùng lớp trong suốt phủ màn hình.
 import * as THREE from 'three';
-import { frame } from './common.mjs';
+import { frame, onWalkway } from './common.mjs';
 
 const landmarks = {
   'sunflower-sea'(batch, x, z, scale, rand, env, { face, haze }) {
@@ -14,6 +14,9 @@ const landmarks = {
         const px = (column - 11.5) * 5.4 * scale + (row % 2) * 2.7 * scale;
         const pz = (row - 3) * 3.8 * scale;
         const height = (2.3 + rand() * 1.1) * scale;
+        // Chừa lối đi / Đài ngắm cảnh ngoài cổng.
+        const [wx, , wz] = at(px, 0, pz);
+        if (onWalkway(env, wx, wz, 1.5)) continue;
         batch.add(new THREE.CylinderGeometry(0.045 * scale, 0.075 * scale, height, 5), stem, { position: at(px, height / 2, pz) });
         batch.add(new THREE.IcosahedronGeometry(0.48 * scale, 0), petals, {
           position: at(px, height, pz), rotation: [0, face, 0], scale: [1.45, 1.45, 0.38],

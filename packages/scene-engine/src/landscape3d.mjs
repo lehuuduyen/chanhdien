@@ -238,8 +238,14 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     }
     return found || null;
   };
+  // Khu đi lại ngoài tường (lối + Đài ngắm cảnh ngoài cổng, Rừng thiền ngoài cổng tây) cho bộ đồ tiểu bang chừa chỗ
+  // (landmarks/common.mjs: walkwayCut / onWalkway) và để không rải vật vùng lên đó.
+  const walkways = [
+    ...(data.overlook ? [data.overlook.path, data.overlook.terrace] : []),
+    ...(data.grove ? [data.grove.area] : []),
+  ];
   const envFor = (theme) => ({
-    m, material, renderer, ground, midZ, theme, detail: 1,
+    m, material, renderer, ground, midZ, theme, detail: 1, walkways,
     colors: theme.mountains?.colors || DEFAULT_MOUNTAINS.colors,
   });
 
@@ -291,6 +297,11 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     const scale = theme.treeScale || 1;
     if (big) for (const tree of data.trees || []) big(batch, tree.x, tree.z, (tree.size || 1) * scale, rand, env);
     if (small) for (const [x, z] of data.pines || []) small(batch, x, z, 1, rand, env);
+    // Rừng thiền ngoài cổng tây: cây lớn (big) theo kiểu cây lớn của vùng, còn lại kiểu cây nhỏ — rừng đổi theo vùng.
+    for (const tree of data.grove?.trees || []) {
+      const make = tree.big ? big : small;
+      if (make) make(batch, tree.x, tree.z, (tree.size || 1) * (tree.big ? scale : 1), rand, env);
+    }
     batch.build(groups.trees, vertexMaterial, { castShadow: true });
     built.trees = key;
   }
@@ -300,8 +311,10 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
   const cleared = (x, z) => stateClear.some(({ side, from }) => (side === 'gate' ? z > ground.z[1] + from
     : side === 'back' ? z < ground.z[0] - from
       : side === 'east' ? x > ground.x[1] + from : x < ground.x[0] - from));
+  // Khu đi lại ngoài tường (walkways) cộng lề 3 m: không rải vật vùng / bang lên đó.
+  const onWalkways = (x, z) => walkways.some((rect) => x > rect.x[0] - 3 && x < rect.x[1] + 3 && z > rect.z[0] - 3 && z < rect.z[1] + 3);
   const reserved = (x, z) => (x > ground.x[0] - 5 && x < ground.x[1] + 5 && z > ground.z[0] - 26 && z < ground.z[1] + 5)
-    || (Math.abs(x) < 9 && z < ground.z[1] + 30);
+    || (Math.abs(x) < 9 && z < ground.z[1] + 30) || onWalkways(x, z);
   const blocked = (x, z) => reserved(x, z) || cleared(x, z);
   // items: [{ kind, count, band? }]; build(kind): hàm dựng hoặc null; seed: tiền tố chuỗi ngẫu nhiên; avoid(x, z): chỗ
   // không đặt (thử lại chỗ khác); placed(x, z): báo trước mỗi vật được dựng.

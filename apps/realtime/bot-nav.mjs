@@ -109,11 +109,14 @@ export function createBotNav(world) {
   const pointOf = (index) => ({ x: x0 + (index % columns) * CELL, z: z0 + Math.floor(index / columns) * CELL });
 
   // Đoạn thẳng a → b không đi qua ô bị chặn (lấy mẫu mỗi CELL / 2).
+  // Đoạn thẳng đi được: ô lưới gần nhất trống và chính điểm đó nằm trong vùng đi được (góc nối giữa các vùng chữ nhật,
+  // vd. lối đá ra Đài ngắm cảnh, ô gần nhất có thể trống dù điểm thật lệch ra ngoài vài cm).
   function clear(a, b) {
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (CELL / 2)));
     for (let index = 0; index <= steps; index += 1) {
       const t = index / steps;
-      if (!cellFree({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t })) return false;
+      const point = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
+      if (!cellFree(point) || !isWalkable(body, point.x, point.z)) return false;
     }
     return true;
   }
@@ -255,6 +258,21 @@ export function createBotNav(world) {
   }
   // Vườn Hoa: điểm ngắm trên lối sỏi, nhìn vào luống.
   for (const view of yard.flowerGarden?.views || []) add('flowers', { x: view.x, z: view.z }, view.face || null);
+  // Rừng thiền ngoài cổng tây: đứng trên vòng lối quanh hồ nhìn vào hồ, và trong thủy đình.
+  if (yard.grove) {
+    const { loop, pond, pavilion } = yard.grove;
+    for (let index = 0; index < 8; index += 1) {
+      const angle = ((index + 0.5) / 8) * Math.PI * 2;
+      add('grove', { x: loop.x + Math.cos(angle) * loop.rx, z: loop.z + Math.sin(angle) * loop.rz }, { x: pond.x, z: pond.z });
+    }
+    add('grove', { x: pavilion.x + 1, z: pavilion.z }, { x: pavilion.x + 6, z: pavilion.z + 2 });
+  }
+  // Đài ngắm cảnh ngoài cổng: đứng sát lan can phía xa / hai bên, nhìn ra cảnh tiểu bang.
+  if (yard.overlook) {
+    const { x: [x0, x1], z: [, z1] } = yard.overlook.terrace;
+    for (const px of [x0 + 4, (x0 + x1) / 2, x1 - 4]) add('overlook', { x: px, z: z1 - 1.6 }, { x: px * 1.4, z: z1 + 60 });
+    for (const px of [x0 + 1.6, x1 - 1.6]) add('overlook', { x: px, z: z1 - 8 }, { x: px * 6, z: z1 + 20 });
+  }
   if (yard.fountain) ring('fountain', yard.fountain, yard.fountain.radius + 1.6, yard.fountain.radius + 1.6, 10);
   if (yard.pond) ring('pond', yard.pond, yard.pond.radiusX + 1.3, yard.pond.radiusZ + 1.3, 16);
   if (yard.bodhi) ring('bodhi', yard.bodhi, 4.4, 4.4, 8);

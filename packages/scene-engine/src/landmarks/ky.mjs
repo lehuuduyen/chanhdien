@@ -2,7 +2,7 @@
 // theo sườn đồi, chuồng ngựa sơn đen viền trắng có tháp thông gió trên đỉnh đồi (không dựng tháp đôi Churchill Downs —
 // KE_HOACH_BANG.md mục 2). Ban đêm cửa chuồng sáng đèn. Các lớp núi của vùng ẩn đi (states/ky.json). Gần tường: ngựa.
 import * as THREE from 'three';
-import { frame, outward, ridge } from './common.mjs';
+import { frame, outward, walkwayCut, ridge } from './common.mjs';
 
 const landmarks = {
   // Đồi + hàng rào trắng theo đường đồng mức + chuồng ngựa. params: { span, height, barns (số chuồng), fences ([v…]: vị
@@ -15,7 +15,9 @@ const landmarks = {
     const height = (params.height || 20) * scale;
     const depth = 70 * scale;
     const phase = rand() * 6;
-    const crest = (t) => height * (0.65 + 0.35 * Math.sin(t * 0.022 + phase)) + Math.sin(t * 0.07 + phase) * 2;
+    // Khe cho lối đi / Đài ngắm cảnh ngoài cổng (đồi mở ra hai bên lối).
+    const cut = walkwayCut(env, side, x, z, depth);
+    const crest = (t) => (height * (0.65 + 0.35 * Math.sin(t * 0.022 + phase)) + Math.sin(t * 0.07 + phase) * 2) * cut(t);
     const rise = (v) => Math.sin((v * Math.PI) / 2) ** 1.3;
     ridge(batch, x, z, {
       side, span, depth, crest, rise, columns: 90, rows: 12, phase,
@@ -34,6 +36,10 @@ const landmarks = {
     for (const v of params.fences || [0.22, 0.5]) {
       let previous = null;
       for (let t = -span / 2 + 6; t < span / 2 - 6; t += 4.5 * scale) {
+        if (cut(t) < 0.6) {
+          previous = null;
+          continue;
+        }
         const point = ground(t, v);
         batch.add(new THREE.BoxGeometry(0.22 * scale, 1.5 * scale, 0.22 * scale), white, { position: [point[0], point[1] + 0.7 * scale, point[2]] });
         if (previous) {
@@ -57,7 +63,8 @@ const landmarks = {
     const lights = [];
     const barns = params.barns ?? 3;
     for (let index = 0; index < barns; index += 1) {
-      const t = ((index + 0.5) / barns - 0.5) * span * 0.55 + (rand() - 0.5) * 30;
+      let t = ((index + 0.5) / barns - 0.5) * span * 0.55 + (rand() - 0.5) * 30;
+      if (cut(t) < 0.9) t += t < 0 ? -40 : 40;
       const v = 0.32 + rand() * 0.18;
       const base = ground(t, v);
       const yaw = Math.atan2(-az, ax) + (rand() - 0.5) * 0.3;

@@ -1,7 +1,7 @@
 {
   "landmarks": [
     { "kind": "sea", "side": "gate", "distance": 20, "haze": 0.5, "params": { "color": "#3f6577", "shallow": "#5f8a98", "width": 640, "rocks": false } },
-    { "kind": "liberty", "side": "gate", "distance": 40, "offset": -10, "haze": 0.3, "params": { "height": 34 } },
+    { "kind": "liberty", "side": "gate", "distance": 72, "offset": -10, "haze": 0.3, "params": { "height": 40 } },
     { "kind": "skyline", "side": "gate", "distance": 110, "offset": 30, "haze": 0.3, "params": { "width": 280, "depth": 50, "count": 50, "low": 14, "high": 62, "colors": ["#8d8f93", "#a49d92", "#6f7680", "#b7b0a4"], "windows": 0.5, "towers": [{ "t": 10, "d": 20, "height": 92, "width": 18, "steps": 4, "spire": 0.18, "color": "#b9b2a2" }, { "t": -80, "d": 5, "height": 96, "width": 16, "steps": 1, "spire": 0.14, "color": "#7f98ad" }] } },
     { "kind": "sea", "side": "east", "distance": 22, "haze": 0.5, "params": { "color": "#3f6577", "shallow": "#5f8a98", "width": 400, "rocks": false } },
     { "kind": "suspension-bridge", "side": "east", "distance": 34, "offset": 66, "haze": 0.3, "params": { "style": "masonry", "span": 110, "sideSpan": 0.3, "approach": 30, "deck": 12, "tower": 34, "width": 9, "color": "#c9bc9c", "stone": "#a8987a" } }

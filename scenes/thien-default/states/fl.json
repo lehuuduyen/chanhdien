@@ -1,6 +1,6 @@
 {
   "landmarks": [
-    { "kind": "launch-pad", "side": "gate", "distance": 46, "offset": -16, "haze": 0.3, "params": { "rocket": 42, "tower": 50 } },
+    { "kind": "launch-pad", "side": "gate", "distance": 58, "offset": -16, "haze": 0.3, "params": { "rocket": 42, "tower": 50 } },
     { "kind": "assembly-building", "side": "east", "distance": 54, "offset": 20, "haze": 0.3, "params": { "height": 46 } }
   ],
   "scatter": [

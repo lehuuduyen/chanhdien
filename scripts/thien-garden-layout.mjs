@@ -234,6 +234,8 @@ const FLOWER_WING_X = -27; // cánh bắc (z 44–54) chỉ rộng tới x = −
 const FLOWER_MAIN_Z = 44;
 const FLOWER_CENTER = { x: -33, z: 31.5 };
 const FLOWER_HEDGE = 0.6;
+// Cổng hông phía tây (trên tường sân, thẳng cổng tây Vườn Hoa) ra Rừng thiền ngoài tường.
+const GROVE_GATE_Z = 31.5;
 {
   const h = FLOWER_HEDGE / 2;
   const [x0, x1, z0, z1, wx, mz] = [FLOWER.x[0] + h, FLOWER.x[1] - h, FLOWER.z[0] + h, FLOWER.z[1] - h, FLOWER_WING_X + h, FLOWER_MAIN_Z - h];
@@ -242,6 +244,8 @@ const FLOWER_HEDGE = 0.6;
     { x: x1, z: 40.75, ry: 1.5708, width: 2.8, arch: true },
     { x: -33, z: z1, ry: 0, width: 2.2, arch: true },
     { x: x1, z: 25, ry: 1.5708, width: 2.6, arch: true },
+    // Cổng tây: ra cổng hông trên tường sân, sang Rừng thiền ngoài tường (biển tên quay ra ngoài như các cổng khác).
+    { x: x0, z: GROVE_GATE_Z, ry: -1.5708, width: 2.4, arch: true },
   ];
   // Hàng rào: các cạnh của outline, chừa khe ở cổng.
   const hedge = [];
@@ -272,7 +276,7 @@ const FLOWER_HEDGE = 0.6;
     { points: [[x1, 40.75], [-19.5, 39.6], [-24, 37.6], [-28.3, 34.5]], width: 2.2 }, // cổng đông → quảng trường
     { points: [[x1, 25], [-19.5, 25.6], [-24, 27.2], [-28.6, 29.3]], width: 2.0 }, // cổng đông nam → quảng trường
     { points: [[cx, cz + 4.9], [-33.3, 40], [-32.6, 45], [-33.4, 49.5], [-33, z1]], width: 1.8 }, // quảng trường → cổng bắc
-    { points: [[cx - 4.9, cz], [-42, 32.2], [-47.2, 31.5]], width: 1.6 }, // nhánh tây
+    { points: [[cx - 4.9, cz], [-42, 32.2], [-47.2, 31.5], [x0, GROVE_GATE_Z]], width: 1.8 }, // nhánh tây → cổng tây (Rừng thiền)
     { points: [[-33.2, 46.5], [-37, 45.5], [-41.5, 45.3], [-46, 46.2], [-47.6, 49]], width: 1.4 }, // dạo quanh hồ súng
   ];
   const pond = { x: -41, z: 49.4, rx: 4.3, rz: 2.3, lilies: 9 };
@@ -540,8 +544,72 @@ c.guideBoards = [
   { id: 'pets', x: 9.4, z: 83.3, ry: -1.5708, width: 2.2, height: 1.15, sign: 'HƯỚNG DẪN KHU THÚ CƯNG' },
 ];
 c.gate = { ...c.gate, z: GATE };
-// Đèn đá: hai bên sân lư hương như cũ, thêm dọc lối giữa tới cổng.
-c.lanterns = [[-3.4, 20], [3.4, 20], [-3.4, 24.5], [3.4, 24.5], [-3.4, 29], [3.4, 29], [-3, 88], [3, 88], [-3, 94], [3, 94]];
+// Đài ngắm cảnh ngoài cổng: lối đá thẳng từ cổng ra, cuối lối là đài bát giác có lan can nhìn ra cảnh tiểu bang (điểm
+// nhìn xa của mọi bang đặt quanh trục này). Mặt đá sát đất (nhân vật đứng cao độ 0), nằm trên mặt nước ở các bang ven
+// biển. Bố cục giống nhau ở mọi bang; lớp phong cảnh / tiểu bang chừa chỗ theo khung này (landscape3d, states.test).
+c.overlook = {
+  path: { x: [-5, 5], z: [GATE + 0.4, 115] },
+  terrace: { x: [-12, 12], z: [114, 134], cut: 3.5 },
+};
+// Hai ghế đá trên đài quay mặt ra cảnh (lưng về phía chùa, chỗ đứng chờ sau lưng ghế).
+c.benches.push(
+  { id: 'B-14', x: -4, z: 129.5, ry: 0, scale: 0.72, seats: 2, approach: [0, -1.1] },
+  { id: 'B-15', x: 4, z: 129.5, ry: 0, scale: 0.72, seats: 2, approach: [0, -1.1] },
+);
+// Đèn đá: hai bên sân lư hương như cũ, thêm dọc lối giữa tới cổng, dọc lối ra đài và bốn góc đài.
+c.lanterns = [[-3.4, 20], [3.4, 20], [-3.4, 24.5], [3.4, 24.5], [-3.4, 29], [3.4, 29], [-3, 88], [3, 88], [-3, 94], [3, 94],
+  [-4.2, 104], [4.2, 104], [-4.2, 110], [4.2, 110], [-10.6, 117], [10.6, 117], [-10.6, 131], [10.6, 131]];
+
+// Rừng thiền ngoài tường tây: cổng gỗ trổ qua tường sân thẳng cổng tây Vườn Hoa, lối đá vào vòng lối thiền hành quanh
+// hồ sen nhỏ, bến gỗ ra thủy đình giữa hồ, rừng cây bao quanh (kiểu cây theo vùng phong cảnh: landscape3d vẽ ở
+// grove.trees — big: kiểu cây lớn của vùng, còn lại kiểu cây nhỏ), ghế đá ven hồ quay mặt vào hồ, đèn đá dọc lối.
+const GROVE = { x: [-94, -53.5], z: [18, 70] };
+{
+  const pond = { x: -76, z: 40, rx: 9.5, rz: 7 };
+  const loop = { x: pond.x, z: pond.z, rx: 15, rz: 12, width: 2.4 };
+  const loopX = (z) => loop.x + loop.rx * Math.sqrt(Math.max(0, 1 - ((z - loop.z) / loop.rz) ** 2));
+  const entry = { x: [round3(loopX(GROVE_GATE_Z) - 0.8), -HALF], z: [GROVE_GATE_Z - 1.3, GROVE_GATE_Z + 1.3] };
+  const pavilion = { x: pond.x, z: pond.z, radius: 2.8 };
+  const pier = { x: pond.x, z: [round3(loop.z - loop.rz + 0.4), round3(pond.z - pavilion.radius + 0.2)], width: 2.2 };
+  // Cây: lưới lệch ngẫu nhiên (cố định) ngoài vòng lối, tránh lối vào, sát tường; cứ 7 cây có một cây lớn.
+  let seed = 11;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const trees = [];
+  for (let gx = GROVE.x[0] + 2; gx < GROVE.x[1] - 2.5; gx += 4.2) {
+    for (let gz = GROVE.z[0] + 2; gz < GROVE.z[1] - 1.5; gz += 4.2) {
+      const x = round3(gx + (rand() - 0.5) * 2.4);
+      const z = round3(gz + (rand() - 0.5) * 2.4);
+      const k = ((x - loop.x) / (loop.rx + 3.2)) ** 2 + ((z - loop.z) / (loop.rz + 3.2)) ** 2;
+      if (k < 1) continue;
+      if (z > entry.z[0] - 3 && z < entry.z[1] + 3 && x > entry.x[0] - 2) continue;
+      if (x > GROVE.x[1] - 2.5) continue;
+      const big = trees.length % 7 === 3;
+      trees.push({ x, z, size: round3(big ? 0.85 : 0.8 + rand() * 0.35), ...(big ? { big: true } : {}) });
+    }
+  }
+  c.grove = {
+    area: GROVE,
+    gate: { x: -HALF, z: GROVE_GATE_Z, width: 3 },
+    entry,
+    pond,
+    loop,
+    pier,
+    pavilion,
+    trees,
+  };
+  c.benches.push(
+    { id: 'B-16', x: round3(pond.x + 12.4), z: pond.z, ry: -1.5708, scale: 0.72, seats: 2, approach: [0, -1.1] },
+    { id: 'B-17', x: pond.x, z: round3(pond.z + 9.6), ry: 3.1416, scale: 0.72, seats: 2, approach: [0, -1.1] },
+    { id: 'B-18', x: round3(pond.x - 12.4), z: pond.z, ry: 1.5708, scale: 0.72, seats: 2, approach: [0, -1.1] },
+  );
+  c.lanterns.push(
+    [-56, GROVE_GATE_Z - 2.2], [-56, GROVE_GATE_Z + 2.2], [-61, GROVE_GATE_Z - 2.2], [-61, GROVE_GATE_Z + 2.2],
+    ...[0.25, 0.75, 1.25, 1.75].map((turn) => {
+      const angle = turn * Math.PI;
+      return [round3(loop.x + Math.cos(angle) * (loop.rx + 2.2)), round3(loop.z + Math.sin(angle) * (loop.rz + 2.2))];
+    }),
+  );
+}
 
 // ---- Đi lại ----
 const walk = w.walk;
@@ -709,10 +777,51 @@ const obstacles = [
 ];
 const gateWall = (x0, x1) => { for (let x = x0; x <= x1; x += 1.2) obstacles.push(circle(x, GATE, 0.6)); };
 gateWall(-HALF + 0.6, -3.4); gateWall(3.4, HALF - 0.6);
+// Cổng mở ra đài ngắm cảnh: hai cột giữa ba cửa cổng là vật cản, đi qua các cửa.
+obstacles.push(circle(-1.6, GATE, 0.3), circle(1.6, GATE, 0.3));
+// Rừng thiền: cây, mặt hồ (lấp kín bằng lưới vòng tròn, chừa lối bến gỗ và thủy đình), cột thủy đình, ghế.
+{
+  const { trees, pond, pier, pavilion } = c.grove;
+  for (const tree of trees) obstacles.push(circle(tree.x, tree.z, round3(tree.big ? 0.6 * tree.size + 0.2 : 0.6)));
+  for (let x = pond.x - pond.rx; x <= pond.x + pond.rx; x += 1.2) {
+    for (let z = pond.z - pond.rz; z <= pond.z + pond.rz; z += 1.2) {
+      if (((x - pond.x) / (pond.rx - 0.2)) ** 2 + ((z - pond.z) / (pond.rz - 0.2)) ** 2 > 1) continue;
+      if (Math.abs(x - pier.x) < pier.width / 2 + 0.75 && z < pavilion.z) continue;
+      if (Math.hypot(x - pavilion.x, z - pavilion.z) < pavilion.radius + 0.55) continue;
+      obstacles.push(circle(round3(x), round3(z), 0.8));
+    }
+  }
+  for (let index = 0; index < 6; index += 1) {
+    const angle = ((index + 0.5) / 6) * Math.PI * 2;
+    // Chừa cột phía bến (hướng −z) để đi vào.
+    if (Math.abs(Math.sin(angle) + 1) < 0.2) continue;
+    obstacles.push(circle(round3(pavilion.x + Math.cos(angle) * (pavilion.radius - 0.3)), round3(pavilion.z + Math.sin(angle) * (pavilion.radius - 0.3)), 0.18));
+  }
+  obstacles.push(...c.benches.filter((item) => ['B-16', 'B-17', 'B-18'].includes(item.id)).flatMap((item) => [-0.4, 0.4].map((lx) => {
+    const point = localPoint(item, lx, 0);
+    return circle(round3(point.x), round3(point.z), 0.42);
+  })));
+}
+obstacles.push(...c.benches.filter((item) => item.id === 'B-14' || item.id === 'B-15').flatMap((item) => [-0.4, 0.4].map((lx) => {
+  const point = localPoint(item, lx, 0);
+  return circle(round3(point.x), round3(point.z), 0.42);
+})));
 walk.obstacles = obstacles;
-walk.bounds = { x: [-(HALF - 0.6), HALF - 0.6], z: [1.3, WALK_END] };
-walk.areas = [{ x: [-(HALL_HALF - 1.1), HALL_HALF - 1.1], z: [1.3, 15.7] }, walk.areas[1], { x: [-(HALF - 0.6), HALF - 0.6], z: [16.5, WALK_END] }];
-w.camera.bounds = { x: [-(HALF + 1), HALF + 1], y: [0.6, 16], z: [-1.5, END + 2] };
+const { path: overPath, terrace } = c.overlook;
+walk.bounds = { x: [GROVE.x[0] + 0.6, HALF - 0.6], z: [1.3, terrace.z[1] - 0.6] };
+walk.areas = [
+  { x: [-(HALL_HALF - 1.1), HALL_HALF - 1.1], z: [1.3, 15.7] }, walk.areas[1], { x: [-(HALF - 0.6), HALF - 0.6], z: [16.5, WALK_END] },
+  // Qua cửa cổng, lối đá, đài bát giác (hai hình chữ nhật chồng nhau thay cho tám cạnh).
+  { x: [-2.7, 2.7], z: [WALK_END - 0.5, overPath.z[0] + 1.6] },
+  // Lối đá: đi sát tới bó vỉa (thân người lấn bó vỉa vài cm), nối liền vào đài không để khe ở góc.
+  { x: [overPath.x[0] + 0.1, overPath.x[1] - 0.1], z: [overPath.z[0] + 0.6, terrace.z[0] + 1] },
+  { x: [terrace.x[0] + 0.6, terrace.x[1] - 0.6], z: [terrace.z[0] + terrace.cut, terrace.z[1] - terrace.cut] },
+  { x: [terrace.x[0] + terrace.cut, terrace.x[1] - terrace.cut], z: [terrace.z[0] + 0.6, terrace.z[1] - 0.6] },
+  // Cổng hông phía tây (qua tường sân) và Rừng thiền.
+  { x: [GROVE.x[1] - 0.8, -(HALF - 1.4)], z: [GROVE_GATE_Z - 1.2, GROVE_GATE_Z + 1.2] },
+  { x: [GROVE.x[0] + 0.6, GROVE.x[1]], z: [GROVE.z[0] + 0.6, GROVE.z[1] - 0.6] },
+];
+w.camera.bounds = { x: [GROVE.x[0] - 4, HALF + 1], y: [0.6, 16], z: [-1.5, terrace.z[1] + 6] };
 w.statues.arhats = [
   { src: '/models/statues/arhat-seated.glb', height: 1.5 },
   { src: '/models/statues/arhat-stone.glb', height: 1.75, ry: 3.1416 },

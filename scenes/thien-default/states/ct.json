@@ -1,7 +1,7 @@
 {
   "landmarks": [
     { "kind": "sea", "side": "gate", "distance": 24, "haze": 0.5, "params": { "color": "#46697a", "shallow": "#6a8f9c", "width": 640, "rocks": false } },
-    { "kind": "tall-ship", "side": "gate", "distance": 36, "offset": -8, "haze": 0.25, "params": { "length": 34 } },
+    { "kind": "tall-ship", "side": "gate", "distance": 42, "offset": -8, "haze": 0.25, "params": { "length": 34 } },
     { "kind": "seaport-village", "side": "gate", "distance": 18, "offset": 52, "haze": 0.3, "params": { "count": 6 } },
     { "kind": "hills", "side": "gate", "distance": 105, "haze": 0.45, "params": { "span": 540, "height": 36, "colors": ["#8a5a32", "#6f6036", "#55663f"], "wave": 0.35, "trees": { "count": 160, "size": 4.5 } } },
     { "kind": "hills", "side": "east", "distance": 20, "haze": 0.3, "params": { "span": 240, "height": 22, "depth": 40, "colors": ["#7d5a32", "#6a5a34", "#4f5f3a"], "wave": 0.4, "freq": 0.04, "trees": { "count": 90, "size": 3 } } }

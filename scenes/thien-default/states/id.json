@@ -1,6 +1,6 @@
 {
   "landmarks": [
-    { "kind": "shoshone-falls", "side": "gate", "distance": 48, "offset": 12, "haze": 0.3, "params": { "span": 440, "height": 26, "falls": 90 } }
+    { "kind": "shoshone-falls", "side": "gate", "distance": 54, "offset": 12, "haze": 0.3, "params": { "span": 440, "height": 26, "falls": 90 } }
   ],
   "hide": ["mountains"],
   "clear": [{ "side": "gate", "from": 22 }],

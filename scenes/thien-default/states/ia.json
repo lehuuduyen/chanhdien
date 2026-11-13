@@ -1,6 +1,6 @@
 {
   "landmarks": [
-    { "kind": "iowa-wind", "side": "gate", "distance": 34, "offset": 6, "scale": 1.3, "haze": 0.25 },
+    { "kind": "iowa-wind", "side": "gate", "distance": 44, "offset": 6, "scale": 1.3, "haze": 0.25 },
     { "kind": "capitol", "side": "gate", "distance": 110, "offset": -14, "haze": 0.25, "params": { "width": 84, "height": 46, "dome": "#d8aa3c", "wall": "#dccfb2", "corners": 4 } },
     { "kind": "iowa-wind-row", "side": "east", "distance": 32, "offset": 18, "scale": 0.78, "haze": 0.25 }
   ],

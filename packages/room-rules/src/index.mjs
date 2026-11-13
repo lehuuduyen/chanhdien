@@ -167,8 +167,10 @@ export const THIEN_RULES = defineRoomRules({
   // động lại API + realtime.
   seats: 20,
   // Ghế đá ngoài sân là chỗ ngồi xã hội, tách khỏi 20 bồ đoàn và không ảnh hưởng ngưỡng mở phòng.
-  // Scene dùng mã B-1…B-9 (B-1…B-6 ghế đá, B-7…B-9 xích đu / cầu tuột ở khu vui chơi); mỗi món tối đa hai người.
-  benches: { count: 13, seatsPerBench: 2 },
+  // Scene dùng mã B-1…B-15 (B-1…B-6 ghế đá, B-7…B-9 xích đu / cầu tuột ở khu vui chơi, B-10…B-13 ghế Vườn Hoa,
+  // B-14 / B-15 ghế trên Đài ngắm cảnh ngoài cổng, B-16…B-18 ghế ven hồ Rừng thiền ngoài cổng tây); mỗi món tối đa hai
+  // người.
+  benches: { count: 18, seatsPerBench: 2 },
   lang: 'vi',
   moderation: 'strict',
   content: { source: 'none' },
@@ -180,7 +182,9 @@ export const THIEN_RULES = defineRoomRules({
   // view[vùng] người gần mình nhất trong cùng vùng (cộng người ngồi bồ đoàn/ghế đá và người đang mời/đấu với mình);
   // số người cả phòng gửi riêng qua room.count. Load test 2026-11: gửi cả danh sách cho mọi người thì sập ở ~600.
   world: {
-    bounds: { x: [-52, 52], z: [-2, 100] },
+    // z tới 136: gồm lối đá ngoài cổng và Đài ngắm cảnh (world.courtyard.overlook); x tới −96: Rừng thiền ngoài cổng
+    // tây (world.courtyard.grove).
+    bounds: { x: [-96, 52], z: [-2, 136] },
     maxSpeed: 7,
     maxWalkers: 500,
     zones: { hall: { x: [-9, 9], z: [-6, 16] } },
@@ -196,6 +200,10 @@ export const THIEN_RULES = defineRoomRules({
       park: { x: 13.2, z: 28.6, ry: -1.5708 },
       flowers: { x: -13.9, z: 40.75, ry: 1.5708 },
       farm: { x: 43.4, z: 64.6, ry: 3.1416 },
+      // Đầu Đài ngắm cảnh ngoài cổng, quay mặt ra cảnh tiểu bang.
+      overlook: { x: 0, z: 116.5, ry: 3.1416 },
+      // Trên lối đá vào Rừng thiền ngoài cổng tây, quay mặt vào rừng.
+      grove: { x: -59, z: 31.5, ry: 1.5708 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
     pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo',

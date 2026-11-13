@@ -2151,7 +2151,9 @@ export class Room {
     for (const turn of turns) {
       const angle = Math.atan2(dz, dx) + turn;
       const candidate = { x: bot.pos.x + Math.cos(angle) * step, z: bot.pos.z + Math.sin(angle) * step };
-      if (turn && this.nav && !this.nav.walkable(candidate)) continue;
+      // Bước nào cũng phải nằm trong vùng đi được (cả bước thẳng: sau khi bước chếch, đường thẳng tới điểm kế có thể cắt
+      // qua góc ngoài vùng, vd. góc nối lối đá với Đài ngắm cảnh); bot làm vườn đi lối riêng trong vườn nên bỏ qua.
+      if ((turn || !bot.errand) && this.nav && !this.nav.walkable(candidate)) continue;
       if (this.botBlocked(bot, candidate)) continue;
       next = candidate;
       turned = turn;
@@ -2172,6 +2174,12 @@ export class Room {
       }
       next = { x: bot.pos.x + (dx / distance) * step, z: bot.pos.z + (dz / distance) * step };
       heading = headingOf(dx, dz);
+      // Đi thẳng qua người khác nhưng không ra ngoài vùng đi được: không bước được thì đứng chờ nhịp sau.
+      if (!bot.errand && this.nav && !this.nav.walkable(next)) {
+        bot.walk.lastAt = now;
+        if (bot.moving) this.move(bot.id, { ...bot.pos, ry: bot.pos.ry, moving: false });
+        return false;
+      }
     }
     bot.walk.detoured = Boolean(turned);
     bot.walk.lastAt = now;

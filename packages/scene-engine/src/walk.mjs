@@ -235,7 +235,10 @@ export function findPath(walk, from, to) {
     Math.min(columns - 1, Math.max(0, Math.round((point.x - bounds.x[0]) / CELL))),
     Math.min(rows - 1, Math.max(0, Math.round((point.z - bounds.z[0]) / CELL))),
   ];
-  const pointOf = (column, row) => ({ x: bounds.x[0] + column * CELL, z: bounds.z[0] + row * CELL });
+  // Làm tròn tới micromet: mép vùng đi như -93.4 cộng dồn sai số dấu phẩy động (-1.4000000000000057) làm đoạn rút gọn
+  // lướt sát mép cửa bị lệch ra ngoài vài phần tỷ mét.
+  const snap = (value) => Math.round(value * 1e6) / 1e6;
+  const pointOf = (column, row) => ({ x: snap(bounds.x[0] + column * CELL), z: snap(bounds.z[0] + row * CELL) });
   // A* hỏi lại cùng một ô nhiều lần (từ các ô kề và khi cấm cắt góc). Với cảnh rộng có nhiều
   // vật cản, quét toàn bộ danh sách vật cản cho mỗi lần hỏi chiếm phần lớn thời gian tìm đường.
   // Cache chỉ sống trong một lần tìm đường nên luôn khớp với dữ liệu walk hiện tại.

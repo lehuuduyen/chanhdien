@@ -249,6 +249,10 @@ quen bộ đồ vùng đó), riêng vùng `autumn` (12 bang) chia đôi:
 
 **Xong khi:**
 - Đạt độ thấy ngày / đêm ở mục 1.
+- Không dựng vật lên các khu đi lại ngoài tường (`env.walkways`): lối đá / Đài ngắm cảnh ngoài cổng (khung
+  `world.courtyard.overlook`, x ±13, z 99–135) và Rừng thiền ngoài cổng tây (`world.courtyard.grove.area`, x −94…−53,5,
+  z 18–70); mặt nước phẳng nằm dưới thì được. Dãy đồi / đụn cát dùng `walkwayCut(env, …)` để mở khe, vật rời dùng
+  `onWalkway(env, x, z)` để tránh; `states.test.mjs` kiểm tra.
 - Nhìn ảnh là biết bang nào, khác các bang cùng vùng.
 - Không chắn lối, không che bảng tên các khu, không lấn vào sân / lưng điện (test qua).
 - Trong ngân sách; đổi qua lại bang mình ↔ bang khác cùng vùng ↔ vùng khác 5 lần, geometry trở về như cũ.
@@ -570,3 +574,13 @@ Ghi theo dạng: ngày, người, cần gì, vì sao. Claude làm, hoặc hỏi 
 - 12/11/2026, Claude: **đo lại đủ 51 bang** sau mọi thay đổi phần chung (`npm run theme:shots -- --state <51 mã>`): **51/51 đạt**
   tiêu chí độ thấy ngày / đêm, mesh 2–8, đổi bang lần sau ≤ 49 ms (KS sát ngưỡng), không rò bộ nhớ; 454/454 test qua, lint
   sạch. Toàn bộ 51 bang chờ người dùng duyệt ảnh.
+- 12/11/2026, Claude (theo người dùng): **mở Đài ngắm cảnh ngoài cổng** — lối đá ra đài bát giác có lan can, 2 ghế đá,
+  điểm đi nhanh `overlook`; từ đài nhìn thẳng ra công trình của bang. Phần chung: `env.overlook`, `overlookCut`,
+  `onOverlook`; `sea` / `dunes` / `hills` tự chừa lối; `ridge` giảm lởm chởm ở chỗ đỉnh thấp (đáy khe phẳng). Dời ra xa
+  hoặc lệch các công trình phía cổng quá gần: CT, FL, GA, IA, ID, LA, ME, MN, NC, NE, NV, NY, OK, UT, VA, VT, WV; KS, KY
+  chừa lối trong bộ đồ. Test mới bắt lấn lên lối / đài (bang và núi vùng).
+- 13/11/2026, Claude (theo người dùng): **mở cổng hông phía tây ra Rừng thiền** (khu ~40 × 52 m ngoài tường tây: hồ sen,
+  vòng lối thiền hành, bến gỗ ra thủy đình, 3 ghế đá, rừng cây theo kiểu cây của vùng; điểm đi nhanh `grove`). Chọn phía
+  tây vì 43 bang đặt công trình phía đông, chỉ OR dùng phía tây (biển 46 m, đá Haystack 58 m — nằm ngoài khu, test qua).
+  Phần chung đổi tên cho cả hai khu: `env.overlook` → `env.walkways`, `overlookCut` → `walkwayCut` (chừa khe theo mọi
+  phía), `onOverlook` → `onWalkway`; test lấn khu đi lại tính cả Rừng thiền. Góc chụp mới `11-rung-thien`.
