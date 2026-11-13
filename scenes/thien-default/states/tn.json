@@ -1,0 +1,14 @@
+{
+  "landmarks": [
+    { "kind": "hills", "side": "gate", "distance": 26, "haze": 0.3, "params": { "span": 520, "height": 26, "depth": 40, "colors": ["#2c4a37", "#33553f", "#3d6148"], "wave": 0.35, "freq": 0.03 } },
+    { "kind": "hills", "side": "gate", "distance": 66, "haze": 0.45, "params": { "span": 540, "height": 38, "depth": 45, "colors": ["#3d5f63", "#456a70", "#4f7379"], "wave": 0.35, "freq": 0.025 } },
+    { "kind": "hills", "side": "gate", "distance": 112, "haze": 0.6, "params": { "span": 560, "height": 52, "depth": 50, "colors": ["#5f7c93", "#6a879d", "#7690a6"], "wave": 0.3, "freq": 0.02 } },
+    { "kind": "valley-mist", "side": "gate", "distance": 10, "haze": 0.3, "params": { "rows": [64, 112], "heights": [16, 27], "span": 500, "count": 10 } },
+    { "kind": "hills", "side": "east", "distance": 18, "haze": 0.3, "params": { "span": 240, "height": 22, "depth": 40, "colors": ["#2c4a37", "#33553f", "#3d6148"], "wave": 0.4, "freq": 0.04 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 24 }, { "side": "east", "from": 16 }],
+  "scatter": [
+    { "kind": "cabin", "count": 5, "band": [8, 22] }
+  ]
+}

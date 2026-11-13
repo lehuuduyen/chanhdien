@@ -1,0 +1,14 @@
+{
+  "landmarks": [
+    { "kind": "sea", "side": "gate", "distance": 18, "haze": 0.5, "params": { "color": "#3a6478", "shallow": "#5c8c9c", "width": 640 } },
+    { "kind": "sea", "side": "east", "distance": 52, "haze": 0.5, "params": { "color": "#3a6478", "shallow": "#5c8c9c", "width": 400 } },
+    { "kind": "suspension-bridge", "side": "gate", "distance": 96, "offset": 30, "haze": 0.3, "params": { "span": 150, "sideSpan": 0.3, "approach": 90, "drop": 0.45, "deck": 18, "tower": 46, "width": 8, "color": "#aab8b6", "struts": 2, "yaw": -14 } },
+    { "kind": "sailboats", "side": "gate", "distance": 24, "haze": 0.3, "params": { "count": 18, "width": 300, "depth": 70 } },
+    { "kind": "cliff-mansion", "side": "east", "distance": 34, "offset": 6, "haze": 0.3, "params": { "width": 44 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 16 }, { "side": "east", "from": 14 }],
+  "scatter": [
+    { "kind": "seagrass", "count": 24, "band": [3, 14] }
+  ]
+}

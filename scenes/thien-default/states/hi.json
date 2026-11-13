@@ -1,0 +1,9 @@
+{
+  "landmarks": [
+    { "kind": "diamond-head", "side": "gate", "distance": 50, "offset": -10, "haze": 0.3, "params": { "span": 240, "height": 34 } },
+    { "kind": "kilauea", "side": "east", "distance": 70, "offset": 24, "haze": 0.3, "params": { "radius": 60, "height": 28 } }
+  ],
+  "scatter": [
+    { "kind": "taro", "count": 8, "band": [4, 12] }
+  ]
+}

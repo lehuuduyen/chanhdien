@@ -1,0 +1,14 @@
+{
+  "landmarks": [
+    { "kind": "sea", "side": "gate", "distance": 26, "haze": 0.5, "params": { "color": "#3b6f8c", "shallow": "#5d93a8", "width": 640 } },
+    { "kind": "suspension-bridge", "side": "gate", "distance": 84, "offset": 80, "haze": 0.25, "params": { "span": 160, "sideSpan": 0.35, "approach": 40, "deck": 15, "tower": 48, "width": 9, "color": "#c0362c", "struts": 4, "yaw": 10 } },
+    { "kind": "headlands", "side": "gate", "distance": 105, "haze": 0.35, "params": { "span": 480, "height": 34 } },
+    { "kind": "redwoods", "side": "east", "distance": 20, "haze": 0.3, "params": { "width": 90, "depth": 30, "count": 30 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 24 }, { "side": "east", "from": 18 }],
+  "scatter": [
+    { "kind": "vineyard", "count": 8, "band": [6, 18] },
+    { "kind": "poppies", "count": 14, "band": [4, 16] }
+  ]
+}

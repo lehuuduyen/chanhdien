@@ -7,12 +7,18 @@
 // `landscape/<vùng>.mjs`, chỉ tải khi chọn vùng đó. Kiểu nhắc tới trong dữ liệu được tìm trong bộ đồ
 // của vùng trước, rồi tới bộ đồ chung `landscape/common.mjs` (hình dạng bộ đồ ghi ở đầu file đó). Vùng 'default' là
 // cảnh gốc, dựng ngay lúc tạo. Kế hoạch chia vùng: KE_HOACH_VUNG.md.
+//
+// Trên cảnh vùng có thêm lớp mỏng theo tiểu bang (KE_HOACH_BANG.md): dữ liệu `<stateBase><mã>.json` (validateState) và
+// bộ đồ `landmarks/<mã>.mjs` (`export const kit = { landmarks, scatter }`), kiểu tìm ở bộ đồ bang → bộ đồ vùng →
+// `landmarks/common.mjs`. Điểm nhìn xa dùng vật liệu ít sương (env.far) để đứng xa vẫn thấy; đèn đêm (env.night*) chỉ
+// sáng khi tối; chuyển động (env.animate) chỉ chạy khi camera ở sân.
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { StaticBatch } from './temple3d-models.mjs';
-import { validateTheme } from './world.mjs';
+import { validateState, validateTheme } from './world.mjs';
 import { GLOW_ORDER } from './daylight3d.mjs';
 import { kit as common, seeded } from './landscape/common.mjs';
+import { kit as landmarkCommon } from './landmarks/common.mjs';
 
 const DEFAULT_LIGHT = { sun: '#fff1d6', sky: '#cfe2ff', ground: '#6b5a3c' };
 // Sương cảnh gốc ngoài sân (trùng màu renderer3d đặt khi có sân).
@@ -28,14 +34,27 @@ class ColorBatch {
     this.parts = new Map();
   }
 
-  add(geometry, material, { position = [0, 0, 0], rotation = [0, 0, 0], scale = [1, 1, 1] } = {}) {
+  add(geometry, material, transform) {
+    this.push(ColorBatch.prepare(geometry, material, transform));
+  }
+
+  push({ key, material, plain, geometry }) {
+    if (!this.parts.has(key)) this.parts.set(key, { material, plain, geometries: [] });
+    this.parts.get(key).geometries.push(geometry);
+  }
+
+  // Một mảnh đã đặt đúng chỗ, tô màu đỉnh, sẵn để gộp: { key, material, plain, geometry } (giữ lại được để gộp lại lần
+  // sau mà không dựng hình lại).
+  // order: thứ tự góc Euler (mặc định 'XYZ' như three.js); 'YXZ' = nghiêng quanh trục của vật trước rồi mới xoay hướng
+  // (rotation [nghiêng, hướng, 0] đúng với mọi hướng).
+  static prepare(geometry, material, { position = [0, 0, 0], rotation = [0, 0, 0], scale = [1, 1, 1], order = 'XYZ' } = {}) {
     const plain = material.isMeshStandardMaterial && !material.map && !material.transparent;
     const key = plain
-      ? `${material.flatShading ? 'flat' : 'smooth'}|${material.side}|${material.emissive.getHexString()}|${material.emissiveIntensity}|${material.metalness > 0.1}`
+      ? `${material.flatShading ? 'flat' : 'smooth'}|${material.side}|${material.emissive.getHexString()}|${material.emissiveIntensity}|${material.metalness > 0.1}|${material.userData.haze ?? ''}`
       : material;
     const matrix = new THREE.Matrix4().compose(
       new THREE.Vector3(...position),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation)),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation, order)),
       new THREE.Vector3(...scale),
     );
     const copy = geometry.clone().applyMatrix4(matrix);
@@ -51,15 +70,15 @@ class ColorBatch {
       for (let index = 0; index < colors.length; index += 3) colors.set([material.color.r, material.color.g, material.color.b], index);
       prepared.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     }
-    if (!this.parts.has(key)) this.parts.set(key, { material, plain, geometries: [] });
-    this.parts.get(key).geometries.push(prepared);
+    return { key, material, plain, geometry: prepared };
   }
 
   // materialFor(mẫu): vật liệu màu đỉnh dùng chung cho một kiểu bề mặt (engine giữ, không tạo mới mỗi lần dựng).
-  build(root, materialFor, { castShadow = false } = {}) {
+  // keep: giữ các mảnh (đang được nhớ để gộp lại), không giải phóng.
+  build(root, materialFor, { castShadow = false, keep = false } = {}) {
     for (const { material, plain, geometries } of this.parts.values()) {
       const merged = BufferGeometryUtils.mergeGeometries(geometries, false);
-      for (const geometry of geometries) geometry.dispose();
+      if (!keep) for (const geometry of geometries) geometry.dispose();
       const mesh = new THREE.Mesh(merged, plain ? materialFor(material) : material);
       mesh.castShadow = castShadow;
       root.add(mesh);
@@ -84,9 +103,38 @@ export function bandPoint(ground, [near, far], rand) {
   return [ground.x[0] - away, ground.z[0] + t];
 }
 
+// Vật liệu xa: chỉ chịu `haze` phần sương của cảnh (0 = không sương, 1 = như mọi vật), để điểm nhìn xa của tiểu bang
+// vẫn nổi rõ trên nền trời. Màu sương vẫn là sương của cảnh (đổi theo giờ). Mọi vật liệu xa dùng chung một chương trình
+// shader, mỗi vật liệu một giá trị haze.
+function applyHaze(material, haze) {
+  material.userData.haze = haze;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.haze = { value: haze };
+    shader.fragmentShader = `uniform float haze;\n${shader.fragmentShader.replace('#include <fog_fragment>', `#ifdef USE_FOG
+  float fogFactor = smoothstep( fogNear, fogFar, vFogDepth ) * haze;
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif`)}`;
+  };
+  material.customProgramCacheKey = () => 'landscape-haze';
+  return material;
+}
+
+// Vị trí điểm nhìn xa của tiểu bang: phía (gate / east / west / back), cách tường sân `distance` m, lệch dọc tường `offset` m.
+export function landmarkPoint(ground, { side, distance, offset = 0 }) {
+  const midZ = (ground.z[0] + ground.z[1]) / 2;
+  if (side === 'gate') return [offset, ground.z[1] + distance];
+  if (side === 'back') return [offset, ground.z[0] - distance];
+  if (side === 'east') return [ground.x[1] + distance, midZ + offset];
+  return [ground.x[0] - distance, midZ + offset];
+}
+
 // Giải phóng hình của một nhóm; owned: vật liệu / texture tạo riêng cho lần dựng đó.
 function disposeGroup(group, owned = null) {
-  group.traverse((item) => { if (item.isMesh) item.geometry.dispose(); });
+  group.traverse((item) => {
+    if (item.isMesh || item.isPoints) item.geometry.dispose();
+    // InstancedMesh còn bộ đệm ma trận (và màu) từng bản trên GPU.
+    if (item.isInstancedMesh) item.dispose();
+  });
   for (const item of owned || []) item.dispose();
   owned?.clear();
   group.clear();
@@ -97,7 +145,8 @@ function disposeGroup(group, owned = null) {
 // của vùng { top, horizon, fog, sun, sky, ground } để sân pha theo giờ (daylight3d.mjs) rồi đặt vào trời / sương / đèn;
 // themeBase: đường dẫn thư mục dữ liệu vùng (vd. '/scenes/thien-default/themes/'), null thì chỉ có cảnh gốc;
 // temple: { hall, door, textBoard, glowMaterial } để dựng chùa nhìn từ ngoài.
-export function createLandscape({ root, renderer, data, materials: m, field, lawns, sun, paint, themeBase = null, temple }) {
+// stateBase: thư mục dữ liệu tiểu bang (vd. '/scenes/thien-default/states/'), null thì không có lớp tiểu bang.
+export function createLandscape({ root, renderer, data, materials: m, field, lawns, sun, paint, themeBase = null, stateBase = null, temple }) {
   const ground = data.ground;
   const midZ = (ground.z[0] + ground.z[1]) / 2;
   const sharedMaterials = new Map();
@@ -109,15 +158,38 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
   const groundCache = new Map([['common:grass', field.material]]);
   const vertexMaterials = new Map();
   const vertexMaterial = (sample) => {
-    const key = `${sample.flatShading}|${sample.side}|${sample.emissive.getHexString()}|${sample.emissiveIntensity}|${sample.metalness > 0.1}`;
+    const haze = sample.userData.haze;
+    const key = `${sample.flatShading}|${sample.side}|${sample.emissive.getHexString()}|${sample.emissiveIntensity}|${sample.metalness > 0.1}|${haze ?? ''}`;
     if (!vertexMaterials.has(key)) {
-      vertexMaterials.set(key, new THREE.MeshStandardMaterial({
+      const made = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: sample.roughness, metalness: sample.metalness, flatShading: sample.flatShading, side: sample.side,
         emissive: sample.emissive, emissiveIntensity: sample.emissiveIntensity,
-      }));
+      });
+      vertexMaterials.set(key, haze === undefined ? made : applyHaze(made, haze));
     }
     return vertexMaterials.get(key);
   };
+  // Vật liệu xa (điểm nhìn xa của tiểu bang): như material(màu, thêm) nhưng chỉ chịu haze phần sương.
+  const farMaterials = new Map();
+  const far = (color, { haze = 0.4, ...extra } = {}) => {
+    const key = `${color}|${haze}|${JSON.stringify(extra)}`;
+    if (!farMaterials.has(key)) farMaterials.set(key, applyHaze(new THREE.MeshStandardMaterial({ color, roughness: 0.9, ...extra }), haze));
+    return farMaterials.get(key);
+  };
+  // Đèn đêm của tiểu bang: vật liệu cộng sáng, độ đậm theo mức tối (tick), ban ngày ẩn hẳn; vẽ sau lớp phủ đêm.
+  const nightMaterials = new Map();
+  let nightLevel = 0;
+  const nightMaterial = (key, make, base = 1) => {
+    if (!nightMaterials.has(key)) {
+      const material = make();
+      material.userData.base = base;
+      material.opacity = base * nightLevel;
+      material.visible = nightLevel > 0.01;
+      nightMaterials.set(key, material);
+    }
+    return nightMaterials.get(key);
+  };
+  const animations = [];
   const defaults = {
     colors: Object.fromEntries(['roof', 'wall', 'brick', 'pillar'].map((key) => [key, `#${m[key].color.getHexString()}`])),
     lawns: lawns.map((item) => ({
@@ -126,7 +198,7 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     })),
     sky: { top: data.sky?.top || '#7aa6d8', horizon: data.sky?.horizon || '#f6dcb0' },
   };
-  const groups = Object.fromEntries(['trees', 'scatter', 'mountains', 'temple'].map((name) => {
+  const groups = Object.fromEntries(['trees', 'scatter', 'mountains', 'temple', 'landmarks'].map((name) => {
     const group = new THREE.Group();
     group.name = `landscape-${name}`;
     root.add(group);
@@ -141,10 +213,21 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     return boards.get(key);
   };
   const loaded = new Map();
+  const loadedStates = new Map();
   const warned = new Set();
   let current = null;
+  let currentTheme = {};
+  let currentKit = {};
+  let currentState = null;
+  // Chỗ không rải vật của vùng (clear của tiểu bang đang dùng), tính lúc dựng vật rải.
+  let stateClear = [];
   let request = 0;
-  const built = { trees: null, temple: null };
+  const built = { trees: null, temple: null, scatter: null, landmarks: null };
+  const warnOnce = (key, text) => {
+    if (warned.has(key)) return;
+    warned.add(key);
+    console.warn(text);
+  };
 
   // Tìm kiểu trong bộ đồ vùng rồi bộ đồ chung; không có thì cảnh báo một lần và bỏ qua.
   const find = (kit, section, kind, also = null) => {
@@ -212,19 +295,23 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     built.trees = key;
   }
 
-  // Rải ngoài tường (giữa tường sân và núi), chừa hai bên / sau chánh điện và lối trước cổng cho cảnh thoáng.
-  function buildScatter(theme, kit, env, name) {
-    disposeGroup(groups.scatter);
-    if (!theme.scatter?.length) return;
-    const batch = new ColorBatch();
-    const blocked = (x, z) => (x > ground.x[0] - 5 && x < ground.x[1] + 5 && z > ground.z[0] - 26 && z < ground.z[1] + 5)
-      || (Math.abs(x) < 9 && z < ground.z[1] + 30);
+  // Rải ngoài tường (giữa tường sân và núi), chừa hai bên / sau chánh điện, lối trước cổng cho cảnh thoáng, và chỗ tiểu
+  // bang dành riêng (clear, vd. mặt biển).
+  const cleared = (x, z) => stateClear.some(({ side, from }) => (side === 'gate' ? z > ground.z[1] + from
+    : side === 'back' ? z < ground.z[0] - from
+      : side === 'east' ? x > ground.x[1] + from : x < ground.x[0] - from));
+  const reserved = (x, z) => (x > ground.x[0] - 5 && x < ground.x[1] + 5 && z > ground.z[0] - 26 && z < ground.z[1] + 5)
+    || (Math.abs(x) < 9 && z < ground.z[1] + 30);
+  const blocked = (x, z) => reserved(x, z) || cleared(x, z);
+  // items: [{ kind, count, band? }]; build(kind): hàm dựng hoặc null; seed: tiền tố chuỗi ngẫu nhiên; avoid(x, z): chỗ
+  // không đặt (thử lại chỗ khác); placed(x, z): báo trước mỗi vật được dựng.
+  function scatterInto(batch, items, build, seed, env, avoid = blocked, placed = null) {
     // Vật ngoài tường ở xa: bộ đồ dùng env.detail = 0 để giảm số mặt (tán cây, khối tròn).
     const far = { ...env, detail: 0 };
-    theme.scatter.forEach((item, group) => {
-      const build = find(kit, 'scatter', item.kind, 'trees');
+    items.forEach((item, group) => {
+      const make = build(item.kind);
       // Mỗi nhóm một chuỗi ngẫu nhiên riêng: thêm / bớt / đổi một nhóm không làm xáo chỗ các nhóm khác.
-      const rand = seeded(`scatter:${name}:${group}:${item.kind}`);
+      const rand = seeded(`${seed}:${group}:${item.kind}`);
       for (let index = 0; index < item.count; index += 1) {
         let x = 0;
         let z = 0;
@@ -234,14 +321,35 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
             x = (rand() - 0.5) * 2 * (ground.x[1] + 52);
             z = ground.z[0] - 30 + rand() * (ground.z[1] - ground.z[0] + 100);
           }
-          if (!blocked(x, z)) break;
+          if (!avoid(x, z)) break;
         }
-        if (!build || blocked(x, z)) continue;
-        build(batch, x, z, 0.8 + rand() * 0.7, rand, far);
+        if (!make || avoid(x, z)) continue;
+        placed?.(x, z);
+        make(batch, x, z, 0.8 + rand() * 0.7, rand, far);
       }
     });
+  }
+
+  // Vật rải của vùng đặt theo vùng (không theo tiểu bang); các mảnh hình của từng vật được nhớ cho vùng đang dùng, đổi
+  // tiểu bang (chỗ chừa `clear` khác) chỉ lọc bỏ vật nằm trong chỗ chừa rồi gộp lại, không dựng hình lại.
+  let scatterPieces = { name: null, items: [] };
+  function buildScatter(theme, kit, env, name) {
+    disposeGroup(groups.scatter);
+    built.scatter = `${name}|${JSON.stringify(stateClear)}`;
+    if (scatterPieces.name !== name) {
+      for (const item of scatterPieces.items) for (const piece of item.pieces) piece.geometry.dispose();
+      const items = [];
+      const recorder = { add: (geometry, material, transform) => items[items.length - 1].pieces.push(ColorBatch.prepare(geometry, material, transform)) };
+      if (theme.scatter?.length) {
+        scatterInto(recorder, theme.scatter, (kind) => find(kit, 'scatter', kind, 'trees'), `scatter:${name}`, env, reserved, (x, z) => items.push({ x, z, pieces: [] }));
+      }
+      scatterPieces = { name, items };
+    }
+    if (!scatterPieces.items.length) return;
+    const batch = new ColorBatch();
+    for (const item of scatterPieces.items) if (!cleared(item.x, item.z)) for (const piece of item.pieces) batch.push(piece);
     // Ngoài tường không ai đi tới: không đổ bóng thật (đỡ cho shadow map), chỉ nhận ánh nắng.
-    batch.build(groups.scatter, vertexMaterial);
+    batch.build(groups.scatter, vertexMaterial, { keep: true });
   }
 
   function buildMountains(theme, kit, env) {
@@ -284,6 +392,8 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
 
   function apply(name, theme, kit) {
     if (name === current) return;
+    currentTheme = theme;
+    currentKit = kit;
     const env = envFor(theme);
     applyColors(theme, kit, name, env);
     const treeKey = `${name}:${theme.trees || 'banyan'}:${theme.pines || 'pine'}:${theme.treeScale || 1}`;
@@ -293,6 +403,105 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     buildTemple(theme, kit, env);
     if (sun.castShadow) sun.shadow.needsUpdate = true;
     current = name;
+  }
+
+  // Lớp tiểu bang trên cảnh vùng đang dùng: ẩn núi vùng nếu bang thay, dựng lại vật rải vùng nếu chỗ chừa đổi, dựng điểm
+  // nhìn xa + vật rải của bang. overlay null: không có lớp bang.
+  function applyState(code, overlay) {
+    const state = overlay?.data || {};
+    groups.mountains.visible = !(state.hide || []).includes('mountains');
+    if (built.scatter !== `${current}|${JSON.stringify(stateClear)}`) buildScatter(currentTheme, currentKit, envFor(currentTheme), current);
+    const key = `${current}|${overlay ? code : ''}`;
+    if (built.landmarks === key) return;
+    disposeGroup(groups.landmarks);
+    animations.length = 0;
+    built.landmarks = key;
+    currentState = overlay ? code : null;
+    if (!overlay) return;
+    const kit = overlay.kit;
+    const pendingPoints = new Map();
+    const env = {
+      ...envFor(currentTheme),
+      far,
+      add: (object) => groups.landmarks.add(object),
+      animate: (fn) => animations.push(fn),
+      // Quầng sáng đêm (sprite cộng sáng).
+      nightGlow: (x, y, z, size = 2, color = '#ffd27a') => {
+        const sprite = new THREE.Sprite(nightMaterial(`glow|${color}`, () => new THREE.SpriteMaterial({
+          map: temple.glowMaterial.map, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+        })));
+        sprite.position.set(x, y, z);
+        sprite.scale.set(size, size, 1);
+        sprite.renderOrder = GLOW_ORDER;
+        groups.landmarks.add(sprite);
+        return sprite;
+      },
+      // Đốm đèn (cửa sổ thành phố, đèn cầu, cửa sổ nhà gỗ rải ngoài tường): points = [[x, y, z], …]. Mọi lần gọi cùng
+      // màu + cỡ gom thành một lệnh vẽ, dựng sau khi xong lớp bang.
+      nightPoints: (points, { color = '#ffd27a', size = 0.7 } = {}) => {
+        const key = `${color}|${size}`;
+        if (!pendingPoints.has(key)) pendingPoints.set(key, { color, size, list: [] });
+        const list = pendingPoints.get(key).list;
+        for (const point of points) list.push(point[0], point[1], point[2]);
+      },
+      // Khối phát sáng mờ chỉ hiện khi tối (luồng sáng hải đăng…); trả mesh để quay / dời bằng animate.
+      // vertexColors: nhân thêm màu đỉnh của hình (mỗi phần sáng một màu, vd. khinh khí cầu).
+      nightMesh: (geometry, color = '#fff3c4', opacity = 0.3, { vertexColors = false } = {}) => {
+        const mesh = new THREE.Mesh(geometry, nightMaterial(`mesh|${color}|${opacity}|${vertexColors}`, () => new THREE.MeshBasicMaterial({
+          color, vertexColors, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+        }), opacity));
+        mesh.renderOrder = GLOW_ORDER;
+        groups.landmarks.add(mesh);
+        return mesh;
+      },
+    };
+    const batch = new ColorBatch();
+    (state.landmarks || []).forEach((item, index) => {
+      const build = kit.landmarks?.[item.kind] || currentKit.landmarks?.[item.kind] || landmarkCommon.landmarks?.[item.kind];
+      if (!build) {
+        warnOnce(`landmark:${item.kind}`, `Phong cảnh: không có điểm đặc trưng ${item.kind}`);
+        return;
+      }
+      const [x, z] = landmarkPoint(ground, item);
+      build(batch, x, z, item.scale ?? 1, seeded(`landmark:${code}:${index}:${item.kind}`), env, {
+        face: Math.atan2(-x, midZ - z), side: item.side, haze: item.haze ?? 0.4, params: item.params || {},
+      });
+    });
+    // Vật rải: bộ đồ bang → thư viện chung của lớp bang → bộ đồ vùng → bộ đồ chung phong cảnh.
+    const findScatter = (kind) => kit.scatter?.[kind] || kit.trees?.[kind] || landmarkCommon.scatter?.[kind] || find(currentKit, 'scatter', kind, 'trees');
+    scatterInto(batch, state.scatter || [], findScatter, `state:${code}`, env);
+    batch.build(groups.landmarks, vertexMaterial);
+    for (const { color, size, list } of pendingPoints.values()) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(list, 3));
+      const dots = new THREE.Points(geometry, nightMaterial(`points|${color}|${size}`, () => new THREE.PointsMaterial({
+        color, size, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      })));
+      dots.renderOrder = GLOW_ORDER;
+      groups.landmarks.add(dots);
+    }
+  }
+
+  // Tải dữ liệu rồi bộ đồ của tiểu bang (một lần). Bang chưa làm (404) thì không có lớp bang; dữ liệu lỗi thì bỏ qua và
+  // thử lại lần sau.
+  function loadState(code) {
+    if (!loadedStates.has(code)) {
+      loadedStates.set(code, fetch(`${stateBase}${code}.json`).then((response) => {
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      }).then((state) => {
+        if (!state) return null;
+        const errors = validateState(code, state);
+        if (errors.length) throw new Error(errors.join('; '));
+        return import(`./landmarks/${code}.mjs`).then((module) => module.kit || {}, () => ({})).then((kit) => ({ data: state, kit }));
+      }).catch((error) => {
+        loadedStates.delete(code);
+        warnOnce(`state:${code}`, `Phong cảnh: lớp tiểu bang ${code} lỗi (${error.message}), chỉ dùng cảnh vùng`);
+        return null;
+      }));
+    }
+    return loadedStates.get(code);
   }
 
   // Tải dữ liệu rồi bộ đồ của vùng (một lần). Vùng chưa làm (chưa có dữ liệu) thì không hỏi bộ đồ; dữ liệu lỗi thì từ
@@ -314,44 +523,61 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
   apply('default', {}, {});
 
   return {
-    // Đổi vùng (tên trong THIEN_THEMES; 'default' / vùng chưa có dữ liệu là cảnh gốc). Trả Promise tên vùng đang dùng.
-    // Gọi dồn nhiều lần (đổi tiểu bang liên tục) thì chỉ lần gọi sau cùng có hiệu lực.
-    setTheme(name) {
+    // Đổi vùng (tên trong THIEN_THEMES; 'default' / vùng chưa có dữ liệu là cảnh gốc) và lớp tiểu bang (state: mã bang,
+    // null = không có). Trả Promise tên vùng đang dùng. Gọi dồn nhiều lần (đổi tiểu bang liên tục) thì chỉ lần gọi sau
+    // cùng có hiệu lực.
+    setTheme(name, { state = null } = {}) {
       const key = typeof name === 'string' && NAME.test(name) && themeBase ? name : 'default';
+      const code = typeof state === 'string' && /^[a-z]{2}$/.test(state) && stateBase ? state : null;
       const mine = ++request;
-      if (key === 'default') {
-        apply('default', {}, {});
-        return Promise.resolve(current);
-      }
-      if (key === current) return Promise.resolve(current);
-      return load(key).then(({ theme, kit }) => {
-        if (mine === request) apply(key, theme, kit);
-        return current;
-      }, (error) => {
+      const region = key === 'default' ? Promise.resolve({ theme: {}, kit: {} }) : load(key).catch((error) => {
         loaded.delete(key);
-        if (!warned.has(`theme:${key}`)) {
-          warned.add(`theme:${key}`);
-          console.warn(`Phong cảnh: chưa có vùng ${key} (${error.message}), dùng cảnh gốc`);
-        }
-        if (mine === request) apply('default', {}, {});
+        warnOnce(`theme:${key}`, `Phong cảnh: chưa có vùng ${key} (${error.message}), dùng cảnh gốc`);
+        return null;
+      });
+      return Promise.all([region, code ? loadState(code) : null]).then(([found, overlay]) => {
+        if (mine !== request) return current;
+        stateClear = overlay?.data.clear || [];
+        apply(found ? key : 'default', found?.theme || {}, found?.kit || {});
+        applyState(code, overlay);
         return current;
       });
+    },
+    // Mỗi khung (courtyard): night = mức tối 0–1 (đèn đêm của tiểu bang), outside = camera ở sân (chạy chuyển động).
+    tick(seconds, night = 0, outside = 1) {
+      if (Math.abs(night - nightLevel) > 0.004) {
+        nightLevel = night;
+        for (const material of nightMaterials.values()) {
+          material.opacity = material.userData.base * night;
+          material.visible = night > 0.01;
+        }
+      }
+      if (outside > 0.02) for (const step of animations) step(seconds);
+    },
+    // Chỉ để đo "độ thấy" khi phát triển: ẩn / hiện lớp tiểu bang.
+    setLandmarksVisible(on) {
+      groups.landmarks.visible = Boolean(on);
     },
     theme() {
       return current;
     },
     // Số mesh (≈ lệnh vẽ) và tam giác của riêng phần phong cảnh: cây, vật rải, núi, chùa (ngân sách KE_HOACH_VUNG.md).
+    // landmarks: riêng lớp tiểu bang (ngân sách KE_HOACH_BANG.md).
     stats() {
-      let meshes = 0;
-      let triangles = 0;
-      for (const group of Object.values(groups)) {
-        group.traverse((item) => {
-          if (!item.isMesh && !item.isSprite) return;
-          meshes += 1;
-          if (item.isMesh) triangles += (item.geometry.index?.count ?? item.geometry.attributes.position.count) / 3;
-        });
-      }
-      return { theme: current, meshes, triangles: Math.round(triangles) };
+      const count = (list) => {
+        let meshes = 0;
+        let triangles = 0;
+        for (const group of list) {
+          group.traverse((item) => {
+            if (!item.isMesh && !item.isSprite && !item.isPoints) return;
+            meshes += 1;
+            if (item.isMesh) triangles += (item.geometry.index?.count ?? item.geometry.attributes.position.count) / 3;
+          });
+        }
+        return { meshes, triangles: Math.round(triangles) };
+      };
+      const region = count([groups.trees, groups.scatter, groups.mountains, groups.temple]);
+      return { theme: current, ...region, state: currentState, landmarks: count([groups.landmarks]) };
     },
   };
 }

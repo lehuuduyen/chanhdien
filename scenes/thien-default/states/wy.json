@@ -1,0 +1,12 @@
+{
+  "landmarks": [
+    { "kind": "grand-teton", "side": "gate", "distance": 110, "haze": 0.3, "params": { "span": 460, "height": 78 } },
+    { "kind": "old-faithful", "side": "gate", "distance": 34, "offset": 26, "haze": 0.3, "params": { "height": 34 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 22 }],
+  "scatter": [
+    { "kind": "bison", "count": 12, "band": [7, 22] },
+    { "kind": "snowpine", "count": 20, "band": [6, 22] }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "landmarks": [
+    { "kind": "horse-farm", "side": "gate", "distance": 18, "haze": 0.3, "params": { "span": 480, "height": 20, "barns": 3, "fences": [0.2, 0.48] } },
+    { "kind": "horse-farm", "side": "east", "distance": 16, "haze": 0.3, "params": { "span": 220, "height": 16, "barns": 1, "fences": [0.25] } },
+    { "kind": "hills", "side": "gate", "distance": 110, "haze": 0.5, "params": { "span": 520, "height": 30, "colors": ["#5d7f86", "#6a8b92"], "wave": 0.4 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 16 }, { "side": "east", "from": 14 }],
+  "scatter": [
+    { "kind": "horse", "count": 12, "band": [4, 14] }
+  ]
+}

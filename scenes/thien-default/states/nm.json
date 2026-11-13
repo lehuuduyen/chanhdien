@@ -1,0 +1,11 @@
+{
+  "landmarks": [
+    { "kind": "sandia", "side": "gate", "distance": 95, "haze": 0.35, "params": { "span": 440, "height": 46 } },
+    { "kind": "balloon-fiesta", "side": "gate", "distance": 20, "haze": 0.25, "params": { "gate": 20, "sides": 12 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 22 }],
+  "scatter": [
+    { "kind": "adobe", "count": 9, "band": [8, 22] }
+  ]
+}

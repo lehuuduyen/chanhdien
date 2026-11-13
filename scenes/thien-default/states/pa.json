@@ -1,0 +1,12 @@
+{
+  "landmarks": [
+    { "kind": "stone-viaduct", "side": "gate", "distance": 72, "haze": 0.3, "params": { "arches": 15, "bay": 14, "height": 26 } },
+    { "kind": "hills", "side": "gate", "distance": 26, "haze": 0.3, "params": { "span": 540, "height": 30, "depth": 60, "colors": ["#8a5a32", "#6f6036", "#55663f"], "wave": 0.3, "notch": { "at": 0, "half": 70, "slope": 30 }, "trees": { "count": 170, "size": 4 } } },
+    { "kind": "covered-bridge", "side": "east", "distance": 22, "offset": 6, "haze": 0.3, "params": { "length": 26 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 20 }, { "side": "east", "from": 16 }],
+  "scatter": [
+    { "kind": "ranch-fence", "count": 10, "band": [4, 16] }
+  ]
+}

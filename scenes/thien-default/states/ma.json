@@ -1,0 +1,12 @@
+{
+  "landmarks": [
+    { "kind": "sea", "side": "gate", "distance": 22, "haze": 0.5, "params": { "color": "#3c6475", "shallow": "#5e8a98", "width": 640, "rocks": false } },
+    { "kind": "skyline", "side": "gate", "distance": 96, "offset": -14, "haze": 0.4, "params": { "width": 200, "depth": 40, "count": 32, "low": 12, "high": 46, "colors": ["#8f8a80", "#a6a39b", "#7b8590", "#b4aa98"], "windows": 0.45, "towers": [{ "t": 15, "d": 10, "height": 76, "width": 14, "steps": 1, "spire": false, "color": "#7fa0bd" }, { "t": -40, "d": 18, "height": 68, "width": 16, "steps": 2, "spire": false, "color": "#8a8478" }] } },
+    { "kind": "zakim", "side": "gate", "distance": 46, "offset": 12, "haze": 0.3, "params": { "length": 150, "tower": 38, "deck": 12 } },
+    { "kind": "sailboats", "side": "gate", "distance": 30, "haze": 0.3, "params": { "count": 8, "width": 280, "depth": 50 } },
+    { "kind": "cranberry-bog", "side": "east", "distance": 14, "haze": 0.3, "params": { "width": 100, "depth": 54, "plots": 3 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 20 }, { "side": "east", "from": 12 }],
+  "scatter": []
+}

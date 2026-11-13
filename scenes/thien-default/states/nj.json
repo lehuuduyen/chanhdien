@@ -1,0 +1,15 @@
+{
+  "landmarks": [
+    { "kind": "sea", "side": "gate", "distance": 24, "haze": 0.5, "params": { "color": "#3a6f86", "shallow": "#6aa3b0", "width": 640, "rocks": false } },
+    { "kind": "dunes", "side": "gate", "distance": 10, "haze": 0.3, "params": { "span": 540, "height": 4, "depth": 14 } },
+    { "kind": "pier-wheel", "side": "gate", "distance": 14, "offset": -22, "haze": 0.3, "params": { "pier": 64, "radius": 17 } },
+    { "kind": "sea", "side": "east", "distance": 22, "haze": 0.5, "params": { "color": "#3a6f86", "shallow": "#6aa3b0", "width": 400, "rocks": false } },
+    { "kind": "dunes", "side": "east", "distance": 10, "haze": 0.3, "params": { "span": 240, "height": 4, "depth": 12 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 8 }, { "side": "east", "from": 8 }],
+  "scatter": [
+    { "kind": "umbrella", "count": 10, "band": [2, 8] },
+    { "kind": "seagrass", "count": 16, "band": [2, 8] }
+  ]
+}

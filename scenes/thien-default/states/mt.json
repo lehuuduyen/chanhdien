@@ -1,0 +1,13 @@
+{
+  "landmarks": [
+    { "kind": "glacier-range", "side": "gate", "distance": 90, "haze": 0.3, "params": { "span": 480, "height": 58 } },
+    { "kind": "lodge", "side": "gate", "distance": 40, "offset": -34, "haze": 0.3, "params": { "width": 44 } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 22 }],
+  "scatter": [
+    { "kind": "bison", "count": 9, "band": [7, 22] },
+    { "kind": "ranch-fence", "count": 6, "band": [5, 16] },
+    { "kind": "snowpine", "count": 24, "band": [6, 22] }
+  ]
+}

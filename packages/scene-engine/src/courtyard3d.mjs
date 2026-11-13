@@ -1208,7 +1208,7 @@ function addPetZone(root, batch, m, zone, signs) {
   }
 }
 
-export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBase = null }) {
+export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBase = null, stateBase = null }) {
   const data = world.courtyard;
   // Mặt nước hồ sen lớn và ao vịt dùng chung một vật liệu (một lần biên dịch shader).
   const lakeWater = createWaterMaterial();
@@ -1917,7 +1917,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   // Phong cảnh theo vùng (landscape3d.mjs): cây đa / tùng, núi xa, đất, màu mái, chùa nhìn từ ngoài. Dựng cảnh gốc
   // ngay; renderer gọi setTheme để đổi vùng.
   const landscape = createLandscape({
-    root, renderer, data, materials: m, field, lawns: [m.grass, m.petGrass], sun, themeBase,
+    root, renderer, data, materials: m, field, lawns: [m.grass, m.petGrass], sun, themeBase, stateBase,
     paint: (next) => {
       palette = next;
       regrade();
@@ -1966,9 +1966,12 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     activateAssets() {
       flowerGarden?.activate?.();
     },
-    // Vùng phong cảnh: tên trong world.courtyard.themes, 'default' là cảnh gốc.
-    setTheme(name) {
-      return landscape.setTheme(name);
+    // Vùng phong cảnh (THIEN_THEMES, 'default' là cảnh gốc) + lớp tiểu bang (options.state).
+    setTheme(name, options) {
+      return landscape.setTheme(name, options);
+    },
+    setLandmarksVisible(on) {
+      landscape.setLandmarksVisible(on);
     },
     landscapeStats() {
       return landscape.stats();
@@ -2023,6 +2026,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
       sun.intensity = 2.1 * outside * grade.sunFactor;
       skyFill.intensity = 0.9 * outside * grade.fillFactor;
       paintSky(outside);
+      landscape.tick(time / 1000, grade.level.veil, outside);
       // Không bật/tắt đèn (đổi số nguồn sáng làm mọi vật liệu biên dịch lại shader, giật mỗi lần qua cửa):
       // trong điện chỉ để cường độ 0 và ngừng vẽ lại bóng.
       sun.shadow.autoUpdate = !shadowsCleared && outside > 0.02;

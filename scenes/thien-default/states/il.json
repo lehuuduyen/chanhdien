@@ -1,0 +1,50 @@
+{
+  "landmarks": [
+    {
+      "kind": "sea",
+      "side": "gate",
+      "distance": 26,
+      "haze": 0.5,
+      "params": {
+        "color": "#416f86",
+        "shallow": "#6f9cab",
+        "width": 520,
+        "rocks": false
+      }
+    },
+    {
+      "kind": "chicago-skyline",
+      "side": "gate",
+      "distance": 52,
+      "scale": 1.05,
+      "haze": 0.24
+    },
+    {
+      "kind": "chicago-skyline",
+      "side": "east",
+      "distance": 35,
+      "offset": 20,
+      "scale": 0.62,
+      "haze": 0.24
+    }
+  ],
+  "hide": [
+    "mountains"
+  ],
+  "clear": [
+    {
+      "side": "gate",
+      "from": 20
+    }
+  ],
+  "scatter": [
+    {
+      "kind": "corn",
+      "count": 55,
+      "band": [
+        7,
+        23
+      ]
+    }
+  ]
+}

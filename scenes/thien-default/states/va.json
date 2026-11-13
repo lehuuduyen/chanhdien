@@ -1,0 +1,13 @@
+{
+  "landmarks": [
+    { "kind": "blue-ridge", "side": "gate", "distance": 56, "haze": 0.4, "params": { "span": 520, "height": 34, "road": 0.56 } },
+    { "kind": "hills", "side": "gate", "distance": 108, "haze": 0.6, "params": { "span": 560, "height": 46, "colors": ["#5c7a96", "#6683a0", "#7590ab"], "wave": 0.15, "freq": 0.012, "jag": 1 } },
+    { "kind": "farmstead", "side": "gate", "distance": 18, "offset": -36, "haze": 0.3 },
+    { "kind": "farmstead", "side": "east", "distance": 20, "offset": 8, "haze": 0.3 }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 16 }, { "side": "east", "from": 16 }],
+  "scatter": [
+    { "kind": "ranch-fence", "count": 12, "band": [4, 15] }
+  ]
+}

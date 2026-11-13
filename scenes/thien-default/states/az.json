@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "grand-canyon", "side": "gate", "distance": 62, "haze": 0.3 }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 48 }],
+  "scatter": [
+    { "kind": "ocotillo", "count": 30, "band": [6, 40] }
+  ]
+}

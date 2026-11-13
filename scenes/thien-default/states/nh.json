@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "lake", "side": "gate", "distance": 16, "haze": 0.35, "params": { "width": 340, "depth": 54 } },
+    { "kind": "mount-washington", "side": "gate", "distance": 74, "haze": 0.3, "params": { "span": 500, "height": 62 } },
+    { "kind": "hills", "side": "east", "distance": 18, "haze": 0.3, "params": { "span": 240, "height": 24, "depth": 40, "colors": ["#7d5a32", "#6a5a34", "#3f553c"], "wave": 0.4, "freq": 0.04, "trees": { "count": 90, "size": 3 } } }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 14 }, { "side": "east", "from": 16 }],
+  "scatter": []
+}

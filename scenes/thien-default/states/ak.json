@@ -1,0 +1,14 @@
+{
+  "landmarks": [
+    { "kind": "denali", "side": "gate", "distance": 135, "haze": 0.28, "params": { "span": 480, "height": 82 } },
+    { "kind": "tundra-glacier", "side": "gate", "distance": 52, "offset": -6, "haze": 0.35, "params": { "span": 480, "height": 24, "glacier": 46 } },
+    { "kind": "aurora", "side": "gate", "distance": 120 }
+  ],
+  "hide": ["mountains"],
+  "clear": [{ "side": "gate", "from": 22 }],
+  "scatter": [
+    { "kind": "moose", "count": 6, "band": [8, 22] },
+    { "kind": "cabin", "count": 4, "band": [10, 22] },
+    { "kind": "snowpine", "count": 30, "band": [6, 22] }
+  ]
+}

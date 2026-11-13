@@ -1,0 +1,10 @@
+{
+  "landmarks": [
+    { "kind": "gateway-arch", "side": "gate", "distance": 50, "scale": 1.05, "haze": 0.2 },
+    { "kind": "mississippi-riverboat", "side": "east", "distance": 36, "offset": 18, "scale": 0.82, "haze": 0.24 }
+  ],
+  "hide": ["mountains"],
+  "scatter": [
+    { "kind": "river-tree", "count": 34, "band": [8, 24] }
+  ]
+}

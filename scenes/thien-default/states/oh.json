@@ -1,0 +1,7 @@
+{
+  "landmarks": [
+    { "kind": "marblehead-lake", "side": "gate", "distance": 47, "scale": 1.05, "haze": 0.18 },
+    { "kind": "quilt-barn", "side": "east", "distance": 35, "offset": 15, "scale": 0.9, "haze": 0.22 }
+  ],
+  "hide": ["mountains"]
+}
