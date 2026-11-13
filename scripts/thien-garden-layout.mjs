@@ -569,7 +569,8 @@ const GROVE = { x: [-94, -53.5], z: [18, 70] };
   const loop = { x: pond.x, z: pond.z, rx: 15, rz: 12, width: 2.4 };
   const loopX = (z) => loop.x + loop.rx * Math.sqrt(Math.max(0, 1 - ((z - loop.z) / loop.rz) ** 2));
   const entry = { x: [round3(loopX(GROVE_GATE_Z) - 0.8), -HALF], z: [GROVE_GATE_Z - 1.3, GROVE_GATE_Z + 1.3] };
-  const pavilion = { x: pond.x, z: pond.z, radius: 2.8 };
+  // Thủy đình dùng đình bát giác Meshy của Vườn Hoa cùng cỡ (cột trên vòng bán kính 2,3 m).
+  const pavilion = { x: pond.x, z: pond.z, radius: 2.3 };
   const pier = { x: pond.x, z: [round3(loop.z - loop.rz + 0.4), round3(pond.z - pavilion.radius + 0.2)], width: 2.2 };
   // Cây: lưới lệch ngẫu nhiên (cố định) ngoài vòng lối, tránh lối vào, sát tường; cứ 7 cây có một cây lớn.
   let seed = 11;
@@ -791,11 +792,10 @@ obstacles.push(circle(-1.6, GATE, 0.3), circle(1.6, GATE, 0.3));
       obstacles.push(circle(round3(x), round3(z), 0.8));
     }
   }
-  for (let index = 0; index < 6; index += 1) {
-    const angle = ((index + 0.5) / 6) * Math.PI * 2;
-    // Chừa cột phía bến (hướng −z) để đi vào.
-    if (Math.abs(Math.sin(angle) + 1) < 0.2) continue;
-    obstacles.push(circle(round3(pavilion.x + Math.cos(angle) * (pavilion.radius - 0.3)), round3(pavilion.z + Math.sin(angle) * (pavilion.radius - 0.3)), 0.18));
+  // Tám cột đình bát giác như ở Vườn Hoa (mô hình xoay π/8): hai cột kẹp lối vào phía bến (hướng −z).
+  for (let index = 0; index < 8; index += 1) {
+    const angle = ((index + 0.5) / 8) * Math.PI * 2;
+    obstacles.push(circle(round3(pavilion.x + Math.cos(angle) * pavilion.radius), round3(pavilion.z + Math.sin(angle) * pavilion.radius), 0.24));
   }
   obstacles.push(...c.benches.filter((item) => ['B-16', 'B-17', 'B-18'].includes(item.id)).flatMap((item) => [-0.4, 0.4].map((lx) => {
     const point = localPoint(item, lx, 0);

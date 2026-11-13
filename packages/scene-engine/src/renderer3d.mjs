@@ -3,7 +3,6 @@
 // Toạ độ: mét; bàn thờ ở z ≈ 0, khán đường kéo về phía +z; người ngồi quay mặt về bàn thờ (hướng −z).
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   buildAltar, buildBuddha, buildBurner, buildHall, buildLanterns, buildSeat, createPersonFactory, createTempleMaterials,
   PILLAR_CLEARANCE, StaticBatch, hallLayout,
@@ -101,12 +100,14 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
 
   const root = new THREE.Group();
   scene3d.add(root);
-  // Ánh sáng môi trường (RoomEnvironment qua PMREM) cho kim loại vàng phản chiếu thật (threejs-lighting).
-  // Three.js 0.160 chưa có scene.environmentIntensity: độ mạnh chỉnh bằng envMapIntensity từng vật liệu.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
-  scene3d.environment = environment;
-  pmrem.dispose();
+  // Mặc định dùng cùng bảng màu nhẹ mà trước đây chỉ bật khi máy tự hạ chất lượng: bỏ RoomEnvironment giúp bề mặt
+  // bớt bóng / bão hòa và tránh dựng thêm một texture phản chiếu lúc vào phòng. Kim loại hạ vừa đủ rồi bù emissive
+  // để tượng và pháp khí vẫn đọc rõ dưới ánh đèn trong điện.
+  for (const material of [materials.gold, materials.buddhaGold, materials.buddhaRobe, materials.bronze, materials.lotusPink]) {
+    material.metalness = Math.min(material.metalness, 0.35);
+    material.emissive.set(material === materials.bronze ? '#2a1a08' : '#5a3a0c');
+    material.emissiveIntensity = 0.6;
+  }
   scene3d.add(new THREE.HemisphereLight('#ffd9a8', '#2a1208', 0.55));
   const key = new THREE.DirectionalLight('#ffe2b8', 0.9);
   key.position.set(2, 6, 9);
@@ -361,7 +362,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
   let fpsStart = performance.now();
   let last = performance.now();
   // Tự hạ chất lượng nếu máy không kịp: sau mỗi 2 giây đo FPS, dưới 28 thì về độ phân giải 1×,
-  // vẫn dưới 22 thì tắt ánh sáng môi trường. Không bao giờ nâng lại để tránh chập chờn.
+  // vẫn dưới 22 thì bớt chi tiết trang trí. Màu nhẹ đã là mặc định nên không còn đổi màu đột ngột khi FPS thấp.
   const quality = { level: 0, windowStart: 0, frames: 0, shadowTrial: touch && courtyard ? 'waiting' : 'done' };
   function adaptQuality(time) {
     if (document.hidden) return;
@@ -389,13 +390,6 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
       renderer.setSize(size.width, size.height, false);
       quality.level = 1;
     } else if (quality.level <= 1 && measured < 22) {
-      // Kim loại chỉ phản chiếu môi trường: tắt môi trường thì giảm độ kim loại, tăng ánh tự phát để vàng vẫn sáng.
-      scene3d.environment = null;
-      for (const material of [materials.gold, materials.buddhaGold, materials.buddhaRobe, materials.bronze, materials.lotusPink]) {
-        material.metalness = Math.min(material.metalness, 0.35);
-        material.emissive.set(material === materials.bronze ? '#2a1a08' : '#5a3a0c');
-        material.emissiveIntensity = 0.6;
-      }
       // Vườn Hoa: bỏ lớp tulip trồng xen.
       courtyard?.setLowDetail?.(true);
       quality.level = 2;
@@ -909,12 +903,11 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
         pixelRatio: renderer.getPixelRatio(),
         shadows: courtyard?.shadowsEnabled() || false,
         paused,
-        quality: ['cao', 'độ phân giải 1×', 'tắt ánh sáng môi trường'][quality.level === 2 && scene3d.environment ? 0 : quality.level],
+        quality: ['màu nhẹ mặc định', 'độ phân giải 1×', 'giảm chi tiết'][quality.level],
       };
     },
-    // Chỉ để đo hiệu năng khi phát triển: bật/tắt ánh sáng môi trường và đèn chiếu tượng.
+    // Chỉ để đo hiệu năng khi phát triển: bật/tắt đèn chiếu tượng và các mức tốn GPU còn lại.
     debugToggle(name, on) {
-      if (name === 'environment') scene3d.environment = on ? environment : null;
       if (name === 'spot') buddhaSpot.visible = on;
       if (name === 'pixelRatio') renderer.setPixelRatio(on);
       if (name === 'shadows') courtyard?.setShadows(on, touch ? 512 : 1024);

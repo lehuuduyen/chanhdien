@@ -52,12 +52,13 @@ const NIGHT_SKY = { top: '#0e1b3c', horizon: '#2a3c64', fog: '#25324f' };
 const DUSK_SKY = { top: '#3e4f86', horizon: '#f2a263', fog: '#7d6474' };
 const NIGHT_LIGHT = { sun: '#9fb6e6', sky: '#4d5f96', ground: '#1a2030' };
 const DUSK_LIGHT = { sun: '#ffa060', sky: '#e8b49a' };
-// Lớp phủ nhân thẳng vào khung hình: đêm xanh thẫm (đủ sáng để vẫn đi lại, tìm người được), nắng chiều ngả cam nhẹ.
-const NIGHT_TINT = [0.5, 0.57, 0.78];
+// Lớp phủ nhân thẳng vào khung hình: đêm tối rõ hơn ban ngày; các cụm đèn vàng ngoài sân bù sáng ở lối đi.
+const NIGHT_TINT = [0.38, 0.42, 0.58];
 const DUSK_TINT = [1, 0.9, 0.8];
 
 // base: màu ban ngày của vùng { top, horizon, fog, sun, sky, ground } (chuỗi #rrggbb). Trả màu đích (THREE.Color, đã
-// đổi sang không gian tuyến tính như mọi màu three.js), hệ số cường độ nắng / ánh trời, lớp phủ, độ sáng đèn lồng, sao.
+// đổi sang không gian tuyến tính như mọi màu three.js), hệ số cường độ nắng / ánh trời, lớp phủ, độ sáng đèn lồng,
+// cường độ vùng sáng vàng, sao.
 export function daylightGrade(base, elevation) {
   const level = daylightLevels(elevation);
   const tone = (from, to, amount) => (amount > 0 ? from.lerp(to.isColor ? to : new THREE.Color(to), Math.min(1, amount)) : from);
@@ -75,10 +76,11 @@ export function daylightGrade(base, elevation) {
     sun: tone(tone(color(base.sun), NIGHT_LIGHT.sun, level.dark), DUSK_LIGHT.sun, level.warm * 0.8),
     sky: tone(tone(color(base.sky), NIGHT_LIGHT.sky, level.dark), DUSK_LIGHT.sky, level.warm * 0.5),
     ground: tone(color(base.ground), NIGHT_LIGHT.ground, level.dark),
-    sunFactor: 1 - 0.6 * level.dark,
-    fillFactor: 1 - 0.45 * level.dark,
+    sunFactor: 1 - 0.78 * level.dark,
+    fillFactor: 1 - 0.62 * level.dark,
     tint,
-    glow: 1 + 1.6 * level.veil,
+    glow: 1 + level.veil,
+    lamp: level.veil,
     stars: level.stars,
   };
 }

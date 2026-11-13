@@ -198,7 +198,7 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     })),
     sky: { top: data.sky?.top || '#7aa6d8', horizon: data.sky?.horizon || '#f6dcb0' },
   };
-  const groups = Object.fromEntries(['trees', 'scatter', 'mountains', 'temple', 'landmarks'].map((name) => {
+  const groups = Object.fromEntries(['trees', 'grove', 'scatter', 'mountains', 'temple', 'landmarks'].map((name) => {
     const group = new THREE.Group();
     group.name = `landscape-${name}`;
     root.add(group);
@@ -297,13 +297,25 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     const scale = theme.treeScale || 1;
     if (big) for (const tree of data.trees || []) big(batch, tree.x, tree.z, (tree.size || 1) * scale, rand, env);
     if (small) for (const [x, z] of data.pines || []) small(batch, x, z, 1, rand, env);
-    // Rừng thiền ngoài cổng tây: cây lớn (big) theo kiểu cây lớn của vùng, còn lại kiểu cây nhỏ — rừng đổi theo vùng.
-    for (const tree of data.grove?.trees || []) {
+    batch.build(groups.trees, vertexMaterial, { castShadow: true });
+    built.trees = key;
+    pendingGrove = data.grove?.trees?.length ? { theme, big, small, scale, env } : null;
+  }
+
+  // Rừng thiền ngoài cổng tây (data.grove.trees): cây lớn (big) theo kiểu cây lớn của vùng, còn lại kiểu cây nhỏ — rừng
+  // đổi theo vùng. Dựng ở tick() khung kế tiếp chứ không cùng lúc đổi vùng: 55 cây làm mỗi lần đổi vùng chậm thêm
+  // 30–40 ms, tách ra thì không khung nào phải gánh cả hai.
+  let pendingGrove = null;
+  function buildGrove({ theme, big, small, scale, env }) {
+    disposeGroup(groups.grove);
+    const batch = new ColorBatch();
+    const rand = seeded(`grove:${theme.trees || 'banyan'}:${theme.pines || 'pine'}`);
+    for (const tree of data.grove.trees) {
       const make = tree.big ? big : small;
       if (make) make(batch, tree.x, tree.z, (tree.size || 1) * (tree.big ? scale : 1), rand, env);
     }
-    batch.build(groups.trees, vertexMaterial, { castShadow: true });
-    built.trees = key;
+    batch.build(groups.grove, vertexMaterial, { castShadow: true });
+    if (sun.castShadow) sun.shadow.needsUpdate = true;
   }
 
   // Rải ngoài tường (giữa tường sân và núi), chừa hai bên / sau chánh điện, lối trước cổng cho cảnh thoáng, và chỗ tiểu
@@ -558,6 +570,11 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     },
     // Mỗi khung (courtyard): night = mức tối 0–1 (đèn đêm của tiểu bang), outside = camera ở sân (chạy chuyển động).
     tick(seconds, night = 0, outside = 1) {
+      if (pendingGrove) {
+        const job = pendingGrove;
+        pendingGrove = null;
+        buildGrove(job);
+      }
       if (Math.abs(night - nightLevel) > 0.004) {
         nightLevel = night;
         for (const material of nightMaterials.values()) {
@@ -589,7 +606,7 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
         }
         return { meshes, triangles: Math.round(triangles) };
       };
-      const region = count([groups.trees, groups.scatter, groups.mountains, groups.temple]);
+      const region = count([groups.trees, groups.grove, groups.scatter, groups.mountains, groups.temple]);
       return { theme: current, ...region, state: currentState, landmarks: count([groups.landmarks]) };
     },
   };

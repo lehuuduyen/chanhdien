@@ -15,6 +15,70 @@ import { seeded } from './landscape/common.mjs';
 import { daylightGrade, GLOW_ORDER, SKY_LIGHTS_ORDER, VEIL_ORDER } from './daylight3d.mjs';
 
 const SCENE_MODELS = '/models/scene';
+const NIGHT_LIGHT_COUNT = 5;
+
+// Chọn vài đèn cách xa nhau thay vì biến mọi sprite đèn thành PointLight. Năm nguồn sáng không đổ bóng đủ tạo những
+// vùng vàng ấm ở các khu khác nhau mà không nhân shadow pass hay làm shader ngoài sân quá nặng trên điện thoại.
+function spreadLightSites(points, count = NIGHT_LIGHT_COUNT) {
+  const pool = points.filter((point, index) => points.findIndex((other) => other.distanceToSquared(point) < 0.01) === index);
+  if (pool.length <= count) return pool;
+  const center = pool.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / pool.length);
+  const chosen = [pool.reduce((best, point) => (point.distanceToSquared(center) < best.distanceToSquared(center) ? point : best))];
+  while (chosen.length < count) {
+    let next = null;
+    let bestDistance = -1;
+    for (const point of pool) {
+      if (chosen.includes(point)) continue;
+      const distance = Math.min(...chosen.map((item) => item.distanceToSquared(point)));
+      if (distance > bestDistance) {
+        bestDistance = distance;
+        next = point;
+      }
+    }
+    if (!next) break;
+    chosen.push(next);
+  }
+  return chosen;
+}
+
+const areaCenter = (area) => area ? [(area.x[0] + area.x[1]) / 2, (area.z[0] + area.z[1]) / 2] : null;
+const pointsCenter = (points) => points?.length ? [
+  points.reduce((sum, point) => sum + point.x, 0) / points.length,
+  points.reduce((sum, point) => sum + point.z, 0) / points.length,
+] : null;
+
+// Mỗi khu chức năng có một cụm đèn lễ hội riêng. Đây là điểm treo đèn (không phải vật cản), lấy hoàn toàn từ scene
+// JSON để bố cục khác vẫn tự tìm đúng trung tâm khu thay vì nhét tọa độ phòng vào engine.
+function courtyardLightSites(data, fallback) {
+  const sites = [];
+  const fromObject = (point) => point ? [point.x, point.z] : null;
+  const add = (point, y = 3.15) => {
+    if (!point?.every(Number.isFinite)) return;
+    const site = new THREE.Vector3(point[0], y, point[1]);
+    if (!sites.some((other) => other.distanceToSquared(site) < 4)) sites.push(site);
+  };
+  add([0, 38]); // sân chánh điện / lối công việc chung
+  add(data.flowerGarden?.center ? [data.flowerGarden.center.x, data.flowerGarden.center.z] : null);
+  for (const entrance of data.flowerGarden?.entrances || []) add(fromObject(entrance));
+  add(data.guanyin ? [data.guanyin.x, data.guanyin.z] : null);
+  add(data.park ? areaCenter(data.park.area) : null);
+  add(fromObject(data.park?.signPost));
+  add(pointsCenter(data.garden?.plots));
+  add(fromObject(data.garden?.entrance));
+  add(data.petZone ? areaCenter(data.petZone.area) : null);
+  add(fromObject(data.petZone?.entrance));
+  add(data.farmZone ? areaCenter(data.farmZone.area) : null);
+  add(fromObject(data.farmZone?.entrance));
+  add(pointsCenter(data.memorial?.graves));
+  add(fromObject(data.memorial?.entrance));
+  add(data.pond ? [data.pond.x, data.pond.z] : null);
+  add(data.bodhi ? [data.bodhi.x, data.bodhi.z] : null);
+  add(data.overlook?.terrace ? areaCenter(data.overlook.terrace) : null);
+  if (data.overlook?.path) add([(data.overlook.path.x[0] + data.overlook.path.x[1]) / 2, data.overlook.path.z[0] + 2]);
+  add(data.grove?.pavilion ? [data.grove.pavilion.x, data.grove.pavilion.z] : null);
+  add(fromObject(data.grove?.gate));
+  return sites.length ? sites : spreadLightSites(fallback, NIGHT_LIGHT_COUNT);
+}
 
 // Cụm lau sậy quanh bờ hồ: thân xanh mảnh và bông nâu (bông lau), gộp vào batch. center: tâm hồ; rx, rz: bán kính
 // elip mép nước; angles: góc các cụm; y: mặt nước.
@@ -188,9 +252,31 @@ function buildOverlook(batch, root, m, { path, terrace }) {
   });
 }
 
-// Rừng thiền: cổng gỗ trên tường sân, lối đá vào, vòng lối đá quanh hồ (elip có lỗ), mặt hồ + bờ đá + lá sen, bến gỗ
-// sát mặt nước ra thủy đình lục giác giữa hồ. Mặt lối / bến sát đất (nhân vật đứng cao độ 0).
-function buildGrove(batch, root, m, { gate, entry, pond, loop, pier, pavilion }) {
+// Rừng thiền: cổng gỗ trên tường sân, lối đá vào, vòng lối đá quanh hồ (elip có lỗ), mặt hồ + bờ đá + sen, bến gỗ
+// sát mặt nước ra thủy đình bát giác giữa hồ. Mặt lối / bến sát đất (nhân vật đứng cao độ 0).
+function buildGrove(batch, root, m, { area, gate, entry, pond, loop, pier, pavilion }) {
+  // Thảm nền: cùng vật liệu cỏ của sân trong tường (landscape đổi theo vùng: cỏ, thảm lá, tuyết, cát…) để rừng không nằm
+  // trên ruộng lúa / luống lúa mì của đất ngoài tường. Hình vuông bo góc mép lượn, cạnh đông thẳng sát chân tường.
+  const floor = new THREE.Shape();
+  const cx = (area.x[0] + gate.x) / 2;
+  const cz = (area.z[0] + area.z[1]) / 2;
+  const hx = (gate.x - area.x[0]) / 2 + 0.6;
+  const hz = (area.z[1] - area.z[0]) / 2;
+  const curve = (value) => Math.sign(value) * Math.abs(value) ** 0.4;
+  for (let index = 0; index <= 160; index += 1) {
+    const angle = (index / 160) * Math.PI * 2;
+    const wobble = 1 + (0.6 * Math.sin(angle * 7 + 1.3) + 0.35 * Math.sin(angle * 13 + 0.4)) / 24;
+    const px = Math.min(gate.x, cx + hx * wobble * curve(Math.cos(angle)));
+    const pz = cz + hz * wobble * curve(Math.sin(angle));
+    if (index) floor.lineTo(px, -pz);
+    else floor.moveTo(px, -pz);
+  }
+  const floorGeometry = new THREE.ShapeGeometry(floor);
+  floorGeometry.rotateX(-Math.PI / 2);
+  floorGeometry.translate(0, 0.008, 0);
+  const floorMesh = new THREE.Mesh(floorGeometry, m.grass);
+  floorMesh.receiveShadow = true;
+  root.add(floorMesh);
   const tiles = stoneTiles([1, 1]);
   tiles.repeat.set(1 / 6, 1 / 6);
   const stone = new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.92 });
@@ -208,53 +294,78 @@ function buildGrove(batch, root, m, { gate, entry, pond, loop, pier, pavilion })
   const ringMesh = new THREE.Mesh(ringGeometry, stone);
   ringMesh.receiveShadow = true;
   root.add(ringMesh);
-  // Mặt hồ, bờ đá, lá sen, vài bông sen.
-  const water = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshStandardMaterial({ color: '#3f7d84', roughness: 0.15, metalness: 0.1 }));
+  // Mặt hồ dùng chung vật liệu nước của hồ lớn (water3d: giữa thẫm mép nhạt, gợn sáng, viền bọt). Đá bờ và sen là mô
+  // hình Meshy có sẵn của Hồ Sen; chưa tải / tải lỗi thì hiện đá, lá sen dựng bằng khối (nhóm dự phòng riêng).
+  const water = new THREE.Mesh(new THREE.CircleGeometry(1, 64), m.lakeWater);
   water.rotation.x = -Math.PI / 2;
-  water.scale.set(pond.rx, pond.rz, 1);
-  water.position.set(pond.x, 0.03, pond.z);
+  water.scale.set(pond.rx + 0.15, pond.rz + 0.15, 1);
+  water.position.set(pond.x, 0.04, pond.z);
+  water.renderOrder = 2;
   root.add(water);
+  const fallback = (source, name) => {
+    const group = new THREE.Group();
+    group.name = name;
+    source.build(group, { castShadow: true, receiveShadow: true });
+    root.add(group);
+    return group;
+  };
+  const rimBatch = new StaticBatch();
+  const lotusBatch = new StaticBatch();
   const pad = new THREE.MeshStandardMaterial({ color: '#4f8a3f', roughness: 0.8 });
-  const lotus = new THREE.MeshStandardMaterial({ color: '#f2a0b8', roughness: 0.7 });
+  const bloom = new THREE.MeshStandardMaterial({ color: '#f2a0b8', roughness: 0.7 });
   let seed = 5;
   const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rocks = [];
   const rimCount = Math.round((Math.PI * (pond.rx + pond.rz)) / 1.1);
   for (let index = 0; index < rimCount; index += 1) {
     const angle = (index / rimCount) * Math.PI * 2;
-    const px = pond.x + Math.cos(angle) * (pond.rx + 0.2);
-    const pz = pond.z + Math.sin(angle) * (pond.rz + 0.2);
+    const px = pond.x + Math.cos(angle) * (pond.rx + 0.3);
+    const pz = pond.z + Math.sin(angle) * (pond.rz + 0.3);
     // Chừa chỗ bến gỗ đi qua bờ.
     if (Math.abs(px - pier.x) < pier.width / 2 + 0.3 && pz < pond.z) continue;
     const r = 0.45 + rand() * 0.35;
-    batch.add(new THREE.DodecahedronGeometry(r, 0), m.stone, { position: [px, r * 0.25, pz], rotation: [rand() * 3, rand() * 3, 0], scale: [1.4, 0.6, 1.1] });
+    rimBatch.add(new THREE.DodecahedronGeometry(r, 0), m.stone, { position: [px, r * 0.25, pz], rotation: [rand() * 3, rand() * 3, 0], scale: [1.4, 0.6, 1.1] });
+    rocks.push({ x: px, y: -0.08, z: pz, ry: index * 2.3, s: 0.8 + rand() * 0.6 });
   }
+  const lotusItems = [];
   for (let index = 0; index < 26; index += 1) {
     const angle = rand() * Math.PI * 2;
     const reach = 0.35 + rand() * 0.55;
     const px = pond.x + Math.cos(angle) * pond.rx * reach;
     const pz = pond.z + Math.sin(angle) * pond.rz * reach;
     if (Math.abs(px - pier.x) < pier.width / 2 + 0.6 && pz < pond.z) continue;
-    if (Math.hypot(px - pavilion.x, pz - pavilion.z) < pavilion.radius + 0.6) continue;
-    batch.add(new THREE.CylinderGeometry(0.42 + rand() * 0.2, 0.42, 0.02, 10), pad, { position: [px, 0.05, pz] });
-    if (index % 4 === 0) batch.add(new THREE.ConeGeometry(0.16, 0.28, 6), lotus, { position: [px + 0.1, 0.2, pz] });
+    if (Math.hypot(px - pavilion.x, pz - pavilion.z) < pavilion.radius + 1.4) continue;
+    lotusBatch.add(new THREE.CylinderGeometry(0.42 + rand() * 0.2, 0.42, 0.02, 10), pad, { position: [px, 0.05, pz] });
+    if (index % 4 === 0) lotusBatch.add(new THREE.ConeGeometry(0.16, 0.28, 6), bloom, { position: [px + 0.1, 0.2, pz] });
+    lotusItems.push({ x: px, y: 0.02, z: pz, ry: index * 1.3, s: 0.8 + rand() * 0.4 });
   }
+  const rimFallback = fallback(rimBatch, 'grove-rocks-fallback');
+  const lotusFallback = fallback(lotusBatch, 'grove-lotus-fallback');
+  instanceProp(root, `${SCENE_MODELS}/rock.glb`, rocks, { size: 0.85 }, { brighten: 0.35 }).then((group) => { if (group) rimFallback.visible = false; });
+  instanceProp(root, `${SCENE_MODELS}/lotus.glb`, lotusItems, { width: 0.95 }).then((group) => { if (group) lotusFallback.visible = false; });
   // Bến gỗ: ván sát mặt nước, cọc hai bên.
   const deckLength = pier.z[1] - pier.z[0];
   batch.add(new THREE.BoxGeometry(pier.width, 0.06, deckLength), m.wood, { position: [pier.x, 0.04, (pier.z[0] + pier.z[1]) / 2] });
   for (let z = pier.z[0] + 0.6; z < pier.z[1]; z += 2) {
     for (const side of [-1, 1]) batch.add(new THREE.CylinderGeometry(0.09, 0.09, 0.9, 6), m.wood, { position: [pier.x + side * (pier.width / 2 + 0.05), 0.3, z] });
   }
-  // Thủy đình lục giác: sàn gỗ, sáu cột, mái chóp sáu cạnh, chóp nhọn.
+  // Thủy đình: đình bát giác Meshy của Vườn Hoa cùng cỡ và cùng hướng (xoay π/8: tám cột trên vòng bán kính
+  // pavilion.radius, hai cột kẹp lối vào phía bến −z, khớp vật cản trong scene). Chưa tải / tải lỗi thì hiện đình dựng
+  // bằng khối cùng tám cột.
   const r = pavilion.radius;
-  batch.add(new THREE.CylinderGeometry(r, r, 0.08, 6), m.wood, { position: [pavilion.x, 0.03, pavilion.z] });
-  for (let index = 0; index < 6; index += 1) {
-    const angle = ((index + 0.5) / 6) * Math.PI * 2;
-    if (Math.abs(Math.sin(angle) + 1) < 0.2) continue;
-    batch.add(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 8), m.pillar, { position: [pavilion.x + Math.cos(angle) * (r - 0.3), 1.3, pavilion.z + Math.sin(angle) * (r - 0.3)] });
+  const octagon = [0, Math.PI / 8, 0];
+  const pavilionBatch = new StaticBatch();
+  pavilionBatch.add(new THREE.CylinderGeometry(r + 0.4, r + 0.4, 0.08, 8), m.wood, { position: [pavilion.x, 0.03, pavilion.z], rotation: octagon });
+  for (let index = 0; index < 8; index += 1) {
+    const angle = ((index + 0.5) / 8) * Math.PI * 2;
+    pavilionBatch.add(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 8), m.pillar, { position: [pavilion.x + Math.cos(angle) * r, 1.3, pavilion.z + Math.sin(angle) * r] });
   }
-  batch.add(new THREE.CylinderGeometry(r * 1.05, r * 1.08, 0.2, 6), m.wood, { position: [pavilion.x, 2.65, pavilion.z] });
-  batch.add(new THREE.ConeGeometry(r * 1.35, 1.6, 6), m.roof, { position: [pavilion.x, 3.55, pavilion.z] });
-  batch.add(new THREE.SphereGeometry(0.16, 8, 6), m.gold, { position: [pavilion.x, 4.4, pavilion.z] });
+  pavilionBatch.add(new THREE.CylinderGeometry(r + 0.35, r + 0.4, 0.2, 8), m.wood, { position: [pavilion.x, 2.65, pavilion.z], rotation: octagon });
+  pavilionBatch.add(new THREE.ConeGeometry((r + 0.4) * 1.35, 1.6, 8), m.roof, { position: [pavilion.x, 3.55, pavilion.z], rotation: octagon });
+  pavilionBatch.add(new THREE.SphereGeometry(0.16, 8, 6), m.gold, { position: [pavilion.x, 4.4, pavilion.z] });
+  const pavilionFallback = fallback(pavilionBatch, 'grove-pavilion-fallback');
+  placeProp(root, '/models/flowers/pavilion.glb', { x: pavilion.x, z: pavilion.z, ry: Math.PI / 8, width: (r + 1.0) * 2 }, { receiveShadow: false })
+    .then((group) => { if (group) pavilionFallback.visible = false; });
   // Cổng gỗ trên tường sân: hai cột, xà đôi, mái nhỏ hai mái.
   const gx = gate.x + 0.2;
   for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.42, 3.2, 0.42), m.pillar, { position: [gx, 1.6, gate.z + side * (gate.width / 2 + 0.15)] });
@@ -1967,7 +2078,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
 
   // Quầng sáng đèn (sprite cộng sáng, không thêm nguồn sáng); ban đêm sáng hơn và vẽ sau lớp phủ đêm.
   const GLOW_COLOR = new THREE.Color('#ffbf6a');
+  const NIGHT_GLOW_COLOR = new THREE.Color('#ff781f');
   const glowMaterial = new THREE.SpriteMaterial({ map: glowTexture, color: GLOW_COLOR.clone(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const lanternGlowSprites = [];
 
   // ---- Trời theo giờ (daylight3d.mjs): sao, trăng, lớp phủ đêm ----
   // Lớp phủ: một tấm phủ kín màn hình nhân màu khung hình (ZERO, SRC_COLOR), làm tối mọi thứ vẽ trước nó kể cả phần
@@ -2039,7 +2152,13 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     sun.color.copy(grade.sun);
     skyFill.color.copy(grade.sky);
     skyFill.groundColor.copy(grade.ground);
-    glowMaterial.color.copy(GLOW_COLOR).multiplyScalar(grade.glow);
+    glowMaterial.color.copy(GLOW_COLOR).lerp(NIGHT_GLOW_COLOR, grade.level.veil);
+    glowMaterial.opacity = 0.68 + grade.level.veil * 0.28;
+    for (const glow of lanternGlowSprites) {
+      const size = 1.1 * grade.glow;
+      glow.userData.baseScale = size;
+      glow.scale.set(size, size, 1);
+    }
     stars.visible = moon.visible = grade.stars > 0.01;
     stars.material.opacity = grade.stars;
     moon.material.opacity = grade.stars;
@@ -2072,10 +2191,126 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   for (const position of lanternGlows) {
     const glow = new THREE.Sprite(glowMaterial);
     glow.position.copy(position);
-    glow.scale.set(1.1, 1.1, 1);
+    const glowScale = 1.1 * (grade?.glow || 1);
+    glow.scale.set(glowScale, glowScale, 1);
     glow.renderOrder = GLOW_ORDER;
+    glow.userData.baseScale = glowScale;
+    glow.userData.phase = lanternGlowSprites.length * 1.73;
     root.add(glow);
+    lanternGlowSprites.push(glow);
   }
+  // Hai hạt sáng nhỏ quanh mỗi đèn, gom trong một Points nên toàn bộ lớp "lung linh" chỉ thêm một draw call.
+  const twinklePositions = [];
+  lanternGlows.forEach((position, index) => {
+    const angle = index * 2.17;
+    for (const side of [-1, 1]) twinklePositions.push(
+      position.x + Math.cos(angle) * 0.16 * side,
+      position.y + 0.08 + side * 0.11,
+      position.z + Math.sin(angle) * 0.16 * side,
+    );
+  });
+  const twinkleGeometry = new THREE.BufferGeometry();
+  twinkleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(twinklePositions, 3));
+  const twinkleMaterial = new THREE.PointsMaterial({
+    map: glowTexture, color: '#ffd36b', size: 6, sizeAttenuation: false,
+    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+  });
+  const twinkles = new THREE.Points(twinkleGeometry, twinkleMaterial);
+  twinkles.renderOrder = GLOW_ORDER + 1;
+  twinkles.visible = false;
+  scene3d.add(twinkles);
+  const zoneLightSites = courtyardLightSites(data, lanternGlows);
+  // Ba bóng vàng treo thành cụm ở mỗi khu, dùng InstancedMesh nên mọi khu cộng lại vẫn chỉ một draw call.
+  const zoneBulbs = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.1, 8, 6),
+    new THREE.MeshBasicMaterial({ color: '#ffd36b', toneMapped: false }),
+    zoneLightSites.length * 3,
+  );
+  const bulbDummy = new THREE.Object3D();
+  let bulbIndex = 0;
+  for (const site of zoneLightSites) {
+    for (const offset of [-0.48, 0, 0.48]) {
+      bulbDummy.position.set(site.x + offset, site.y - Math.abs(offset) * 0.16, site.z);
+      bulbDummy.updateMatrix();
+      zoneBulbs.setMatrixAt(bulbIndex, bulbDummy.matrix);
+      bulbIndex += 1;
+    }
+  }
+  zoneBulbs.instanceMatrix.needsUpdate = true;
+  zoneBulbs.visible = false;
+  zoneBulbs.renderOrder = GLOW_ORDER + 1;
+  scene3d.add(zoneBulbs);
+  const zoneGlowGeometry = new THREE.BufferGeometry();
+  zoneGlowGeometry.setAttribute('position', new THREE.Float32BufferAttribute(zoneLightSites.flatMap((site) => site.toArray()), 3));
+  const zoneGlowMaterial = new THREE.PointsMaterial({
+    map: glowTexture, color: '#ff9a32', size: 42, sizeAttenuation: false,
+    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+  });
+  const zoneGlows = new THREE.Points(zoneGlowGeometry, zoneGlowMaterial);
+  zoneGlows.renderOrder = GLOW_ORDER;
+  zoneGlows.visible = false;
+  scene3d.add(zoneGlows);
+
+  // Quầng sáng trải trên mặt đất để cả khu vực được soi ấm, thay vì chỉ thấy bóng đèn phát sáng. Toàn bộ các quầng
+  // dùng chung một InstancedMesh (một draw call), không đổ bóng và vẫn depth-test nên không vẽ đè lên người / cảnh vật.
+  const zoneLightPoolMaterial = new THREE.MeshBasicMaterial({
+    map: glowTexture, color: '#ffb84d', side: THREE.DoubleSide,
+    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+  });
+  const zoneLightPools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), zoneLightPoolMaterial, zoneLightSites.length);
+  const poolDummy = new THREE.Object3D();
+  zoneLightSites.forEach((site, index) => {
+    poolDummy.position.set(site.x, 0.055, site.z);
+    poolDummy.rotation.set(-Math.PI / 2, 0, 0);
+    poolDummy.scale.set(12, 9, 1);
+    poolDummy.updateMatrix();
+    zoneLightPools.setMatrixAt(index, poolDummy.matrix);
+  });
+  zoneLightPools.instanceMatrix.needsUpdate = true;
+  zoneLightPools.renderOrder = GLOW_ORDER - 1;
+  zoneLightPools.visible = false;
+  scene3d.add(zoneLightPools);
+
+  // Đom đóm / bụi sáng quanh từng khu giúp ánh đêm có chiều sâu. Vị trí có seed cố định để mọi máy thấy giống nhau;
+  // tất cả hạt vẫn chỉ là một Points draw call.
+  const zoneSparkleRand = seeded('courtyard-zone-sparkles');
+  const zoneSparklePositions = [];
+  for (const site of zoneLightSites) {
+    for (let index = 0; index < 7; index += 1) {
+      const angle = zoneSparkleRand() * Math.PI * 2;
+      const radius = 1.4 + zoneSparkleRand() * 4.8;
+      zoneSparklePositions.push(
+        site.x + Math.cos(angle) * radius,
+        0.65 + zoneSparkleRand() * 2.8,
+        site.z + Math.sin(angle) * radius,
+      );
+    }
+  }
+  const zoneSparkleGeometry = new THREE.BufferGeometry();
+  zoneSparkleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(zoneSparklePositions, 3));
+  const zoneSparkleMaterial = new THREE.PointsMaterial({
+    map: glowTexture, color: '#ffe4a0', size: 5, sizeAttenuation: false,
+    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+  });
+  const zoneSparkles = new THREE.Points(zoneSparkleGeometry, zoneSparkleMaterial);
+  zoneSparkles.renderOrder = GLOW_ORDER + 2;
+  zoneSparkles.visible = false;
+  scene3d.add(zoneSparkles);
+
+  // Chỉ giữ năm PointLight không bóng và chuyển chúng tới năm khu gần camera nhất. Nhờ vậy khu người chơi đang ở có
+  // ánh vàng thật trên cây / tường nhưng shader không phải gánh một PointLight cho tất cả mười hai khu cùng lúc.
+  const rankedLightSites = zoneLightSites.map((site) => ({ site, distance: 0 }));
+  const nightLights = spreadLightSites(zoneLightSites).map((position, index) => {
+    const light = new THREE.PointLight('#ffc36a', 0, 30, 2);
+    light.position.copy(position);
+    light.position.y += 0.35;
+    light.castShadow = false;
+    light.userData.phase = index * 2.1;
+    scene3d.add(light);
+    return light;
+  });
+  const nightFill = new THREE.AmbientLight('#ffc878', 0);
+  scene3d.add(nightFill);
 
   // ---- Khói hương từ lư lớn ----
   const smokeMaterial = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, depthWrite: false, opacity: 0.35 });
@@ -2170,6 +2405,33 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
       outside += (target - outside) * Math.min(1, dt * 3);
       sun.intensity = 2.1 * outside * grade.sunFactor;
       skyFill.intensity = 0.9 * outside * grade.fillFactor;
+      for (const light of nightLights) {
+        const flicker = 1 + Math.sin(time / 780 + light.userData.phase) * 0.035;
+        light.intensity = 155 * outside * grade.lamp * flicker;
+      }
+      const shimmer = outside * grade.lamp;
+      for (const entry of rankedLightSites) entry.distance = camera.position.distanceToSquared(entry.site);
+      rankedLightSites.sort((a, b) => a.distance - b.distance);
+      const move = Math.min(1, dt * 4);
+      for (let index = 0; index < nightLights.length; index += 1) {
+        const light = nightLights[index];
+        const target = rankedLightSites[index]?.site;
+        if (target) light.position.lerp(target, move);
+      }
+      nightFill.intensity = 0.9 * shimmer;
+      for (const glow of lanternGlowSprites) {
+        const pulse = 1 + shimmer * Math.sin(time / 520 + glow.userData.phase) * 0.09;
+        const size = glow.userData.baseScale * pulse;
+        glow.scale.set(size, size, 1);
+      }
+      twinkleMaterial.opacity = shimmer * (0.52 + Math.sin(time / 430) * 0.18);
+      twinkles.visible = twinkleMaterial.opacity > 0.01;
+      zoneGlowMaterial.opacity = shimmer * (0.68 + Math.sin(time / 560) * 0.12);
+      zoneGlows.visible = zoneBulbs.visible = zoneGlowMaterial.opacity > 0.01;
+      zoneLightPoolMaterial.opacity = shimmer * (0.28 + Math.sin(time / 920) * 0.035);
+      zoneLightPools.visible = zoneLightPoolMaterial.opacity > 0.01;
+      zoneSparkleMaterial.opacity = shimmer * (0.46 + Math.sin(time / 370) * 0.16);
+      zoneSparkles.visible = zoneSparkleMaterial.opacity > 0.01;
       paintSky(outside);
       landscape.tick(time / 1000, grade.level.veil, outside);
       // Không bật/tắt đèn (đổi số nguồn sáng làm mọi vật liệu biên dịch lại shader, giật mỗi lần qua cửa):
