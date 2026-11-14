@@ -159,10 +159,10 @@ export function validateWorld(scene) {
   }
   const guideBoards = world.courtyard?.guideBoards;
   if (guideBoards !== undefined) {
-    const allowed = new Set(['hall', 'courtyard', 'garden', 'pets']);
+    const allowed = new Set(['hall', 'courtyard', 'garden', 'pets', 'wishes']);
     const guideIds = new Set();
     if (!Array.isArray(guideBoards) || guideBoards.length !== allowed.size) {
-      errors.push('world.courtyard.guideBoards cần đủ 4 bảng hall/courtyard/garden/pets');
+      errors.push('world.courtyard.guideBoards cần đủ 5 bảng hall/courtyard/garden/pets/wishes');
     } else {
       for (const board of guideBoards) {
         if (!allowed.has(board.id) || guideIds.has(board.id)) errors.push(`bảng hướng dẫn ${board.id || '?'} không hợp lệ hoặc bị trùng`);
@@ -171,6 +171,28 @@ export function validateWorld(scene) {
         if (typeof board.sign !== 'string' || !board.sign.trim() || board.sign.length > 40) errors.push(`bảng hướng dẫn ${board.id || '?'} thiếu nội dung ngắn`);
       }
       for (const id of allowed) if (!guideIds.has(id)) errors.push(`thiếu bảng hướng dẫn ${id}`);
+    }
+  }
+  const wishes = world.courtyard?.wishGarden;
+  if (wishes !== undefined) {
+    const validRange = (range) => Array.isArray(range) && range.length === 2 && range.every(Number.isFinite) && range[0] < range[1];
+    const stationIds = new Set();
+    if (!validRange(wishes.area?.x) || !validRange(wishes.area?.z) || !validRange(wishes.path?.x) || !validRange(wishes.path?.z)
+      || ![wishes.center?.x, wishes.center?.z, wishes.pond?.x, wishes.pond?.z, wishes.pond?.rx, wishes.pond?.rz].every(Number.isFinite)) {
+      errors.push('world.courtyard.wishGarden thiếu khu vực, lối nối, tâm hoặc hồ hợp lệ');
+    }
+    if (!Array.isArray(wishes.stations) || wishes.stations.length !== 7) {
+      errors.push('world.courtyard.wishGarden cần đủ 7 trạm đèn');
+    } else {
+      for (const station of wishes.stations) {
+        if (typeof station.id !== 'string' || !/^wish-[1-7]$/.test(station.id) || stationIds.has(station.id)) {
+          errors.push(`trạm đèn ${station.id || '?'} có id không hợp lệ hoặc bị trùng`);
+        }
+        stationIds.add(station.id);
+        if (![station.x, station.z, station.ry, station.approach?.x, station.approach?.z].every(Number.isFinite)) {
+          errors.push(`trạm đèn ${station.id || '?'} thiếu toạ độ`);
+        }
+      }
     }
   }
   const gardenModel = world.courtyard?.garden?.model;

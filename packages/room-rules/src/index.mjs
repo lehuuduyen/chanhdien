@@ -747,6 +747,23 @@ export function thienPlaceOf(state) {
 
 // Sự kiện hằng ngày: đúng giờ này theo giờ địa phương của tiểu bang, cả phòng cùng nghe bài giảng YouTube của
 // ngôn ngữ phòng (phát từ đầu video lúc bắt đầu; ai vào trễ nghe tiếp đúng đoạn đang giảng). Đổi video ở đây.
+// Game Bấm Giờ (nút ⏱ cạnh Trốn tìm ở chánh điện, chơi được cả ngoài sân): mục tiêu ngẫu nhiên từ min tới max (phần
+// trăm giây: 1 = 00:01, 1000 = 10:00), bấm Bắt đầu rồi Dừng; lệch ≤ tolerance (phần trăm giây) là trúng. Cấp sau mở khi
+// đã trúng cấp trước; hideAfter: đồng hồ ẩn sau chừng ấy phần trăm giây kể từ lúc bắt đầu (null: hiện suốt, 0: ẩn từ đầu).
+// Không thưởng xu: chỉ lưu lịch sử bấm trúng + Bảng vàng (apps/api/stopwatch.mjs). timeout: đồng hồ tự dừng (trượt).
+export const STOPWATCH = deepFreeze({
+  min: 1,
+  max: 1000,
+  timeout: 2000,
+  levels: [
+    { id: 1, name: 'Tập sự', tolerance: 10, hideAfter: null },
+    { id: 2, name: 'Tỉnh thức', tolerance: 5, hideAfter: null },
+    { id: 3, name: 'Định tâm', tolerance: 3, hideAfter: 200 },
+    { id: 4, name: 'Nhất tâm', tolerance: 1, hideAfter: 100 },
+    { id: 5, name: 'Vô niệm', tolerance: 0, hideAfter: 0 },
+  ],
+});
+
 export const THIEN_EVENT = deepFreeze({
   hour: 18,
   minute: 0,

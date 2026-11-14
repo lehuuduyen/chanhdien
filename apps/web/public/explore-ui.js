@@ -20,6 +20,31 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   let gameLock = false;
   let hiddenDecor = [];
   let roleMarks = {};
+  // Hành trình bảy trạm là tiến độ cá nhân theo ngày, không tạo state phòng và không tốn dung lượng server.
+  const pilgrimageKey = 'thien-pilgrimage-v1';
+  const today = () => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  function readPilgrimage() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(pilgrimageKey) || '{}');
+      if (saved.day === today() && Array.isArray(saved.stations)) return new Set(saved.stations.filter((id) => /^wish-[1-7]$/.test(id)));
+    } catch {}
+    return new Set();
+  }
+  const pilgrimage = readPilgrimage();
+  function lightPilgrimageStation({ id }) {
+    if (!/^wish-[1-7]$/.test(id)) return;
+    if (pilgrimage.has(id)) {
+      showToast(t('pilgrimage.already'));
+      return;
+    }
+    pilgrimage.add(id);
+    try { localStorage.setItem(pilgrimageKey, JSON.stringify({ day: today(), stations: [...pilgrimage] })); } catch {}
+    api?.setPilgrimage?.([...pilgrimage]);
+    showToast(t(pilgrimage.size === 7 ? 'pilgrimage.complete' : 'pilgrimage.progress', { n: pilgrimage.size }));
+  }
 
   const benchPoint = (bench, localX, localZ) => {
     const scale = bench.scale || 1;
@@ -465,11 +490,12 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       onWalkerTap: (id) => onWalkerTap?.(id),
       onSpiritTap: (target) => onSpiritTap?.(target),
       // Chó mèo đã có bảng hành động riêng khi lại gần nên không thêm chữ.
-      hintText: (kind) => (kind === 'pet' ? '' : t({ plot: 'garden.hintPlot', shop: 'garden.hintShop', grave: 'memorial.hint', guide: 'explore.hintGuide', merit: 'explore.hintMerit', swing: 'park.hintSwing', slide: 'park.hintSlide' }[kind] || 'explore.tapToSit')),
+      hintText: (kind) => (kind === 'pet' ? '' : t({ plot: 'garden.hintPlot', shop: 'garden.hintShop', grave: 'memorial.hint', guide: 'explore.hintGuide', merit: 'explore.hintMerit', wish: 'pilgrimage.hint', swing: 'park.hintSwing', slide: 'park.hintSlide' }[kind] || 'explore.tapToSit')),
       onGardenTap: (target) => onGardenTap?.(target),
       onMemorialTap: (target) => onMemorialTap?.(target),
       onGuideTap: (place) => onGuideTap?.(place),
       onMeritBoardTap: () => onMeritBoardTap?.(),
+      onPilgrimageTap: lightPilgrimageStation,
       onPetTap: (target) => {
         nearbyPet = target;
         renderPet();
@@ -504,6 +530,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       showControls(Boolean(api) && Boolean(session.participantId));
       push();
       if (gardenPlots.size) api?.setGarden?.([...gardenPlots.values()]);
+      api?.setPilgrimage?.([...pilgrimage]);
       api?.setMemorial?.([...memorialGraves.values()], { full: true });
       if (choreStates.size) api?.setChores?.([...choreStates.values()]);
       api?.setSpectator(walkersFull || gameLock);

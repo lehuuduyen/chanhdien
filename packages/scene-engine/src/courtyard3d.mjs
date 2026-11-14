@@ -78,6 +78,8 @@ function courtyardLightSites(data, fallback) {
   add(data.bodhi ? [data.bodhi.x, data.bodhi.z] : null);
   add(data.overlook?.terrace ? areaCenter(data.overlook.terrace) : null);
   if (data.overlook?.path) add([(data.overlook.path.x[0] + data.overlook.path.x[1]) / 2, data.overlook.path.z[0] + 2]);
+  add(data.wishGarden?.center ? [data.wishGarden.center.x, data.wishGarden.center.z] : null);
+  add(fromObject(data.wishGarden?.entrance));
   add(data.grove?.pavilion ? [data.grove.pavilion.x, data.grove.pavilion.z] : null);
   add(fromObject(data.grove?.gate));
   return sites.length ? sites : spreadLightSites(fallback, NIGHT_LIGHT_COUNT);
@@ -253,6 +255,155 @@ function buildOverlook(batch, root, m, { path, terrace }) {
     }
     rail(ax, az, bx, bz);
   });
+}
+
+// Vườn Đèn Tâm Nguyện: vòng hành hương bảy trạm quanh hồ phản chiếu và cây nguyện ước. Phần tĩnh đi qua StaticBatch;
+// bảy ngọn đèn và vùng chạm dùng InstancedMesh nên số trạm tăng mà không tăng draw call theo từng trạm.
+function buildWishGarden(batch, root, m, glowTexture, { area, path, center, ring, pond, stations }) {
+  // Khu vườn nằm trên mặt Đài ngắm cảnh (cao 0,11 m), nên lớp cỏ và lối vòng nhích lên để không bị mặt đá che.
+  const floor = new THREE.Mesh(groundShape(area, [], 0.12), m.grass);
+  floor.receiveShadow = true;
+  root.add(floor);
+
+  const tiles = stoneTiles([1, 1]);
+  tiles.repeat.set(1 / 6, 1 / 6);
+  const stone = new THREE.MeshStandardMaterial({ map: tiles, roughness: 0.92 });
+  const bridge = new THREE.Mesh(groundShape(path, [], 0.135), stone);
+  bridge.receiveShadow = true;
+  root.add(bridge);
+  for (const z of [path.z[0] - 0.12, path.z[1] + 0.12]) {
+    batch.add(new THREE.BoxGeometry(path.x[1] - path.x[0], 0.2, 0.24), m.stone, {
+      position: [(path.x[0] + path.x[1]) / 2, 0.1, z],
+    });
+  }
+
+  const ringShape = new THREE.Shape();
+  ringShape.absellipse(ring.x, -ring.z, ring.rx + ring.width / 2, ring.rz + ring.width / 2, 0, Math.PI * 2, false);
+  const ringHole = new THREE.Path();
+  ringHole.absellipse(ring.x, -ring.z, ring.rx - ring.width / 2, ring.rz - ring.width / 2, 0, Math.PI * 2, true);
+  ringShape.holes.push(ringHole);
+  const ringGeometry = new THREE.ShapeGeometry(ringShape, 64);
+  ringGeometry.rotateX(-Math.PI / 2);
+  ringGeometry.translate(0, 0.145, 0);
+  const ringMesh = new THREE.Mesh(ringGeometry, m.gravel);
+  ringMesh.receiveShadow = true;
+  root.add(ringMesh);
+
+  // Hồ tối phản chiếu ánh đèn; đảo nhỏ giữa hồ nâng cây nguyện ước lên khỏi mặt nước.
+  const water = new THREE.Mesh(new THREE.CircleGeometry(1, 48), m.lakeWater);
+  water.rotation.x = -Math.PI / 2;
+  water.scale.set(pond.rx, pond.rz, 1);
+  water.position.set(pond.x, 0.15, pond.z);
+  water.renderOrder = 2;
+  root.add(water);
+  batch.add(new THREE.CylinderGeometry(1.25, 1.45, 0.25, 20), m.rock, { position: [center.x, 0.05, center.z] });
+  batch.add(new THREE.CylinderGeometry(0.36, 0.52, 4.6, 10), m.bark, { position: [center.x, 2.35, center.z] });
+  for (const [dx, dy, dz, scale] of [[0, 4.8, 0, 1.5], [-1.15, 4.25, 0.2, 1.15], [1.05, 4.35, -0.15, 1.2], [0.15, 4.2, 0.95, 1.05], [-0.2, 4.4, -0.9, 1.1]]) {
+    batch.add(new THREE.IcosahedronGeometry(1.25, 1), m.bodhiLeaf, {
+      position: [center.x + dx, dy, center.z + dz], scale: [scale * 1.15, scale * 0.72, scale],
+    });
+  }
+  // Những thẻ nguyện ước nhỏ tạo màu sắc quanh tán mà không dùng texture hay mesh rời.
+  const wishColors = [m.paper, m.flowerPink, m.flowerYellow];
+  for (let index = 0; index < 18; index += 1) {
+    const angle = index * 2.17;
+    const radius = 0.65 + (index % 4) * 0.28;
+    batch.add(new THREE.BoxGeometry(0.12, 0.24, 0.025), wishColors[index % wishColors.length], {
+      position: [center.x + Math.cos(angle) * radius, 3.45 + (index % 5) * 0.28, center.z + Math.sin(angle) * radius],
+      rotation: [0, angle, Math.sin(angle * 2) * 0.12],
+    });
+  }
+
+  // Bảy trạm dạng cổng đèn thấp, quay vào tâm. Mỗi trạm đủ khác một chiếc đèn đá nhưng vẫn nhẹ.
+  for (const station of stations) {
+    const sin = Math.sin(station.ry || 0);
+    const cos = Math.cos(station.ry || 0);
+    const at = (lx, y, lz) => [station.x + lx * cos + lz * sin, y, station.z - lx * sin + lz * cos];
+    for (const side of [-1, 1]) {
+      batch.add(new THREE.CylinderGeometry(0.1, 0.13, 1.55, 8), m.pillar, { position: at(side * 0.62, 0.78, 0) });
+      batch.add(new THREE.SphereGeometry(0.12, 8, 6), m.gold, { position: at(side * 0.62, 1.62, 0) });
+    }
+    batch.add(new THREE.BoxGeometry(1.65, 0.16, 0.2), m.wood, { position: at(0, 1.55, 0), rotation: [0, station.ry || 0, 0] });
+    batch.add(new THREE.BoxGeometry(0.62, 0.52, 0.4), m.lantern, { position: at(0, 1.05, 0) });
+    batch.add(new THREE.ConeGeometry(0.42, 0.25, 4), m.darkStone, { position: at(0, 1.43, 0), rotation: [0, Math.PI / 4, 0] });
+    batch.add(new THREE.CylinderGeometry(0.52, 0.62, 0.14, 12), m.stone, { position: at(0, 0.07, 0) });
+  }
+
+  const bulbMaterial = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false });
+  const bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(0.16, 10, 8), bulbMaterial, stations.length);
+  const pickMaterial = new THREE.MeshBasicMaterial({ visible: false });
+  const pickables = new THREE.InstancedMesh(new THREE.BoxGeometry(1.8, 2.2, 1.2), pickMaterial, stations.length);
+  const dummy = new THREE.Object3D();
+  const colors = new Float32Array(stations.length * 3);
+  stations.forEach((station, index) => {
+    dummy.position.set(station.x, 1.05, station.z);
+    dummy.rotation.set(0, station.ry || 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    pickables.setMatrixAt(index, dummy.matrix);
+    dummy.position.y = 1.08;
+    dummy.scale.setScalar(0.72);
+    dummy.updateMatrix();
+    bulbs.setMatrixAt(index, dummy.matrix);
+  });
+  bulbs.instanceMatrix.needsUpdate = true;
+  bulbs.renderOrder = GLOW_ORDER + 1;
+  pickables.instanceMatrix.needsUpdate = true;
+  pickables.userData.pilgrimageStations = stations.map((item) => item.id);
+  root.add(bulbs, pickables);
+
+  const haloGeometry = new THREE.BufferGeometry();
+  haloGeometry.setAttribute('position', new THREE.Float32BufferAttribute(stations.flatMap((item) => [item.x, 1.08, item.z]), 3));
+  haloGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const haloMaterial = new THREE.PointsMaterial({
+    map: glowTexture, vertexColors: true, size: 28, sizeAttenuation: false,
+    transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+  });
+  const halos = new THREE.Points(haloGeometry, haloMaterial);
+  halos.renderOrder = GLOW_ORDER;
+  root.add(halos);
+
+  const treeGlowMaterial = new THREE.SpriteMaterial({
+    map: glowTexture, color: '#ffd36b', transparent: true, opacity: 0.08,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+  });
+  const treeGlow = new THREE.Sprite(treeGlowMaterial);
+  treeGlow.position.set(center.x, 3.5, center.z);
+  treeGlow.scale.set(3, 3, 1);
+  treeGlow.renderOrder = GLOW_ORDER;
+  root.add(treeGlow);
+
+  const lit = new Set();
+  const litColor = new THREE.Color('#ffd56a');
+  const darkColor = new THREE.Color('#7a2d24');
+  const apply = () => {
+    stations.forEach((station, index) => {
+      const on = lit.has(station.id);
+      bulbs.setColorAt(index, on ? litColor : darkColor);
+      const color = on ? litColor : new THREE.Color(0, 0, 0);
+      colors.set(color.toArray(), index * 3);
+    });
+    bulbs.instanceColor.needsUpdate = true;
+    haloGeometry.attributes.color.needsUpdate = true;
+    treeGlowMaterial.opacity = 0.06 + lit.size * 0.055;
+    const size = 3 + lit.size * 0.45;
+    treeGlow.scale.set(size, size, 1);
+  };
+  apply();
+  return {
+    pickables: [pickables],
+    lightSites: stations.map((item) => new THREE.Vector3(item.x, 1.08, item.z)),
+    setProgress(ids = []) {
+      lit.clear();
+      for (const id of ids) if (stations.some((item) => item.id === id)) lit.add(id);
+      apply();
+    },
+    update(time, night) {
+      const pulse = 0.82 + Math.sin(time / 480) * 0.18;
+      haloMaterial.opacity = (0.42 + night * 0.38) * pulse;
+      treeGlowMaterial.rotation = Math.sin(time / 1400) * 0.06;
+    },
+  };
 }
 
 // Rừng thiền: cổng gỗ trên tường sân, lối đá vào, vòng lối đá quanh hồ (elip có lỗ), mặt hồ + bờ đá + sen, bến gỗ
@@ -1603,6 +1754,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   // ---- Đài ngắm cảnh ngoài cổng (data.overlook): lối đá + đài bát giác lan can đá, mặt đá sát đất (0,1 m, nằm trên mặt
   // nước của các bang ven biển); bó vỉa / chân lan can che khe giữa mặt đá và nền. ----
   if (data.overlook) buildOverlook(batch, root, m, data.overlook);
+  // ---- Vườn Đèn Tâm Nguyện ngoài cạnh đông Đài ngắm cảnh. ----
+  const wishGarden = data.wishGarden ? buildWishGarden(batch, root, m, glowTexture, data.wishGarden) : null;
+  if (wishGarden) lanternGlows.push(...wishGarden.lightSites);
   // ---- Rừng thiền ngoài cổng hông phía tây (data.grove): cổng gỗ, lối đá, vòng lối quanh hồ sen, bến gỗ, thủy đình. Cây
   // của rừng do lớp phong cảnh vẽ theo vùng (landscape3d: grove.trees). ----
   if (data.grove) buildGrove(batch, root, m, data.grove);
@@ -2346,6 +2500,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     gardenPickables,
     memorialPickables,
     guidePickables,
+    pilgrimagePickables: wishGarden?.pickables || [],
     activateAssets() {
       flowerGarden?.activate?.();
     },
@@ -2372,6 +2527,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     setCommunityProject(project) {
       if (project?.id === data.bodhi?.projectId) communityBodhi?.set(project);
       if (project?.id === data.pond?.projectId) communityLotus?.set(project);
+    },
+    setPilgrimage(ids) {
+      wishGarden?.setProgress(ids);
     },
     // Bật bóng đổ (thử trên điện thoại), hoặc tắt khi máy yếu. Tắt không đổi số đèn đổ bóng (đổi là mọi vật liệu
     // biên dịch lại shader, đứng hình vài giây): thu khung chụp bóng về rỗng, vẽ một lần cho sạch bóng rồi thôi vẽ.
@@ -2459,6 +2617,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
       communityBodhi?.tick(time / 1000);
       lotusFloats?.(time / 1000);
       flowerGarden?.update(dt, time, camera);
+      wishGarden?.update(time, shimmer);
       for (const spray of sprays) {
         const k = ((time / 1_600) + spray.phase) % 1;
         const reach = 0.25 + k * 0.85;

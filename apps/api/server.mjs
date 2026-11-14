@@ -22,6 +22,7 @@ import { handleBotChatRequest, openBotChatStore, realtimeBotSpeaker } from './bo
 import { handleFriendLinksRequest, openFriendLinks, realtimeInboxNotifier } from './friend-links.mjs';
 import { handleMemorialRequest } from './memorial.mjs';
 import { handlePetsRequest } from './pets.mjs';
+import { createStopwatchStore, handleStopwatchRequest } from './stopwatch.mjs';
 import { createPrivateRooms, handlePrivateRoomRequest, realtimePrivateRoomNotifier } from './private-rooms.mjs';
 import { batchNotifier, banMessage, handleModerationRequest, openModerationStore, requestIpHash } from './moderation.mjs';
 import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
@@ -221,6 +222,8 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleGardenBotRequest(req, res, pathname, options)) return;
   if (await handleMemorialRequest(req, res, pathname, options)) return;
   if (await handlePetsRequest(req, res, pathname, options)) return;
+  // Game Bấm Giờ (nút ⏱ ở chánh điện): ra đề, kiểm tra thời gian, lịch sử bấm trúng, Bảng vàng.
+  if (await handleStopwatchRequest(req, res, pathname, options)) return;
   if (await handleChoreRewardRequest(req, res, pathname, options)) return;
   if (await handleHideSeekRewardRequest(req, res, pathname, options)) return;
   if (await handleGameRequest(req, res, pathname, options)) return;
@@ -319,6 +322,8 @@ if (isMain) {
     // Vườn / khu tưởng niệm / công trình chung báo tới mọi máy realtime (mỗi máy phát cho phòng nó đang giữ).
     realtimeBroadcastUrls: realtimeInternalUrls,
     // Phòng Lô Tô riêng cho nhóm bạn: trừ xu ở ví vườn, danh sách mời ở SQLite, báo máy realtime thêm bot / đuổi người.
+    // Game Bấm Giờ: đề / lịch sử / Bảng vàng chung file SQLite với tài khoản.
+    stopwatch: accounts ? createStopwatchStore({ db: accounts.database }) : null,
     privateRooms: accounts ? createPrivateRooms({ db: accounts.database, accounts, garden, friendLinks, notifyRealtime: realtimePrivateRoomNotifier(realtimeInternalUrls, secret) }) : null,
   });
   server.listen(port, host, () => console.log(`API: http://${host}:${port} (${shared ? 'danh bạ Redis' : 'một máy realtime'})`));

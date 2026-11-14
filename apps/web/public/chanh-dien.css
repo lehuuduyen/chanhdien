@@ -716,6 +716,46 @@ button.chip { cursor: pointer; }
 
 /* Trốn tìm (hide-seek-ui.js): nút trên thanh phòng, bảng luật, thanh trạng thái, màn đen người đi kiếm, xem camera. */
 .hs-chip.on { border-color: var(--gold); color: var(--gold); }
+/* Bấm giờ (stopwatch-ui.js): thẻ nổi ngay trên thanh chat (bottom do JS đặt), chơi được cả trong điện lẫn ngoài sân
+   mà vẫn thấy cảnh phía trên. Đang mở thì ẩn cần điều khiển (thẻ nằm đè chỗ đó). */
+.sw-chip[aria-expanded="true"] { border-color: var(--gold); color: var(--gold); }
+#stage.sw-open .joystick { display: none; }
+.sw-card { position: absolute; z-index: 14; left: 3cqw; right: 3cqw; bottom: 40cqw; display: grid; gap: 1.6cqw; max-height: 62%; overflow: auto; padding: 3cqw; color: var(--fg); background: rgba(18, 10, 6, .9); border: 1px solid var(--line); border-radius: 3.4cqw; box-shadow: 0 14px 40px rgba(0, 0, 0, .55); }
+.sw-card[hidden], .sw-card [hidden] { display: none; }
+.sw-card.sw-hit { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(217, 164, 65, .35), 0 14px 40px rgba(0, 0, 0, .55); }
+.sw-head { display: flex; align-items: center; gap: 1.6cqw; }
+.sw-title { flex: 1; color: var(--gold); font-family: var(--display); font-size: clamp(14px, 4.4cqw, 19px); }
+.sw-tab, .sw-close { cursor: pointer; }
+.sw-play, .sw-history { display: grid; gap: 1.6cqw; }
+.sw-levels { display: flex; gap: 1.4cqw; }
+.sw-level { flex: 1; min-height: clamp(28px, 8.6cqw, 38px); color: var(--fg); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 2cqw; font: inherit; font-size: clamp(11px, 3.4cqw, 15px); font-weight: 700; cursor: pointer; }
+.sw-level.active { color: #2a1404; background: var(--gold); border-color: var(--gold); }
+.sw-level.locked { opacity: .45; cursor: not-allowed; }
+.sw-rule { margin: 0; color: #d8c9a8; font-size: clamp(10px, 3cqw, 13px); line-height: 1.35; }
+.sw-board { display: grid; grid-template-columns: 1fr 1fr; gap: 2cqw; }
+.sw-box { display: grid; justify-items: center; gap: .6cqw; padding: 1.6cqw; background: rgba(0, 0, 0, .3); border: 1px solid rgba(217, 164, 65, .25); border-radius: 2.4cqw; }
+.sw-box small { color: #d8c9a8; font-size: clamp(10px, 2.9cqw, 12px); }
+.sw-target, .sw-clock { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: clamp(26px, 10cqw, 44px); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.sw-target { color: var(--gold); }
+.sw-clock.hidden-time { color: rgba(241, 227, 200, .4); }
+.sw-main { min-height: clamp(44px, 13cqw, 58px); color: #2a1404; background: var(--gold); border: 0; border-radius: 3cqw; font: inherit; font-size: clamp(15px, 4.8cqw, 21px); font-weight: 800; touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.sw-main.running { color: #fff; background: #b8432f; }
+.sw-main:disabled { opacity: .55; cursor: default; }
+.sw-message { min-height: 1.3em; margin: 0; font-size: clamp(11px, 3.4cqw, 15px); font-weight: 700; text-align: center; }
+.sw-message.hit { color: var(--gold); }
+.sw-message.miss { color: #e9a08f; }
+.sw-stats { margin: 0; color: #d8c9a8; font-size: clamp(10px, 2.9cqw, 12px); text-align: center; }
+.sw-stats:empty { display: none; }
+.sw-guest { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 1.6cqw; color: #d8c9a8; font-size: clamp(10px, 2.9cqw, 12px); }
+.sw-guest:empty { display: none; }
+.sw-sign { color: #2a1404; background: var(--gold); cursor: pointer; }
+.sw-history h3 { margin: 1cqw 0 0; color: var(--gold); font-family: var(--display); font-size: clamp(12px, 3.8cqw, 16px); }
+.sw-list { display: grid; gap: 1cqw; margin: 0; padding: 0; list-style: none; }
+.sw-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6cqw 1.8cqw; padding: 1.4cqw 2cqw; background: rgba(255, 255, 255, .05); border-radius: 2cqw; font-size: clamp(10px, 3.1cqw, 13px); }
+.sw-list li.empty { color: #d8c9a8; }
+.sw-list b { color: var(--fg); }
+.sw-list small { margin-left: auto; color: #b8a888; }
+.sw-badge { padding: 0 1.4cqw; color: #2a1404; background: var(--gold); border-radius: 999px; font-size: .9em; font-weight: 700; }
 .hs-sheet .hs-card { display: grid; gap: 2cqw; }
 .hs-sheet header { display: flex; align-items: center; justify-content: space-between; gap: 2cqw; }
 .hs-sheet h2 { margin: 0; color: var(--gold); font-family: var(--display); }

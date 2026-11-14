@@ -581,10 +581,43 @@ c.overlook = {
   path: { x: [-5, 5], z: [GATE + 0.4, 115] },
   terrace: { x: [-12, 12], z: [114, 134], cut: 3.5 },
 };
+// Vườn Đèn Tâm Nguyện: một vòng hành hương nhỏ nối từ cạnh đông Đài ngắm cảnh. Người chơi đi quanh hồ phản chiếu,
+// chạm đủ bảy trạm đèn mỗi ngày; cây nguyện ước ở giữa sáng dần theo tiến độ. Khu nằm ngoài tường nên không chiếm
+// diện tích các hoạt động hiện có trong sân, nhưng vẫn nằm trong biên realtime / camera chung.
+const WISH_GARDEN = { x: [-11.4, 11.4], z: [114.6, 133.4] };
+{
+  // Dồn hồ và vòng đèn sang nửa đông để giữ trục giữa từ cổng ra mép đài luôn thông; nửa tây là chỗ ngồi ngắm cảnh.
+  const center = { x: 5, z: 122 };
+  const ring = { ...center, rx: 4.3, rz: 6.0, width: 1.5 };
+  const pond = { ...center, rx: 2.4, rz: 2.2 };
+  const stations = Array.from({ length: 7 }, (_, index) => {
+    // Lệch nửa nhịp để cửa vào phía tây không bị một trạm chắn giữa lối.
+    const angle = Math.PI + ((index + 0.5) / 7) * Math.PI * 2;
+    const x = round3(center.x + Math.cos(angle) * ring.rx);
+    const z = round3(center.z + Math.sin(angle) * ring.rz);
+    const inward = Math.atan2(center.x - x, center.z - z);
+    return {
+      id: `wish-${index + 1}`, x, z, ry: inward,
+      approach: { x: round3(x + Math.sin(inward) * 0.95), z: round3(z + Math.cos(inward) * 0.95) },
+    };
+  });
+  c.wishGarden = {
+    sign: 'VƯỜN ĐÈN TÂM NGUYỆN',
+    area: WISH_GARDEN,
+    // Đoạn đá ngắn nối lối chính vào khu vườn trên đài; hai vùng chồng nhau để tìm đường không gặp khe hở.
+    path: { x: [-2.7, 2.7], z: [112.8, 115.8] },
+    entrance: { x: 0, z: 115.3, ry: 0 },
+    center, ring, pond, stations,
+  };
+  c.guideBoards = [
+    ...(c.guideBoards || []).filter((item) => item.id !== 'wishes'),
+    { id: 'wishes', x: 9.2, z: 115.8, ry: 3.1416, width: 2.4, height: 1.15, sign: 'HƯỚNG DẪN VƯỜN ĐÈN' },
+  ];
+}
 // Hai ghế đá trên đài quay mặt ra cảnh (lưng về phía chùa, chỗ đứng chờ sau lưng ghế).
 c.benches.push(
-  { id: 'B-14', x: -4, z: 129.5, ry: 0, scale: 0.72, seats: 2, approach: [0, -1.1] },
-  { id: 'B-15', x: 4, z: 129.5, ry: 0, scale: 0.72, seats: 2, approach: [0, -1.1] },
+  { id: 'B-14', x: -7, z: 129.5, ry: 0, scale: 0.72, seats: 2, approach: [0, -1.1] },
+  { id: 'B-15', x: -3, z: 129.5, ry: 0, scale: 0.72, seats: 2, approach: [0, -1.1] },
 );
 // Đèn đá: hai bên sân lư hương như cũ, thêm dọc lối giữa tới cổng, dọc lối ra đài và bốn góc đài.
 c.lanterns = [[-3.4, 20], [3.4, 20], [-3.4, 24.5], [3.4, 24.5], [-3.4, 29], [3.4, 29], [-3, 88], [3, 88], [-3, 94], [3, 94],
@@ -830,6 +863,13 @@ obstacles.push(...c.benches.filter((item) => item.id === 'B-14' || item.id === '
   const point = localPoint(item, lx, 0);
   return circle(round3(point.x), round3(point.z), 0.42);
 })));
+// Vườn Đèn: không lội xuống hồ, không xuyên bệ trạm / thân cây; lối vòng và điểm đứng phía trong mỗi trạm vẫn trống.
+obstacles.push(
+  { x: c.wishGarden.pond.x, z: c.wishGarden.pond.z, rx: c.wishGarden.pond.rx + 0.35, rz: c.wishGarden.pond.rz + 0.35 },
+  circle(c.wishGarden.center.x, c.wishGarden.center.z, 0.75),
+  ...c.wishGarden.stations.map((item) => circle(item.x, item.z, 0.52)),
+  circle(c.guideBoards.find((item) => item.id === 'wishes').x, c.guideBoards.find((item) => item.id === 'wishes').z, 0.65),
+);
 walk.obstacles = obstacles;
 const { path: overPath, terrace } = c.overlook;
 walk.bounds = { x: [GROVE.x[0] + 0.6, HALF - 0.6], z: [1.3, terrace.z[1] - 0.6] };
@@ -841,6 +881,9 @@ walk.areas = [
   { x: [overPath.x[0] + 0.1, overPath.x[1] - 0.1], z: [overPath.z[0] + 0.6, terrace.z[0] + 1] },
   { x: [terrace.x[0] + 0.6, terrace.x[1] - 0.6], z: [terrace.z[0] + terrace.cut, terrace.z[1] - terrace.cut] },
   { x: [terrace.x[0] + terrace.cut, terrace.x[1] - terrace.cut], z: [terrace.z[0] + 0.6, terrace.z[1] - 0.6] },
+  // Cầu đá từ Đài ngắm cảnh và toàn bộ Vườn Đèn Tâm Nguyện.
+  { x: [c.wishGarden.path.x[0], c.wishGarden.path.x[1]], z: [c.wishGarden.path.z[0], c.wishGarden.path.z[1]] },
+  { x: [WISH_GARDEN.x[0] + 0.6, WISH_GARDEN.x[1] - 0.6], z: [WISH_GARDEN.z[0] + 0.6, WISH_GARDEN.z[1] - 0.6] },
   // Cổng hông phía tây (qua tường sân) và Rừng thiền.
   { x: [GROVE.x[1] - 0.8, -(HALF - 1.4)], z: [GROVE_GATE_Z - 1.2, GROVE_GATE_Z + 1.2] },
   { x: [GROVE.x[0] + 0.6, GROVE.x[1]], z: [GROVE.z[0] + 0.6, GROVE.z[1] - 0.6] },

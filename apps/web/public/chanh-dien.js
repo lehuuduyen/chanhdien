@@ -20,6 +20,7 @@ import { createGardenUI } from '/garden-ui.js';
 import { createMemorialUI } from '/memorial-ui.js';
 import { createPetUI } from '/pet-ui.js';
 import { createHideSeekUI } from '/hide-seek-ui.js';
+import { createStopwatchUI } from '/stopwatch-ui.js';
 import { clearPendingCompanion, onCompanionRemembered, PENDING_COMPANION_MS, readPendingCompanion, rememberCompanion } from '/pet-companion-sync.js';
 import { createCommunityProjectUI } from '/community-project-ui.js';
 import { createZoneGuide } from '/zone-guide.js';
@@ -177,6 +178,11 @@ const explore = createExploreUI({
   exits: [{ id: 'cinema', icon: '🎬', go: goToCinema }, { id: 'games', icon: '🎲', go: goToGames }],
 });
 hideSeek = createHideSeekUI({ stage: elements.stage, host: elements.roomBar, session, explore, showToast, t, onLangChange, onCoins: () => garden?.refreshCoins() });
+// Game Bấm Giờ: nút ngay dưới Trốn tìm, chơi trong điện hay ngoài sân đều được (thẻ nổi trên thanh chat).
+createStopwatchUI({
+  stage: elements.stage, host: elements.roomBar, controls: elements.controls, t, onLangChange, locale, showToast,
+  account: () => accountUI?.account, openSignIn: () => $('meChip').click(),
+});
 // Quay về từ map khác (rạp phim gửi ?go=courtyard…): vào phòng xong thì tới thẳng khu đã chọn.
 explore.arriveAt(PARAMS.get('go'));
 
