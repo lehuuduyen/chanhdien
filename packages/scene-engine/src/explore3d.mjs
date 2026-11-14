@@ -31,6 +31,11 @@ const RUN_JOYSTICK = 0.85;
 
 // Hướng mặt từ vận tốc: phía trước của nhân vật là −z cục bộ.
 const headingOf = (dx, dz) => Math.atan2(-dx, -dz);
+// Động tác ở Vườn Công Đức theo hiệu ứng garden.plot: loại đạo cụ / dáng (choreTool) và thời gian làm (ms; bot làm 4 giây).
+const GARDEN_ACTIONS = { water: { kind: 'water', ms: 4_000 }, plant: { kind: 'sow', ms: 3_600 }, harvest: { kind: 'harvest', ms: 3_600 } };
+// Đứng trong GARDEN_REACH m quanh tâm luống thì làm tại chỗ; mình đứng xa hơn (tới GARDEN_WALK_REACH) thì đi tới lối cạnh luống.
+const GARDEN_REACH = 3;
+const GARDEN_WALK_REACH = 30;
 
 // Góc trong khoảng [−π, π] (protocol chỉ nhận |ry| ≤ 7; xoay nhiều vòng không được cộng dồn).
 const wrapAngle = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -116,6 +121,21 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         add(new THREE.CylinderGeometry(0.06, 0.09, 0.12, 10), green, [0, 0.08, 0]);
         add(new THREE.TorusGeometry(0.18, 0.024, 6, 16, Math.PI), gold, [0, 0.07, 0.02], [0, 0, Math.PI]);
         add(new THREE.CylinderGeometry(0.025, 0.06, 0.28, 8), green, [0.19, -0.05, 0], [0, 0, -1.08]);
+      } else if (kind === 'sow') {
+        // Túi hạt giống bằng vải bố, miệng túi buộc dây, vài hạt lộ ở miệng.
+        const sack = material('#b98d55');
+        add(new THREE.SphereGeometry(0.13, 10, 8), sack, [0, -0.06, 0], [0, 0, 0], [1, 1.15, 0.85]);
+        add(new THREE.CylinderGeometry(0.07, 0.1, 0.07, 10), sack, [0, 0.09, 0]);
+        add(new THREE.TorusGeometry(0.075, 0.014, 6, 14), material('#7a4f2a'), [0, 0.07, 0], [Math.PI / 2, 0, 0]);
+        for (let index = 0; index < 4; index += 1) add(new THREE.SphereGeometry(0.018, 5, 4), gold, [((index % 2) - 0.5) * 0.05, 0.13, (Math.floor(index / 2) - 0.5) * 0.04]);
+      } else if (kind === 'harvest') {
+        // Giỏ tre có quai, vài quả trong giỏ.
+        const cane = material('#c49a5a');
+        add(new THREE.CylinderGeometry(0.17, 0.13, 0.15, 12, 1, true), cane, [0, -0.08, 0]);
+        add(new THREE.CylinderGeometry(0.13, 0.13, 0.015, 12), cane, [0, -0.15, 0]);
+        add(new THREE.TorusGeometry(0.17, 0.016, 6, 16), material('#a87b40'), [0, 0, 0], [Math.PI / 2, 0, 0]);
+        add(new THREE.TorusGeometry(0.16, 0.014, 6, 16, Math.PI), material('#a87b40'), [0, 0, 0]);
+        ['#d8452f', '#f0a030', '#e7c43b'].forEach((color, index) => add(new THREE.SphereGeometry(0.05, 8, 6), material(color), [(index - 1) * 0.07, -0.02, (index % 2) * 0.04 - 0.02]));
       }
       // Bình tưới và đèn có thân rộng; thu vừa bàn tay chibi để đạo cụ không che khuất người đang làm.
       const heldScale = kind === 'water' ? 0.52 : kind === 'light' ? 0.82 : 1;
@@ -132,15 +152,16 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     function choreEffect(kind) {
       const group = new THREE.Group();
       const leafKinds = ['sweep', 'water'].includes(kind);
-      const count = kind === 'water' ? 16 : leafKinds ? 12 : 7;
+      const count = kind === 'water' ? 16 : leafKinds ? 12 : kind === 'sow' ? 10 : kind === 'harvest' ? 4 : 7;
       for (let index = 0; index < count; index += 1) {
         const waterDrop = kind === 'water' && index < 7;
         const leaf = kind === 'sweep' || (kind === 'water' && !waterDrop);
         const color = kind === 'sweep' ? ['#b86e2b', '#d1a13c', '#718f3d'][index % 3]
           : waterDrop ? '#76d3ed' : kind === 'water' ? ['#65ad45', '#8fca57'][index % 2]
-            : kind === 'feed' ? '#d7a340' : kind === 'clean' ? '#fff2a3' : kind === 'tea' ? '#e5e0d2' : '#ffd36b';
+            : kind === 'sow' ? ['#c99a4a', '#8a5a2b'][index % 2] : kind === 'harvest' ? ['#d8452f', '#f0a030', '#e7c43b', '#7fb04a'][index % 4]
+              : kind === 'feed' ? '#d7a340' : kind === 'clean' ? '#fff2a3' : kind === 'tea' ? '#e5e0d2' : '#ffd36b';
         const mesh = new THREE.Mesh(
-          leaf ? new THREE.SphereGeometry(0.055, 6, 4) : new THREE.SphereGeometry(waterDrop ? 0.025 : 0.03, 6, 4),
+          leaf ? new THREE.SphereGeometry(0.055, 6, 4) : new THREE.SphereGeometry(waterDrop ? 0.025 : kind === 'sow' ? 0.02 : kind === 'harvest' ? 0.05 : 0.03, 6, 4),
           new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }),
         );
         if (leaf) mesh.scale.set(1.7, 0.35, 0.8);
@@ -156,6 +177,64 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         item.material.dispose();
       });
       return group;
+    }
+
+    // Đạo cụ + hiệu ứng đang cầm: động tác vườn (tạm thời) ưu tiên hơn việc chung server giao (walker.serverChore).
+    function applyChore(walker) {
+      const next = walker.gardenAction?.kind || walker.serverChore || null;
+      if (next === walker.chore) return;
+      if (walker.choreTool) {
+        walker.parts.upper.remove(walker.choreTool);
+        walker.choreTool.userData.dispose?.();
+        walker.choreTool = null;
+      }
+      if (walker.choreEffect) {
+        walker.group.remove(walker.choreEffect);
+        walker.choreEffect.userData.dispose?.();
+        walker.choreEffect = null;
+      }
+      walker.chore = next;
+      if (next) {
+        walker.choreTool = choreTool(next);
+        walker.choreEffect = choreEffect(next);
+        walker.parts.upper.add(walker.choreTool);
+        walker.group.add(walker.choreEffect);
+      }
+    }
+
+    // Vườn Công Đức: tưới (cầm bình tưới, nước rơi xuống luống), gieo (túi hạt, rải hạt), hái (giỏ, quả bay vào giỏ)
+    // vài giây, quay mặt vào luống. Tin garden.plot phát cho mọi phòng chánh điện nên người khác / bot chỉ nhận người
+    // cùng tên đang đứng sát luống trong phòng này. Chính mình đứng xa thì tự đi tới lối cạnh luống (plot.aisle) rồi làm.
+    function gardenAct(plotId, kind, by) {
+      const action = GARDEN_ACTIONS[kind];
+      const plot = action && (world.courtyard?.garden?.plots || []).find((item) => item.id === plotId);
+      if (!plot) return;
+      const start = (walker) => {
+        if (!walker) return;
+        const ry = headingOf(plot.x - walker.x, plot.z - walker.z);
+        walker.gardenAction = { kind: action.kind, until: performance.now() + action.ms, ry, x: walker.x, z: walker.z };
+        // Mình: làm xong vẫn quay mặt vào luống (người khác / bot thì hướng mặt do server gửi).
+        if (walker.id === selfId) walker.ry = ry;
+        applyChore(walker);
+      };
+      const near = (walker) => Math.hypot(walker.x - plot.x, walker.z - plot.z) <= GARDEN_REACH;
+      if (by === undefined) {
+        const self = walkers.get(selfId);
+        if (!self || selfSeated || self.benchId || spectator) return;
+        if (near(self)) start(self);
+        else if (Math.hypot(self.x - plot.x, self.z - plot.z) <= GARDEN_WALK_REACH) {
+          const stand = { x: plot.x, z: Number.isFinite(plot.aisle) ? plot.aisle : plot.z + 1.75 };
+          path = findPath(walk, self, stand);
+          arrive = path.length ? () => start(walkers.get(selfId)) : null;
+        }
+        return;
+      }
+      for (const walker of walkers.values()) {
+        if (walker.id !== selfId && walker.name === by && near(walker)) {
+          start(walker);
+          return;
+        }
+      }
     }
 
     // Nhân vật chú tiểu (chibi): đầu to, mắt nhắm cười, áo tràng, tay chắp (chibi3d.mjs).
@@ -692,7 +771,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const wave = Math.sin(phase);
         const lift = (Math.sin(phase * 0.5) + 1) / 2;
         figure.position.y = Math.abs(Math.cos(phase)) * 0.018;
-        upper.rotation.x = walker.chore === 'sweep' ? 0.18 + Math.abs(wave) * 0.18 : 0.08;
+        upper.rotation.x = walker.chore === 'sweep' ? 0.18 + Math.abs(wave) * 0.18
+          : walker.chore === 'sow' ? 0.3 + lift * 0.12 : walker.chore === 'harvest' ? 0.12 + (1 - lift) * 0.3 : 0.08;
         upper.rotation.z = wave * (walker.chore === 'clean' ? 0.16 : 0.05);
         const armWave = wave * 0.28;
         if (walker.chore === 'sweep') workRig?.set(true, { x: 0.95, z: -0.25 + armWave }, { x: 1.15, z: 0.25 + armWave });
@@ -700,6 +780,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         else if (walker.chore === 'light') workRig?.set(true, { x: 0.82, z: -0.2 }, { x: 0.82, z: 0.2 });
         else if (walker.chore === 'feed') workRig?.set(true, { x: 0.85, z: -0.15 }, { x: 0.55 + lift * 0.65, z: 0.24 });
         else if (walker.chore === 'clean') workRig?.set(true, { x: 1.0, z: -0.2 + armWave }, { x: 1.0, z: 0.2 + armWave });
+        // Gieo: tay trái ôm túi hạt, tay phải vung ra rải; hái: tay trái xách giỏ, tay phải với xuống hái rồi đưa về giỏ.
+        else if (walker.chore === 'sow') workRig?.set(true, { x: 0.85, z: -0.18 }, { x: 0.45 + lift * 0.75, z: 0.32 });
+        else if (walker.chore === 'harvest') workRig?.set(true, { x: 0.65, z: -0.3 }, { x: 0.35 + (1 - lift) * 0.9, z: 0.2 });
         else workRig?.set(true, { x: 0.95, z: -0.18 }, { x: 0.95, z: 0.18 });
         if (walker.choreTool) {
           walker.choreTool.position.set(0, 0.04, -0.3);
@@ -713,22 +796,30 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           else if (walker.chore === 'feed') walker.choreTool.rotation.x = -0.2 + lift * 0.32;
           else if (walker.chore === 'clean') walker.choreTool.position.x = wave * 0.18;
           else if (walker.chore === 'tea') walker.choreTool.rotation.z = -0.18 + lift * 0.22;
+          else if (walker.chore === 'sow') walker.choreTool.position.set(-0.12, 0.02, -0.26);
+          else if (walker.chore === 'harvest') walker.choreTool.position.set(-0.2, -0.06, -0.24);
         }
         if (walker.choreEffect) {
-          walker.choreEffect.rotation.y = walker.ry;
+          walker.choreEffect.rotation.y = walker.gardenAction ? walker.gardenAction.ry : walker.ry;
+          // Tưới luống: nước rơi xa hơn, tới mặt luống trước mặt (lối đi cách luống ~0,9 m).
+          const reach = walker.gardenAction ? 0.6 : 0;
           walker.choreEffect.children.forEach((particle) => {
             const p = (phase + particle.userData.phase) % (Math.PI * 2);
             const unit = p / (Math.PI * 2);
             if (walker.chore === 'sweep') particle.position.set(Math.sin(p) * 0.58, 0.05 + Math.abs(Math.sin(p * 2)) * 0.12, -0.42 + Math.cos(p) * 0.34);
             else if (walker.chore === 'water' && particle.userData.waterDrop) {
               const fall = (unit * 1.8) % 1;
-              particle.position.set(0.32 + fall * 0.38, 0.48 - fall * 0.43, -0.34 + Math.sin(p) * 0.05);
+              particle.position.set(0.32 + fall * (0.38 - reach * 0.4), 0.48 - fall * 0.43, -0.34 - fall * reach + Math.sin(p) * 0.05);
             } else if (walker.chore === 'water') {
               particle.position.set(0.48 + Math.sin(p * 1.7) * 0.24, 0.04 + unit * 0.58, -0.38 + Math.cos(p) * 0.16);
             }
             else if (walker.chore === 'feed') particle.position.set(Math.sin(p) * 0.38, 0.12 + Math.sin(unit * Math.PI) * 0.48, -0.25 - unit * 0.5);
             else if (walker.chore === 'clean') particle.position.set(Math.sin(p) * 0.34, 0.42 + Math.cos(p * 2) * 0.25, -0.45);
             else if (walker.chore === 'tea') particle.position.set(Math.sin(p * 1.4) * 0.08, 0.35 + unit * 0.55, -0.34);
+            // Hạt bay ra từ tay phải theo vòng cung rồi rơi xuống mặt luống trước mặt.
+            else if (walker.chore === 'sow') particle.position.set(0.18 + Math.sin(p * 3) * 0.22, 0.5 * (1 - unit) + Math.sin(unit * Math.PI) * 0.18, -0.4 - unit * 0.55);
+            // Quả từ mặt luống bay lên rồi rơi vào giỏ bên trái.
+            else if (walker.chore === 'harvest') particle.position.set(0.2 - unit * 0.42, 0.12 + Math.sin(unit * Math.PI) * 0.5 + unit * 0.2, -0.75 + unit * 0.5);
             else particle.position.set(Math.sin(p) * 0.2, 0.5 + Math.cos(p) * 0.2, -0.38);
             particle.rotation.set(p, p * 0.7, p * 1.3);
             particle.material.opacity = 0.35 + (1 - unit) * 0.65;
@@ -974,8 +1065,14 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           walker.moving = walker.targetMoving || distance > 0.05;
         }
         walker.group.visible = !(walker.id === selfId && selfSeated);
-        const choreX = walker.choreOffset * Math.cos(walker.choreRy || 0);
-        const choreZ = -walker.choreOffset * Math.sin(walker.choreRy || 0);
+        if (walker.gardenAction && (performance.now() > walker.gardenAction.until
+          || Math.hypot(walker.x - walker.gardenAction.x, walker.z - walker.gardenAction.z) > 0.4)) {
+          walker.gardenAction = null;
+          applyChore(walker);
+        }
+        const offset = walker.gardenAction ? 0 : walker.choreOffset;
+        const choreX = offset * Math.cos(walker.choreRy || 0);
+        const choreZ = -offset * Math.sin(walker.choreRy || 0);
         walker.group.position.set(walker.x + choreX, 0, walker.z + choreZ);
         const cameraDistance = Math.hypot(walker.x - camera.position.x, walker.z - camera.position.z);
         const detailed = walker.id === selfId;
@@ -995,7 +1092,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           walker.spirit.group.visible = walker.group.visible && near && !decorHidden;
           if (near) walker.spirit.update(dt, time / 1000, { x: walker.group.position.x, z: walker.group.position.z, ry: walker.ry });
         }
-        walker.parts.figure.rotation.y = walker.ry;
+        walker.parts.figure.rotation.y = walker.gardenAction ? walker.gardenAction.ry : walker.ry;
         // Đang chơi xích đu / cầu tuột: vị trí, độ cao, hướng mặt theo thời gian (park3d); gốc (walker.x/z) giữ ở chỗ
         // server cấp nên camera và va chạm không đổi.
         const playItem = walker.benchId && walker.benchSpot ? playItems.get(walker.benchId) : null;
@@ -1114,31 +1211,17 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         }
         for (const walker of walkers.values()) {
           const info = byWorker.get(walker.id) || null;
-          const next = info?.kind || null;
+          walker.serverChore = info?.kind || null;
           walker.choreOffset = info?.offset || 0;
           walker.choreRy = info?.ry || 0;
-          if (next === walker.chore) continue;
-          if (walker.choreTool) {
-            walker.parts.upper.remove(walker.choreTool);
-            walker.choreTool.userData.dispose?.();
-            walker.choreTool = null;
-          }
-          if (walker.choreEffect) {
-            walker.group.remove(walker.choreEffect);
-            walker.choreEffect.userData.dispose?.();
-            walker.choreEffect = null;
-          }
-          walker.chore = next;
-          if (next) {
-            walker.choreTool = choreTool(next);
-            walker.choreEffect = choreEffect(next);
-            walker.parts.upper.add(walker.choreTool);
-            walker.group.add(walker.choreEffect);
-          }
+          applyChore(walker);
         }
       },
-      gardenEffect(plotId, kind, plantType) {
+      // Gieo / tưới / hái ở Vườn Công Đức: hiệu ứng ở luống + nhân vật làm động tác. by: tên người làm (tin garden.plot
+      // của người khác / bot); không có by là chính mình.
+      gardenEffect(plotId, kind, plantType, by) {
         gardenView?.effect(plotId, kind, plantType);
+        gardenAct(plotId, kind, by);
       },
       petInteraction(petId, action) {
         return courtyard?.animals?.interact?.(petId, action) || false;

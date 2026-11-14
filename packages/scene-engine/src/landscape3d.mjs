@@ -391,6 +391,7 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     if (built.temple?.builder === builder && built.temple.key === key) return;
     disposeGroup(groups.temple, templeOwned);
     const batch = new StaticBatch();
+    const festivalPositions = [];
     const ctx = {
       batch, m, data, env,
       hall: temple.hall,
@@ -409,9 +410,33 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
         sprite.renderOrder = GLOW_ORDER;
         groups.temple.add(sprite);
       },
+      festival: (points) => festivalPositions.push(...points),
     };
     builder(ctx);
     batch.build(groups.temple, { castShadow: true });
+    if (festivalPositions.length) {
+      const bulbMaterial = nightMaterial('temple-festival-bulbs', () => new THREE.MeshBasicMaterial({
+        color: '#ffd36b', transparent: true, depthWrite: false, toneMapped: false,
+      }));
+      const bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(0.055, 6, 4), bulbMaterial, festivalPositions.length);
+      const dummy = new THREE.Object3D();
+      festivalPositions.forEach((position, index) => {
+        dummy.position.copy(position);
+        dummy.updateMatrix();
+        bulbs.setMatrixAt(index, dummy.matrix);
+      });
+      bulbs.instanceMatrix.needsUpdate = true;
+      bulbs.renderOrder = GLOW_ORDER + 2;
+      groups.temple.add(bulbs);
+      const haloGeometry = new THREE.BufferGeometry();
+      haloGeometry.setAttribute('position', new THREE.Float32BufferAttribute(festivalPositions.flatMap((point) => point.toArray()), 3));
+      const halos = new THREE.Points(haloGeometry, nightMaterial('temple-festival-halos', () => new THREE.PointsMaterial({
+        map: temple.glowMaterial.map, color: '#ffad42', size: 9, sizeAttenuation: false,
+        transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
+      }), 0.58));
+      halos.renderOrder = GLOW_ORDER + 1;
+      groups.temple.add(halos);
+    }
     built.temple = { builder, key };
   }
 

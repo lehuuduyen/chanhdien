@@ -11,7 +11,7 @@ import { addFlowerGarden, spriteMaterial } from './flowers3d.mjs';
 import { createWaterMaterial } from './water3d.mjs';
 import { instanceProp, openRail, placeProp } from './props3d.mjs';
 import { createLandscape } from './landscape3d.mjs';
-import { roofEaves, seeded } from './landscape/common.mjs';
+import { seeded } from './landscape/common.mjs';
 import { daylightGrade, GLOW_ORDER, SKY_LIGHTS_ORDER, VEIL_ORDER } from './daylight3d.mjs';
 
 const SCENE_MODELS = '/models/scene';
@@ -57,7 +57,10 @@ function courtyardLightSites(data, fallback) {
     const site = new THREE.Vector3(point[0], y, point[1]);
     if (!sites.some((other) => other.distanceToSquared(site) < 4)) sites.push(site);
   };
-  add([0, 38]); // sân chánh điện / lối công việc chung
+  // Một điểm sát hiên để ánh vàng thật hắt lên cột, cửa và mép mái. Vẫn dùng lại năm PointLight động ở dưới, không
+  // thêm nguồn sáng mới; điểm giữa sân giữ riêng để lối công việc chung không bị tối.
+  add([0, data.ground.z[0] + 4], 4.25);
+  add([0, 38]);
   add(data.flowerGarden?.center ? [data.flowerGarden.center.x, data.flowerGarden.center.z] : null);
   for (const entrance of data.flowerGarden?.entrances || []) add(fromObject(entrance));
   add(data.guanyin ? [data.guanyin.x, data.guanyin.z] : null);
@@ -78,61 +81,6 @@ function courtyardLightSites(data, fallback) {
   add(data.grove?.pavilion ? [data.grove.pavilion.x, data.grove.pavilion.z] : null);
   add(fromObject(data.grove?.gate));
   return sites.length ? sites : spreadLightSites(fallback, NIGHT_LIGHT_COUNT);
-}
-
-function addBulbLine(points, from, to, spacing = 0.32) {
-  const distance = from.distanceTo(to);
-  const steps = Math.max(1, Math.ceil(distance / spacing));
-  for (let index = 0; index <= steps; index += 1) points.push(from.clone().lerp(to, index / steps));
-}
-
-// Dây đèn lễ hội ôm mép mái / cột giống các chùa và phố cổ về đêm. Số đo dùng cùng công thức với buildTemple nên
-// đèn bám đúng kiến trúc mà không cần thêm tọa độ riêng vào scene JSON.
-function templeFestivalLightPositions(data, hall) {
-  const points = [];
-  const frontZ = data.ground.z[0];
-  const hw = hall.halfWidth;
-  const wallHeight = hall.height - 0.4;
-  const rise = 3.2 + (hw - 6) * 0.25;
-  const addRoofLights = (roof, { ridge = true } = {}) => {
-    const eaves = roofEaves(roof);
-    for (const edge of [eaves.front, eaves.back]) addBulbLine(
-      points,
-      new THREE.Vector3(eaves.x[0], edge.y + 0.06, edge.z),
-      new THREE.Vector3(eaves.x[1], edge.y + 0.06, edge.z),
-    );
-    if (ridge) addBulbLine(
-      points,
-      new THREE.Vector3(roof.x0 - 0.75, roof.y + roof.rise + 0.18, (roof.z0 + roof.z1) / 2),
-      new THREE.Vector3(roof.x1 + 0.75, roof.y + roof.rise + 0.18, (roof.z0 + roof.z1) / 2),
-    );
-  };
-  addRoofLights({ x0: -(hw + 0.6), x1: hw + 0.6, z0: frontZ - 0.2, z1: frontZ + 2.6, y: 5.7, rise: 1 });
-  addRoofLights({ x0: -(hw + 0.4), x1: hw + 0.4, z0: hall.back - 0.4, z1: frontZ + 0.4, y: wallHeight + 0.1, rise });
-
-  // Các cột hiên được viền dọc, tạo cảm giác mặt tiền sáng rõ thay vì chỉ có vài bóng đèn rời rạc.
-  for (const [x, z] of data.porchPillars || []) addBulbLine(
-    points, new THREE.Vector3(x, 0.55, z + 0.05), new THREE.Vector3(x, 5.22, z + 0.05), 0.38,
-  );
-
-  const gate = data.gate;
-  if (gate) {
-    const pillars = new Set();
-    for (const opening of gate.openings || []) {
-      const half = opening.width / 2;
-      pillars.add(opening.x - half);
-      pillars.add(opening.x + half);
-      addRoofLights({
-        x0: opening.x - half - 0.18, x1: opening.x + half + 0.18,
-        z0: gate.z - 0.65, z1: gate.z + 0.65,
-        y: opening.x === 0 ? 4 : 3.65, rise: opening.x === 0 ? 0.9 : 0.62,
-      });
-    }
-    for (const x of pillars) addBulbLine(
-      points, new THREE.Vector3(x, 0.35, gate.z - 0.28), new THREE.Vector3(x, 3.62, gate.z - 0.28), 0.34,
-    );
-  }
-  return points;
 }
 
 // Cụm lau sậy quanh bờ hồ: thân xanh mảnh và bông nâu (bông lau), gộp vào batch. center: tâm hồ; rx, rz: bán kính
@@ -1519,7 +1467,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     pillar: new THREE.MeshStandardMaterial({ color: '#9b1d16', roughness: 0.55 }),
     wall: new THREE.MeshStandardMaterial({ color: '#a8402c', roughness: 0.85 }),
     brick: new THREE.MeshStandardMaterial({ map: bricks([6, 1]), roughness: 0.9 }),
-    roof: new THREE.MeshStandardMaterial({ color: '#3a2b26', roughness: 0.8 }),
+    roof: new THREE.MeshStandardMaterial({ color: '#6f3d29', roughness: 0.84 }),
     wood: new THREE.MeshStandardMaterial({ color: '#4a2a17', roughness: 0.8 }),
     leaf: new THREE.MeshStandardMaterial({ color: '#3d6b35', roughness: 0.9, flatShading: true }),
     leafDark: new THREE.MeshStandardMaterial({ color: '#2f5a33', roughness: 0.9, flatShading: true }),
@@ -2352,42 +2300,11 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   zoneSparkles.visible = false;
   scene3d.add(zoneSparkles);
 
-  // Viền mái / cổng / cột bằng hạt sáng dày: nhìn xa thành nét vàng liên tục như phố cổ về đêm. Dùng một
-  // InstancedMesh cho lõi đèn và một Points cho halo, nên hàng trăm bóng chỉ tốn hai draw call.
-  const festivalPositions = templeFestivalLightPositions(data, hall);
-  const festivalBulbMaterial = new THREE.MeshBasicMaterial({
-    color: '#ffd36b', transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
-  });
-  const festivalBulbs = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.055, 6, 4), festivalBulbMaterial, festivalPositions.length,
-  );
-  festivalPositions.forEach((position, index) => {
-    bulbDummy.position.copy(position);
-    bulbDummy.rotation.set(0, 0, 0);
-    bulbDummy.scale.setScalar(1);
-    bulbDummy.updateMatrix();
-    festivalBulbs.setMatrixAt(index, bulbDummy.matrix);
-  });
-  festivalBulbs.instanceMatrix.needsUpdate = true;
-  festivalBulbs.renderOrder = GLOW_ORDER + 2;
-  festivalBulbs.visible = false;
-  scene3d.add(festivalBulbs);
-  const festivalHaloGeometry = new THREE.BufferGeometry();
-  festivalHaloGeometry.setAttribute('position', new THREE.Float32BufferAttribute(festivalPositions.flatMap((point) => point.toArray()), 3));
-  const festivalHaloMaterial = new THREE.PointsMaterial({
-    map: glowTexture, color: '#ff9b38', size: 10, sizeAttenuation: false,
-    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
-  });
-  const festivalHalos = new THREE.Points(festivalHaloGeometry, festivalHaloMaterial);
-  festivalHalos.renderOrder = GLOW_ORDER + 1;
-  festivalHalos.visible = false;
-  scene3d.add(festivalHalos);
-
   // Chỉ giữ năm PointLight không bóng và chuyển chúng tới năm khu gần camera nhất. Nhờ vậy khu người chơi đang ở có
   // ánh vàng thật trên cây / tường nhưng shader không phải gánh một PointLight cho tất cả mười hai khu cùng lúc.
   const rankedLightSites = zoneLightSites.map((site) => ({ site, distance: 0 }));
   const nightLights = spreadLightSites(zoneLightSites).map((position, index) => {
-    const light = new THREE.PointLight('#ffc36a', 0, 30, 2);
+    const light = new THREE.PointLight('#ffc36a', 0, 34, 2);
     light.position.copy(position);
     light.position.y += 0.35;
     light.castShadow = false;
@@ -2491,10 +2408,6 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
       outside += (target - outside) * Math.min(1, dt * 3);
       sun.intensity = 2.1 * outside * grade.sunFactor;
       skyFill.intensity = 0.9 * outside * grade.fillFactor;
-      for (const light of nightLights) {
-        const flicker = 1 + Math.sin(time / 780 + light.userData.phase) * 0.035;
-        light.intensity = 155 * outside * grade.lamp * flicker;
-      }
       const shimmer = outside * grade.lamp;
       for (const entry of rankedLightSites) entry.distance = camera.position.distanceToSquared(entry.site);
       rankedLightSites.sort((a, b) => a.distance - b.distance);
@@ -2503,6 +2416,9 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
         const light = nightLights[index];
         const target = rankedLightSites[index]?.site;
         if (target) light.position.lerp(target, move);
+        const flicker = 1 + Math.sin(time / 780 + light.userData.phase) * 0.035;
+        const atTemple = target && Math.abs(target.x) < 14 && target.z < data.ground.z[0] + 12;
+        light.intensity = (atTemple ? 320 : 200) * outside * grade.lamp * flicker;
       }
       nightFill.intensity = 0.9 * shimmer;
       for (const glow of lanternGlowSprites) {
@@ -2514,14 +2430,10 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
       twinkles.visible = twinkleMaterial.opacity > 0.01;
       zoneGlowMaterial.opacity = shimmer * (0.68 + Math.sin(time / 560) * 0.12);
       zoneGlows.visible = zoneBulbs.visible = zoneGlowMaterial.opacity > 0.01;
-      zoneLightPoolMaterial.opacity = shimmer * (0.28 + Math.sin(time / 920) * 0.035);
+      zoneLightPoolMaterial.opacity = shimmer * (0.34 + Math.sin(time / 920) * 0.04);
       zoneLightPools.visible = zoneLightPoolMaterial.opacity > 0.01;
       zoneSparkleMaterial.opacity = shimmer * (0.46 + Math.sin(time / 370) * 0.16);
       zoneSparkles.visible = zoneSparkleMaterial.opacity > 0.01;
-      const festivalPulse = 0.9 + Math.sin(time / 640) * 0.08;
-      festivalBulbMaterial.opacity = shimmer * festivalPulse;
-      festivalHaloMaterial.opacity = shimmer * (0.58 + Math.sin(time / 510) * 0.08);
-      festivalBulbs.visible = festivalHalos.visible = festivalBulbMaterial.opacity > 0.01;
       paintSky(outside);
       landscape.tick(time / 1000, grade.level.veil, outside);
       // Không bật/tắt đèn (đổi số nguồn sáng làm mọi vật liệu biên dịch lại shader, giật mỗi lần qua cửa):

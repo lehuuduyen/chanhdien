@@ -168,7 +168,8 @@ c.garden = {
   shop: { x: 10.85, z: 70.35, ry: -1.5708 },
   // Thùng nước gỗ cạnh cổng (trang trí, gợi ý chỗ tưới).
   barrel: { x: 12.5, z: 66.2 },
-  plots: THIEN_GARDEN.plots.map(({ id, x, z }) => ({ id, x, z })),
+  // aisle: z của lối đi cạnh luống (người / bot đứng ở (x, aisle) quay mặt vào luống để gieo, tưới, hái).
+  plots: THIEN_GARDEN.plots.map(({ id, x, z, aisle }) => ({ id, x, z, aisle })),
   // Hàng rào: các đoạn thẳng [x0, z0, x1, z1], chừa lối vào ở cổng.
   fence: [
     [GARDEN_FENCE.x[0], GARDEN_FENCE.z[0], GARDEN_FENCE.x[1], GARDEN_FENCE.z[0]],

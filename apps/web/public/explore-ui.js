@@ -549,8 +549,9 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       }
       api?.setMemorial?.(list, { full });
     },
-    gardenEffect(plotId, kind, plantType) {
-      api?.gardenEffect?.(plotId, kind, plantType);
+    // by: tên người làm (của người khác / bot); bỏ trống là chính mình (nhân vật mình làm động tác, đứng xa thì đi tới).
+    gardenEffect(plotId, kind, plantType, by) {
+      api?.gardenEffect?.(plotId, kind, plantType, by);
     },
     relabelGarden(list) {
       api?.relabelGarden?.(list);

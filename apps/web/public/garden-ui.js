@@ -475,7 +475,7 @@ export function createGardenUI({ stage, showToast, explore, account, openSignIn,
       // Hiệu ứng của người khác (của mình đã chạy lúc bấm).
       if (effect && !(account() && effect.by === account().displayName)) {
         const crop = message.plots.find((plot) => plot.id === effect.plotId)?.crop;
-        explore.gardenEffect?.(effect.plotId, effect.kind, crop?.plantType);
+        explore.gardenEffect?.(effect.plotId, effect.kind, crop?.plantType, effect.by);
       }
       return true;
     },
