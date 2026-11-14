@@ -64,11 +64,22 @@ test('hồ sen công trình khai báo đủ mốc mở khóa cảnh', () => {
 
 test('mỗi khu có một bảng hướng dẫn đặt bằng dữ liệu cảnh', () => {
   const boards = scene.world.courtyard.guideBoards;
-  assert.deepEqual(boards.map((board) => board.id), ['hall', 'courtyard', 'garden', 'pets']);
+  assert.deepEqual(boards.map((board) => board.id), ['hall', 'courtyard', 'garden', 'pets', 'wishes']);
   assert.ok(boards.every((board) => Number.isFinite(board.x) && Number.isFinite(board.z) && board.sign));
   const broken = structuredClone(scene);
   broken.world.courtyard.guideBoards[2].id = 'courtyard';
   assert.ok(validateWorld(broken).errors.some((error) => error.includes('bảng hướng dẫn')));
+});
+
+test('Vườn Đèn Tâm Nguyện có lối nối và đúng bảy trạm duy nhất', () => {
+  const wishes = scene.world.courtyard.wishGarden;
+  assert.equal(wishes.stations.length, 7);
+  assert.equal(new Set(wishes.stations.map((item) => item.id)).size, 7);
+  assert.ok(wishes.path.x[0] < scene.world.courtyard.overlook.terrace.x[1], 'cầu đá chồng mép đài để không có khe');
+  assert.ok(wishes.stations.every((item) => Number.isFinite(item.approach.x) && Number.isFinite(item.approach.z)));
+  const broken = structuredClone(scene);
+  broken.world.courtyard.wishGarden.stations.pop();
+  assert.ok(validateWorld(broken).errors.some((error) => error.includes('7 trạm đèn')));
 });
 
 test('Vườn Công Đức dùng mô hình Meshy nội bộ nhưng giữ đủ 50 luống và vùng tương tác', () => {

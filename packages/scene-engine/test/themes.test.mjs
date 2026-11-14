@@ -36,6 +36,11 @@ function recorder() {
   };
 }
 const envFor = (theme = {}) => ({
+  walkways: [
+    ...(courtyard.overlook ? [courtyard.overlook.path, courtyard.overlook.terrace] : []),
+    ...(courtyard.wishGarden ? [courtyard.wishGarden.path, courtyard.wishGarden.area] : []),
+    ...(courtyard.grove ? [courtyard.grove.area] : []),
+  ],
   m: new Proxy({}, { get: (cache, key) => (cache[key] ||= new THREE.MeshStandardMaterial()) }),
   material: () => new THREE.MeshStandardMaterial(),
   ground: courtyard.ground,
@@ -125,6 +130,7 @@ test('bộ đồ mỗi vùng: export kit, có dữ liệu vùng đi kèm, cây /
       // 0,25–4,5 m, lấy mẫu từng tam giác).
       const rects = [
         ...(courtyard.overlook ? [courtyard.overlook.path, courtyard.overlook.terrace] : []),
+        ...(courtyard.wishGarden ? [courtyard.wishGarden.path, courtyard.wishGarden.area] : []),
         ...(courtyard.grove ? [courtyard.grove.area] : []),
       ];
       const onDeck = (item) => {

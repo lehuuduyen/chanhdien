@@ -242,6 +242,7 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
   // (landmarks/common.mjs: walkwayCut / onWalkway) và để không rải vật vùng lên đó.
   const walkways = [
     ...(data.overlook ? [data.overlook.path, data.overlook.terrace] : []),
+    ...(data.wishGarden ? [data.wishGarden.path, data.wishGarden.area] : []),
     ...(data.grove ? [data.grove.area] : []),
   ];
   const envFor = (theme) => ({

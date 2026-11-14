@@ -59,7 +59,7 @@ function actIndex(at = 0) {
   return (hash ^ (hash >>> 13)) >>> 0;
 }
 
-export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPetTap, onSpiritTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPilgrimageTap, onPetTap, onSpiritTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -474,6 +474,18 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const hit = raycaster.intersectObjects(courtyard.guidePickables, false)[0];
         if (hit) {
           onGuideTap(hit.object.userData.zoneGuide);
+          return;
+        }
+      }
+      // Bảy trạm ở Vườn Đèn: chạm từ xa thì đi tới điểm đứng trên vòng hành hương rồi mới thắp.
+      if (onPilgrimageTap && courtyard?.pilgrimagePickables?.length) {
+        const hit = raycaster.intersectObjects(courtyard.pilgrimagePickables, false)[0];
+        const id = hit && hit.object.userData.pilgrimageStations?.[hit.instanceId];
+        const station = id && world.courtyard?.wishGarden?.stations?.find((item) => item.id === id);
+        if (station && self) {
+          const light = () => onPilgrimageTap({ id: station.id });
+          if (Math.hypot(station.x - self.x, station.z - self.z) <= 3) light();
+          else api.walkTo(station.approach || { x: station.x, z: station.z }, light);
           return;
         }
       }
@@ -907,6 +919,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     for (const board of world.courtyard?.guideBoards || []) {
       seatTargets.push({ kind: 'guide', id: board.id, x: board.x, z: board.z, sx: ((board.width || 2.2) + 0.5) / 2, sz: 0.55, ry: board.ry || 0, near: 4 });
     }
+    for (const station of world.courtyard?.wishGarden?.stations || []) {
+      seatTargets.push({ kind: 'wish', id: station.id, x: station.x, z: station.z, sx: 0.8, sz: 0.8, ry: station.ry || 0, near: 3.4, y: 0.06 });
+    }
     if (world.courtyard?.board) {
       const board = world.courtyard.board;
       seatTargets.push({ kind: 'merit', id: 'merit', x: board.x, z: board.z, sx: 1.25, sz: 0.55, ry: 0, near: 4 });
@@ -936,6 +951,8 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
       if (memorialBounds && self.x >= memorialBounds.x[0] && self.x <= memorialBounds.x[1]
         && self.z >= memorialBounds.z[0] && self.z <= memorialBounds.z[1]) return 'memorial';
+      const wishes = world.courtyard?.wishGarden?.area;
+      if (wishes && self.x >= wishes.x[0] && self.x <= wishes.x[1] && self.z >= wishes.z[0] && self.z <= wishes.z[1]) return 'wishes';
       // Ra khỏi cổng: lối đá và Đài ngắm cảnh.
       const overlook = world.courtyard?.overlook;
       if (overlook && self.z >= overlook.path.z[0]) return 'overlook';
@@ -1004,7 +1021,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           root.add(hint);
         }
       }
-      const hintY = { bench: 1.5, plot: 3.3, shop: 2.9, grave: 1.7, guide: 2.4, merit: 2.9, pet: 1.1, swing: 2.9, slide: 2.6 }[near[0]?.target.play || near[0]?.target.kind] || 1.0;
+      const hintY = { bench: 1.5, plot: 3.3, shop: 2.9, grave: 1.7, guide: 2.4, merit: 2.9, pet: 1.1, wish: 2.25, swing: 2.9, slide: 2.6 }[near[0]?.target.play || near[0]?.target.kind] || 1.0;
       if (hint && near[0]) hint.position.set(near[0].target.x, hintY, near[0].target.z);
       nearbySit = near.find((item) => ['seat', 'bench'].includes(item.target.kind))?.target || null;
       const nextKey = nearbySit ? `${nearbySit.kind}:${nearbySit.id}` : '';
@@ -1182,6 +1199,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       // Vườn Công Đức: luống từ server ([{ id, crop }]), hiệu ứng gieo / tưới / hái, vẽ lại nhãn khi đổi ngôn ngữ.
       setGarden(list) {
         gardenView?.setPlots(list);
+      },
+      setPilgrimage(ids) {
+        courtyard?.setPilgrimage(ids);
       },
       // Khu tưởng niệm: [{ slot, grave | null }]; full = snapshot đầy đủ (ô không có trong danh sách là trống).
       setMemorial(list, options) {

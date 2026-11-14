@@ -135,6 +135,21 @@ test('khu Quan Âm chặn hàng cây, bàn lễ và đèn nhưng vẫn chừa đ
   }
 });
 
+test('Vườn Đèn nối được từ Đài ngắm cảnh, hồ và bệ đèn là vật cản nhưng đủ bảy điểm thắp', () => {
+  const wishes = scene.world.courtyard.wishGarden;
+  const start = wishes.entrance;
+  assert.equal(isWalkable(walk, start.x, start.z), true);
+  assert.equal(isWalkable(walk, wishes.pond.x, wishes.pond.z), false, 'không lội xuống hồ phản chiếu');
+  for (const station of wishes.stations) {
+    assert.equal(isWalkable(walk, station.x, station.z), false, `${station.id} có bệ thật`);
+    assert.equal(isWalkable(walk, station.approach.x, station.approach.z), true, `${station.id} có điểm đứng để thắp`);
+    const route = findPath(walk, start, station.approach);
+    assert.ok(route.length > 0, `đi từ đài tới ${station.id}`);
+    const last = route.at(-1);
+    assert.ok(Math.hypot(last.x - station.approach.x, last.z - station.approach.z) < 0.7, `tới đúng ${station.id}`);
+  }
+});
+
 test('va chạm: đi vào cột thì bị đẩy ra mép cột; đi ra ngoài thì giữ ở trong', () => {
   const pushed = resolveMove(walk, { x: pillarX + 0.8, z: pillarZ }, { x: pillarX + 0.1, z: pillarZ });
   assert.ok(Math.hypot(pushed.x - pillarX, pushed.z - pillarZ) >= 0.65 - 1e-9);

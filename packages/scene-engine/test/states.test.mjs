@@ -19,8 +19,8 @@ const KIT_DIR = path.join(ROOT, 'packages/scene-engine/src/landmarks');
 const scene = resolveScene(JSON.parse(readFileSync(path.join(ROOT, 'scenes/thien-default/scene.json'), 'utf8')));
 const ground = scene.world.courtyard.ground;
 // Khu đi lại ngoài tường như landscape3d truyền cho bộ đồ: lối + Đài ngắm cảnh ngoài cổng, Rừng thiền ngoài cổng tây.
-const { overlook, grove } = scene.world.courtyard;
-const walkways = [...(overlook ? [overlook.path, overlook.terrace] : []), ...(grove ? [grove.area] : [])];
+const { overlook, wishGarden, grove } = scene.world.courtyard;
+const walkways = [...(overlook ? [overlook.path, overlook.terrace] : []), ...(wishGarden ? [wishGarden.path, wishGarden.area] : []), ...(grove ? [grove.area] : [])];
 const hallBack = hallLayout(scene.world).back;
 const stateFiles = existsSync(STATE_DIR) ? readdirSync(STATE_DIR).filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -5)) : [];
 const kitNames = readdirSync(KIT_DIR).filter((name) => name.endsWith('.mjs') && name !== 'common.mjs').map((name) => name.slice(0, -4));
