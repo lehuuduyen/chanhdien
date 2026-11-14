@@ -11,7 +11,7 @@ import { clampToBounds, defaultCameraFor } from './world.mjs';
 import { buildCourtyard } from './courtyard3d.mjs';
 import { sunElevation } from './daylight3d.mjs';
 import { loadStatues } from './statues3d.mjs';
-import { disposeSprite, textSprite } from './sprites3d.mjs';
+import { disposeSprite, setLabelsHidden, textSprite } from './sprites3d.mjs';
 
 const MAX_PETALS = 140;
 const MAX_FX = 12;
@@ -854,6 +854,10 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
         if (Math.max(Math.abs(shown[index] - without[index]), Math.abs(shown[index + 1] - without[index + 1]), Math.abs(shown[index + 2] - without[index + 2])) > threshold) changed += 1;
       }
       return Math.round((changed / (shown.length / 4)) * 10_000) / 100;
+    },
+    // Nhắm mắt (ngắm cảnh): ẩn / hiện mọi nhãn chữ trong cảnh — tên, trạng thái, bong bóng chat (sprites3d.mjs).
+    setLabelsHidden(hidden) {
+      setLabelsHidden(scene3d, hidden);
     },
     // Trời theo giờ thật ở sân: nơi đặt chùa [vĩ độ, kinh độ] (THIEN_PLACES trong room rules); null = ban ngày cố định.
     setSkyPlace(place) {

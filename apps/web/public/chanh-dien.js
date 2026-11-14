@@ -99,6 +99,7 @@ const elements = {
   scene3d: $('scene3d'),
   viewMode: $('viewMode'),
   viewReset: $('viewReset'),
+  eyeToggle: $('eyeToggle'),
   hint3d: $('hint3d'),
   stage: $('stage'),
   topBar: document.querySelector('.hud.top'),
@@ -256,7 +257,8 @@ function setCurrentPlace(place) {
   if (!inHall) elements.ledger.hidden = true;
   // Bộ vẽ có thể báo vị trí ngay khi còn ở màn tải/cổng vào; chỉ mở hướng dẫn sau khi đã thật sự vào phòng.
   // Đang chơi trốn tìm: không tự mở hướng dẫn khu vực (che cả màn hình giữa ván); lần sau vào khu đó mới hiện.
-  if (session.participantId && elements.gate.hidden && !hideSeek?.engaged()) zoneGuide.enter(place);
+  // Đang nhắm mắt ngắm cảnh cũng vậy (hướng dẫn che cảnh).
+  if (session.participantId && elements.gate.hidden && !hideSeek?.engaged() && !eyesClosed) zoneGuide.enter(place);
   requestAnimationFrame(updateInsets);
 }
 
@@ -564,6 +566,12 @@ function sceneParticipants() {
 // Chế độ xem: 3D (mặc định khi máy hỗ trợ WebGL) hoặc 2D (tranh vẽ, nhẹ hơn). Nhớ lựa chọn trên máy.
 let sceneData = null;
 let viewMode = null;
+// Nhắm mắt (ngắm cảnh, chỉ ở 3D): ẩn mọi chữ, nút trên màn hình cùng tên / bong bóng chat trong cảnh, vẫn đi lại bằng
+// cần điều khiển. Không nhớ qua lần tải trang: mở trang luôn thấy đủ nút, khỏi bối rối vì màn hình trống.
+let eyesClosed = false;
+// Biểu tượng tĩnh (không có chữ người dùng): mắt mở / mắt nhắm (mi cong xuống có hàng mi).
+const EYE_OPEN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_CLOSED = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 10c2.5 3.4 5.7 5.1 9.5 5.1s7-1.7 9.5-5.1"/><path d="M5.6 13.4 4 15.8M9.6 14.8l-.6 2.8M14.4 14.8l.6 2.8M18.4 13.4l1.6 2.4"/></svg>';
 let capacityNeeds3D = false;
 
 function supportsWebGL() {
@@ -634,6 +642,8 @@ async function setViewMode(mode) {
   elements.viewMode.title = mode === '3d' ? t('view.to2d') : t('view.to3d');
   elements.viewMode.hidden = capacityNeeds3D || !supportsWebGL() || !sceneData.world;
   elements.viewReset.hidden = mode !== '3d';
+  elements.eyeToggle.hidden = mode !== '3d';
+  if (mode !== '3d') setEyesClosed(false);
   try { localStorage.setItem('thien-view', mode); } catch {}
   if (mode === '3d') {
     try {
@@ -647,6 +657,7 @@ async function setViewMode(mode) {
       guardWebGL(elements.scene3d, { onLost: (willReload) => showToast(t(willReload ? 'toast.webglLost' : 'toast.webglLostManual')) });
       applySceneSky();
       explore.attach(renderer);
+      renderer.setLabelsHidden?.(eyesClosed);
       if (elements.gate.hidden) renderer.activateAssets?.();
       if (explore.active) elements.hint3d.textContent = t('explore.hint');
       showHint();
@@ -1060,6 +1071,8 @@ elements.gateForm.addEventListener('submit', async (event) => {
 });
 
 function showHall(visible) {
+  // Về cổng (rời phòng): mở mắt lại, không thì cổng nhập pháp danh cũng bị ẩn.
+  if (!visible) setEyesClosed(false);
   elements.gate.hidden = visible;
   elements.controls.hidden = !visible;
   elements.tools.hidden = !visible;
@@ -1069,7 +1082,7 @@ function showHall(visible) {
 function enterHall(name) {
   showHall(true);
   renderer?.activateAssets?.();
-  zoneGuide.enter(currentPlace || 'hall');
+  if (!eyesClosed) zoneGuide.enter(currentPlace || 'hall');
   if (ARRIVED_FROM_MAP) {
     greeted = false;
     return;
@@ -1232,6 +1245,24 @@ document.addEventListener('keydown', (event) => {
 });
 elements.viewMode.addEventListener('click', () => setViewMode(viewMode === '3d' ? '2d' : '3d'));
 elements.viewReset.addEventListener('click', () => renderer?.setCamera('overview'));
+function setEyesClosed(closed) {
+  eyesClosed = Boolean(closed) && viewMode === '3d';
+  elements.stage.classList.toggle('eyes-closed', eyesClosed);
+  renderer?.setLabelsHidden?.(eyesClosed);
+  // Ô chat đang gõ (bàn phím đang mở) cũng bị ẩn: bỏ chọn cho bàn phím đóng lại.
+  if (eyesClosed && elements.stage.contains(document.activeElement) && document.activeElement !== elements.eyeToggle) document.activeElement.blur?.();
+  renderEyeToggle();
+}
+function renderEyeToggle() {
+  elements.eyeToggle.innerHTML = eyesClosed ? EYE_CLOSED : EYE_OPEN;
+  const label = t(eyesClosed ? 'view.eyesOpen' : 'view.eyesClose');
+  elements.eyeToggle.title = label;
+  elements.eyeToggle.setAttribute('aria-label', label);
+  elements.eyeToggle.setAttribute('aria-pressed', String(eyesClosed));
+}
+elements.eyeToggle.addEventListener('click', () => setEyesClosed(!eyesClosed));
+onLangChange(renderEyeToggle);
+renderEyeToggle();
 elements.nextTrack.addEventListener('click', () => audio.nextTrack());
 function roomInviteUrl() {
   const shared = new URL('/chanh-dien.html', location.origin);

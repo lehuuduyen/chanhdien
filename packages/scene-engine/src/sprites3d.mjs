@@ -12,6 +12,16 @@ export function roundRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+// Chế độ "nhắm mắt" (ngắm cảnh): ẩn mọi nhãn chữ (tên, trạng thái, bong bóng chat). Ẩn ở vật liệu (material.visible),
+// không đụng object.visible mà từng cảnh tự bật / tắt mỗi khung (tên ở xa, người trốn…); nhãn tạo sau cũng theo cờ này.
+let labelsHidden = false;
+export function setLabelsHidden(root, hidden) {
+  labelsHidden = Boolean(hidden);
+  root?.traverse((node) => {
+    if (node.isSprite && node.userData.textLabel) node.material.visible = !labelsHidden;
+  });
+}
+
 // Nhãn chữ (tên, bong bóng) vẽ lên canvas rồi làm sprite; cỡ theo mét để to nhỏ đúng phối cảnh.
 export function textSprite(text, { background, color, height = 0.16, bold = false, tail = false }) {
   const canvas = document.createElement('canvas');
@@ -45,6 +55,8 @@ export function textSprite(text, { background, color, height = 0.16, bold = fals
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
   // Vẽ sau lớp phủ đêm của sân (daylight3d.mjs) để chữ không tối theo cảnh.
   sprite.renderOrder = LABEL_ORDER;
+  sprite.userData.textLabel = true;
+  sprite.material.visible = !labelsHidden;
   const worldHeight = height * (canvas.height / boxHeight);
   sprite.scale.set(worldHeight * (canvas.width / canvas.height), worldHeight, 1);
   sprite.center.set(0.5, 0);

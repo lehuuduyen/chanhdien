@@ -37,6 +37,13 @@ button, input { font: inherit; }
 .view-tools { position: absolute; z-index: 5; top: 13cqw; left: 2.5cqw; display: flex; flex-direction: column; gap: 1.4cqw; }
 .view-tools .chip { justify-content: center; min-width: clamp(30px, 9cqw, 40px); }
 .view-tools .chip[hidden] { display: none; }
+.eye-toggle svg { width: clamp(16px, 5cqw, 22px); height: clamp(16px, 5cqw, 22px); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* Nhắm mắt (ngắm cảnh): chỉ còn cảnh, cần điều khiển và nút mở mắt. Giữ bảng / thẻ đang mở, khung bài giảng YouTube
+   (không được ẩn player đang phát) và các lớp của Trốn tìm (màn đen, thẻ báo vai, kết quả, thanh xem camera). Tên và
+   bong bóng chat trong cảnh 3D ẩn qua renderer.setLabelsHidden. Dùng visibility: không đổi bố cục, phần ẩn không nhận chạm. */
+#stage.eyes-closed > :not(canvas, .joystick, .view-tools, .hs-blind, .hs-reveal, .hs-result, .hs-watch, .lecture, [role="dialog"]) { visibility: hidden; }
+#stage.eyes-closed .view-tools > :not(.eye-toggle) { visibility: hidden; }
+#stage.eyes-closed .eye-toggle { color: var(--gold); background: rgba(12, 8, 4, .55); border-color: var(--gold); }
 .hint3d { position: absolute; z-index: 4; left: 50%; top: 50%; max-width: 80cqw; margin: 0; padding: 1.6cqw 3cqw; color: var(--fg); background: rgba(0, 0, 0, .6); border-radius: 999px; font-size: clamp(10px, 3cqw, 13px); text-align: center; transform: translate(-50%, -50%); pointer-events: none; transition: opacity .8s; }
 .hint3d.fade { opacity: 0; }
 .hint3d[hidden] { display: none; }

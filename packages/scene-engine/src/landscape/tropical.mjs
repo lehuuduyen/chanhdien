@@ -2,7 +2,7 @@
 // scenes/thien-default/themes/tropical.json; toàn bộ hình được dựng bằng khối và gộp theo vật liệu, không tải thêm ảnh.
 import * as THREE from 'three';
 import {
-  addRoof, buildGate, buildTempleFacade, canvasTexture, seeded, speckle, templeFrame,
+  addRoof, addTempleFestivalLights, buildGate, buildTempleFacade, canvasTexture, seeded, speckle, templeFrame,
 } from './common.mjs';
 
 let shared = null;
@@ -170,15 +170,16 @@ function temple(ctx) {
   batch.add(new THREE.BoxGeometry(hw * 2 + 2.2, 0.2, porchDepth), m.wood, {
     position: [0, 5.55, frontZ + porchDepth / 2 - 0.25],
   });
-  addRoof(batch, m, {
+  const porch = addRoof(batch, m, {
     x0: -(hw + 1), x1: hw + 1, z0: frontZ - 0.35, z1: frontZ + porchDepth,
     y: 5.62, rise: porchRise, roof: m.roof, trim: m.gold, hook,
   });
-  addRoof(batch, m, {
+  const main = addRoof(batch, m, {
     x0: -(hw + 0.65), x1: hw + 0.65, z0: back - 0.45, z1: frontZ + 0.45,
     y: wallHeight + 0.1, rise: roofRise, roof: m.roof, trim: m.gold, hook,
   });
-  buildGate(ctx);
+  const gate = buildGate(ctx);
+  addTempleFestivalLights(ctx, { porch, main }, gate);
 }
 
 export const kit = { trees, scatter, mountains, grounds, temple };
