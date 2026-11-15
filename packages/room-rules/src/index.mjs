@@ -751,16 +751,19 @@ export function thienPlaceOf(state) {
 // trăm giây: 1 = 00:01, 1000 = 10:00), bấm Bắt đầu rồi Dừng; lệch ≤ tolerance (phần trăm giây) là trúng. Cấp sau mở khi
 // đã trúng cấp trước; hideAfter: đồng hồ ẩn sau chừng ấy phần trăm giây kể từ lúc bắt đầu (null: hiện suốt, 0: ẩn từ đầu).
 // Không thưởng xu: chỉ lưu lịch sử bấm trúng + Bảng vàng (apps/api/stopwatch.mjs). timeout: đồng hồ tự dừng (trượt).
+// Game Bấm Giờ (apps/api/stopwatch.mjs, apps/web/public/stopwatch-ui.js); đơn vị phần trăm giây. Mọi cấp phải dừng đúng
+// mục tiêu (lệch 0,00 s mới thắng); cấp cao hơn đồng hồ tắt sớm hơn trước mục tiêu (blind: tắt khi còn blind phần trăm
+// giây nữa tới mục tiêu; null = hiện suốt, ≥ max = ẩn từ đầu) nên đề nào cũng khó như nhau.
 export const STOPWATCH = deepFreeze({
   min: 1,
   max: 1000,
   timeout: 2000,
   levels: [
-    { id: 1, name: 'Tập sự', tolerance: 10, hideAfter: null },
-    { id: 2, name: 'Tỉnh thức', tolerance: 5, hideAfter: null },
-    { id: 3, name: 'Định tâm', tolerance: 3, hideAfter: 200 },
-    { id: 4, name: 'Nhất tâm', tolerance: 1, hideAfter: 100 },
-    { id: 5, name: 'Vô niệm', tolerance: 0, hideAfter: 0 },
+    { id: 1, name: 'Tập sự', blind: null },
+    { id: 2, name: 'Tỉnh thức', blind: 50 },
+    { id: 3, name: 'Định tâm', blind: 100 },
+    { id: 4, name: 'Nhất tâm', blind: 200 },
+    { id: 5, name: 'Vô niệm', blind: 1000 },
   ],
 });
 

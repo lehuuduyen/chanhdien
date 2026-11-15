@@ -720,6 +720,8 @@ button.chip { cursor: pointer; }
    mà vẫn thấy cảnh phía trên. Đang mở thì ẩn cần điều khiển (thẻ nằm đè chỗ đó). */
 .sw-chip[aria-expanded="true"] { border-color: var(--gold); color: var(--gold); }
 #stage.sw-open .joystick { display: none; }
+/* Hàng nút hành động / nút theo ngữ cảnh nằm sau thẻ (lộ mờ qua nền): ẩn khi đang chơi, đóng thẻ thì hiện lại. */
+#stage.sw-open :is(.emote-bar, .near-sit, .temple-chore, .pet-actions) { visibility: hidden; }
 .sw-card { position: absolute; z-index: 14; left: 3cqw; right: 3cqw; bottom: 40cqw; display: grid; gap: 1.6cqw; max-height: 62%; overflow: auto; padding: 3cqw; color: var(--fg); background: rgba(18, 10, 6, .9); border: 1px solid var(--line); border-radius: 3.4cqw; box-shadow: 0 14px 40px rgba(0, 0, 0, .55); }
 .sw-card[hidden], .sw-card [hidden] { display: none; }
 .sw-card.sw-hit { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(217, 164, 65, .35), 0 14px 40px rgba(0, 0, 0, .55); }

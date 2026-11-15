@@ -1,5 +1,6 @@
 // Game Bấm Giờ (nút ⏱ cạnh Trốn tìm ở chánh điện): mục tiêu ngẫu nhiên 00:01–10:00 (phần trăm giây), bấm Bắt đầu rồi
-// Dừng; lệch trong ngưỡng của cấp là trúng. Năm cấp (STOPWATCH trong room rules), cấp sau mở khi đã trúng cấp trước.
+// Dừng; dừng đúng mục tiêu (lệch 0,00 s) mới là trúng. Năm cấp (STOPWATCH trong room rules) khác nhau ở lúc đồng hồ tắt
+// trước mục tiêu, cấp sau mở khi đã trúng cấp trước.
 // Không thưởng xu: thành viên được lưu lịch sử bấm trúng, số lượt / số lần trúng từng cấp và lên Bảng vàng; khách chơi
 // thử cấp 1, không lưu gì.
 //
@@ -138,9 +139,8 @@ export function createStopwatchStore({ db, now = Date.now, random = (min, max) =
       const real = now() - round.started_at;
       const claimed = elapsed * 10;
       if (claimed - real > EARLY_SLACK_MS || real - claimed > LATE_SLACK_MS) return { ok: false, code: 'TIMING_MISMATCH' };
-      const level = levelOf(round.level);
       const diff = elapsed - round.target;
-      const hit = Math.abs(diff) <= level.tolerance;
+      const hit = diff === 0;
       const before = unlocked(accountId);
       if (accountId) {
         query.play.run(accountId, round.level, hit ? 1 : 0);

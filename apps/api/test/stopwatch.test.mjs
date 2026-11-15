@@ -44,21 +44,21 @@ function setup(targets = [537]) {
   return { clock, options, post, view, play };
 }
 
-test('bấm giờ: đề trong 00:01–10:00, đúng mục tiêu trong ngưỡng là trúng, mở cấp kế, lưu lịch sử và lên Bảng vàng', async () => {
+test('bấm giờ: đề trong 00:01–10:00, dừng đúng mục tiêu là trúng, mở cấp kế, lưu lịch sử và lên Bảng vàng', async () => {
   const { view, play } = setup([537, 537, 250]);
   const first = await view();
-  assert.deepEqual(first.levels.map((level) => level.tolerance), [10, 5, 3, 1, 0]);
+  assert.deepEqual(first.levels.map((level) => level.blind), [null, 50, 100, 200, 1000]);
   assert.deepEqual([first.min, first.max], [1, 1000]);
   assert.equal(first.me.unlocked, 1);
-  // Cấp 1 cho lệch 0,10 s: bấm 5,48 (mục tiêu 5,37) là trượt, 5,46 là trúng.
-  const miss = await play(1, 548);
-  assert.deepEqual([miss.status, miss.json.hit, miss.json.diff, miss.json.target, miss.json.newLevel], [200, false, 11, 537, null]);
-  const hit = await play(1, 546);
-  assert.deepEqual([hit.json.hit, hit.json.diff, hit.json.unlocked, hit.json.newLevel], [true, 9, 2, 2]);
+  // Mục tiêu 5,37: bấm 5,38 (lệch 0,01 s) là trượt, đúng 5,37 mới trúng.
+  const miss = await play(1, 538);
+  assert.deepEqual([miss.status, miss.json.hit, miss.json.diff, miss.json.target, miss.json.newLevel], [200, false, 1, 537, null]);
+  const hit = await play(1, 537);
+  assert.deepEqual([hit.json.hit, hit.json.diff, hit.json.unlocked, hit.json.newLevel], [true, 0, 2, 2]);
   const after = await view();
   assert.equal(after.me.unlocked, 2);
   assert.deepEqual(after.me.stats, [{ level: 1, plays: 2, hits: 1 }]);
-  assert.deepEqual(after.me.history.map(({ level, target, elapsed }) => [level, target, elapsed]), [[1, 537, 546]]);
+  assert.deepEqual(after.me.history.map(({ level, target, elapsed }) => [level, target, elapsed]), [[1, 537, 537]]);
   assert.deepEqual(after.recent.map(({ name, level }) => [name, level]), [['An', 1]]);
   // Cấp 2 đã mở; cấp 3 chưa.
   assert.equal((await play(2, 250)).json.hit, true);
@@ -79,13 +79,16 @@ test('bấm giờ: cấp chưa mở bị từ chối; khách chỉ chơi thử c
   assert.deepEqual(seen.recent, [], 'khách bấm trúng không lên Bảng vàng');
 });
 
-test('bấm giờ: cấp Vô niệm phải đúng từng phần trăm giây', async () => {
-  const { play, options } = setup([10, 10, 10, 10, 10, 777, 777]);
-  for (const level of [1, 2, 3, 4]) assert.equal((await play(level, 10)).json.hit, true);
+test('bấm giờ: cấp nào cũng phải đúng từng phần trăm giây, lệch 0,01 s là trượt', async () => {
+  const { play, options } = setup(Array.from({ length: 15 }, (_, index) => 777 - index * 37));
+  for (const level of [1, 2, 3, 4, 5]) {
+    const target = 777 - (level - 1) * 3 * 37;
+    assert.equal((await play(level, target + 1)).json.hit, false, `cấp ${level} lệch +0,01 s`);
+    assert.equal((await play(level, target - 38)).json.hit, false, `cấp ${level} lệch -0,01 s`);
+    const hit = await play(level, target - 74);
+    assert.deepEqual([hit.json.hit, hit.json.diff], [true, 0], `cấp ${level} đúng mục tiêu`);
+  }
   assert.equal(options.stopwatch.unlocked(null), 1, 'khách vẫn chỉ cấp 1');
-  assert.equal((await play(5, 10)).json.hit, true);
-  assert.equal((await play(5, 778)).json.hit, false);
-  assert.equal((await play(5, 777)).json.hit, true);
 });
 
 test('bấm giờ: thời gian máy báo phải khớp thời gian thật (trễ mạng cho phép), mỗi đề dùng một lần', async () => {
