@@ -1,13 +1,15 @@
 // Game Bấm Giờ ở chánh điện (nút "⏱ Bấm giờ" ngay dưới Trốn tìm trên thanh phòng; chơi được cả trong điện lẫn ngoài
 // sân, thẻ nổi phía dưới màn hình, không che kín cảnh). Server (apps/api/stopwatch.mjs) ra đề 00:01–10:00, kiểm tra thời
 // gian và lưu lịch sử; trang đo thời gian bằng mốc của chính lần chạm (event.timeStamp) nên chính xác tới 1/100 giây.
-//   - Năm cấp (STOPWATCH trong room rules): ngưỡng lệch nhỏ dần, cấp cao đồng hồ ẩn (đếm thầm). Cấp sau mở khi đã trúng
-//     cấp trước; khách chỉ chơi thử cấp 1, không lưu.
+//   - Mọi cấp phải dừng đúng mục tiêu (lệch 0,00 s mới trúng). Năm cấp (STOPWATCH trong room rules): đồng hồ tắt sớm dần
+//     trước mục tiêu (đếm thầm), cấp 5 ẩn từ đầu. Cấp sau mở khi đã trúng cấp trước; khách chỉ chơi thử cấp 1, không lưu.
 //   - Không thưởng xu: chỉ lịch sử bấm trúng của mình và Bảng vàng (người bấm trúng gần đây).
 // Tên người khác chỉ đưa ra màn hình qua textContent.
 import { STOPWATCH } from '/shared/room-rules.mjs';
 
 const LEVEL_KEY = 'thien-stopwatch-level';
+// Trượt trong khoảng này (phần trăm giây) thì báo "Suýt trúng".
+const ALMOST = 3;
 
 export function createStopwatchUI({ stage, host, controls, t, onLangChange, locale, account, openSignIn, showToast }) {
   let open = false;
@@ -218,10 +220,10 @@ export function createStopwatchUI({ stage, host, controls, t, onLangChange, loca
     frame = requestAnimationFrame(tick);
   }
 
-  // Đồng hồ: cấp cao ẩn sau hideAfter (đếm thầm); đã dừng thì luôn hiện thời gian thật.
+  // Đồng hồ: cấp cao tắt khi còn blind phần trăm giây tới mục tiêu (đếm thầm); đã dừng thì luôn hiện thời gian thật.
   function renderClock(elapsed) {
     const info = levelInfo(level);
-    const hidden = phase === 'running' && info.hideAfter !== null && elapsed >= info.hideAfter;
+    const hidden = phase === 'running' && info.blind !== null && elapsed >= (round?.target ?? 0) - info.blind;
     clockValue.textContent = hidden ? '??:??' : clock(Math.min(elapsed, 9_999));
     clockValue.classList.toggle('hidden-time', hidden);
   }
@@ -277,9 +279,8 @@ export function createStopwatchUI({ stage, host, controls, t, onLangChange, loca
 
   function renderPlay() {
     const info = levelInfo(level);
-    const tolerance = info.tolerance ? t('sw.tolerance', { s: seconds(info.tolerance) }) : t('sw.exact');
-    const hide = info.hideAfter === null ? t('sw.clockShown') : info.hideAfter === 0 ? t('sw.clockHidden') : t('sw.clockHides', { s: seconds(info.hideAfter) });
-    rule.textContent = `${t('sw.levelN', { level })} · ${t(`sw.level.${level}`)} — ${tolerance} · ${hide}`;
+    const hide = info.blind === null ? t('sw.clockShown') : info.blind >= STOPWATCH.max ? t('sw.clockHidden') : t('sw.clockHides', { s: new Intl.NumberFormat(locale(), { maximumFractionDigits: 2 }).format(info.blind / 100) });
+    rule.textContent = `${t('sw.levelN', { level })} · ${t(`sw.level.${level}`)} — ${t('sw.exact')} · ${hide}`;
     targetLabel.textContent = t('sw.target');
     clockLabel.textContent = t('sw.clock');
     targetValue.textContent = round ? clock(round.target) : '--:--';
@@ -299,7 +300,8 @@ export function createStopwatchUI({ stage, host, controls, t, onLangChange, loca
     else if (result?.pending) message.textContent = t('sw.checking');
     else if (result?.hit !== undefined) {
       const diff = `${t('sw.diff')} ${seconds(result.diff, true)} s`;
-      message.textContent = result.hit ? `🎯 ${t('sw.hit')} · ${diff}` : result.timedOut ? `⌛ ${t('sw.timeout')}` : `${t('sw.miss')} · ${diff}`;
+      message.textContent = result.hit ? `🎯 ${t('sw.hit')}` : result.timedOut ? `⌛ ${t('sw.timeout')}`
+        : Math.abs(result.diff) <= ALMOST ? `😮 ${t('sw.almost')} · ${diff}` : `${t('sw.miss')} · ${diff}`;
     } else message.textContent = phase === 'ready' ? t('sw.readyHint') : '';
     message.className = `sw-message${result?.hit ? ' hit' : result?.hit === false || result?.error ? ' miss' : ''}`;
     const mine = statsOf(level);

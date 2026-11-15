@@ -40,6 +40,13 @@ const GARDEN_WALK_REACH = 30;
 // Góc trong khoảng [−π, π] (protocol chỉ nhận |ry| ≤ 7; xoay nhiều vòng không được cộng dồn).
 const wrapAngle = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
 
+// Snapshot realtime vẫn gửi lại benchId/benchSpot của người đang ngồi. Chỉ đổi góc camera khi người đó thật sự
+// vào ghế khác hoặc đổi chỗ; nếu reset ở mọi snapshot thì OrbitControls vừa xoay xong sẽ bị giật về hướng ghế.
+export function benchViewChanged(previous = {}, next = {}) {
+  return (previous.benchId ?? null) !== (next.benchId ?? null)
+    || (previous.benchSpot ?? null) !== (next.benchSpot ?? null);
+}
+
 function shortestAngle(from, to) {
   let delta = (to - from) % (Math.PI * 2);
   if (delta > Math.PI) delta -= Math.PI * 2;
@@ -1289,6 +1296,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           seen.add(item.id);
           let walker = walkers.get(item.id);
           const wasBench = walker?.benchId || null;
+          const resetBenchView = item.me && benchViewChanged(walker, item);
           if (walker && (walker.skin !== item.skin || walker.name !== item.name)) {
             const keep = { x: walker.x, z: walker.z, ry: walker.ry };
             removeWalker(item.id);
@@ -1317,7 +1325,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
             walker.targetMoving = false;
             walker.moving = false;
             walker.emote = null;
-            cameraReady = item.me ? false : cameraReady;
+            if (resetBenchView) cameraReady = false;
           } else if (item.me && wasBench && item.pos) {
             // Bấm Đứng: trở về điểm tiếp cận an toàn đã gửi trước khi ngồi, thay vì đứng trong thân ghế.
             walker.x = item.pos.x;
