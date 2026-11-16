@@ -1205,6 +1205,10 @@ export async function createCinemaRenderer3D({ canvas, scene, onSeatClick, onMov
     selfState() {
       return { id: self.id, x: self.x, z: self.z, seatId: mySeat(), moving: self.moving, path: self.path.length, assist: self.assist?.length ?? null, camera: cameraId };
     },
+    // Chỉ để kiểm tra / quay video giới thiệu (promo.html): người trong rạp và ghế đang ngồi.
+    debugParticipants() {
+      return [...participants.values()].map((person) => ({ id: person.id, name: person.name, seatId: person.seatId || null, me: Boolean(person.me) }));
+    },
     stats() {
       return { fps, participants: participants.size, seats: seats.length, walkers: walkers.walkers.size, mode: '3d', calls: renderer.info.render.calls };
     },

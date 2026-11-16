@@ -4,8 +4,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  AVATAR_FRAMES, AVATAR_URL, CHAT_HISTORY_MAX, GAME_ROOMS, parseClientMessage, parseServerMessage, PET_ACTIONS, PLAYER_TITLES, PROTOCOL_VERSION, RPS_CHOICES,
-  SPIRIT_LEVEL_MAX, SPIRIT_SPECIES,
+  AVATAR_FRAMES, AVATAR_URL, CHAT_HISTORY_MAX, COMPATIBILITY_BANK_SIZE, COMPATIBILITY_QUESTION_COUNT, GAMES, GAME_ROOMS,
+  parseClientMessage, parseServerMessage, PET_ACTIONS, PLAYER_TITLES, PROTOCOL_VERSION, RPS_CHOICES,
+  QUESTION_GAMES, SPIRIT_LEVEL_MAX, SPIRIT_SPECIES,
 } from '@chanh-dien/protocol';
 import {
   createDirectoryFromEnv,
@@ -72,10 +73,33 @@ const PRESENCE_REPORT_MS = 15_000;
 const FRIEND_REQUEST_TTL_MS = 60_000;
 const CHALLENGE_INVITE_MS = 20_000;
 const CHALLENGE_ROUND_MS = 10_000;
+const COMPATIBILITY_ANSWER_MS = 180_000;
 const CHALLENGE_TARGET = 2;
 const CHALLENGE_MAX_ROUNDS = 9;
 const CHALLENGE_LINGER_MS = 5_000;
 const BEATS = { rock: 'scissors', paper: 'rock', scissors: 'paper' };
+
+// Mỗi trận lấy 10 trong 100 câu, không lặp. Nội dung câu nằm ở client theo 4 ngôn ngữ; server chỉ giữ id ổn định
+// và làm trọng tài nên không tin dữ liệu câu hỏi do client gửi lên.
+function choiceQuestions() {
+  const pool = Array.from({ length: COMPATIBILITY_BANK_SIZE }, (_, index) => index + 1);
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [pool[index], pool[swap]] = [pool[swap], pool[index]];
+  }
+  return pool.slice(0, COMPATIBILITY_QUESTION_COUNT).map((number) => ({
+    id: `cq-${String(number).padStart(3, '0')}`,
+  }));
+}
+
+// Đo độ hiểu ý chia đều câu hỏi về hai người; hai trò mới chỉ cần cùng một danh sách lựa chọn A/B.
+function compatibilityQuestions() {
+  const first = Math.random() < 0.5 ? 'from' : 'to';
+  return choiceQuestions().map((question, index) => ({
+    ...question,
+    focus: index % 2 === 0 ? first : first === 'from' ? 'to' : 'from',
+  }));
+}
 // Nắm tay đi dạo: mời khi hai người đứng cách ≤ HAND_REACH m; cách nhau quá HAND_BREAK m (kẹt vật cản, mạng lag) thì tự buông.
 const HAND_REQUEST_TTL_MS = 30_000;
 const HAND_REACH = 6;
@@ -1099,7 +1123,7 @@ export class Room {
     return { ok: true };
   }
 
-  // ---- Khiêu chiến (kéo búa bao): server làm trọng tài, giữ kín lựa chọn tới khi cả hai đã ra. ----
+  // ---- Khiêu chiến hai người: kéo búa bao hoặc đo độ hiểu ý; server giữ kín lựa chọn tới khi cả hai đã nộp. ----
   activeChallengeOf(participantId) {
     for (const challenge of this.challenges.values()) {
       if ((challenge.fromId === participantId || challenge.toId === participantId) && ['pending', 'playing'].includes(challenge.status)) return challenge;
@@ -1117,14 +1141,24 @@ export class Room {
       fromId: challenge.fromId,
       toId: challenge.toId,
       status: challenge.status,
-      round: challenge.round,
-      fromScore: challenge.fromScore,
-      toScore: challenge.toScore,
-      target: CHALLENGE_TARGET,
       ...(['pending', 'playing'].includes(challenge.status) ? { deadline: challenge.deadline } : {}),
-      ...(challenge.status === 'playing' ? { moved: { from: Boolean(challenge.choices.from), to: Boolean(challenge.choices.to) } } : {}),
-      ...(challenge.last ? { last: challenge.last } : {}),
-      ...(challenge.winner ? { winner: challenge.winner } : {}),
+      ...(challenge.game === 'rps' ? {
+        round: challenge.round,
+        fromScore: challenge.fromScore,
+        toScore: challenge.toScore,
+        target: CHALLENGE_TARGET,
+        ...(challenge.status === 'playing' ? { moved: { from: Boolean(challenge.choices.from), to: Boolean(challenge.choices.to) } } : {}),
+        ...(challenge.last ? { last: challenge.last } : {}),
+        ...(challenge.winner ? { winner: challenge.winner } : {}),
+      } : {}),
+      ...(QUESTION_GAMES.includes(challenge.game) && ['playing', 'finished'].includes(challenge.status) ? {
+        questions: challenge.questions,
+        answered: { from: Boolean(challenge.answers.from), to: Boolean(challenge.answers.to) },
+        ...(challenge.game === 'guess-you' ? {
+          phase: challenge.status === 'finished' ? 'result' : challenge.answers.from ? 'guess' : 'answer',
+        } : {}),
+        ...(challenge.result ? { result: challenge.result } : {}),
+      } : {}),
     };
     this.sendTo(challenge.fromId, message);
     this.sendTo(challenge.toId, message);
@@ -1143,6 +1177,7 @@ export class Room {
     const from = this.participants.get(fromId);
     const target = this.participants.get(targetId);
     if (!from || !target || fromId === targetId) return { ok: false, error: 'NOT_IN_ROOM' };
+    if (!GAMES.includes(game)) return { ok: false, error: 'NOT_ALLOWED' };
     if (this.blockedBetween(from, target)) return { ok: false, error: 'NOT_ALLOWED' };
     if (!this.allow(`${fromId}:challenge`, 5, 60_000)) return { ok: false, error: 'RATE_LIMITED' };
     if (this.activeChallengeOf(fromId) || this.activeChallengeOf(targetId)) return { ok: false, error: 'BUSY' };
@@ -1158,6 +1193,9 @@ export class Room {
       choices: { from: null, to: null },
       last: null,
       winner: null,
+      questions: null,
+      answers: { from: null, to: null },
+      result: null,
       deadline: Date.now() + CHALLENGE_INVITE_MS,
       timer: null,
     };
@@ -1184,11 +1222,39 @@ export class Room {
       return { ok: true };
     }
     challenge.status = 'playing';
-    this.startRound(challenge);
+    if (QUESTION_GAMES.includes(challenge.game)) this.startQuestionGame(challenge);
+    else this.startRound(challenge);
     return { ok: true };
   }
 
+  startQuestionGame(challenge) {
+    challenge.questions = challenge.game === 'compatibility' ? compatibilityQuestions() : choiceQuestions();
+    challenge.answers = { from: null, to: null };
+    challenge.deadline = Date.now() + COMPATIBILITY_ANSWER_MS;
+    challenge.timer = setTimeout(() => this.endChallenge(challenge, 'expired'), COMPATIBILITY_ANSWER_MS);
+    challenge.timer.unref?.();
+    this.challengeState(challenge);
+    // Đoán ý bạn luôn cho bên gửi trả lời trước; bot bên nhận chỉ bắt đầu đoán sau khi bên gửi đã nộp.
+    for (const side of ['from', 'to']) this.scheduleQuestionBot(challenge, side);
+  }
+
+  scheduleQuestionBot(challenge, side) {
+    const playerId = side === 'from' ? challenge.fromId : challenge.toId;
+    if (!this.participants.get(playerId)?.bot) return;
+    if (challenge.game === 'guess-you' && ((side === 'from' && challenge.answers.from)
+      || (side === 'to' && (!challenge.answers.from || challenge.answers.to)))) return;
+    const think = setTimeout(() => {
+      if (challenge.status !== 'playing' || !QUESTION_GAMES.includes(challenge.game)) return;
+      this.challengeAnswer(playerId, challenge.id, challenge.questions.map(({ id }) => ({
+        questionId: id,
+        choice: Math.random() < 0.5 ? 0 : 1,
+      })));
+    }, 2_500 + Math.random() * 2_500);
+    think.unref?.();
+  }
+
   startRound(challenge) {
+    if (challenge.game !== 'rps') return;
     challenge.round += 1;
     challenge.choices = { from: null, to: null };
     challenge.deadline = Date.now() + CHALLENGE_ROUND_MS;
@@ -1210,7 +1276,7 @@ export class Room {
 
   challengeMove(participantId, challengeId, choice) {
     const challenge = this.challenges.get(challengeId);
-    if (!challenge || challenge.status !== 'playing') return { ok: false, error: 'NO_CHALLENGE' };
+    if (!challenge || challenge.game !== 'rps' || challenge.status !== 'playing') return { ok: false, error: 'NO_CHALLENGE' };
     const side = participantId === challenge.fromId ? 'from' : participantId === challenge.toId ? 'to' : null;
     if (!side) return { ok: false, error: 'NO_CHALLENGE' };
     if (!this.allow(`${participantId}:challenge-move`, 10, 10_000)) return { ok: false, error: 'RATE_LIMITED' };
@@ -1221,9 +1287,50 @@ export class Room {
     return { ok: true };
   }
 
+  challengeAnswer(participantId, challengeId, answers) {
+    const challenge = this.challenges.get(challengeId);
+    if (!challenge || !QUESTION_GAMES.includes(challenge.game) || challenge.status !== 'playing') return { ok: false, error: 'NO_CHALLENGE' };
+    const side = participantId === challenge.fromId ? 'from' : participantId === challenge.toId ? 'to' : null;
+    if (!side) return { ok: false, error: 'NO_CHALLENGE' };
+    if (challenge.game === 'guess-you' && ((side === 'to' && !challenge.answers.from) || (side === 'from' && challenge.answers.from))) {
+      return { ok: false, error: 'NOT_ALLOWED' };
+    }
+    if (!this.allow(`${participantId}:challenge-answer`, 2, 60_000)) return { ok: false, error: 'RATE_LIMITED' };
+    if (challenge.answers[side]) return { ok: false, error: 'ALREADY_ANSWERED' };
+    const expected = new Set(challenge.questions.map(({ id }) => id));
+    const received = new Map();
+    for (const answer of Array.isArray(answers) ? answers : []) {
+      if (!answer || !expected.has(answer.questionId) || received.has(answer.questionId) || ![0, 1].includes(answer.choice)) {
+        return { ok: false, error: 'INVALID_ANSWERS' };
+      }
+      received.set(answer.questionId, answer.choice);
+    }
+    if (received.size !== COMPATIBILITY_QUESTION_COUNT) return { ok: false, error: 'INVALID_ANSWERS' };
+    challenge.answers[side] = received;
+    if (challenge.game === 'guess-you' && side === 'from') {
+      this.challengeState(challenge);
+      this.scheduleQuestionBot(challenge, 'to');
+      return { ok: true };
+    }
+    if (!challenge.answers.from || !challenge.answers.to) {
+      this.challengeState(challenge);
+      return { ok: true };
+    }
+    let matches = 0;
+    for (const { id } of challenge.questions) if (challenge.answers.from.get(id) === challenge.answers.to.get(id)) matches += 1;
+    challenge.result = {
+      matches,
+      total: COMPATIBILITY_QUESTION_COUNT,
+      percent: Math.round((matches / COMPATIBILITY_QUESTION_COUNT) * 100),
+    };
+    clearTimeout(challenge.timer);
+    this.endChallenge(challenge, 'finished');
+    return { ok: true };
+  }
+
   // Chấm lượt: ai không ra tay trong 10 giây thì thua lượt (cả hai không ra là hoà).
   resolveRound(challenge) {
-    if (challenge.status !== 'playing') return;
+    if (challenge.game !== 'rps' || challenge.status !== 'playing') return;
     clearTimeout(challenge.timer);
     const { from, to } = challenge.choices;
     const winner = from && to
@@ -3841,7 +3948,8 @@ function handleRoomMessage(socket, context, raw) {
         : message.type === 'challenge.send' ? room.challengeSend(id, message.targetId, message.game)
           : message.type === 'challenge.respond' ? room.challengeRespond(id, message.challengeId, message.accept)
             : message.type === 'challenge.move' ? room.challengeMove(id, message.challengeId, message.choice)
-              : room.challengeCancel(id, message.challengeId);
+              : message.type === 'challenge.answer' ? room.challengeAnswer(id, message.challengeId, message.answers)
+                : room.challengeCancel(id, message.challengeId);
     if (!result.ok) protocolError(socket, room.epoch, result.error, SOCIAL_ERRORS[result.error] || 'Không thực hiện được', message.requestId);
     return;
   }
@@ -3972,6 +4080,8 @@ const SOCIAL_ERRORS = {
   BUSY: 'Một trong hai người đang có trận khác',
   NO_CHALLENGE: 'Trận đấu đã kết thúc',
   ALREADY_MOVED: 'Bạn đã ra tay ở lượt này',
+  ALREADY_ANSWERED: 'Bạn đã nộp câu trả lời',
+  INVALID_ANSWERS: 'Bộ câu trả lời không hợp lệ',
   HAND_BUSY: 'Một trong hai người đang nắm tay người khác',
   TOO_FAR: 'Hai người cần cùng đứng gần nhau (không ngồi) mới nắm tay được',
 };

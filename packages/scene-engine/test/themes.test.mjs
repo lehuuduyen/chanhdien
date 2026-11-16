@@ -40,6 +40,7 @@ const envFor = (theme = {}) => ({
     ...(courtyard.overlook ? [courtyard.overlook.path, courtyard.overlook.terrace] : []),
     ...(courtyard.wishGarden ? [courtyard.wishGarden.path, courtyard.wishGarden.area] : []),
     ...(courtyard.grove ? [courtyard.grove.area] : []),
+    ...(courtyard.fields ? [courtyard.fields.area] : []),
   ],
   m: new Proxy({}, { get: (cache, key) => (cache[key] ||= new THREE.MeshStandardMaterial()) }),
   material: () => new THREE.MeshStandardMaterial(),
@@ -132,6 +133,7 @@ test('bộ đồ mỗi vùng: export kit, có dữ liệu vùng đi kèm, cây /
         ...(courtyard.overlook ? [courtyard.overlook.path, courtyard.overlook.terrace] : []),
         ...(courtyard.wishGarden ? [courtyard.wishGarden.path, courtyard.wishGarden.area] : []),
         ...(courtyard.grove ? [courtyard.grove.area] : []),
+        ...(courtyard.fields ? [courtyard.fields.area] : []),
       ];
       const onDeck = (item) => {
         const positions = item.geometry.attributes.position;

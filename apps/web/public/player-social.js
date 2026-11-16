@@ -1,6 +1,6 @@
 // Bấm vào người khác trong chánh điện: thẻ thông tin (ảnh, tên, cấp, công đức), Kết bạn, Nắm tay và Khiêu chiến.
 // Nắm tay (hand.*): người mời dẫn đường, người nhận tự đi bên cạnh; đang nắm thì có nút Buông tay nổi trên cảnh. Khiêu chiến mở
-// trò kéo búa bao do server làm trọng tài (challenge.*); lời mời kết bạn / khiêu chiến của người khác hiện thành hộp
+// kéo búa bao hoặc ba trò lựa chọn 10 câu do server làm trọng tài (challenge.*); lời mời của người khác hiện thành hộp
 // trả lời. Có Chặn (người bị chặn không mời được mình, chat của họ bị ẩn) và Báo cáo (lưu cho người quản lý), cùng
 // màn Bạn bè (bạn đã lưu trong tài khoản + bạn trong phòng ở phiên này). Bot có thể tự rủ oẳn tù tì hoặc mời sang phòng
 // game (game.invite); hộp mời của bot có nút "Đừng mời nữa" (bot.quiet, nhớ trên máy, bật lại trong menu ⚙). Văn bản từ
@@ -8,7 +8,8 @@
 // hay bot; vẫn có thể mời bạn vào phòng mình, nhắn lời nhắn, xem hộp thư và ẩn trạng thái của mình;
 // có thư mới thì server gửi inbox.notify để tải lại hộp thư.
 import { avatarNode, levelBadge, titleBadge } from '/badges.js';
-import { onLangChange, t } from '/thien-i18n.js';
+import { compatibilityQuestion } from '/compatibility-questions.js';
+import { lang, onLangChange, t } from '/thien-i18n.js';
 
 const HANDS = { rock: '✊', paper: '✋', scissors: '✌️' };
 const CHOICES = ['rock', 'paper', 'scissors'];
@@ -109,6 +110,18 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
       send({ type: 'challenge.send', targetId: person.id, game: 'rps' });
       closeCard();
     });
+    const compatibility = button('chip social-btn primary', `🧠 ${t('social.compatibility')}`, () => {
+      send({ type: 'challenge.send', targetId: person.id, game: 'compatibility' });
+      closeCard();
+    });
+    const sameChoice = button('chip social-btn primary', `🎯 ${t('social.sameChoice')}`, () => {
+      send({ type: 'challenge.send', targetId: person.id, game: 'same-choice' });
+      closeCard();
+    });
+    const guessYou = button('chip social-btn primary', `🔮 ${t('social.guessYou')}`, () => {
+      send({ type: 'challenge.send', targetId: person.id, game: 'guess-you' });
+      closeCard();
+    });
     duel.disabled = Boolean(game);
     // Nắm tay: đang nắm người này thì nút thành Buông tay; người kia đang nắm tay ai khác thì khóa.
     const holding = handWith() === person.id;
@@ -117,7 +130,7 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
       closeCard();
     });
     hand.disabled = !holding && (blocked.has(person.id) || Boolean(person.handWith) || Boolean(handWith()));
-    actions.append(friend, hand, duel);
+    actions.append(friend, hand, duel, compatibility, sameChoice, guessYou);
     // Nhắn bot: điền "@Tên bot " vào ô chat; quản trị đọc qua Telegram và trả lời thay bot.
     if (person.bot && onMessageBot) {
       actions.append(button('chip social-btn', `💬 ${t('social.messageBot')}`, () => {
@@ -161,6 +174,9 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
       parts.push(box);
     }
     duel.disabled = Boolean(game) || blocked.has(person.id);
+    compatibility.disabled = Boolean(game) || blocked.has(person.id);
+    sameChoice.disabled = Boolean(game) || blocked.has(person.id);
+    guessYou.disabled = Boolean(game) || blocked.has(person.id);
     friend.disabled = friend.disabled || blocked.has(person.id);
     card.replaceChildren(...parts);
   }
@@ -264,7 +280,7 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
     if (cardId === otherId) renderCard();
   }
 
-  // ---- Trận kéo búa bao ----
+  // ---- Trò khiêu chiến hai người: kéo búa bao và các trò lựa chọn ----
   const panel = el('section', 'rps');
   panel.hidden = true;
   panel.setAttribute('role', 'dialog');
@@ -275,6 +291,9 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
   let ticker = null;
   let renderedSecond = null;
   let gameActive = false;
+  let compatibilityIndex = 0;
+  let compatibilityAnswers = new Map();
+  let compatibilitySubmitted = false;
 
   function setGameActive(active) {
     const next = Boolean(active);
@@ -287,6 +306,9 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
   const other = (state) => (side(state) === 'from' ? 'to' : 'from');
   const opponentId = (state) => (side(state) === 'from' ? state.toId : state.fromId);
   const score = (state, who) => (who === 'from' ? state.fromScore : state.toScore);
+  const questionGame = (name) => ['compatibility', 'same-choice', 'guess-you'].includes(name);
+  const questionKey = (name) => name === 'same-choice' ? 'sameChoice' : name === 'guess-you' ? 'guessYou' : 'compat';
+  const questionIcon = (name) => name === 'same-choice' ? '🎯' : name === 'guess-you' ? '🔮' : '🧠';
 
   function seconds(state) {
     return state.deadline ? Math.max(0, Math.ceil((state.deadline - session.serverNow()) / 1_000)) : 0;
@@ -294,12 +316,131 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
 
   function countdownText(state) {
     const rival = nameOf(opponentId(state));
+    if (questionGame(state.game)) {
+      const key = questionKey(state.game);
+      if (state.status === 'pending') {
+        return state.fromId === session.participantId
+          ? t(`${key}.waiting`, { name: rival, s: seconds(state) })
+          : t(`${key}.invited`, { name: rival });
+      }
+      return t(`${key}.time`, { s: seconds(state) });
+    }
     if (state.status === 'pending') {
       return state.fromId === session.participantId
         ? t('rps.waiting', { name: rival, s: seconds(state) })
         : t('rps.invited', { name: rival });
     }
     return t('rps.round', { n: state.round, target: state.target, s: seconds(state) });
+  }
+
+  function compatibilityTone(percent) {
+    if (percent >= 80) return 'amazing';
+    if (percent >= 60) return 'great';
+    if (percent >= 40) return 'growing';
+    return 'new';
+  }
+
+  function renderQuestionGame() {
+    const state = game;
+    const me = side(state);
+    const rival = nameOf(opponentId(state));
+    const key = questionKey(state.game);
+    const close = button('social-close', '✕', () => {
+      if (['pending', 'playing'].includes(state.status)) send({ type: 'challenge.cancel', challengeId: state.challengeId });
+      closeGame();
+    });
+    close.setAttribute('aria-label', t('social.close'));
+    const title = el('h2', '', `${questionIcon(state.game)} ${t(`${key}.title`)}`);
+    const info = el('p', 'rps-info', countdownText(state));
+    const body = el('div', 'compat-body');
+    const tools = el('div', 'social-actions compat-tools');
+
+    if (state.status === 'pending') {
+      body.append(el('div', 'compat-wait-icon', '💭'), el('p', 'compat-hint', t(`${key}.pendingHint`)));
+    } else if (state.status === 'playing') {
+      const submitted = Boolean(state.answered?.[me]) || compatibilitySubmitted;
+      const canAnswer = state.game !== 'guess-you'
+        || (me === 'from' && state.phase === 'answer')
+        || (me === 'to' && state.phase === 'guess');
+      if (submitted || !canAnswer) {
+        let waiting = state.answered?.[other(state)] ? t('compat.bothAnswered') : t(`${key}.waitingOther`, { name: rival });
+        if (state.game === 'guess-you' && me === 'to' && state.phase === 'answer') waiting = t('guessYou.waitingFirst', { name: rival });
+        if (state.game === 'guess-you' && me === 'from' && state.phase === 'guess') waiting = t('guessYou.waitingGuess', { name: rival });
+        body.append(
+          el('div', 'compat-wait-icon', state.answered?.[other(state)] ? '✨' : '⏳'),
+          el('p', 'compat-hint', waiting),
+        );
+      } else if (compatibilityIndex < state.questions.length) {
+        const item = state.questions[compatibilityIndex];
+        const question = compatibilityQuestion(item.id, lang());
+        const progress = el('div', 'compat-progress', t('compat.progress', { n: compatibilityIndex + 1, total: state.questions.length }));
+        progress.style.setProperty('--compat-progress', `${((compatibilityIndex + 1) / state.questions.length) * 100}%`);
+        let prompt = t('sameChoice.prompt');
+        if (state.game === 'compatibility') {
+          const focusId = item.focus === 'from' ? state.fromId : state.toId;
+          const focusName = focusId === session.participantId ? t('compat.you') : nameOf(focusId);
+          prompt = t('compat.prompt', { name: focusName });
+        } else if (state.game === 'guess-you') {
+          prompt = me === 'from' ? t('guessYou.answerPrompt') : t('guessYou.guessPrompt', { name: rival });
+        }
+        body.append(
+          progress,
+          el('h3', 'compat-question', prompt),
+        );
+        const options = el('div', 'compat-options');
+        for (const [choice, label] of (question?.options || []).entries()) {
+          const option = button('compat-option', label, () => {
+            compatibilityAnswers.set(item.id, choice);
+            compatibilityIndex += 1;
+            audio?.bead?.();
+            renderGame();
+          });
+          if (compatibilityAnswers.get(item.id) === choice) option.classList.add('chosen');
+          options.append(option);
+        }
+        body.append(options);
+        if (compatibilityIndex > 0) tools.append(button('chip', t('compat.back'), () => {
+          compatibilityIndex -= 1;
+          renderGame();
+        }));
+      } else {
+        body.append(el('div', 'compat-wait-icon', '✅'), el('p', 'compat-hint', t(`${key}.reviewHint`)));
+        tools.append(
+          button('chip', t('compat.back'), () => {
+            compatibilityIndex = Math.max(0, state.questions.length - 1);
+            renderGame();
+          }),
+          button('chip primary', t(`${key}.submit`), () => {
+            const answers = state.questions.map(({ id }) => ({ questionId: id, choice: compatibilityAnswers.get(id) }));
+            if (answers.some(({ choice }) => choice !== 0 && choice !== 1)) return;
+            compatibilitySubmitted = true;
+            send({ type: 'challenge.answer', challengeId: state.challengeId, answers });
+            renderGame();
+          }),
+        );
+      }
+    } else if (state.status === 'finished') {
+      const percent = state.result?.percent || 0;
+      const tone = compatibilityTone(percent);
+      const ring = el('div', 'compat-score');
+      ring.style.setProperty('--compat-score', `${percent * 3.6}deg`);
+      ring.append(el('strong', '', `${percent}%`), el('span', '', t(`${key}.understanding`)));
+      body.append(
+        ring,
+        el('h3', 'compat-result-title', t(`${key}.level.${tone}`)),
+        el('p', 'compat-hint', t(`${key}.matches`, { n: state.result.matches, total: state.result.total })),
+      );
+      tools.append(
+        button('chip primary', t(`${key}.again`), () => {
+          const target = opponentId(state);
+          const againGame = state.game;
+          closeGame();
+          if (participant(target)) send({ type: 'challenge.send', targetId: target, game: againGame });
+        }),
+        button('chip', t('social.close'), closeGame),
+      );
+    }
+    panel.replaceChildren(close, title, info, body, tools);
   }
 
   function updateCountdown() {
@@ -314,6 +455,10 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
 
   function renderGame() {
     if (!game) return;
+    if (questionGame(game.game)) {
+      renderQuestionGame();
+      return;
+    }
     const state = game;
     renderedSecond = seconds(state);
     const me = side(state);
@@ -409,6 +554,9 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
     game = null;
     myChoice = null;
     reveal = null;
+    compatibilityIndex = 0;
+    compatibilityAnswers = new Map();
+    compatibilitySubmitted = false;
     clearInterval(ticker);
     panel.hidden = true;
     setGameActive(false);
@@ -423,15 +571,18 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
     if (['declined', 'cancelled', 'expired'].includes(state.status)) {
       dropInvite(key);
       if (game?.challengeId === state.challengeId) closeGame();
-      showToast(t(`rps.${state.status}`, { name: rival }));
+      showToast(t(`${questionGame(state.game) ? questionKey(state.game) : 'rps'}.${state.status}`, { name: rival }));
       return;
     }
     // Lời mời tới mình: hộp trả lời nhỏ, chưa mở bàn chơi.
     if (state.status === 'pending' && state.toId === session.participantId && !game) {
-      invite(key, t('rps.inviteText', { name: rival }), {
+      invite(key, t(questionGame(state.game) ? `${questionKey(state.game)}.inviteText` : 'rps.inviteText', { name: rival }), {
         expiresAt: state.deadline,
         fromBot: Boolean(participant(state.fromId)?.bot),
         accept: () => {
+          compatibilityIndex = 0;
+          compatibilityAnswers = new Map();
+          compatibilitySubmitted = false;
           game = state;
           openGame();
           renderGame();
@@ -443,10 +594,15 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
     }
     dropInvite(key);
     const previous = game?.challengeId === state.challengeId ? game : null;
+    if (!previous && questionGame(state.game)) {
+      compatibilityIndex = 0;
+      compatibilityAnswers = new Map();
+      compatibilitySubmitted = false;
+    }
     game = state;
     if (panel.hidden) openGame();
     // Lượt mới bắt đầu (hoặc trận xong): lật bài lượt vừa rồi 1,8 giây.
-    if (state.last && (!previous || previous.round !== state.round || state.status === 'finished')) {
+    if (state.game === 'rps' && state.last && (!previous || previous.round !== state.round || state.status === 'finished')) {
       const me = side(state);
       const winner = state.last.winner;
       reveal = {
@@ -464,7 +620,9 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
         renderGame();
       }, state.status === 'finished' ? 2_400 : 1_800);
     }
-    if (state.status === 'playing' && previous && previous.round !== state.round && !state.last) myChoice = null;
+    if (state.game === 'rps' && state.status === 'playing' && previous && previous.round !== state.round && !state.last) myChoice = null;
+    if (questionGame(state.game) && state.answered?.[side(state)]) compatibilitySubmitted = true;
+    if (questionGame(state.game) && state.status === 'finished' && previous?.status !== 'finished') audio?.bead?.();
     renderGame();
   }
 
@@ -743,6 +901,7 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
       if (message.code === 'BUSY' || message.code === 'NO_CHALLENGE') {
         if (game && !['pending', 'playing'].includes(game.status)) closeGame();
       }
+      if (message.code === 'INVALID_ANSWERS') compatibilitySubmitted = false;
       return true;
     },
     // Rời phòng: đóng hết.

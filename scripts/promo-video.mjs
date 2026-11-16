@@ -1,0 +1,293 @@
+// `node scripts/promo-video.mjs [--film tour|garden] [--base http://localhost:3000] [--out .data/promo/promo.mp4] [--state vn] [--url chanhdien.online]`
+// `node scripts/promo-video.mjs --setup-only`: chỉ chuẩn bị dữ liệu máy dev rồi thôi (để tự quay màn hình /promo.html).
+// --film garden: clip ~33 giây ở Vườn Công Đức (gieo, tưới, hái, đem bán), mặc định ghi .data/promo/promo-garden.mp4.
+//
+// Quay video giới thiệu 9:16 (1080×1920) từ apps/web/public/promo.html bằng Chrome chạy ngầm có GPU rồi ghép MP4 bằng
+// ffmpeg. Cần web/API/realtime đang chạy (`BOTS_THIEN=30 npm run dev` cho sân đông vui) và ffmpeg trong PATH.
+//
+// Chuẩn bị (chỉ khi --base là localhost / 127.0.0.1, tức máy dev; bỏ qua bằng --no-setup):
+// - Rạp Việt Nam chưa có danh sách phát mặc định thì đặt "Big Buck Bunny" (phim hoạt hình CC BY của Blender Foundation;
+//   màn cuối video có ghi công) để màn chiếu có phim. Gỡ: trang admin, hoặc DELETE /api/v1/admin/cinema/playlist.
+// - Tài khoản thử "promo.minhan" (tên hiển thị Minh An), mật khẩu ngẫu nhiên lưu ở .data/promo-account.json, ví vườn được
+//   nạp tới 2.000 xu trong SQLite máy dev (giao dịch admin_adjustment) để quay cảnh đang đánh Tiến Lên / đặt Bầu Cua.
+//   Không bao giờ chạy phần này với server thật.
+// - Clip vườn: kết thúc các vụ còn dở của tài khoản thử (lần quay trước hỏng giữa chừng), kho quả về 0, có ít nhất 3 hạt
+//   Đào. Lúc quay, trang gọi window.promoHost('ripen'): cây vừa gieo được cho ra quả ngay trong SQLite máy dev (thay cho
+//   16 giờ chờ tưới đủ 3 lần) để thẻ luống thật hiện "Hái hết (10)", hái được vào kho rồi đem bán.
+//
+// Ghi ra <out> (MP4 H.264 30 khung/giây, không tiếng: thêm nhạc trên TikTok / CapCut), <out>-ghep.mp4 (cùng clip, bỏ màn
+// cuối, để ghép nối với clip khác) và <out>-sheet.jpg (ảnh ghép mỗi giây một khung để duyệt nhanh). Chrome: CHROME_PATH, mặc định bản cài sẵn trên macOS / google-chrome trên Linux;
+// --swiftshader để vẽ bằng CPU (chậm, giật) khi máy không có GPU.
+import { spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const ROOT = path.resolve(import.meta.dirname, '..');
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const index = args.indexOf(name);
+  if (index >= 0) args.splice(index, 1);
+  return index >= 0;
+};
+const option = (name, fallback) => {
+  const index = args.indexOf(name);
+  if (index < 0) return fallback;
+  const [value] = args.splice(index, 2).slice(1);
+  return value;
+};
+const FILM = option('--film', 'tour');
+if (!['tour', 'garden'].includes(FILM)) throw new Error('--film phải là tour hoặc garden');
+const BASE = option('--base', 'http://localhost:3000').replace(/\/$/, '');
+const OUT = path.resolve(ROOT, option('--out', FILM === 'garden' ? '.data/promo/promo-garden.mp4' : '.data/promo/promo.mp4'));
+const STATE = option('--state', 'vn');
+const URL_TEXT = option('--url', '');
+const FPS = Number(option('--fps', '30'));
+const SETUP_ONLY = flag('--setup-only');
+const NO_SETUP = flag('--no-setup');
+const SWIFTSHADER = flag('--swiftshader');
+const DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || '.data');
+const GARDEN_TIMEZONE = process.env.GARDEN_TIMEZONE || 'America/Los_Angeles';
+const LOCAL = ['localhost', '127.0.0.1'].includes(new URL(BASE).hostname);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const openDb = async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(path.join(DATA_DIR, 'app.db'));
+  db.exec('PRAGMA busy_timeout = 5000');
+  return db;
+};
+if (!/^[a-z]{2}$/.test(STATE)) throw new Error('--state phải là mã 2 chữ (vn, ca, tx…)');
+if (!Number.isInteger(FPS) || FPS < 24 || FPS > 60) throw new Error('--fps phải là số nguyên 24–60');
+
+const chromePath = process.env.CHROME_PATH || [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+].find((file) => existsSync(file));
+
+// ---- Chuẩn bị dữ liệu máy dev ----
+const ACCOUNT_FILE = path.join(DATA_DIR, 'promo-account.json');
+const DEMO = { username: 'promo.minhan', displayName: 'Minh An' };
+
+function demoAccount() {
+  if (existsSync(ACCOUNT_FILE)) return JSON.parse(readFileSync(ACCOUNT_FILE, 'utf8'));
+  const account = { ...DEMO, password: randomBytes(12).toString('base64url') };
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(ACCOUNT_FILE, `${JSON.stringify(account, null, 2)}\n`, { mode: 0o600 });
+  return account;
+}
+
+async function setup() {
+  const { DEFAULT_LOCAL_SECRET } = await import('@chanh-dien/session-token');
+  const adminKey = process.env.ADMIN_SECRET || process.env.SESSION_SECRET || DEFAULT_LOCAL_SECRET;
+  const playlistUrl = `${BASE}/api/v1/admin/cinema/playlist?roomId=cinema-vn`;
+  const current = await fetch(playlistUrl, { headers: { 'x-admin-key': adminKey } }).then((response) => (response.ok ? response.json() : null));
+  if (!current) console.warn('! Không đọc được danh sách phát rạp (khóa admin khác mặc định?) — bỏ qua.');
+  else if (!current.videos?.length) {
+    const response = await fetch(playlistUrl, {
+      method: 'PUT',
+      headers: { 'x-admin-key': adminKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ videos: [{ videoId: 'aqz-KE-bpKQ', title: 'Big Buck Bunny' }] }),
+    });
+    console.log(response.ok ? '✓ Rạp Việt Nam: đặt danh sách phát mặc định Big Buck Bunny (CC BY)' : `! Không đặt được danh sách phát (${response.status})`);
+  } else console.log(`✓ Rạp Việt Nam đã có danh sách phát (${current.videos.length} video)`);
+
+  const account = demoAccount();
+  const headers = { 'content-type': 'application/json', origin: BASE };
+  let response = await fetch(`${BASE}/api/v1/auth/login`, { method: 'POST', headers, body: JSON.stringify({ username: account.username, password: account.password }) });
+  if (!response.ok) {
+    response = await fetch(`${BASE}/api/v1/auth/register`, { method: 'POST', headers, body: JSON.stringify(account) });
+    if (!response.ok) throw new Error(`Không tạo được tài khoản thử ${account.username}: ${await response.text()} (xóa ${ACCOUNT_FILE} nếu đổi máy dev)`);
+  }
+  const { account: info } = await response.json();
+  const db = await openDb();
+  const balance = db.prepare('SELECT balance FROM coin_wallets WHERE account_id = ?').get(info.id)?.balance ?? 0;
+  if (balance < 2_000) {
+    const now = Date.now();
+    db.exec('BEGIN IMMEDIATE');
+    db.prepare('INSERT INTO coin_wallets (account_id, balance, updated_at) VALUES (?, 2000, ?) ON CONFLICT(account_id) DO UPDATE SET balance = 2000, updated_at = excluded.updated_at').run(info.id, now);
+    db.prepare("INSERT INTO coin_transactions (account_id, amount, balance_after, kind, at) VALUES (?, ?, 2000, 'admin_adjustment', ?)").run(info.id, 2_000 - balance, now);
+    db.exec('COMMIT');
+  }
+  if (FILM === 'garden') {
+    const now = Date.now();
+    db.exec('BEGIN IMMEDIATE');
+    const ended = db.prepare("UPDATE crop_cycles SET status = 'harvested', ended_at = ? WHERE owner_account = ? AND status IN ('growing', 'fruiting')").run(now, info.id).changes;
+    db.prepare('UPDATE fruit_inventory SET quantity = 0 WHERE account_id = ?').run(info.id);
+    db.prepare(`INSERT INTO seed_inventory (account_id, plant_type, quantity) VALUES (?, 'peach', 3)
+      ON CONFLICT(account_id, plant_type) DO UPDATE SET quantity = MAX(quantity, 3)`).run(info.id);
+    db.exec('COMMIT');
+    console.log(`✓ Vườn: tài khoản thử có 3 hạt Đào, kho quả trống${ended ? `, kết thúc ${ended} vụ còn dở` : ''}`);
+  }
+  db.close();
+  console.log(`✓ Tài khoản thử ${account.username} / ${account.password} (Minh An) · ví ${Math.max(balance, 2_000)} xu`);
+  return { ...account, id: info.id };
+}
+
+// Trang gọi window.promoHost(JSON) (chỉ khi quay bằng script này, máy dev). 'ripen': cây đang lớn của tài khoản thử ở
+// luống đó ra quả ngay, như vừa tưới đủ 3 lần.
+async function hostCall(account, payload) {
+  let message = null;
+  try { message = JSON.parse(payload); } catch {}
+  if (message?.op !== 'ripen' || !account?.id || !Number.isSafeInteger(message.plotId)) return;
+  const { FRUITS_PER_CROP, WATER_DAYS_TO_FRUIT, gardenDay } = await import('@chanh-dien/garden');
+  const db = await openDb();
+  const now = Date.now();
+  const day = gardenDay(now, GARDEN_TIMEZONE);
+  const changed = db.prepare(`UPDATE crop_cycles SET status = 'fruiting', water_days = ?, fruits_total = ?, fruits_left = ?,
+    fruiting_day = ?, fruiting_at = ?, last_water_day = ?, last_water_at = ?
+    WHERE plot_id = ? AND owner_account = ? AND status = 'growing'`)
+    .run(WATER_DAYS_TO_FRUIT, FRUITS_PER_CROP, FRUITS_PER_CROP, day, now, day, now, message.plotId, account.id).changes;
+  db.close();
+  console.log(changed ? `  ✓ luống ${message.plotId}: cây ra ${FRUITS_PER_CROP} quả` : `  ! luống ${message.plotId}: không thấy cây đang lớn của tài khoản thử`);
+}
+
+// ---- Chrome ----
+async function openChrome() {
+  if (!chromePath) throw new Error('Không thấy Chrome: đặt CHROME_PATH=<đường dẫn Chrome>.');
+  const profile = mkdtempSync(path.join(os.tmpdir(), 'promo-video-'));
+  const chrome = spawn(chromePath, [
+    '--headless=new', ...(SWIFTSHADER ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--enable-gpu', '--ignore-gpu-blocklist', ...(process.platform === 'darwin' ? ['--use-angle=metal'] : [])]),
+    '--autoplay-policy=no-user-gesture-required', '--mute-audio', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
+    '--no-first-run', '--no-default-browser-check', '--window-size=540,960', 'about:blank',
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const cleanup = () => {
+    chrome.kill();
+    try { rmSync(profile, { recursive: true, force: true }); } catch {}
+  };
+  process.on('exit', cleanup);
+  const endpoint = await new Promise((resolve, reject) => {
+    let text = '';
+    const timer = setTimeout(() => reject(new Error('Chrome không mở cổng điều khiển')), 20_000);
+    chrome.stderr.on('data', (chunk) => {
+      text += chunk;
+      const match = /DevTools listening on (ws:\/\/\S+)/.exec(text);
+      if (match) {
+        clearTimeout(timer);
+        resolve(match[1]);
+      }
+    });
+  });
+  const targets = await fetch(`${endpoint.replace(/^ws/, 'http').replace(/\/devtools\/browser\/.*$/, '')}/json/list`).then((response) => response.json());
+  const socket = new WebSocket(targets.find((target) => target.type === 'page').webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.onopen = resolve;
+    socket.onerror = reject;
+  });
+  let id = 0;
+  const pending = new Map();
+  const handlers = new Map();
+  socket.onmessage = ({ data }) => {
+    const message = JSON.parse(data);
+    if (message.id && pending.has(message.id)) {
+      pending.get(message.id)(message);
+      pending.delete(message.id);
+    }
+    if (message.method) handlers.get(message.method)?.(message.params);
+    if (message.method === 'Runtime.exceptionThrown') console.warn('  lỗi trong trang:', message.params.exceptionDetails.exception?.description?.split('\n')[0] || message.params.exceptionDetails.text);
+  };
+  const cmd = (method, params = {}) => new Promise((resolve) => {
+    const next = ++id;
+    pending.set(next, resolve);
+    socket.send(JSON.stringify({ id: next, method, params }));
+  });
+  const evaluate = async (expression) => {
+    const response = await cmd('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (response.result?.exceptionDetails) throw new Error(response.result.exceptionDetails.exception?.description || 'lỗi trong trang');
+    return response.result?.result?.value;
+  };
+  return { cmd, evaluate, on: (method, handler) => handlers.set(method, handler), close: () => { socket.close(); cleanup(); } };
+}
+
+async function main() {
+  const alive = await fetch(`${BASE}/promo.html`).then((response) => response.ok, () => false);
+  if (!alive) throw new Error(`Không mở được ${BASE}/promo.html — chạy \`npm run dev\` trước (hoặc --base <địa chỉ web>).`);
+  const account = LOCAL && !NO_SETUP ? await setup() : null;
+  if (SETUP_ONLY) {
+    if (account) console.log(`Mở ${BASE}/promo.html, đăng nhập tài khoản trên ở cổng chánh điện trước nếu muốn quay cảnh đánh bài.`);
+    return;
+  }
+  if (spawnSync('ffmpeg', ['-version']).status !== 0) throw new Error('Cần ffmpeg trong PATH (macOS: brew install ffmpeg).');
+
+  const browser = await openChrome();
+  const { cmd, evaluate } = browser;
+  await cmd('Runtime.enable');
+  await cmd('Page.enable');
+  if (account && LOCAL) {
+    await cmd('Runtime.addBinding', { name: 'promoHost' });
+    browser.on('Runtime.bindingCalled', ({ name, payload }) => {
+      if (name === 'promoHost') hostCall(account, payload).catch((error) => console.warn('  ! promoHost:', error.message));
+    });
+  }
+  // 540×960 điểm CSS × 2 = khung 1080×1920.
+  await cmd('Emulation.setDeviceMetricsOverride', { width: 540, height: 960, deviceScaleFactor: 2, mobile: false });
+  await cmd('Page.navigate', { url: `${BASE}/promo.html?record=1` });
+  await sleep(1_500);
+  if (account) {
+    const status = await evaluate(`fetch('/api/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ${JSON.stringify(JSON.stringify({ username: account.username, password: account.password }))} }).then((r) => r.status)`);
+    if (status !== 200) console.warn(`! Đăng nhập tài khoản thử thất bại (${status}) — quay ở chế độ khách.`);
+  }
+  const query = new URLSearchParams({ record: '1', film: FILM, state: STATE, ...(URL_TEXT ? { url: URL_TEXT } : {}) });
+  await cmd('Page.navigate', { url: `${BASE}/promo.html?${query}` });
+  for (let index = 0; index < 60 && !(await evaluate('Boolean(window.promo)').catch(() => false)); index += 1) await sleep(500);
+  console.log(FILM === 'garden' ? '… tải chánh điện 3D, chọn luống ở Vườn Công Đức' : '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
+  await evaluate('window.promo.prepare()');
+  const endAt = await evaluate('window.promo.endAt');
+  const checks = await evaluate("[...document.querySelectorAll('#checks li')].map((li) => `${li.className === 'ok' ? '✓' : '!'} ${li.textContent}`).join('\\n')");
+  console.log(checks);
+  // Chờ máy ổn định (bóng đổ, shader) rồi mới quay.
+  await sleep(4_000);
+
+  const work = mkdtempSync(path.join(os.tmpdir(), 'promo-frames-'));
+  let frames = [];
+  browser.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
+    cmd('Page.screencastFrameAck', { sessionId });
+    const file = path.join(work, `f${String(frames.length).padStart(5, '0')}.jpg`);
+    writeFileSync(file, Buffer.from(data, 'base64'));
+    // metadata.timestamp: giây kể từ epoch, lúc khung được vẽ.
+    frames.push({ file, at: metadata.timestamp });
+  });
+  await cmd('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: 1080, maxHeight: 1920, everyNthFrame: 1 });
+  await sleep(300);
+  console.log('● đang quay…');
+  const started = Date.now();
+  // Bỏ các khung trước lúc kịch bản bắt đầu (giữ một khung cuối trước đó làm khung đầu).
+  const startAt = started / 1_000;
+  await evaluate('window.promo.start()');
+  await sleep(600);
+  await cmd('Page.stopScreencast');
+  browser.close();
+  const seconds = (Date.now() - started) / 1_000;
+  console.log(`■ xong: ${frames.length} khung trong ${seconds.toFixed(1)} giây (~${(frames.length / seconds).toFixed(0)} khung/giây gốc)`);
+  if (frames.length < 10) throw new Error('Quá ít khung hình — kiểm tra Chrome có GPU (thử --swiftshader).');
+  const first = Math.max(0, frames.findIndex((frame) => frame.at >= startAt) - 1);
+  frames = frames.slice(first).map((frame, index, list) => ({ ...frame, at: frame.at - list[0].at }));
+
+  // Khung đến không đều: mỗi khung giữ tới khung kế, rồi ffmpeg lấy mẫu đều FPS khung/giây.
+  const list = frames.map((frame, index) => {
+    const next = frames[index + 1]?.at ?? frame.at + 1 / FPS;
+    return `file '${frame.file}'\nduration ${Math.max(0.001, next - frame.at).toFixed(4)}`;
+  });
+  list.push(`file '${frames.at(-1).file}'`);
+  writeFileSync(path.join(work, 'list.txt'), `${list.join('\n')}\n`);
+  mkdirSync(path.dirname(OUT), { recursive: true });
+  const encode = (file, seconds) => spawnSync('ffmpeg', [
+    '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', path.join(work, 'list.txt'),
+    ...(seconds ? ['-t', seconds.toFixed(3)] : []),
+    '-vf', `fps=${FPS},scale=1080:1920:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '17',
+    '-movflags', '+faststart', file,
+  ], { stdio: 'inherit' }).status === 0;
+  if (!encode(OUT)) throw new Error('ffmpeg lỗi khi ghép video');
+  // Bản để ghép với clip khác: cắt ngay trước màn cuối.
+  const joinable = OUT.replace(/\.mp4$/, '') + '-ghep.mp4';
+  const cut = Number.isFinite(endAt) && endAt > 0 && encode(joinable, endAt);
+  const sheet = OUT.replace(/\.mp4$/, '') + '-sheet.jpg';
+  spawnSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', OUT, '-vf', 'fps=1,scale=270:480,tile=8x8', '-frames:v', '1', '-q:v', '3', sheet], { stdio: 'inherit' });
+  rmSync(work, { recursive: true, force: true });
+  console.log(`✓ ${path.relative(ROOT, OUT)}${cut ? `\n✓ ${path.relative(ROOT, joinable)} (bỏ màn cuối, dài ${endAt.toFixed(1)} giây)` : ''}\n✓ ${path.relative(ROOT, sheet)} (ảnh ghép mỗi giây một khung)`);
+}
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exit(1);
+});

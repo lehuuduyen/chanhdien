@@ -183,7 +183,7 @@ export const THIEN_RULES = defineRoomRules({
   // số người cả phòng gửi riêng qua room.count. Load test 2026-11: gửi cả danh sách cho mọi người thì sập ở ~600.
   world: {
     // z tới 136: gồm lối đá ngoài cổng và Đài ngắm cảnh (world.courtyard.overlook); x tới −96: Rừng thiền ngoài cổng
-    // tây (world.courtyard.grove).
+    // tây (world.courtyard.grove) và Phước Điền (world.courtyard.fields, nông trại riêng) phía nam Rừng thiền.
     bounds: { x: [-96, 52], z: [-2, 136] },
     maxSpeed: 7,
     maxWalkers: 500,
@@ -204,6 +204,8 @@ export const THIEN_RULES = defineRoomRules({
       overlook: { x: 0, z: 116.5, ry: 3.1416 },
       // Trên lối đá vào Rừng thiền ngoài cổng tây, quay mặt vào rừng.
       grove: { x: -59, z: 31.5, ry: 1.5708 },
+      // Phước Điền (nông trại riêng) ngoài cổng tây phía nam, ngay trong cổng, quay mặt vào ruộng.
+      myfarm: { x: -56, z: 96.4, ry: 1.5708 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
     pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo',

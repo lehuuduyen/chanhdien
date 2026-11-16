@@ -183,7 +183,7 @@ Người dùng muốn tượng "giống thật". Đã dùng bản quét bảo t�
   - Tượng sư đen và hai tượng sư CTI được nhuộm lại texture sang đồng. Script thay texture: `scratchpad/retexture.mjs` (gltf-transform core) — thay ảnh rồi `optimize` lại.
 - Bỏ `buddha-seated.glb` (không còn dùng). Đã bỏ lời gọi `buildLanterns` bị trùng (trước vẽ đèn lồng hai lần).
 
-### 2.2g Thẻ người chơi, kết bạn, khiêu chiến kéo búa bao (03/11/2026, Claude)
+### 2.2g Thẻ người chơi, kết bạn, khiêu chiến và đo độ hiểu ý (03/11–16/11/2026, Claude/Codex)
 
 - **Bấm vào người khác** (nhân vật đi lại, hoặc bồ đoàn có người ngồi) → `apps/web/public/player-social.js` mở thẻ thông tin:
   - nội dung: ảnh, tên, cấp, công đức, Khách / Thành viên / "Phật tử ảo (máy)";
@@ -208,6 +208,14 @@ Người dùng muốn tượng "giống thật". Đã dùng bản quét bảo t�
 - Kiểm tra trình duyệt: `scratchpad/block-check.mjs` chạy hai tiến trình Chrome riêng (profile riêng → tài khoản riêng), đăng ký hai tài khoản, kiểm tra kết bạn có lưu, chặn, ẩn chat, báo cáo trong SQLite.
 - **Còn có thể làm:** mời bạn đã lưu vào phòng của mình; thêm trò khác (`GAMES` trong protocol); bảng thắng/thua cho thành viên; giao diện quản trị báo cáo.
 - **Tối ưu oẳn tù xì 02/11/2026:** đo Chrome mobile trước khi sửa cho thấy bảng trò chơi đã phủ màn hình nhưng WebGL phía sau vẫn vẽ 313 draw call / khoảng 258k tam giác mỗi khung, đồng hồ còn dựng lại toàn bộ bảng mỗi 500 ms (176 thay đổi DOM trong 5 giây). `renderer3d.setPaused(true)` nay dừng render/cập nhật 3D khi bảng mở và chạy lại khi đóng; đồng hồ chỉ sửa dòng đếm ngược khi số giây đổi, không tạo lại nút/emoji; panel dùng `contain: layout paint`, tay lật chỉ promote `transform/opacity`. QA xác nhận `paused: true` trong trận, chọn nước đi hoạt động, đóng bảng trả `paused: false` và cảnh chạy lại khoảng 58 FPS trên Chrome thử; 135 test + lint qua.
+- **Đo độ hiểu ý 16/11/2026:** thẻ người kế bên có thêm nút 🧠. Mỗi lượt lấy ngẫu nhiên 10 câu không trùng trong ngân hàng 100 câu (`apps/web/public/compatibility-questions.js`), cân bằng 5 câu nói về mỗi người; người được hỏi chọn sở thích thật, người kia đoán cùng một câu. Hai bên được sửa đáp án trước khi gửi, có 180 giây hoàn tất và có thể đo lại sau kết quả.
+  - Server chỉ phát tiến độ ai đã gửi, không phát lựa chọn riêng; khi cả hai hoàn tất mới gửi `{ matches, total, percent }` cho đúng hai người. Bot tự nhận lời và trả lời trễ ngẫu nhiên để một người vẫn thử được toàn bộ luồng.
+  - Protocol thêm `game: 'compatibility'` và `challenge.answer`; phiên bản không tăng vì chỉ bổ sung loại message và client cũ không thể khởi tạo trò mới. UI/câu hỏi có đủ vi/en/zh/es.
+  - QA: `npm run lint` qua; toàn bộ `npm test` qua 490/490, gồm schema chặt, riêng tư đáp án, 10 câu cân bằng/không trùng, kết quả phần trăm và đủ 100 câu ở bốn ngôn ngữ.
+- **Hai trò lựa chọn 16/11/2026:** thẻ người kế bên có thêm 🎯 **Cùng một lựa chọn** và 🔮 **Đoán ý bạn**, cùng dùng 10 câu ngẫu nhiên từ ngân hàng trên.
+  - `same-choice`: hai người trả lời đồng thời; mỗi đáp án A/B giống nhau được một điểm.
+  - `guess-you`: người gửi lời mời trả lời trước; server chỉ đổi sang pha `guess` sau khi đã nhận đủ bộ đáp án gốc, người nhận không thấy lựa chọn thật và mới được phép nộp dự đoán. Kết quả là số câu đoán đúng và phần trăm.
+  - Protocol thêm `game: 'same-choice' | 'guess-you'`; `challenge.state` của trò đoán có `phase: answer | guess | result`. Bot cũng đi đúng thứ tự. UI có đủ vi/en/zh/es. QA toàn bộ `npm test` qua 492/492 và lint qua.
 
 ### 2.2h Bot đi dạo ngoài khuôn viên (02/11/2026, Codex)
 

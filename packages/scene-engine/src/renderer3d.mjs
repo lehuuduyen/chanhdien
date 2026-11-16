@@ -681,6 +681,8 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
 
   // Tiết kiệm (điện thoại đang đọc giọng): vẽ tối đa ~30 hình/giây để giọng đọc không bị giật.
   let lowPower = false;
+  // Quay video giới thiệu (promo.html, debugCinematic): giữ chất lượng cao nhất, camera không bị giới hạn trong sân.
+  let cinematic = false;
   let paused = false;
   let lastDrawn = 0;
   // Trời theo giờ ở sân: nơi đặt chùa [vĩ độ, kinh độ]; độ cao mặt trời tính lại mỗi 30 giây (đổi chưa tới 0,2°).
@@ -701,12 +703,14 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     resize();
     const dt = Math.min((time - last) / 1000, 0.05);
     last = time;
-    controls.update();
-    // Không cho camera xuyên tường hay chui xuống sàn.
-    const clamped = clampToBounds(camera.position, world.camera.bounds);
+    // Quay video giới thiệu: camera bay theo kịch bản (debugView), không qua giới hạn khoảng cách / góc của OrbitControls.
+    if (cinematic) camera.lookAt(controls.target);
+    else controls.update();
+    // Không cho camera xuyên tường hay chui xuống sàn (trừ lúc quay video giới thiệu).
+    const clamped = cinematic ? camera.position : clampToBounds(camera.position, world.camera.bounds);
     camera.position.set(clamped.x, clamped.y, clamped.z);
     // Không chui vào cột: quá gần trục cột thì đẩy ra theo phương ngang.
-    for (const [x, z] of hall.pillars) {
+    for (const [x, z] of cinematic ? [] : hall.pillars) {
       const dx = camera.position.x - x;
       const dz = camera.position.z - z;
       const distance = Math.hypot(dx, dz);
@@ -729,7 +733,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     updateEffects(dt, time);
     updateCeremony(time);
     renderer.render(scene3d, camera);
-    adaptQuality(time);
+    if (!cinematic) adaptQuality(time);
     frames += 1;
     if (time - fpsStart >= 1_000) {
       fps = Math.round((frames * 1_000) / (time - fpsStart));
@@ -947,11 +951,28 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
         return { distance: Math.round(hit.distance * 100) / 100, type: hit.object.type, names, material: hit.object.material?.type, color: hit.object.material?.color?.getHexString?.(), map: Boolean(hit.object.material?.map), point: hit.point.toArray().map((value) => Math.round(value * 100) / 100) };
       });
     },
-    debugView(position, target) {
+    // fov (tùy chọn, độ): đổi tiêu cự camera, dùng cho quay video giới thiệu.
+    debugView(position, target, fov) {
       controls.enableDamping = false;
       camera.position.set(...position);
       controls.target.set(...target);
-      controls.update();
+      if (Number.isFinite(fov) && fov !== camera.fov) {
+        camera.fov = Math.min(90, Math.max(10, fov));
+        camera.updateProjectionMatrix();
+      }
+      if (cinematic) camera.lookAt(controls.target);
+      else controls.update();
+    },
+    // Chỉ để quay video giới thiệu (apps/web/public/promo.html): bỏ giới hạn camera, tắt tự hạ chất lượng, bật bóng đổ
+    // nét và độ phân giải màn hình (tối đa 2×). Không dùng trong trang chơi thật.
+    debugCinematic(on = true) {
+      cinematic = Boolean(on);
+      if (!cinematic) return;
+      quality.level = 0;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(size.width, size.height, false);
+      courtyard?.setLowDetail?.(false);
+      courtyard?.setShadows(true, 4096);
     },
     destroy() {
       destroyed = true;

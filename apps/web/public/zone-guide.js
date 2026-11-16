@@ -9,6 +9,7 @@ const GUIDES = {
   garden: { icon: '🌱', steps: 6 },
   pets: { icon: '🐾', steps: 4 },
   wishes: { icon: '🏮', steps: 4 },
+  myfarm: { icon: '🌾', steps: 5 },
 };
 
 function node(tag, className) {

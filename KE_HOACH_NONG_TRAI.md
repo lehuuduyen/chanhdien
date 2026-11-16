@@ -9,6 +9,80 @@ Yêu cầu của người dùng: **làm giống game Nông Trại Vui Vẻ — t
 Kế hoạch chỉ lấy **cơ chế của thể loại game nông trại** (cơ chế không ai giữ độc quyền). Không chép tên "Nông Trại
 Vui Vẻ", hình vẽ, nhân vật, nhạc hay giao diện của game đó; tên và hình của mình tự làm (mục 3, câu 6).
 
+## 0. Trạng thái (16/11/2026)
+
+Đã làm phần lõi của giai đoạn 1–3: trồng trọt, gà lấy trứng, bò lấy sữa, kho, chợ có hạn mức, cấp độ, mở đất / nâng
+chuồng / nâng kho, dâng nông sản. Đã làm giai đoạn 4 (hàng xóm): thăm ruộng bạn, giúp, rổ chia sẻ, tặng quà, nông trại
+bạn bot, bạn bot ghé giúp / lấy rổ / tặng quà như người thật, nhắc khi mở app (chi tiết cuối mục này). Gà mái, gà con, bò sữa, cây trồng (ảnh billboard), chuồng,
+nhà, giếng, sạp chợ, bù nhìn, gà trống, máng nước, cuộn rơm, thùng sữa là mô hình Meshy (16/11/2026; mục 6.4). Chưa làm
+giai đoạn 5.
+
+| Phần | Ở đâu |
+| --- | --- |
+| Lõi (bảng, tính lười theo mốc server, thao tác, chợ, cấp) | `packages/garden/src/farm.mjs` (dùng chung ví xu / sổ giao dịch / khóa idempotency của Vườn Công Đức qua `createGardenStore`) |
+| API | `apps/api/farm.mjs`: `GET /api/v1/farm`, `POST /api/v1/farm/<thao tác>` |
+| Bố cục cảnh | `scripts/thien-garden-layout.mjs` → `world.courtyard.fields` trong `scenes/thien-default/scene.json` |
+| Phần tĩnh 3D | `buildFields` trong `courtyard3d.mjs` |
+| Phần của từng người (cây, gà, bò, trứng, sữa, biểu tượng) | `packages/scene-engine/src/farm3d.mjs` |
+| Giao diện | `apps/web/public/farm-ui.js` (thanh nông trại, thẻ ô / chuồng, bảng chợ; chữ vi / en / zh / es) |
+| Hàng xóm (giai đoạn 4) | Lõi trong `farm.mjs` (`FARM_SOCIAL_MIGRATION`: `farm_basket`, `farm_social`, `farm_log`; `farmBotFarm`), API trong `apps/api/farm.mjs`, giao diện trong `farm-ui.js`, kệ rổ trong `buildFields` + đồ trong rổ ở `farm3d.mjs` |
+| Test | `packages/garden/test/farm.test.mjs` (gồm mô phỏng kinh tế 30 ngày và 6 test hàng xóm), `apps/api/test/farm.test.mjs`, `walk.test.mjs` |
+
+**Khác với kế hoạch ban đầu (lý do):**
+- **Không làm trang / loại phòng riêng** (câu 2, mục 6.1). Bộ vẽ `renderer3d` gắn chặt với chánh điện (luôn dựng điện,
+  bàn thờ, tượng), làm trang riêng gần như phải viết bộ vẽ mới. Thay vào đó Phước Điền là **một khu trong thế giới
+  chánh điện**. Bố cục (ô đất, chuồng, quầy) giống nhau với mọi người; cây / con / đồ là của riêng người đang xem, vẽ
+  theo dữ liệu API của tài khoản đó. Đất vẫn riêng từng tài khoản (câu 1). Không thêm tin realtime nào: câu trả lời API
+  mang trạng thái mới để trang tự vẽ lại. Người khác đi ngang thấy ruộng của chính họ. Thăm ruộng bạn (giai đoạn 4) sẽ
+  là trang tải nông trại của bạn vào cùng khu.
+- **Vị trí:** ngoài tường tây, phía nam Rừng thiền (x −94…−53,5, z 70–99). Đã đo: phía đông và ngoài cổng đã kín vì
+  34 bang đặt điểm đặc trưng ở đó, còn dải này không bang nào dùng. Cổng mở ở lối hẹp giữa rào Khu tưởng niệm và tường
+  cổng (không đi xuyên nghĩa trang). Điểm đi nhanh `myfarm` 🌾. Bốn dáng núi của vùng (autumn, blossom, california,
+  pacific) có một quả đồi chạm góc ruộng: bỏ quả đồi đó (`clearOfWalkways` trong `landscape/common.mjs`), các đồi khác
+  giữ nguyên dáng.
+- **Hạt trả tiền lúc gieo**, không có túi hạt trong kho (đỡ một bước bấm cho người lớn tuổi).
+- **Đất giữ ẩm 6 giờ** (không phải 8): cây ngắn không cần tưới, bí / dưa / thanh long cần tưới giữa chừng.
+- **Không vào được sân chuồng**: người đứng ngoài cửa cho ăn / nhặt trứng / vắt sữa.
+- **Cây lâu năm là thanh long** (cấp 12), không dùng táo / cam / đào để khác Vườn Công Đức.
+
+**Hàng xóm (giai đoạn 4, đã làm 16/11/2026):**
+- **Thăm:** nút 🏡 Hàng xóm trên thanh nông trại mở danh sách bạn người (đã có nông trại) + bạn bot, kèm cấp, việc cần
+  giúp (💧 🌿 🌽), số món lấy được ở rổ, số việc đã giúp hôm nay, điểm phước. Bấm Thăm thì trang tải nông trại của bạn
+  vào cùng khu (`GET /api/v1/farm/visit?friend=<mã>|bot=<tên>`), thanh nông trại ghi "Ruộng của …" + "Về ruộng mình"; ra
+  khỏi khu là về ruộng mình. Chỉ thăm được bạn (API kiểm tra `accounts.friends` / bạn bot đã lưu). Không có "mở cửa cho mọi
+  người" (người lạ không có lối tìm tới ruộng nhau).
+- **Giúp:** tưới ô **đã khô**, nhổ cỏ / bắt sâu, cho con **đang đói** ăn bằng thức ăn trong kho chủ. Mỗi người tối đa 5 việc
+  mỗi ruộng mỗi ngày; mỗi việc +1 kinh nghiệm, +1 xu khi đã là bạn từ 24 giờ, tổng xu giúp đỡ tối đa 10 xu/ngày (giao
+  dịch `chore`, `plant_type` = `farm_help`; không thêm loại giao dịch mới để khỏi dựng lại bảng `coin_transactions`).
+- **Rổ chia sẻ:** kệ rổ ngay trong cổng (`fields.basket`). Chủ bỏ nông sản / trứng / sữa từ kho vào rổ (tối đa 20 món,
+  thao tác `share` / `unshare`); khách lấy tối đa 2 món mỗi ruộng mỗi ngày vào kho mình, chủ được 1 điểm phước / món. Rổ
+  bạn bot vơi chung cho mọi người như rổ thật; mỗi người lấy từ rổ các ruộng bot tối đa 4 món / ngày (`FARM_TAKE_BOT_CAP`,
+  chống kết nhiều bạn bot để lấy đồ) — phần vượt không hiện trong rổ (như rổ đã có người lấy), không báo lỗi riêng, lượt
+  lấy vẫn ghi 2 như ruộng người. Chưa làm "tự để 10 % mỗi lần thu".
+- **Tặng quà:** từ kho mình vào thẳng kho bạn, 3 lần / ngày, tối đa 10 món mỗi lần; bạn người nhận thêm một tin trong
+  hộp thư (`🎁 🌾 🥚 ×2`, qua `friendLinks.note`, báo `inbox.notify`). Bạn bot nhận quà như bạn người: quà rời kho người
+  tặng, lời tặng vào cuộc trò chuyện với bạn ấy (`botChats.record`, như tin nhắn riêng) và báo Telegram để quản trị cảm ơn
+  thay bằng `/tl`. Chưa làm tặng gà con.
+- **Nông trại bạn bot — cư xử như ruộng người thật:** sinh theo (tên, giờ) bằng băm (`farmBotFarm`), không lưu, không chạy
+  việc nền, không có cờ `bot` trong dữ liệu ruộng gửi trang. Cấp tăng dần theo ngày (từ 2–9 lúc 01/11/2026, 4–9 ngày
+  lên một cấp, dừng ở 12–21); mỗi ô trồng một loài cả tuần (hay chọn loài mới mở), lứa nối lứa: lớn → chín chờ thu tới
+  4 giờ → bỏ trống 10–60 phút → gieo lại; khung 6 giờ đầu đất ẩm, các khung sau chủ tưới kịp ~60 %; cỏ / sâu theo lứa
+  (cây ≤ 1 giờ không có); gà / bò mỗi bữa chủ cho ăn kịp ~55 %; rổ chủ bày 2–3 món mỗi ngày. Việc khách làm ghi sổ
+  (`farm_log`) và áp cho **mọi người** (tưới giữ ẩm 6 giờ, nhổ cỏ xong cả lứa, cho ăn no một bữa, rổ vơi), như ruộng
+  thật ai ghé cũng thấy cùng một cảnh.
+- **Bạn bot ghé giúp như hàng xóm:** tính khi chủ mở nông trại, giờ ghé ghi lùi 10–90 phút (ô / con dựng lại trạng thái
+  lúc ấy từ mốc server, ô được tưới lớn tiếp từ giờ ghé). Mỗi ngày tối đa 2 lượt của 2 bạn khác nhau (~60 % / ~35 %,
+  cách nhau ≥ 3 giờ); mỗi lượt ≤ 5 việc: tưới ≤ 3 ô khô, cho con đói ăn bằng thức ăn trong kho chủ, rồi nhổ cỏ / bắt
+  sâu; ~35 % lấy 1 món ở rổ (chủ +1 điểm phước), ~20 % tặng 1–3 món của ruộng mình vào kho chủ (lời tặng vào cuộc trò
+  chuyện với bạn ấy, báo `inbox.notify`).
+- **Sổ ghé thăm + nhắc:** `farm.visitors` (hôm nay, mới trước) hiện trong bảng Hàng xóm; lượt ghé mới chưa xem hiện thành
+  dòng 📬 trên thanh nông trại. Mở trang mà không đứng ở Phước Điền thì nhắc một lần: ô chín, trứng / sữa chờ lấy, lượt
+  hàng xóm ghé mới.
+- **Bảng xếp hạng:** danh sách Hàng xóm xếp chung người và bot: ruộng đang cần giúp / rổ còn đồ trước, rồi điểm phước,
+  cấp, tên; chưa có bảng toàn server.
+- **Realtime:** vẫn không có tin realtime (mục 6.3 chưa cần): người thăm thấy trạng thái lúc tải, chạm vào ô / chuồng thì
+  tải lại; chủ thấy thay đổi lần tải sau.
+
 ## 1. Phân tích Nông Trại Vui Vẻ
 
 **Game là gì.**
@@ -37,6 +111,42 @@ Vui Vẻ", hình vẽ, nhân vật, nhạc hay giao diện của game đó; tên
   yêu cầu của bạn.
 - Theo một bài viết về bản xưa, nâng cấp cây trồng và vật nuôi tốn rất nhiều vàng. Đó là chỗ tiêu tiền giữ cho kinh tế
   game không phình ra.
+
+### 1.3 Giống cây và giao diện (bổ sung 16/11/2026)
+
+Nguồn công khai rất ít, không có bảng giống cây chính thức. Phần dưới gộp từ bài báo, trang tải ứng dụng và trí nhớ
+chung về thể loại. **Không phải số liệu chính thức của VNG**, chỉ dùng để định hướng.
+
+**Giống cây:**
+- Bản di động hiện nay có khoảng 30 loại hạt giống, có lai giống, có nâng cấp chậu để rút ngắn thời gian thu hoạch.
+- Bản Zing Me xưa dùng rau củ quen thuộc ở Việt Nam (củ cải, cà rốt, ngô, khoai, cà chua, bí, dưa hấu…) và cây ăn
+  quả cho nhiều lứa.
+- Cây mở dần theo cấp. Mỗi cấp mở thêm ô đất. Kinh nghiệm cần để lên cấp tăng nhanh dần (một bản mô phỏng của người hâm
+  mộ dùng 5 × cấp^2,1).
+- Phân bón rút ngắn thời gian, chỉ mua bằng tiền thật.
+
+**Giao diện (khuôn chung của thể loại):**
+- Nhìn chéo từ trên xuống một mảnh ruộng nhiều ô.
+- Góc trên: ảnh đại diện, cấp, thanh kinh nghiệm, vàng.
+- Thanh công cụ: cuốc, bình tưới, bắt sâu / nhổ cỏ, bàn tay thu hoạch, cửa hàng, kho, trang trí.
+- Danh sách bạn bè một bên, biểu tượng cho biết vườn bạn nào có cây chín / cần giúp.
+- Hai nhân vật hướng dẫn nhiệm vụ đầu. Sang vườn bạn để tưới, diệt sâu, "lượm" vàng rơi, mở rương quà.
+
+**Phước Điền lấy gì / đổi gì:**
+- Lấy: ruộng nhiều ô mở dần theo cấp, cây theo giờ thật nhiều độ dài, tưới / nhổ cỏ / bắt sâu, kho, chợ, cấp và
+  thanh kinh nghiệm luôn hiện, biểu tượng nổi trên ô chín / ổ đầy.
+- Đổi: không có thanh công cụ chọn dụng cụ. Chạm thẳng vào ô / chuồng là hiện việc làm được (ít bước hơn cho người
+  lớn tuổi), nhân vật tự đi tới làm. Ruộng là khu 3D đi lại được trong sân chùa, không phải bảng 2D riêng. Không có
+  tiền thật / phân bón tăng tốc.
+- Giống cây: 9 loại gần gũi ở bảng mục 4.2, có thanh long là cây Việt.
+
+Nguồn bổ sung: [VNG ra mắt Nông Trại Vui Vẻ trên di động — VietnamPlus](https://www.vietnamplus.vn/vng-chinh-thuc-ra-mat-nong-trai-vui-ve-tren-thiet-bi-di-dong-post333229.vnp)
+(trồng cây, bắt sâu, bón phân, lai giống, giúp bạn tưới / diệt sâu, lượm vàng, rương quà, nhân vật hướng dẫn);
+[Nông trại vui vẻ 3 — GenK](https://genk.vn/nong-trai-vui-ve-3-moi-me-cap-ben-nhaccuatui-20120910034439596.chn)
+(cuốc đất, tưới, thuốc diệt cỏ, thu hoạch; phân bón rút ngắn thời gian, mua bằng tiền thật);
+[APKPure — Nông Trại Vui Vẻ](https://apkpure.com/n%C3%B4ng-tr%E1%BA%A1i-vui-v%E1%BA%BB/com.ntvv.nongtraivuive) (30 loại
+hạt, nâng cấp chậu); [G_Farm — GitHub](https://github.com/pvkhanh1708/G_Farm) (bản mô phỏng của người hâm mộ: bảng cây
+theo cấp, công thức kinh nghiệm).
 
 ### 1.2 Lấy gì, đổi gì, bỏ gì
 
@@ -110,21 +220,25 @@ Mọi con số dưới đây là **số nháp**. Chốt bằng test mô phỏng 
 
 **Cây trồng** (mỗi cây một độ dài, ngắn thì hợp lúc rảnh, dài thì gieo trước khi ngủ):
 
-| Cây | Mở ở cấp | Chín sau | Thu được | Dùng |
-| --- | --- | --- | --- | --- |
-| Rau muống | 1 | 20 phút | bó rau | bán |
-| Cà chua | 1 | 1 giờ | quả | bán |
-| Ngô | 2 | 3 giờ | bắp | bán, **thức ăn gà** |
-| Lúa | 3 | 6 giờ | thóc | **thức ăn gà**, bán |
-| Cỏ voi | 5 | 2 giờ | bó cỏ | **thức ăn bò** (không bán) |
-| Bí đỏ | 7 | 8 giờ | quả | bán |
-| Dưa hấu | 9 | 12 giờ | quả | bán |
-| Táo / cam / đào (như Vườn Công Đức) | 12 | 24 giờ lần đầu, sau đó ra quả mỗi 12 giờ, 4 lứa | quả | bán, cúng dường |
+Số đã chốt bằng mô phỏng (mục 5; giá hạt rẻ so với giá bán để người chăm chạm được hạn mức chợ, vì chợ chặn doanh thu
+chứ không chặn tiền hạt):
+
+| Cây | Mở ở cấp | Chín sau | Thu | Hạt | Giá chợ gốc | Dùng |
+| --- | --- | --- | --- | --- | --- | --- |
+| Rau muống | 1 | 20 phút | 3 | 1 | 1 | bán |
+| Cà chua | 1 | 1 giờ | 4 | 1 | 2 | bán |
+| Ngô | 2 | 3 giờ | 5 | 1 | 2 | bán, **thức ăn gà** |
+| Lúa | 3 | 6 giờ | 8 | 2 | 2 | **thức ăn gà**, bán |
+| Cà rốt | 4 | 4 giờ | 5 | 2 | 3 | bán |
+| Cỏ voi | 5 | 2 giờ | 4 | 1 | — | **thức ăn bò** (không bán) |
+| Bí đỏ | 7 | 8 giờ | 4 | 4 | 7 | bán |
+| Dưa hấu | 9 | 12 giờ | 4 | 6 | 10 | bán |
+| Thanh long | 12 | 24 giờ, rồi 12 giờ / lứa, 5 lứa | 3 | 15 | 9 | bán, dâng |
 
 **Chăm sóc:**
-- Tưới: đất khô thì cây ngừng lớn nhưng không chết. Tưới một lần giữ ẩm khoảng 8 giờ.
+- Tưới: đất khô thì cây ngừng lớn nhưng không chết. Gieo xong đất ẩm sẵn; tưới một lần giữ ẩm 6 giờ.
 - Cỏ và sâu: server rút ngẫu nhiên (định trước theo mã vụ, không cần chạy việc nền), mọc khi cây đang lớn. Nhổ / bắt
-  được kinh nghiệm; để nguyên thì giảm tối đa 20 % sản lượng.
+  được kinh nghiệm; để nguyên thì giảm tối đa 20 % sản lượng. Cây chín trong 1 giờ trở xuống không có cỏ / sâu.
 - Cây chín để nguyên tới khi hái. Đất là của riêng mình nên không cần dọn chỗ cho người khác.
 
 ### 4.3 Gà lấy trứng (mở ở cấp 3)
@@ -193,7 +307,8 @@ Mọi con số dưới đây là **số nháp**. Chốt bằng test mô phỏng 
 ### 4.8 Bot
 
 - **Bạn bot có nông trại:** server tự chăm bằng mô phỏng, không tốn máy, để mục "Hàng xóm" lúc nào cũng có người.
-- **Bot ghé giúp:** bot thỉnh thoảng giúp nông trại người chơi (tối đa 1 lần/ngày), không lấy đồ ở góc chia sẻ.
+- **Bot ghé giúp:** bot thỉnh thoảng giúp nông trại người chơi như hàng xóm thật (tối đa 2 bạn/ngày), đôi khi lấy 1 món ở
+  góc chia sẻ hoặc tặng nông sản (mục 0).
 
 ## 5. Kinh tế xu (chốt bằng test mô phỏng)
 
@@ -323,6 +438,44 @@ Mọi con số dưới đây là **số nháp**. Chốt bằng test mô phỏng 
 - Gà, bò: nén `gltf-transform` như thú ở Nông trại nhỏ, cử động chân / đầu bằng shader.
 - Chuồng, kho: kiến trúc, dùng API Remesh khoảng 20.000 tam giác.
 
+**Đã làm (16/11/2026, 90 credit):** gà mái, gà con, bò sữa — text-to-3D `art_style: realistic`, `should_remesh: true`
+(6.000 / 4.000 / 8.000 tam giác), xem bản nháp rồi mới làm bản hoàn chỉnh. File gốc `nhanvat/farm/{hen,chick,cow}.glb`,
+bản nén (`gltf-transform optimize --texture-size 512 --texture-compress webp --compress meshopt`, 115–195 KB) ở
+`apps/web/public/models/farm/`. Vẽ ở `MODELS` trong `farm3d.mjs`: tải khi con đầu tiên của loài xuất hiện, nướng trọng
+số chân / đầu bằng `bakeAnimal` của `animals3d.mjs` (gà bước trái / phải, bò bốn chân chéo), mỗi con một bộ uniform:
+chân bước khớp quãng đường, gà mổ thóc / bò gặm cỏ bằng cúi đầu; bê dùng mô hình bò cao 0,85 m; chưa tải xong / tải lỗi
+thì hiện hình khối.
+
+**Đợt 2 (16/11/2026, ~960 credit, còn 1.076):**
+- **Cây:** 19 ảnh billboard — mỗi loài `<loài>-grow` (đang lớn) + `<loài>-ripe` (chín), mầm dùng chung `sprout`. Tạo
+  `should_remesh: false`, refine, dựng ảnh bằng `scripts/meshy-billboard.mjs` (cà rốt `clipBelow` 0,5 cho củ chỉ lộ đầu;
+  bí, dưa nhìn từ trên 22°), 7–45 KB / ảnh, tổng ~570 KB ở `apps/web/public/models/crops/`. Bản gốc nén meshopt (giữ lưới,
+  ảnh màu 1024) ở `nhanvat/farm/crops/` để dựng lại ảnh. `farm3d.mjs`: `CROP_SPRITES` (chỗ trồng `grid9` / `grid4` /
+  `dense` 16 cây lúa / `vine` 3 dây bí, dưa / `single` thanh long; chiều cao đang lớn / chín), đất khô cây thấp 10 %, ô
+  chưa mở mọc cỏ dại bằng ảnh `grass-grow` thấp 0,3 m. Ảnh làm lại một lần vì Meshy bỏ qua "no pot" (thanh long non trong
+  chậu) hoặc ra sai dáng (dưa hấu non thành cây bụi có thân).
+- **Công trình** (tạo chi tiết đầy đủ rồi API Remesh 10–20 nghìn tam giác): chuồng gà, chuồng bò, nhà nhỏ, giếng, sạp chợ,
+  bù nhìn đội nón lá. **Đồ vật** (remesh lúc tạo 3–6 nghìn): gà trống (đứng trên gốc cây cạnh chuồng gà, trang trí), máng
+  nước, cuộn rơm, thùng sữa (`farm3d.mjs` vẽ số thùng theo xô sữa đang chờ). Nén ảnh màu 512 (chuồng bò, nhà 1024), tổng
+  ~4 MB ở `apps/web/public/models/farm/`, chỉ tải khi camera cách khu ≤ 55 m. Biển "CHỢ PHƯỚC ĐIỀN" dời lên trên mái sạp.
+  Nhà nhỏ của Meshy dài 6 m theo trục cửa: xoay chiều dài bắc – nam (cửa quay về lối giữa nhà và chuồng bò), vật cản là
+  chuỗi vòng tròn dọc bốn cạnh (`house.size`). Remesh làm ảnh màu hơi lem khi nhìn sát (mái ngói nhà, vách chuồng); thử
+  giảm lưới bằng `gltf-transform simplify` giữ UV nhưng mái thủng lỗ nên giữ bản Remesh.
+
+**Đợt 3 (16/11/2026, ~395 credit, còn 681):**
+- Hàng rào gỗ tròn (`fence`, mỗi nhịp giữa hai cọc một bản, kéo vừa nhịp), khung luống gỗ (`bedframe`, kéo vừa 2,4 × 0,3 m;
+  đất vẫn là khối để cây / hạt / đất khô đặt đúng mặt đất), cổng gỗ mái ngói trên tường (`gate`, kéo vừa khe cổng; biển
+  "PHƯỚC ĐIỀN" thêm tấm quay vào nông trại vì nhìn từ sau chữ bị ngược), rổ tre trên kệ chia sẻ (`basket`), ổ rơm (`nest`).
+- Đồ trang trí `fields.decor` (lu nước cạnh cửa nhà, đống củi sau nhà, xe cút kít chở rơm ven rào bắc, chồng thùng rau
+  cạnh sạp chợ), có vật cản trong `scripts/thien-garden-layout.mjs`.
+- Cỏ dại / sâu trên luống bằng ảnh (`weeds`, `pest` — sâu chụp nghiêng `ry` 90° cho thấy cả thân).
+- Ổ trứng và thùng sữa trước đây nằm sau lưng nhà chuồng (không thấy từ cửa sân): dời ra góc sân trước nhà gà / sát rào
+  đông sân bò.
+- Công trình: nén lại ảnh màu + ảnh nổi khối 1024 (trước 512 làm mất vân gỗ / ngói), đặt mặt nhám (`roughness` 1) cho
+  khỏi bóng như nhựa. Vết lem do Remesh khi dí sát camera vẫn còn.
+- Làm lại 3 bản nháp: khung luống (có cọc cao), ổ rơm (ra cục đá), rổ (ra quả cầu kín).
+- Chưa làm: máng thóc trong chuồng gà, cánh cổng sân chuồng, kệ rổ, hạt gieo bằng ảnh.
+
 **Trong lúc chờ mô hình:**
 - Gà / bò dựng tạm bằng khối, như các thú khối ở khu thú cưng.
 - Cây dựng tạm bằng khối màu.
@@ -373,11 +526,11 @@ Cỡ việc: S nhỏ, M vừa, L lớn.
 
 | GĐ | Nội dung | Cỡ | Xong khi |
 | --- | --- | --- | --- |
-| **0. Chốt + khung** | Chốt mục 3. Loại phòng `farm`, cảnh `nong-trai` trống (đất, hàng rào, nhà, phong cảnh theo vùng), trang `/nong-trai.html`, cổng ở Nông trại nhỏ + điểm đi nhanh `myfarm`, bạn bè vào thăm | M | Từ sân chùa vào được nông trại riêng; bạn vào cùng thì hai bên thấy nhau đi lại; về lại chùa được; test luật phòng + quyền vào |
-| **1. Trồng trọt** | 6 ô → 36 ô, 8 loại cây (hình tạm bằng khối), tưới / cỏ / sâu, thu hoạch, kho, chợ (giá theo ngày, hạn mức), cấp độ, mở đất, động tác nhổ cỏ / bắt sâu | L | Gieo → chín → thu → bán chạy hết trên trang thật; hai máy thấy cùng trạng thái ô; vắng 3 ngày không mất gì; test kinh tế phần trồng trọt đạt |
-| **2. Gà lấy trứng** | Duyệt Meshy, làm mô hình gà + chuồng. Mua gà con, lớn thành gà mái, cho ăn bằng ngô / thóc, đẻ vào ổ, nhặt, bán; động tác rải thóc, nhặt trứng | M | Đủ vòng gà trên trang thật; ổ đầy thì ngừng; gà đói không chết; test kinh tế có gà đạt |
-| **3. Bò lấy sữa** | Mô hình bò + chuồng. Mua bê, lớn thành bò sữa, cỏ voi / cỏ khô, vắt sữa, chải lông, bán, cúng dường sữa ở chánh điện | M | Đủ vòng bò trên trang thật; cúng sữa tính nhiệm vụ ngày; test kinh tế toàn bộ đạt |
-| **4. Hàng xóm** | Thăm khi chủ vắng, giúp, góc chia sẻ, tặng quà, nông trại bạn bot, nhắc qua hộp thư, bảng xếp hạng | M | Hai tài khoản thử giúp / tặng / lấy góc chia sẻ đúng giới hạn; nick mới không cày được quá hạn mức; trust-safety rà soát |
+| **0. Chốt + khung** *(đã làm theo cách khác: khu trong sân chùa, mục 0)* | Chốt mục 3. Loại phòng `farm`, cảnh `nong-trai` trống (đất, hàng rào, nhà, phong cảnh theo vùng), trang `/nong-trai.html`, cổng ở Nông trại nhỏ + điểm đi nhanh `myfarm`, bạn bè vào thăm | M | Từ sân chùa vào được nông trại riêng; bạn vào cùng thì hai bên thấy nhau đi lại; về lại chùa được; test luật phòng + quyền vào |
+| **1. Trồng trọt** *(đã làm, hình tạm bằng khối)* | 6 ô → 36 ô, 8 loại cây (hình tạm bằng khối), tưới / cỏ / sâu, thu hoạch, kho, chợ (giá theo ngày, hạn mức), cấp độ, mở đất, động tác nhổ cỏ / bắt sâu | L | Gieo → chín → thu → bán chạy hết trên trang thật; hai máy thấy cùng trạng thái ô; vắng 3 ngày không mất gì; test kinh tế phần trồng trọt đạt |
+| **2. Gà lấy trứng** *(đã làm; gà mái + gà con Meshy, chuồng vẫn khối)* | Duyệt Meshy, làm mô hình gà + chuồng. Mua gà con, lớn thành gà mái, cho ăn bằng ngô / thóc, đẻ vào ổ, nhặt, bán; động tác rải thóc, nhặt trứng | M | Đủ vòng gà trên trang thật; ổ đầy thì ngừng; gà đói không chết; test kinh tế có gà đạt |
+| **3. Bò lấy sữa** *(đã làm; bò Meshy, bê = bò thu nhỏ; chưa có chải lông)* | Mô hình bò + chuồng. Mua bê, lớn thành bò sữa, cỏ voi / cỏ khô, vắt sữa, chải lông, bán, cúng dường sữa ở chánh điện | M | Đủ vòng bò trên trang thật; cúng sữa tính nhiệm vụ ngày; test kinh tế toàn bộ đạt |
+| **4. Hàng xóm** *(đã làm, mục 0; chưa có trust-safety rà soát, chưa tặng gà con, chưa "tự để 10 %")* | Thăm khi chủ vắng, giúp, góc chia sẻ, tặng quà, nông trại bạn bot, nhắc qua hộp thư, bảng xếp hạng | M | Hai tài khoản thử giúp / tặng / lấy góc chia sẻ đúng giới hạn; nick mới không cày được quá hạn mức; trust-safety rà soát |
 | **5. Mở rộng** (tùy chọn) | Đơn hàng của làng ("tiệm bánh cần 10 trứng"), chế biến (bánh, sữa chua), đồ trang trí bằng kim cương, sự kiện lễ (Tết: trồng nếp + lá dong gói bánh chưng; Vu Lan; Rằm) | L | Mỗi phần có "Xong khi" riêng lúc lên kế hoạch |
 
 ## 8. Rủi ro

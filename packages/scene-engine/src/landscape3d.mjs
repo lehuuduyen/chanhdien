@@ -238,12 +238,13 @@ export function createLandscape({ root, renderer, data, materials: m, field, law
     }
     return found || null;
   };
-  // Khu đi lại ngoài tường (lối + Đài ngắm cảnh ngoài cổng, Rừng thiền ngoài cổng tây) cho bộ đồ tiểu bang chừa chỗ
-  // (landmarks/common.mjs: walkwayCut / onWalkway) và để không rải vật vùng lên đó.
+  // Khu đi lại ngoài tường (lối + Đài ngắm cảnh ngoài cổng, Rừng thiền ngoài cổng tây, Phước Điền ngoài cổng đông) cho
+  // bộ đồ tiểu bang chừa chỗ (landmarks/common.mjs: walkwayCut / onWalkway) và để không rải vật vùng lên đó.
   const walkways = [
     ...(data.overlook ? [data.overlook.path, data.overlook.terrace] : []),
     ...(data.wishGarden ? [data.wishGarden.path, data.wishGarden.area] : []),
     ...(data.grove ? [data.grove.area] : []),
+    ...(data.fields ? [data.fields.area] : []),
   ];
   const envFor = (theme) => ({
     m, material, renderer, ground, midZ, theme, detail: 1, walkways,

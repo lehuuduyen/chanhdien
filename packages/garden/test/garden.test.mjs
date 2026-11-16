@@ -531,9 +531,10 @@ test('nâng cấp từ vườn 10 luống: giữ vụ cũ, mở thêm luống 11
     ALTER TABLE garden_plots_old RENAME TO garden_plots;
     PRAGMA foreign_keys = ON;`);
   // Lùi về phiên bản ngay trước bản mở rộng 50 luống (sau nó còn bản thêm Khu tưởng niệm, hai bản Linh thú, bản Oẳn Tù Tì,
-  // bản tiêu xu trong phòng, bản Tiến lên và mốc ra quả). Bỏ cột mới để mô phỏng đúng cơ sở dữ liệu cũ.
+  // bản tiêu xu trong phòng, bản Tiến lên, mốc ra quả, Phước Điền và hàng xóm Phước Điền). Bỏ cột mới để mô phỏng đúng cơ
+  // sở dữ liệu cũ.
   db.exec('ALTER TABLE crop_cycles DROP COLUMN fruiting_at;');
-  db.prepare("UPDATE garden_meta SET value = CAST(value - 8 AS TEXT) WHERE key = 'schema_version'").run();
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 10 AS TEXT) WHERE key = 'schema_version'").run();
   assert.throws(() => db.prepare('INSERT INTO garden_plots (id, created_at) VALUES (11, 1)').run());
   const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
   assert.equal(upgraded.plot(3).crop.ownerName, 'an_lac');
@@ -554,8 +555,9 @@ test('nâng cấp cây cũ đã ra quả: suy ra đúng mốc lần tưới th�
   }
   const ripenedAt = now();
   const db = accounts.database;
+  // Lùi về trước bản mốc ra quả (sau nó còn hai bản Phước Điền, chạy lại được vì chỉ dựng lại bảng giao dịch + tạo bảng mới).
   db.exec('ALTER TABLE crop_cycles DROP COLUMN fruiting_at;');
-  db.prepare("UPDATE garden_meta SET value = CAST(value - 1 AS TEXT) WHERE key = 'schema_version'").run();
+  db.prepare("UPDATE garden_meta SET value = CAST(value - 3 AS TEXT) WHERE key = 'schema_version'").run();
   const upgraded = createGardenStore({ db, now, timeZone: 'America/Los_Angeles' });
   assert.equal(db.prepare('SELECT fruiting_at AS fruitingAt FROM crop_cycles WHERE plot_id = 6').get().fruitingAt, ripenedAt);
   tick(FRUIT_KEEP_MS - 1);

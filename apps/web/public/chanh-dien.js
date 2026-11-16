@@ -17,6 +17,7 @@ import { createMala } from '/mala.js';
 import { createPlayerSocial } from '/player-social.js';
 import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
+import { createFarmUI } from '/farm-ui.js';
 import { createMemorialUI } from '/memorial-ui.js';
 import { createPetUI } from '/pet-ui.js';
 import { createHideSeekUI } from '/hide-seek-ui.js';
@@ -171,7 +172,7 @@ const explore = createExploreUI({
     if (target.mine) pets.open();
     else showToast(t('spirit.tapOther', { species: t(`spirit.species.${target.species}`), level: target.level, owner: target.ownerName || '' }));
   },
-  onGardenTap: (target) => garden?.onTap(target), onMemorialTap: (target) => memorial?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
+  onGardenTap: (target) => garden?.onTap(target), onFarmTap: (target) => farmUI?.onTap(target), onMemorialTap: (target) => memorial?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
   onGuideTap: (place) => zoneGuide.open(place),
   onMeritBoardTap: openMeritLedger,
   onPlaceChange: (place) => setCurrentPlace(place), travelHost: elements.roomBar,
@@ -206,6 +207,7 @@ function goToCinema() {
 }
 // Vườn Công Đức (luống trồng chung, xu ảo). Tạo sau khi có tài khoản (bên dưới).
 let garden = null;
+let farmUI = null;
 let memorial = null;
 let communityProject = null;
 // Bấm vào người khác: thẻ thông tin, kết bạn, khiêu chiến kéo búa bao. Tạo sau khi có âm thanh (bên dưới).
@@ -257,6 +259,7 @@ let currentPlace = null;
 function setCurrentPlace(place) {
   currentPlace = place;
   if (!place) return;
+  farmUI?.setPlace(place);
   const inHall = place === 'hall';
   elements.stage.classList.toggle('in-hall', inHall);
   lecture.setVisible(inHall);
@@ -530,6 +533,7 @@ function accountChanged(account) {
   // Đăng nhập ngay ở cổng: hỏi lại hình đã mua để hiện ô "Bé Mũ Đỏ" mà không phải tải lại trang.
   refreshOwnedSkins();
   garden?.accountChanged();
+  farmUI?.accountChanged();
   memorial?.accountChanged();
   communityProject?.accountChanged();
   if (!session.participantId) return;
@@ -1521,6 +1525,14 @@ document.addEventListener('visibilitychange', () => {
   if (accountUI.account) refreshOwnedSkins();
 });
 garden.start();
+try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienGarden = garden; } catch {}
+// Phước Điền (nông trại riêng ngoài cổng đông): xu bán nông sản vào cùng ví vườn nên làm xong đọc lại số xu.
+farmUI = createFarmUI({
+  stage: elements.stage, showToast, explore, account: () => accountUI.account, openSignIn: () => $('meChip').click(),
+  onCoins: () => garden?.refreshCoins(), locale,
+});
+farmUI.start();
+try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienFarm = farmUI; } catch {}
 // Khu tưởng niệm: đắp mộ trả xu ở cùng ví vườn nên đắp xong đọc lại số xu.
 memorial = createMemorialUI({
   stage: elements.stage, showToast, explore, account: () => accountUI.account, openSignIn: () => $('meChip').click(),

@@ -293,6 +293,34 @@ test('Rừng thiền ngoài cổng tây: qua cổng hông tới hồ, ra thủy 
   assert.ok(THIEN_RULES.world.bounds.x[0] <= walk.bounds.x[0]);
 });
 
+test('Phước Điền ngoài cổng tây phía nam: từ sân qua lối nam Khu tưởng niệm tới ruộng, đứng được ở lối mọi ô, trước chuồng gà / bò, quầy chợ, rổ chia sẻ; tường hai bên cổng vẫn chắn', () => {
+  const { fields } = scene.world.courtyard;
+  assert.ok(fields?.area && fields?.gate && fields.plots.length === 36);
+  const goal = THIEN_RULES.world.travel.myfarm;
+  assert.equal(isWalkable(walk, goal.x, goal.z), true, 'điểm đi nhanh nằm trên lối đi được');
+  assert.ok(findPath(walk, THIEN_RULES.world.travel.memorial, goal).length > 0, 'từ Khu tưởng niệm');
+  assert.ok(findPath(walk, THIEN_RULES.world.travel.courtyard, goal).length > 0, 'từ giữa sân');
+  for (const plot of fields.plots) {
+    assert.equal(isWalkable(walk, plot.x, plot.aisle), true, `lối cạnh ô ${plot.slot}`);
+    assert.equal(isWalkable(walk, plot.x, plot.z), false, `không giẫm lên ô ${plot.slot}`);
+    assert.ok(findPath(walk, goal, { x: plot.x, z: plot.aisle }).length > 0, `tới được ô ${plot.slot}`);
+  }
+  for (const spot of [fields.coop.stand, fields.barn.stand, fields.market.stand, fields.basket.stand]) assert.ok(findPath(walk, goal, spot).length > 0);
+  assert.equal(isWalkable(walk, fields.basket.x, fields.basket.z), false, 'kệ rổ chia sẻ là vật cản');
+  // Không vào trong chuồng (hàng rào kín, chỉ đứng ngoài cửa).
+  for (const pen of [fields.coop, fields.barn]) {
+    const inside = { x: pen.house.x, z: (pen.area.z[0] + pen.area.z[1]) / 2 };
+    assert.equal(isWalkable(walk, inside.x, inside.z), true, 'trong sân vẫn là đất đi được (gà / bò đi lại)');
+    assert.equal(findPath(walk, goal, inside).length, 0, 'người không vào được sân chuồng');
+  }
+  assert.equal(isWalkable(walk, fields.gate.x, fields.gate.z - fields.gate.width), false, 'tường hai bên cổng đông vẫn chắn');
+  assert.equal(isWalkable(walk, fields.gate.x, fields.gate.z + fields.gate.width), false);
+  // Không đi xuyên Rừng thiền / nghĩa trang: ruộng và Rừng thiền ngăn bằng rào, cổng mở ở lối nam Khu tưởng niệm.
+  assert.equal(isWalkable(walk, -70, 70), false, 'rào giữa Rừng thiền và ruộng');
+  // Vùng thô server kiểm tra phải bao cả Phước Điền.
+  assert.ok(THIEN_RULES.world.bounds.x[0] <= walk.bounds.x[0]);
+});
+
 test('đình Meshy (Vườn Hoa, thủy đình Rừng thiền): cột và lan can là vật cản đúng chỗ mô hình, chỉ vào được qua nhịp cửa', () => {
   const { flowerGarden, grove } = scene.world.courtyard;
   const cases = [

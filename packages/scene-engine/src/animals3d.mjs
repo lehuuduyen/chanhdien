@@ -121,7 +121,7 @@ function gltfLoader() {
   return loader;
 }
 
-function loadAnimalModel(src) {
+export function loadAnimalModel(src) {
   if (!modelCache.has(src)) modelCache.set(src, gltfLoader().loadAsync(src));
   return modelCache.get(src);
 }
@@ -138,7 +138,7 @@ const smooth = (edge0, edge1, value) => {
   return t * t * (3 - 2 * t);
 };
 
-function bakeAnimal(gltf, item, spec) {
+export function bakeAnimal(gltf, item, spec) {
   const key = `${item.model}|${item.modelRy || 0}|${item.type}`;
   if (bakedCache.has(key)) return bakedCache.get(key);
   const model = gltf.scene;
@@ -198,7 +198,7 @@ function bakeAnimal(gltf, item, spec) {
 
 // Uniform dáng của một con (chung cho vật liệu màu và vật liệu bóng): gait = pha bước, stride / lift = biên độ đưa chân /
 // nhấc chân, fold = gập chân khi nằm (0…0,8), pitch / yaw = cúi / ngoảnh đầu (rad). Đơn vị theo hình gốc (trước khi co giãn).
-function poseUniforms(baked) {
+export function poseUniforms(baked) {
   return {
     uGait: { value: 0 }, uStride: { value: 0 }, uLift: { value: 0 }, uFold: { value: 0 },
     uPitch: { value: 0 }, uYaw: { value: 0 },
@@ -206,7 +206,7 @@ function poseUniforms(baked) {
   };
 }
 
-function withPose(material, uniforms) {
+export function withPose(material, uniforms) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader

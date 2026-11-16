@@ -3,6 +3,8 @@
 //   placeProp(root, url, item)        — một bản (đình, cổng vòm, đèn đá, nhà vịt…): item = { x, y?, z, ry?, height | width | size }.
 //   instanceProp(root, url, items)    — nhiều bản cùng hình (đá bờ hồ, sen…) bằng InstancedMesh: mỗi mesh của file một
 //                                        lượt vẽ cho cả nhóm. items = [{ x, y?, z, ry?, rx?, s }] (s: tỉ lệ so với kích thước gốc).
+//                                        box = [rộng x, cao y, sâu z] (m, ở base hoặc từng item) thì kéo giãn từng trục cho
+//                                        vừa hộp đó (đoạn hàng rào dài ngắn khác nhau, khung luống).
 // Kích thước: height = chiều cao đích (m), width = bề ngang x đích, size = cạnh lớn nhất đích; không có thì giữ nguyên.
 // Hàm trả Promise (không ném lỗi): tải lỗi thì null để chỗ gọi giữ hình dựng bằng khối làm dự phòng.
 import * as THREE from 'three';
@@ -99,7 +101,9 @@ export function instanceProp(root, url, items, base = {}, { shadow = true, brigh
       items.forEach((item, index) => {
         dummy.position.set(item.x, item.y || 0, item.z);
         dummy.rotation.set(item.rx || 0, item.ry || 0, 0);
-        dummy.scale.setScalar(scale * (item.s || 1));
+        const box = item.box || base.box;
+        if (box) dummy.scale.set(box[0] / model.size.x, box[1] / model.size.y, box[2] / model.size.z);
+        else dummy.scale.setScalar(scale * (item.s || 1));
         dummy.updateMatrix();
         mesh.setMatrixAt(index, dummy.matrix);
       });

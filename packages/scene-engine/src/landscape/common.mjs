@@ -67,6 +67,10 @@ export function mountainArc(env, count, { spread = 1.2, radiusX = 95, radiusZ = 
   }
 }
 
+// Núi / đồi của vùng có chân (elip bán kính rx, rz quanh x, z) chạm khu đi lại ngoài tường (env.walkways: lối + Đài ngắm
+// cảnh, Rừng thiền, Phước Điền; lề 1 m) thì bỏ, để không mọc đè lên chỗ người đi.
+export const clearOfWalkways = (env, x, z, rx, rz) => !(env.walkways || []).some((rect) => x + rx > rect.x[0] - 1 && x - rx < rect.x[1] + 1 && z + rz > rect.z[0] - 1 && z - rz < rect.z[1] + 1);
+
 let shared = null;
 const materials = () => (shared ||= {
   palmTrunk: new THREE.MeshStandardMaterial({ color: '#8b6b49', roughness: 0.95 }),
