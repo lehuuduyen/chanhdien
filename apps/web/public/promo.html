@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#000000">
+  <title>Video giới thiệu · Chánh Điện Online</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@500;700;800;900&family=Noto+Serif:wght@600;700&display=swap">
+  <link rel="stylesheet" href="/promo.css">
+</head>
+<body>
+  <main class="studio">
+    <!-- Khung 9:16 để quay: các trang thật của web chạy trong iframe bên dưới, chữ quảng cáo và chuyển cảnh chồng lên trên. -->
+    <section class="frame" id="frame" aria-label="Khung quay video 9:16">
+      <div class="pages" id="pages"></div>
+      <div class="night" id="night"></div>
+      <div class="fx">
+        <div class="vignette"></div>
+        <div class="grain"></div>
+        <div class="flash" id="flash"></div>
+      </div>
+      <div class="overlay" id="overlay">
+        <div class="brand" id="brand"><span class="lotus">蓮</span><span>Chánh Điện Online</span></div>
+        <div class="caption" id="caption"></div>
+        <div class="games" id="games" hidden></div>
+        <div class="notes" id="notes"></div>
+        <div class="coin-rain" id="coinRain"></div>
+        <div class="pop" id="pop" hidden></div>
+        <div class="credit" id="credit" hidden>Phim: Big Buck Bunny © Blender Foundation · CC BY 3.0</div>
+        <div class="endcard" id="endcard" hidden>
+          <div class="end-logo">蓮</div>
+          <h2 class="end-title">Chánh Điện Online</h2>
+          <p class="end-tags" id="endTags"></p>
+          <div class="end-cta">Vào chơi miễn phí</div>
+          <p class="end-url" id="endUrl"></p>
+          <p class="end-note">Không cần tải app · chơi ngay trên điện thoại</p>
+        </div>
+      </div>
+      <div class="cover" id="cover">
+        <p>Bấm <b>Chuẩn bị</b> để tải các cảnh,<br>rồi <b>Bắt đầu</b> và quay màn hình khung này.</p>
+      </div>
+    </section>
+
+    <aside class="panel" id="panel">
+      <h1>Video giới thiệu</h1>
+      <p class="lead">Khung bên trái chạy các cảnh thật của web theo kịch bản (9:16). Quay màn hình đúng khung đó, hoặc chạy <code>node scripts/promo-video.mjs</code> (thêm <code>--film garden</code> cho clip vườn) để tự ra file MP4.</p>
+      <label>Kịch bản
+        <select id="filmSelect">
+          <option value="tour">Tổng quan: nông trại, rạp phim, game, bạn bè (~58 giây)</option>
+          <option value="garden">Vườn: gieo hạt, tưới, thu hoạch, đem bán (~33 giây)</option>
+        </select>
+      </label>
+      <label>Khu vực chánh điện
+        <select id="stateSelect">
+          <option value="vn">Việt Nam (ruộng lúa, lũy tre)</option>
+          <option value="ca">California</option>
+          <option value="tx">Texas</option>
+          <option value="ny">New York</option>
+          <option value="wa">Washington</option>
+          <option value="hi">Hawaii</option>
+        </select>
+      </label>
+      <label>Địa chỉ web trên màn cuối
+        <input id="urlInput" maxlength="60" placeholder="vd. chanhdien.online">
+      </label>
+      <label class="check"><input type="checkbox" id="soundToggle"> Giữ âm thanh của trang (chuông, phim)</label>
+      <ul class="checks" id="checks"></ul>
+      <div class="buttons">
+        <button type="button" id="prepare" class="primary">Chuẩn bị</button>
+        <button type="button" id="start" disabled>▶ Bắt đầu</button>
+      </div>
+      <p class="hint">Mẹo: Chrome toàn màn hình (⌃⌘F), bấm <b>Bắt đầu</b>, rồi quay vùng khung bằng QuickTime (⇧⌘5). Nên có 20–30 bot: <code>BOTS_THIEN=30 npm run dev</code>.</p>
+      <p class="status" id="status" role="status"></p>
+    </aside>
+  </main>
+  <script type="module" src="/promo.js"></script>
+</body>
+</html>

@@ -525,8 +525,24 @@ button.chip { cursor: pointer; }
 .rps-label { font-size: 15px; }
 .rps-reveal { display: flex; align-items: center; gap: 22px; }
 .rps-result { min-height: 28px; margin: 0; color: #cdbb9b; font-size: 15px; text-align: center; }
+.compat-body { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 16px; width: min(100%, 440px); min-height: 300px; }
+.compat-progress { align-self: stretch; color: #cdbb9b; font-size: 14px; text-align: center; }
+.compat-progress::after { display: block; width: 100%; height: 5px; margin-top: 8px; overflow: hidden; background: linear-gradient(90deg, var(--gold) var(--compat-progress, 0%), rgba(255, 255, 255, .1) 0); border-radius: 99px; content: ''; }
+.compat-question { margin: 4px 0 8px; color: #f8e5bd; font-family: var(--display); font-size: clamp(22px, 6.8cqw, 30px); font-weight: 600; line-height: 1.25; text-align: center; }
+.compat-options { display: grid; grid-template-columns: 1fr; gap: 12px; width: 100%; }
+.compat-option { min-height: 72px; padding: 14px 18px; color: var(--fg); background: linear-gradient(135deg, rgba(80, 48, 25, .96), rgba(43, 25, 14, .96)); border: 1px solid rgba(217, 164, 65, .48); border-radius: 18px; font: 600 17px/1.3 inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: transform .12s ease-out, border-color .12s ease-out; }
+.compat-option:active { transform: scale(.97); border-color: var(--gold); }
+.compat-option.chosen { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(217, 164, 65, .35) inset; }
+.compat-wait-icon { font-size: 72px; line-height: 1; animation: compat-float 1.8s ease-in-out infinite; }
+.compat-hint { max-width: 360px; margin: 0; color: #d9c9ad; font-size: 16px; line-height: 1.45; text-align: center; }
+.compat-tools { justify-content: center; width: 100%; }
+.compat-score { --compat-score: 0deg; position: relative; display: grid; width: 154px; aspect-ratio: 1; place-content: center; text-align: center; background: radial-gradient(circle, #211209 57%, transparent 59%), conic-gradient(var(--gold) var(--compat-score), rgba(255, 255, 255, .11) 0); border-radius: 50%; box-shadow: 0 0 36px rgba(217, 164, 65, .25); }
+.compat-score strong { color: #ffd878; font-family: var(--display); font-size: 43px; line-height: 1; }
+.compat-score span { margin-top: 5px; color: #cdbb9b; font-size: 12px; }
+.compat-result-title { margin: 0; color: #f8e5bd; font-family: var(--display); font-size: 25px; font-weight: 600; text-align: center; }
+@keyframes compat-float { 50% { transform: translateY(-7px); } }
 @keyframes rps-pop { from { transform: scale(.4) rotate(-20deg); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .rps-hand.big, .social-invite { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .rps-hand.big, .social-invite, .compat-wait-icon { animation: none; } }
 
 /* Chặn / báo cáo trong thẻ người chơi; màn Bạn bè. */
 .social-safety { display: flex; gap: 18px; }
@@ -827,3 +843,38 @@ button.chip { cursor: pointer; }
 #stage.in-hall.has-lecture .hs-hud { top: 96cqw; }
 #stage.in-hall.has-lecture .hs-reveal, #stage.in-hall.has-lecture .hs-result { top: 74%; }
 #stage.hs-blinded .lecture { z-index: 31; }
+
+/* Phước Điền (nông trại riêng, farm-ui.js): thanh nông trại khi đứng trong khu; thẻ và bảng chợ dùng chung kiểu của vườn. */
+.farm-hud { position: absolute; z-index: 11; top: 36cqw; right: 10px; display: flex; flex-direction: column; gap: 6px; width: min(190px, 48%); padding: 9px 10px; color: #f3f7ec; background: rgba(24, 38, 18, .9); border: 1px solid rgba(166, 214, 120, .4); border-radius: 14px; box-shadow: 0 8px 22px rgba(0, 0, 0, .4); font-size: 13px; }
+.farm-hud-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.farm-hud .chip { min-height: 30px; }
+.farm-hud[hidden] { display: none; }
+.farm-hud-title { font-weight: 700; }
+.farm-hud-level { display: flex; flex-direction: column; gap: 3px; }
+.farm-hud-level b { font-size: 13px; }
+.farm-hud-note { color: #cfe3b6; font-size: 12px; line-height: 1.3; }
+.farm-xp { display: block; width: 100%; height: 5px; overflow: hidden; background: rgba(255, 255, 255, .15); border-radius: 999px; }
+.farm-xp i, .farm-progress i { display: block; height: 100%; background: linear-gradient(90deg, #8fcf6a, #ffd27a); border-radius: inherit; }
+.farm-progress { height: 8px; overflow: hidden; background: rgba(0, 0, 0, .3); border-radius: 999px; }
+.farm-alert { margin: 0; padding: 8px 10px; color: #ffe0a1; background: rgba(139, 100, 49, .22); border: 1px solid rgba(225, 171, 89, .4); border-radius: 12px; font-size: 13px; line-height: 1.45; }
+.farm-crops { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.farm-crop { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 92px; padding: 8px 4px; color: #f3f7ec; background: rgba(0, 0, 0, .28); border: 2px solid rgba(166, 214, 120, .2); border-radius: 13px; font: inherit; text-align: center; cursor: pointer; }
+.farm-crop b { font-size: 13px; }
+.farm-crop small { color: #b8c7a4; font-size: 10.5px; line-height: 1.3; }
+.farm-crop.chosen { border-color: #ffd27a; background: rgba(255, 210, 122, .1); }
+.farm-crop:disabled { opacity: .4; cursor: default; }
+.farm-crop-icon { font-size: 26px; line-height: 1.15; }
+.farm-secondary { min-height: 44px; padding: 0 14px; color: #f3f7ec; background: rgba(0, 0, 0, .3); border: 1px solid rgba(166, 214, 120, .4); border-radius: 13px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.farm-secondary:disabled { opacity: .45; cursor: default; }
+.farm-animals { display: flex; flex-direction: column; gap: 6px; }
+.farm-animal { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px; padding: 7px 10px; background: rgba(0, 0, 0, .25); border-radius: 12px; }
+.farm-animal small { color: #b8c7a4; font-size: 12px; text-align: right; }
+.farm-animal.hungry small { color: #ffd27a; }
+.farm-animal-icon { font-size: 22px; }
+.farm-sheet .farm-secondary { align-self: stretch; }
+/* Chợ: tên món một dòng đủ chữ, các nút bán / dâng xuống dòng dưới. */
+.farm-sheet .garden-shop-row { flex-wrap: wrap; }
+.farm-sheet .garden-shop-row .friend-text { flex: 1 1 100%; }
+.farm-hud-link { padding: 6px 8px; color: #ffe7b0; background: rgba(255, 210, 122, .12); border: 1px solid rgba(255, 210, 122, .35); border-radius: 10px; font: inherit; font-size: 12px; line-height: 1.3; text-align: left; cursor: pointer; }
+.farm-log { margin: 0; color: #dfe9d2; font-size: 13px; line-height: 1.45; }
+.farm-blessings { margin: 4px 0 0; color: #ffe7b0; font-size: 14px; font-weight: 600; }

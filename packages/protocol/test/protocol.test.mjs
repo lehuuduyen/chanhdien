@@ -265,6 +265,42 @@ test('khiêu chiến kéo búa bao: chỉ nhận trò và nước đi đã đị
   assert.equal(parseServerMessage({ ...state, extra: 1 }).error, 'INVALID_MESSAGE');
 });
 
+test('đo độ hiểu ý: nhận đúng 10 đáp án riêng tư và trạng thái kết quả', () => {
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'challenge.send', requestId: 'r1', targetId: 'p-2', game: 'compatibility' }).ok, true);
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'challenge.send', requestId: 'r1', targetId: 'p-2', game: 'same-choice' }).ok, true);
+  assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'challenge.send', requestId: 'r1', targetId: 'p-2', game: 'guess-you' }).ok, true);
+  const answers = Array.from({ length: 10 }, (_, index) => ({ questionId: `cq-${String(index + 1).padStart(3, '0')}`, choice: index % 2 }));
+  const submit = { v: PROTOCOL_VERSION, type: 'challenge.answer', requestId: 'r2', challengeId: 'g-1', answers };
+  assert.equal(parseClientMessage(submit).ok, true);
+  assert.equal(parseClientMessage({ ...submit, answers: answers.slice(0, 9) }).error, 'INVALID_MESSAGE');
+  assert.equal(parseClientMessage({ ...submit, answers: [...answers.slice(0, 9), answers[0]] }).error, 'INVALID_MESSAGE', 'không nhận câu trùng');
+  assert.equal(parseClientMessage({ ...submit, answers: answers.map((item, index) => index ? item : { ...item, choice: 2 }) }).error, 'INVALID_MESSAGE');
+  const questions = answers.map(({ questionId }, index) => ({ id: questionId, focus: index % 2 ? 'to' : 'from' }));
+  const playing = {
+    v: PROTOCOL_VERSION, type: 'challenge.state', epoch: 1, challengeId: 'g-1', game: 'compatibility',
+    fromId: 'p-1', toId: 'p-2', status: 'playing', deadline: 2_000,
+    questions, answered: { from: true, to: false },
+  };
+  assert.equal(parseServerMessage(playing).ok, true);
+  assert.equal(parseServerMessage({ ...playing, answers }).error, 'INVALID_MESSAGE', 'server không phát đáp án thật');
+  assert.equal(parseServerMessage({ ...playing, questions: questions.slice(0, 9) }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...playing, status: 'finished', result: { matches: 7, total: 10, percent: 70 } }).ok, true);
+  assert.equal(parseServerMessage({ ...playing, status: 'finished', result: { matches: 7, total: 10, percent: 71 } }).error, 'INVALID_MESSAGE');
+
+  const plainQuestions = answers.map(({ questionId }) => ({ id: questionId }));
+  const sameChoice = { ...playing, game: 'same-choice', questions: plainQuestions };
+  assert.equal(parseServerMessage(sameChoice).ok, true);
+  assert.equal(parseServerMessage({ ...sameChoice, questions }).error, 'INVALID_MESSAGE', 'cùng lựa chọn không mang focus');
+
+  const guessAnswer = { ...playing, game: 'guess-you', questions: plainQuestions, answered: { from: false, to: false }, phase: 'answer' };
+  assert.equal(parseServerMessage(guessAnswer).ok, true);
+  assert.equal(parseServerMessage({ ...guessAnswer, phase: 'guess' }).error, 'INVALID_MESSAGE', 'chưa có đáp án gốc thì chưa được đoán');
+  const guess = { ...guessAnswer, phase: 'guess', answered: { from: true, to: false } };
+  assert.equal(parseServerMessage(guess).ok, true);
+  assert.equal(parseServerMessage({ ...guess, status: 'finished', phase: 'result', answered: { from: true, to: true }, result: { matches: 6, total: 10, percent: 60 } }).ok, true);
+  assert.equal(parseServerMessage({ ...guess, phase: 'answer' }).error, 'INVALID_MESSAGE');
+});
+
 test('chặn và báo cáo người chơi: lý do cố định, ghi chú có giới hạn độ dài', () => {
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'player.block', requestId: 'r1', targetId: 'p-2', blocked: true }).ok, true);
   assert.equal(parseClientMessage({ v: PROTOCOL_VERSION, type: 'player.block', requestId: 'r1', targetId: 'p-2' }).error, 'INVALID_MESSAGE');

@@ -2,7 +2,7 @@
 // sương lam cùng một núi lửa chóp tuyết trên đường chân trời. Dữ liệu vùng nằm ở
 // scenes/thien-default/themes/pacific.json; chùa dùng bộ dựng chung với gỗ tối và mái xám đá.
 import * as THREE from 'three';
-import { canvasTexture, mountainArc, seeded, speckle } from './common.mjs';
+import { canvasTexture, mountainArc, seeded, speckle, clearOfWalkways } from './common.mjs';
 
 const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length];
 
@@ -73,9 +73,10 @@ const mountains = {
     const dome = new THREE.SphereGeometry(1, 16, 7, 0, Math.PI * 2, 0, Math.PI / 2);
     mountainArc(env, 9, { spread: 1.45, radiusX: 105, radiusZ: 78 }, (x, z, index) => {
       const width = 13 + rand() * 11;
-      batch.add(dome.clone(), env.material(env.colors[index % env.colors.length], { roughness: 1, flatShading: true }), {
-        position: [x, -1.2, z], scale: [width, 5 + rand() * 4, width * 0.7],
-      });
+      const scale = [width, 5 + rand() * 4, width * 0.7];
+      // Chân núi chạm khu đi lại ngoài tường (Phước Điền) thì bỏ; số ngẫu nhiên vẫn rút như cũ để các núi khác giữ dáng.
+      if (!clearOfWalkways(env, x, z, width, width * 0.7)) return;
+      batch.add(dome.clone(), env.material(env.colors[index % env.colors.length], { roughness: 1, flatShading: true }), { position: [x, -1.2, z], scale });
     });
     const centerZ = env.midZ + 116;
     batch.add(dome.clone(), env.material('#3f594b', { roughness: 1, flatShading: true }), {

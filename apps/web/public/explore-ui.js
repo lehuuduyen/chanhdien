@@ -5,9 +5,11 @@ import { lang, onLangChange, t } from '/thien-i18n.js';
 import { SUTRAS, sutraById, sutraTitle } from '/sutras.js';
 
 
-export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onSpiritTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
+export function createExploreUI({ stage, session, showToast, extraButtons = [], onWalkerTap, onSpiritTap, onGardenTap, onFarmTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPlaceChange, gardenLabel, travelHost = stage, exits = [] }) {
   // Luống vườn mới nhất (đưa lại cho bộ vẽ khi bộ vẽ được tạo sau).
   const gardenPlots = new Map();
+  // Phước Điền: dữ liệu nông trại đang vẽ (undefined = chưa có lần nào).
+  let farmData;
   const memorialGraves = new Map();
   // Vào lại phòng (vd: vừa đăng nhập): xuất hiện lại đúng chỗ đang đứng thay vì ở cửa chánh điện.
   let resumePose = null;
@@ -326,8 +328,8 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelPanel.setAttribute('role', 'menu');
   travelPanel.hidden = true;
   // exits: map khác (vd: rạp phim) — { id, icon, go() }; bấm vào thì trang tự chuyển, không gửi travel.go.
-  const travelIcons = { hall: '🛕', courtyard: '🌳', overlook: '🌄', grove: '🌲', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', farm: '🐐', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
-  const travelButtons = ['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
+  const travelIcons = { hall: '🛕', courtyard: '🌳', overlook: '🌄', grove: '🌲', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', farm: '🐐', myfarm: '🌾', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
+  const travelButtons = ['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'myfarm', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.destination = destination;
@@ -490,8 +492,9 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       onWalkerTap: (id) => onWalkerTap?.(id),
       onSpiritTap: (target) => onSpiritTap?.(target),
       // Chó mèo đã có bảng hành động riêng khi lại gần nên không thêm chữ.
-      hintText: (kind) => (kind === 'pet' ? '' : t({ plot: 'garden.hintPlot', shop: 'garden.hintShop', grave: 'memorial.hint', guide: 'explore.hintGuide', merit: 'explore.hintMerit', wish: 'pilgrimage.hint', swing: 'park.hintSwing', slide: 'park.hintSlide' }[kind] || 'explore.tapToSit')),
+      hintText: (kind) => (kind === 'pet' ? '' : t({ farmplot: 'farm.hintPlot', coop: 'farm.hintCoop', barn: 'farm.hintBarn', market: 'farm.hintMarket', basket: 'farm.hintBasket', plot: 'garden.hintPlot', shop: 'garden.hintShop', grave: 'memorial.hint', guide: 'explore.hintGuide', merit: 'explore.hintMerit', wish: 'pilgrimage.hint', swing: 'park.hintSwing', slide: 'park.hintSlide' }[kind] || 'explore.tapToSit')),
       onGardenTap: (target) => onGardenTap?.(target),
+      onFarmTap: (target) => onFarmTap?.(target),
       onMemorialTap: (target) => onMemorialTap?.(target),
       onGuideTap: (place) => onGuideTap?.(place),
       onMeritBoardTap: () => onMeritBoardTap?.(),
@@ -530,6 +533,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
       showControls(Boolean(api) && Boolean(session.participantId));
       push();
       if (gardenPlots.size) api?.setGarden?.([...gardenPlots.values()]);
+      if (farmData !== undefined) api?.setFarm?.(farmData);
       api?.setPilgrimage?.([...pilgrimage]);
       api?.setMemorial?.([...memorialGraves.values()], { full: true });
       if (choreStates.size) api?.setChores?.([...choreStates.values()]);
@@ -553,7 +557,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     },
     // Vào phòng xong thì đi thẳng tới khu này, dùng khi quay về từ map khác.
     arriveAt(destination) {
-      if (['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'memorial'].includes(destination)) arrival = destination;
+      if (['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'myfarm', 'memorial'].includes(destination)) arrival = destination;
     },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {
@@ -566,6 +570,14 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     setGarden(list) {
       for (const plot of list) gardenPlots.set(plot.id, plot);
       api?.setGarden?.(list);
+    },
+    // Phước Điền: nông trại đang xem (nhớ lại để vẽ lại khi bộ vẽ 3D gắn lại) và hiệu ứng + động tác của mình.
+    setFarm(data) {
+      farmData = data;
+      api?.setFarm?.(data);
+    },
+    farmEffect(kind, target) {
+      api?.farmEffect?.(kind, target);
     },
     // Khu tưởng niệm: nhớ mộ để vẽ lại khi bộ vẽ 3D gắn lại.
     setMemorial(list, { full = false } = {}) {

@@ -528,6 +528,7 @@ const FARM = { x: [36, 50.8], z: [60, 97] };
 const FARM_SOUTH_GATE = { x: 43.4, width: 3.2 };
 const FARM_WEST_GATE = { z: PET_FARM_GATE.z, width: PET_FARM_GATE.width };
 const FARM_ROAM = { x: [FARM.x[0] + 1, FARM.x[1] - 1], z: [FARM.z[0] + 1, FARM.z[1] - 1] };
+
 c.farmZone = {
   sign: 'NÔNG TRẠI NHỎ',
   area: FARM,
@@ -673,6 +674,60 @@ const GROVE = { x: [-94, -53.5], z: [18, 70] };
       return [round3(loop.x + Math.cos(angle) * (loop.rx + 2.2)), round3(loop.z + Math.sin(angle) * (loop.rz + 2.2))];
     }),
   );
+}
+
+// Phước Điền: nông trại riêng của từng tài khoản (KE_HOACH_NONG_TRAI.md), ngoài tường tây phía nam Rừng thiền — dải đất
+// không bang nào đặt điểm đặc trưng (phía đông và ngoài cổng đã kín). Cổng gỗ trổ qua tường tây ở lối hẹp giữa rào Khu
+// tưởng niệm và tường cổng. Bố cục ở đây giống nhau với mọi người; cây, gà, bò, trứng, sữa trên đó là của riêng người đang
+// xem (engine farm3d.mjs vẽ theo dữ liệu API của tài khoản). 36 ô đất 6 × 6 (2,2 m, lối 1,1 m; ô 1–6 là hàng gần lối
+// chính, ô 1 gần cổng), người đứng ở lối phía nam ô (aisle) quay mặt vào ô. Chuồng gà + sân ở dải đông (gần cổng), chuồng
+// bò + bãi cỏ ở dải tây, quầy chợ cạnh cổng, giếng, nhà nhỏ, bù nhìn.
+const FIELDS = { x: [-94, -53.5], z: [70, 99] };
+const FIELDS_GATE_Z = 96.4;
+{
+  const bed = 2.2;
+  const pitch = 3.3;
+  const plots = [];
+  for (let row = 0; row < 6; row += 1) {
+    for (let col = 0; col < 6; col += 1) {
+      const x = round3(-64 - col * pitch);
+      const z = round3(91 - row * pitch);
+      plots.push({ slot: row * 6 + col + 1, x, z, aisle: round3(z + pitch / 2) });
+    }
+  }
+  // Chuồng: sân rào, nhà ở cuối sân (phía bắc), cửa sân phía nam; người đứng ngoài cửa (stand).
+  const pen = (area, houseX, roam) => ({
+    area, house: { x: houseX, z: round3(area.z[0] + 1.6), ry: 3.1416 }, gate: { x: houseX, z: area.z[1], width: 1.8 }, roam,
+    stand: { x: houseX, z: round3(area.z[1] + 1.3) },
+  });
+  c.fields = {
+    sign: 'PHƯỚC ĐIỀN',
+    area: FIELDS,
+    gate: { x: -HALF, z: FIELDS_GATE_Z, width: 2.4 },
+    // Lối chính từ cổng chạy dọc phía nam ruộng.
+    path: { x: [FIELDS.x[0] + 6, -HALF], z: [FIELDS_GATE_Z - 1.1, FIELDS_GATE_Z + 1.1] },
+    bed,
+    plots,
+    coop: pen({ x: [-61.6, -55], z: [72, 90] }, -58.3, { x: [-60.8, -55.8], z: [75.4, 89.2] }),
+    barn: pen({ x: [-92.6, -84], z: [72, 90] }, -88.3, { x: [-91.8, -84.8], z: [76.4, 89.2] }),
+    // Quầy chợ quay mặt ra lối chính (+z); người đứng phía trước quầy.
+    market: { x: -58.6, z: 93.3, ry: 0, stand: { x: -58.6, z: 95.1 }, sign: 'CHỢ PHƯỚC ĐIỀN' },
+    // Rổ chia sẻ (hàng xóm): kệ gỗ phía nam lối chính ngay trong cổng, quay mặt ra lối (−z); người đứng trên lối.
+    basket: { x: -56.2, z: 98.25, ry: 3.1416, stand: { x: -56.2, z: 96.9 }, sign: 'RỔ CHIA SẺ' },
+    well: { x: -83.4, z: 94.1 },
+    // Nhà nhỏ (mô hình Meshy dài 6 m theo trục cửa): chiều dài chạy bắc – nam, cửa quay về phía bắc (lối giữa nhà và chuồng
+    // bò), mép đông cách đầu lối chính.
+    house: { x: -90.3, z: 95.8, ry: 3.1416, size: [3.45, 6.05] },
+    scarecrow: { x: -72.25, z: 72.3 },
+    // Đồ trang trí (mô hình Meshy /models/farm/<model>.glb; height = chiều cao m, r = bán kính vật cản).
+    decor: [
+      { model: 'jars', x: -87.0, z: 93.6, ry: -0.35, height: 0.95, r: 0.9 },
+      { model: 'woodpile', x: -93.1, z: 95.8, ry: 1.5708, height: 0.75, r: 0.6, rz: 1.25 },
+      { model: 'wheelbarrow', x: -66.8, z: 71.5, ry: 0.5, height: 0.8, r: 0.8 },
+      { model: 'crates', x: -61.35, z: 93.1, ry: 0.25, height: 1.05, r: 0.55 },
+    ],
+  };
+  c.lanterns.push([-55, FIELDS_GATE_Z - 1.9], [-62.6, 93.4], [-82, 92.6], [-62.6, 72.4]);
 }
 
 // ---- Đi lại ----
@@ -870,6 +925,38 @@ obstacles.push(
   ...c.wishGarden.stations.map((item) => circle(item.x, item.z, 0.52)),
   circle(c.guideBoards.find((item) => item.id === 'wishes').x, c.guideBoards.find((item) => item.id === 'wishes').z, 0.65),
 );
+// Phước Điền: ô đất (elip trong ô vuông, chừa lối 1,1 m), hàng rào chuồng gà / bò (chừa cửa), nhà chuồng, quầy, rổ, giếng,
+// nhà nhỏ, bù nhìn; tường sân hai bên cổng đông vẫn chắn (vùng đi lại chỉ mở đúng khe cổng).
+{
+  const { plots, bed, coop, barn, market, basket, well, house, scarecrow } = c.fields;
+  obstacles.push(...plots.map((plot) => ({ x: plot.x, z: plot.z, rx: round3(bed / 2 + 0.05), rz: round3(bed / 2 + 0.05) })));
+  const fenceLine = (x0, z0, x1, z1) => {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const steps = Math.max(1, Math.ceil(length / 0.5));
+    return Array.from({ length: steps + 1 }, (_, index) => circle(round3(x0 + ((x1 - x0) * index) / steps), round3(z0 + ((z1 - z0) * index) / steps), 0.25));
+  };
+  for (const item of [coop, barn]) {
+    const { x: [x0, x1], z: [z0, z1] } = item.area;
+    // Cửa sân (cánh cổng gỗ) luôn đóng: người đứng ngoài cửa cho ăn / nhặt trứng / vắt sữa, không vào sân với gà / bò.
+    obstacles.push(
+      ...fenceLine(x0, z0, x1, z0), ...fenceLine(x1, z0, x1, z1), ...fenceLine(x1, z1, x0, z1), ...fenceLine(x0, z1, x0, z0),
+      { x: item.house.x, z: item.house.z, rx: 2, rz: 1.6 },
+    );
+  }
+  obstacles.push(
+    { x: market.x, z: market.z, rx: 1.5, rz: 0.8 },
+    { x: basket.x, z: basket.z, rx: 0.7, rz: 0.45 },
+    circle(well.x, well.z, 1.0),
+    // Nhà: vòng tròn nhỏ dọc bốn cạnh như hàng rào (khớp hình chữ nhật của mô hình, elip sẽ hở góc hoặc lấn lối).
+    ...(() => {
+      const [hx, hz] = [house.size[0] / 2, house.size[1] / 2];
+      const [x0, x1, z0, z1] = [house.x - hx, house.x + hx, house.z - hz, house.z + hz].map(round3);
+      return [...fenceLine(x0, z0, x1, z0), ...fenceLine(x1, z0, x1, z1), ...fenceLine(x1, z1, x0, z1), ...fenceLine(x0, z1, x0, z0)];
+    })(),
+    circle(scarecrow.x, scarecrow.z, 0.35),
+    ...c.fields.decor.map((item) => (item.rz ? { x: item.x, z: item.z, rx: item.r, rz: item.rz } : circle(item.x, item.z, item.r))),
+  );
+}
 walk.obstacles = obstacles;
 const { path: overPath, terrace } = c.overlook;
 walk.bounds = { x: [GROVE.x[0] + 0.6, HALF - 0.6], z: [1.3, terrace.z[1] - 0.6] };
@@ -887,6 +974,9 @@ walk.areas = [
   // Cổng hông phía tây (qua tường sân) và Rừng thiền.
   { x: [GROVE.x[1] - 0.8, -(HALF - 1.4)], z: [GROVE_GATE_Z - 1.2, GROVE_GATE_Z + 1.2] },
   { x: [GROVE.x[0] + 0.6, GROVE.x[1]], z: [GROVE.z[0] + 0.6, GROVE.z[1] - 0.6] },
+  // Cổng tây phía nam (lối giữa rào Khu tưởng niệm và tường cổng, qua tường sân) và Phước Điền.
+  { x: [FIELDS.x[1] - 0.8, -(HALF - 1.4)], z: [FIELDS_GATE_Z - 1.1, FIELDS_GATE_Z + 1.1] },
+  { x: [FIELDS.x[0] + 0.6, FIELDS.x[1]], z: [FIELDS.z[0] + 0.6, FIELDS.z[1] - 0.6] },
 ];
 w.camera.bounds = { x: [GROVE.x[0] - 4, HALF + 1], y: [0.6, 16], z: [-1.5, terrace.z[1] + 6] };
 w.statues.arhats = [

@@ -48,9 +48,15 @@ const SUTRA_ID = /^[a-z0-9-]{1,32}$/;
 // Sớ: cầu an (peace) hoặc cầu siêu (memorial). Cả phòng chỉ biết ai dâng sớ loại gì; tên người trong sớ không đi qua phòng.
 export const PRAYER_KINDS = Object.freeze(['peace', 'memorial']);
 // Toạ độ nhân vật tính bằng mét, làm tròn 1 cm; giới hạn rộng để dùng chung cho mọi cảnh.
-// Trò chơi khiêu chiến giữa hai người trong phòng (server làm trọng tài). Hiện có kéo búa bao (rps).
-export const GAMES = Object.freeze(['rps']);
+// Trò chơi khiêu chiến giữa hai người trong phòng (server làm trọng tài).
+// Các trò câu hỏi giữ kín trọn bộ đáp án trên server tới khi đủ điều kiện chấm:
+// compatibility: hai bên đoán lựa chọn của người được nêu; same-choice: hai bên chọn đồng thời;
+// guess-you: người gửi lời mời trả lời trước, người nhận chỉ bắt đầu đoán sau đó.
+export const QUESTION_GAMES = Object.freeze(['compatibility', 'same-choice', 'guess-you']);
+export const GAMES = Object.freeze(['rps', ...QUESTION_GAMES]);
 export const RPS_CHOICES = Object.freeze(['rock', 'paper', 'scissors']);
+export const COMPATIBILITY_BANK_SIZE = 100;
+export const COMPATIBILITY_QUESTION_COUNT = 10;
 export const CHALLENGE_STATUSES = Object.freeze(['pending', 'declined', 'cancelled', 'expired', 'playing', 'finished']);
 export const FRIEND_STATUSES = Object.freeze(['pending', 'accepted', 'declined']);
 // Nắm tay đi dạo: mời → chấp nhận / từ chối; đang nắm thì buông (tự buông, ngồi, đi nhanh, rời phòng, đi quá xa).
@@ -81,8 +87,8 @@ export const COMMUNITY_PROJECT_STAGES = Object.freeze(['ground', 'sprout', 'youn
 export const COMMUNITY_PROJECT_KINDS = Object.freeze(['bodhi', 'lotus']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
 // Thêm đích mới là thay đổi cộng thêm (client cũ không gửi), không tăng PROTOCOL_VERSION. 'overlook': Đài ngắm cảnh
-// ngoài cổng chánh điện; 'grove': Rừng thiền ngoài cổng tây.
-export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers', 'farm', 'overlook', 'grove']);
+// ngoài cổng chánh điện; 'grove': Rừng thiền ngoài cổng tây; 'myfarm': Phước Điền (nông trại riêng) ngoài cổng tây phía nam.
+export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers', 'farm', 'overlook', 'grove', 'myfarm']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
 export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 'fire']);
 // Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
@@ -182,6 +188,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'challenge.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây, mỗi người một trận một lúc' },
   'challenge.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
   'challenge.move': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/10 giây' },
+  'challenge.answer': { roles: ['guest', 'member', 'moderator', 'host'], rate: '2/60 giây, nộp đúng một bộ 10 đáp án mỗi trận' },
   'challenge.cancel': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
   'player.block': { roles: ['guest', 'member', 'moderator', 'host'], rate: '20/60 giây' },
   'player.report': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
@@ -192,6 +199,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
 });
 
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/;
+const COMPATIBILITY_QUESTION_ID = /^cq-(?:00[1-9]|0[1-9][0-9]|100)$/;
 const ROLES = new Set(['guest', 'member', 'moderator', 'host']);
 const COMMANDS = new Set(['pause', 'resume', 'skip']);
 
@@ -477,6 +485,18 @@ const clientSchemas = {
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && isString(message.challengeId, LIMITS.itemId, ID_PATTERN)
       && RPS_CHOICES.includes(message.choice);
+  },
+  // Nộp trọn bộ một lần để không phát từng đáp án qua mạng. Server còn kiểm tra 10 id này đúng bộ câu của trận.
+  'challenge.answer'(message) {
+    const validAnswer = (answer) => isRecord(answer) && exactKeys(answer, ['questionId', 'choice'])
+      && typeof answer.questionId === 'string' && COMPATIBILITY_QUESTION_ID.test(answer.questionId)
+      && isInteger(answer.choice) && (answer.choice === 0 || answer.choice === 1);
+    return exactKeys(message, ['v', 'type', 'requestId', 'challengeId', 'answers'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.challengeId, LIMITS.itemId, ID_PATTERN)
+      && Array.isArray(message.answers) && message.answers.length === COMPATIBILITY_QUESTION_COUNT
+      && message.answers.every(validAnswer)
+      && new Set(message.answers.map((answer) => answer.questionId)).size === COMPATIBILITY_QUESTION_COUNT;
   },
   'challenge.cancel'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'challengeId'])
@@ -945,27 +965,58 @@ const serverSchemas = {
       && FRIEND_STATUSES.includes(message.status)
       && (message.saved === undefined || typeof message.saved === 'boolean');
   },
-  // Trạng thái trận khiêu chiến, chỉ gửi cho hai người chơi. Lựa chọn của lượt chỉ lộ ra ở `last` khi lượt đã xong;
-  // `moved` cho biết ai đã ra tay ở lượt đang chơi. deadline: giờ server (ms) hết lượt / hết hạn lời mời.
+  // Trạng thái trận khiêu chiến, chỉ gửi cho hai người chơi. Với rps, lựa chọn của lượt chỉ lộ ra ở `last` khi lượt
+  // đã xong. Với các trò câu hỏi, `answered` chỉ cho biết ai đã nộp; đáp án thật không bao giờ nằm trong state.
   'challenge.state'(message) {
     const choice = (value) => value === null || RPS_CHOICES.includes(value);
-    return exactKeys(message, ['v', 'type', 'epoch', 'challengeId', 'game', 'fromId', 'toId', 'status', 'round', 'fromScore', 'toScore', 'target'],
-      ['deadline', 'moved', 'last', 'winner'])
+    const common = exactKeys(message, ['v', 'type', 'epoch', 'challengeId', 'game', 'fromId', 'toId', 'status'],
+      ['deadline', 'round', 'fromScore', 'toScore', 'target', 'moved', 'last', 'winner', 'questions', 'answered', 'result', 'phase'])
       && isString(message.challengeId, LIMITS.itemId, ID_PATTERN)
       && GAMES.includes(message.game)
       && isString(message.fromId, LIMITS.participantId, ID_PATTERN)
       && isString(message.toId, LIMITS.participantId, ID_PATTERN)
       && CHALLENGE_STATUSES.includes(message.status)
+      && (message.deadline === undefined || (isInteger(message.deadline) && message.deadline >= 0));
+    if (!common) return false;
+    if (message.game === 'rps') {
+      return exactKeys(message, ['v', 'type', 'epoch', 'challengeId', 'game', 'fromId', 'toId', 'status', 'round', 'fromScore', 'toScore', 'target'],
+        ['deadline', 'moved', 'last', 'winner'])
       && isInteger(message.round) && message.round >= 0 && message.round <= 50
       && isInteger(message.fromScore) && message.fromScore >= 0
       && isInteger(message.toScore) && message.toScore >= 0
       && isInteger(message.target) && message.target >= 1 && message.target <= 10
-      && (message.deadline === undefined || (isInteger(message.deadline) && message.deadline >= 0))
       && (message.moved === undefined || (isRecord(message.moved) && exactKeys(message.moved, ['from', 'to'])
         && typeof message.moved.from === 'boolean' && typeof message.moved.to === 'boolean'))
       && (message.last === undefined || (isRecord(message.last) && exactKeys(message.last, ['from', 'to', 'winner'])
         && choice(message.last.from) && choice(message.last.to) && RESULT_SIDES.includes(message.last.winner)))
       && (message.winner === undefined || RESULT_SIDES.includes(message.winner));
+    }
+    const active = ['playing', 'finished'].includes(message.status);
+    const question = (item) => isRecord(item)
+      && (message.game === 'compatibility' ? exactKeys(item, ['id', 'focus']) : exactKeys(item, ['id']))
+      && typeof item.id === 'string' && COMPATIBILITY_QUESTION_ID.test(item.id)
+      && (message.game !== 'compatibility' || ['from', 'to'].includes(item.focus));
+    const questionsValid = Array.isArray(message.questions) && message.questions.length === COMPATIBILITY_QUESTION_COUNT
+      && message.questions.every(question)
+      && new Set(message.questions.map((item) => item.id)).size === COMPATIBILITY_QUESTION_COUNT
+      && (message.game !== 'compatibility'
+        || message.questions.filter((item) => item.focus === 'from').length === COMPATIBILITY_QUESTION_COUNT / 2);
+    const answeredValid = isRecord(message.answered) && exactKeys(message.answered, ['from', 'to'])
+      && typeof message.answered.from === 'boolean' && typeof message.answered.to === 'boolean';
+    const resultValid = isRecord(message.result) && exactKeys(message.result, ['matches', 'total', 'percent'])
+      && isInteger(message.result.matches) && message.result.matches >= 0 && message.result.matches <= COMPATIBILITY_QUESTION_COUNT
+      && message.result.total === COMPATIBILITY_QUESTION_COUNT
+      && isInteger(message.result.percent) && message.result.percent === Math.round((message.result.matches / message.result.total) * 100);
+    if (!active) return message.questions === undefined && message.answered === undefined
+      && message.result === undefined && message.phase === undefined;
+    if (!questionsValid || !answeredValid) return false;
+    if (message.game === 'guess-you') {
+      if (!['answer', 'guess', 'result'].includes(message.phase)) return false;
+      if (message.status === 'playing' && message.phase === 'answer' && (message.answered.from || message.answered.to)) return false;
+      if (message.status === 'playing' && message.phase === 'guess' && (!message.answered.from || message.answered.to)) return false;
+      if (message.status === 'finished' && (message.phase !== 'result' || !message.answered.from || !message.answered.to)) return false;
+    } else if (message.phase !== undefined) return false;
+    return message.status === 'finished' ? resultValid : message.result === undefined;
   },
   // Luống vườn vừa đổi (gieo, tưới, ra quả, hái, trống lại). effect: hiệu ứng để mọi người cùng thấy. at: mốc thứ tự của
   // API (ms, tăng dần) để client bỏ qua tin tới trễ có trạng thái cũ hơn cái đang hiện.

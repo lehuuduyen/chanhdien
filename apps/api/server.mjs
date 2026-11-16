@@ -12,6 +12,7 @@ import { corsHeaders, json, readJson } from './http.mjs';
 import { currentAccount, handleAuthRequest, loginRewardView, openAccountStore } from './auth.mjs';
 import { handleThienRequest } from './thien.mjs';
 import { handleGardenBotRequest, handleGardenRequest, openGardenStore } from './garden.mjs';
+import { handleFarmRequest } from './farm.mjs';
 import { handleCommunityProjectRequest, openCommunityProjectStore } from './community-project.mjs';
 import { handleGameRequest } from './games.mjs';
 import { handleChoreRewardRequest, handleHideSeekRewardRequest } from './chores.mjs';
@@ -219,6 +220,7 @@ export async function handleApiRequest(req, res, options = {}) {
   if (await handleAuthRequest(req, res, pathname, options)) return;
   if (await handleCommunityProjectRequest(req, res, pathname, options)) return;
   if (await handleGardenRequest(req, res, pathname, options)) return;
+  if (await handleFarmRequest(req, res, pathname, options)) return;
   if (await handleGardenBotRequest(req, res, pathname, options)) return;
   if (await handleMemorialRequest(req, res, pathname, options)) return;
   if (await handlePetsRequest(req, res, pathname, options)) return;

@@ -6,6 +6,7 @@
 // Dùng: createTempleRenderer3D({ …, plugin: createExplorePlugin({ onMove, onArrive }) }) → renderer.plugin là api.
 import { findPath, resolveMove } from './walk.mjs';
 import { createGardenView } from './garden3d.mjs';
+import { createFarmView } from './farm3d.mjs';
 import { createMemorialView } from './memorial3d.mjs';
 import { playPose, updateSwings } from './park3d.mjs';
 import { buildChibiWalker, DANCE_STYLES, danceStyleOf } from './chibi3d.mjs';
@@ -33,6 +34,11 @@ const RUN_JOYSTICK = 0.85;
 const headingOf = (dx, dz) => Math.atan2(-dx, -dz);
 // Động tác ở Vườn Công Đức theo hiệu ứng garden.plot: loại đạo cụ / dáng (choreTool) và thời gian làm (ms; bot làm 4 giây).
 const GARDEN_ACTIONS = { water: { kind: 'water', ms: 4_000 }, plant: { kind: 'sow', ms: 3_600 }, harvest: { kind: 'harvest', ms: 3_600 } };
+// Phước Điền: thao tác → động tác (đạo cụ + hiệu ứng dùng chung với việc chung / vườn).
+const FARM_ACTIONS = {
+  plant: { kind: 'sow', ms: 3_000 }, water: { kind: 'water', ms: 3_400 }, harvest: { kind: 'harvest', ms: 3_000 }, tend: { kind: 'sweep', ms: 3_000 },
+  feed: { kind: 'feed', ms: 3_000 }, collect: { kind: 'harvest', ms: 3_000 }, basket: { kind: 'harvest', ms: 2_400 },
+};
 // Đứng trong GARDEN_REACH m quanh tâm luống thì làm tại chỗ; mình đứng xa hơn (tới GARDEN_WALK_REACH) thì đi tới lối cạnh luống.
 const GARDEN_REACH = 3;
 const GARDEN_WALK_REACH = 30;
@@ -66,7 +72,7 @@ function actIndex(at = 0) {
   return (hash ^ (hash >>> 13)) >>> 0;
 }
 
-export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPilgrimageTap, onPetTap, onSpiritTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onFarmTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPilgrimageTap, onPetTap, onSpiritTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
@@ -241,6 +247,45 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           start(walker);
           return;
         }
+      }
+    }
+
+    // Phước Điền: mình làm động tác ở chỗ đứng của ô / chuồng (lối cạnh ô, trước cửa chuồng), quay mặt vào đó; đứng xa
+    // (tới 40 m) thì tự đi tới rồi làm.
+    function farmAct(kind, target) {
+      const action = FARM_ACTIONS[kind];
+      const fields = world.courtyard?.fields;
+      if (!action || !fields || !target) return;
+      let stand = null;
+      let face = null;
+      if (target.kind === 'plot') {
+        const plot = fields.plots.find((item) => item.slot === target.slot);
+        if (plot) {
+          stand = { x: plot.x, z: plot.aisle };
+          face = plot;
+        }
+      } else if (target.kind === 'coop' || target.kind === 'barn') {
+        stand = fields[target.kind].stand;
+        face = fields[target.kind].gate;
+      } else if (target.kind === 'basket' && fields.basket) {
+        stand = fields.basket.stand;
+        face = fields.basket;
+      }
+      const self = walkers.get(selfId);
+      if (!stand || !self || selfSeated || self.benchId || spectator) return;
+      const start = () => {
+        const walker = walkers.get(selfId);
+        if (!walker) return;
+        const ry = headingOf(face.x - walker.x, face.z - walker.z);
+        walker.gardenAction = { kind: action.kind, until: performance.now() + action.ms, ry, x: walker.x, z: walker.z };
+        walker.ry = ry;
+        applyChore(walker);
+      };
+      const distance = Math.hypot(self.x - stand.x, self.z - stand.z);
+      if (distance <= 1.2 || Math.hypot(self.x - face.x, self.z - face.z) <= GARDEN_REACH) start();
+      else if (distance <= 40) {
+        path = findPath(walk, self, stand);
+        arrive = path.length ? start : null;
       }
     }
 
@@ -510,6 +555,14 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const hit = raycaster.intersectObjects(courtyard.memorialPickables, false)[0];
         if (hit) {
           onMemorialTap({ slot: hit.object.userData.memorialGrave });
+          return;
+        }
+      }
+      // Phước Điền: ô đất, chuồng gà, chuồng bò, quầy chợ.
+      if (onFarmTap && courtyard?.fieldsPickables?.length) {
+        const hit = raycaster.intersectObjects(courtyard.fieldsPickables, false)[0];
+        if (hit?.object.userData.farm) {
+          onFarmTap({ ...hit.object.userData.farm });
           return;
         }
       }
@@ -901,6 +954,19 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (gardenData.shop) seatTargets.push({ kind: 'shop', id: 'shop', x: gardenData.shop.x, z: gardenData.shop.z, sx: 1.7, sz: 1.0, ry: gardenData.shop.ry || 0 });
     }
     const gardenView = gardenData ? createGardenView({ THREE, root, garden: gardenData, makeBubble, disposeSprite, labelFor: gardenLabel, reduceMotion }) : null;
+    // Phước Điền: cây / gà / bò của nông trại đang xem; vòng sáng + chữ gợi ý khi đứng gần ô, chuồng, quầy.
+    const fieldsData = world.courtyard?.fields;
+    const farmView = fieldsData ? createFarmView({ THREE, root, fields: fieldsData, makeBubble, disposeSprite, reduceMotion }) : null;
+    if (fieldsData) {
+      const ring = (fieldsData.bed || 2.2) * 0.68;
+      for (const plot of fieldsData.plots) seatTargets.push({ kind: 'farmplot', id: `farm-${plot.slot}`, x: plot.x, z: plot.z, sx: ring, sz: ring, ry: 0 });
+      for (const name of ['coop', 'barn']) {
+        const gate = fieldsData[name].gate;
+        seatTargets.push({ kind: name, id: `farm-${name}`, x: gate.x, z: gate.z, sx: 1.3, sz: 0.8, ry: 0 });
+      }
+      seatTargets.push({ kind: 'market', id: 'farm-market', x: fieldsData.market.x, z: fieldsData.market.z, sx: 1.8, sz: 1.0, ry: 0 });
+      if (fieldsData.basket) seatTargets.push({ kind: 'basket', id: 'farm-basket', x: fieldsData.basket.x, z: fieldsData.basket.z, sx: 0.9, sz: 0.6, ry: 0 });
+    }
     const gardenPoints = (gardenData?.fence || []).flatMap(([x0, z0, x1, z1]) => [[x0, z0], [x1, z1]]);
     const gardenBounds = gardenPoints.length ? {
       x: [Math.min(...gardenPoints.map(([x]) => x)) - 2.8, Math.max(...gardenPoints.map(([x]) => x)) + 0.5],
@@ -965,6 +1031,9 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       if (overlook && self.z >= overlook.path.z[0]) return 'overlook';
       // Ra khỏi cổng hông phía tây: Rừng thiền.
       const grove = world.courtyard?.grove;
+      // Ra khỏi cổng tây phía nam: Phước Điền (nông trại riêng), nam Rừng thiền.
+      const fields = fieldsData?.area;
+      if (fields && self.x <= fields.x[1] + 0.5 && self.z >= fields.z[0]) return 'myfarm';
       if (grove && self.x <= grove.area.x[1]) return 'grove';
       return 'courtyard';
     }
@@ -1028,7 +1097,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
           root.add(hint);
         }
       }
-      const hintY = { bench: 1.5, plot: 3.3, shop: 2.9, grave: 1.7, guide: 2.4, merit: 2.9, pet: 1.1, wish: 2.25, swing: 2.9, slide: 2.6 }[near[0]?.target.play || near[0]?.target.kind] || 1.0;
+      const hintY = { farmplot: 2.3, coop: 2.6, barn: 2.8, market: 2.9, basket: 1.9, bench: 1.5, plot: 3.3, shop: 2.9, grave: 1.7, guide: 2.4, merit: 2.9, pet: 1.1, wish: 2.25, swing: 2.9, slide: 2.6 }[near[0]?.target.play || near[0]?.target.kind] || 1.0;
       if (hint && near[0]) hint.position.set(near[0].target.x, hintY, near[0].target.z);
       nearbySit = near.find((item) => ['seat', 'bench'].includes(item.target.kind))?.target || null;
       const nextKey = nearbySit ? `${nearbySit.kind}:${nearbySit.id}` : '';
@@ -1049,6 +1118,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       updateNearbyChore(self);
       updateNearbyPet(self);
       gardenView?.update(dt);
+      farmView?.update(dt, time);
       memorialView?.update();
       playOccupied.clear();
       selfPlay = null;
@@ -1246,6 +1316,19 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       },
       // Gieo / tưới / hái ở Vườn Công Đức: hiệu ứng ở luống + nhân vật làm động tác. by: tên người làm (tin garden.plot
       // của người khác / bot); không có by là chính mình.
+      // Phước Điền: nông trại đang xem (dữ liệu API của tài khoản; null = chưa có) và hiệu ứng + động tác khi mình bấm
+      // một thao tác. target: { kind: 'plot', slot } | { kind: 'coop' | 'barn' | 'market' | 'basket' }. Thăm ruộng hàng
+      // xóm thì trang đưa nông trại của hàng xóm vào cùng khu (cùng bố cục).
+      setFarm(data) {
+        farmView?.setFarm(data);
+      },
+      farmEffect(kind, target) {
+        farmView?.effect(kind, target);
+        farmAct(kind, target);
+      },
+      debugFarm() {
+        return farmView?.debug() || null;
+      },
       gardenEffect(plotId, kind, plantType, by) {
         gardenView?.effect(plotId, kind, plantType);
         gardenAct(plotId, kind, by);

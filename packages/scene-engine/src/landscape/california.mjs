@@ -2,7 +2,7 @@
 // thạch, núi xanh xám xa. Dữ liệu vùng ở scenes/thien-default/themes/california.json (chùa tường trắng, mái ngói đỏ);
 // hình dạng bộ đồ xem đầu landscape/common.mjs.
 import * as THREE from 'three';
-import { canvasTexture, mountainArc, seeded, speckle } from './common.mjs';
+import { canvasTexture, mountainArc, seeded, speckle, clearOfWalkways } from './common.mjs';
 
 const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length];
 
@@ -86,12 +86,15 @@ const mountains = {
     mountainArc(env, 12, { spread: 1.5, radiusX: 90, radiusZ: 66 }, (x, z) => {
       const width = 15 + rand() * 12;
       const height = 6 + rand() * 6;
-      batch.add(dome.clone(), env.material(pick(rand, golds), { flatShading: true }), { position: [x, -1, z], scale: [width, height, width * 0.75] });
+      // Chân núi chạm khu đi lại ngoài tường (Phước Điền) thì bỏ; số ngẫu nhiên vẫn rút như cũ để các núi khác giữ dáng.
+      const keep = clearOfWalkways(env, x, z, width, width * 0.75);
+      const add = (...args) => { if (keep) batch.add(...args); };
+      add(dome.clone(), env.material(pick(rand, golds), { flatShading: true }), { position: [x, -1, z], scale: [width, height, width * 0.75] });
       for (let tree = 0; tree < 6; tree += 1) {
         const angle = rand() * Math.PI * 2;
         const along = Math.sqrt(rand()) * 0.85;
         const py = Math.sqrt(Math.max(0, 1 - along * along));
-        batch.add(new THREE.IcosahedronGeometry(1.2 + rand() * 0.8, 0), env.material('#4d5f2f', { flatShading: true }), {
+        add(new THREE.IcosahedronGeometry(1.2 + rand() * 0.8, 0), env.material('#4d5f2f', { flatShading: true }), {
           position: [x + Math.cos(angle) * along * width, -1 + py * height + 0.4, z + Math.sin(angle) * along * width * 0.75], scale: [1.2, 0.7, 1.2],
         });
       }

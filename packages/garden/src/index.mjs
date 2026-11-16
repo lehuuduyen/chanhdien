@@ -9,6 +9,10 @@
 
 import { createHash, randomInt } from 'node:crypto';
 import { capTransfers, TIENLEN_MAX_PLAYERS, TIENLEN_MODES, TIENLEN_STAKES, tienLenCut, tienLenMinCoins } from '@chanh-dien/tien-len';
+import { createFarm, FARM_MIGRATION, FARM_SOCIAL_MIGRATION } from './farm.mjs';
+
+// Phước Điền (nông trại riêng): hằng số, bảng giá, cấp độ — xem farm.mjs.
+export * from './farm.mjs';
 export const PLOT_COUNT = 50;
 // Bot làm vườn (Phật tử ảo ở các phòng chánh điện) giữ tối đa 30% số luống, phần còn lại luôn để người chơi.
 export const BOT_PLOT_SHARE = 0.3;
@@ -557,6 +561,10 @@ const MIGRATIONS = [
       planted_at
     )
     WHERE status = 'fruiting' AND fruiting_at IS NULL;`,
+  // Phước Điền: nông trại riêng (đất, cây, gà, bò, kho, chợ) + loại giao dịch farm_buy / farm_sell.
+  FARM_MIGRATION,
+  // Phước Điền — hàng xóm: rổ chia sẻ, điểm phước, sổ ghé thăm.
+  FARM_SOCIAL_MIGRATION,
 ];
 
 // Trả thưởng một ván Tài Xỉu. bets: { ô cược: xu }, dice: 3 số 1–6. Trúng: nhận lại gốc + cược × tỷ lệ.
@@ -891,6 +899,8 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
     return balance;
   }
 
+  const farm = createFarm({ db, now, today, changeCoins, ensureWallet, transaction: (work) => transaction(work), q, GardenError });
+
   // Tìm ván treo (có cược / vé mà chưa chốt, lần cược cuối đã quá staleMs). Bảng cược lớn dần mãi nên không quét cả
   // bảng mỗi lần đặt cược (đo với 200 nghìn ván cũ: ~50 ms / lần đặt Bầu Cua, ~180 ms / trận Oẳn Tù Tì): mỗi lần chỉ xét
   // các dòng trong khoảng [mốc lần trước, mốc mới) theo chỉ mục thời gian — dòng mới luôn mang giờ hiện tại nên không sót
@@ -1070,6 +1080,18 @@ export function createGardenStore({ db, now = Date.now, timeZone = 'America/Los_
 
   return {
     timeZone,
+
+    // ---- Phước Điền (nông trại riêng) ----
+    // Toàn bộ nông trại của mình (tính tới giờ server hiện tại) + danh mục cây / con / giá chợ hôm nay.
+    farm: (accountId) => farm.view(accountId),
+    // plant | water | tend | harvest | buyAnimal | feed | collect | buy | sell | offer | expand | upgrade | share | unshare.
+    farmAction: (accountId, action, input, key) => farm.act(accountId, action, input, key),
+    // Hàng xóm. owner: { accountId } hoặc { bot: tên }; quyền thăm (bạn bè / bạn bot) do API kiểm tra.
+    farmVisit: (viewerId, owner) => farm.visit(viewerId, owner),
+    farmNeighbor: (viewerId, owner) => farm.neighbor(viewerId, owner),
+    farmBotVisit: (ownerId, botNames) => farm.botVisit(ownerId, botNames),
+    // help | take | gift. actor { accountId, name }; options.paid: người giúp được nhận xu.
+    farmSocial: (actor, owner, action, input, key, options) => farm.social(actor, owner, action, input, key, options),
     plants: PLANTS,
 
     // Toàn bộ luống (khách xem được). changed: luống vừa hết hạn để phát realtime.

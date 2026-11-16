@@ -2,7 +2,7 @@
 // tươi, đồng cỏ lấm tấm hoa, các lớp núi xanh lam xa dần (kiểu dãy Blue Ridge). Dữ liệu vùng ở
 // scenes/thien-default/themes/blossom.json (chùa ngói xanh ngọc, đầu đao cong); hình dạng bộ đồ xem đầu landscape/common.mjs.
 import * as THREE from 'three';
-import { canvasTexture, mountainArc, seeded, speckle } from './common.mjs';
+import { canvasTexture, mountainArc, seeded, speckle, clearOfWalkways } from './common.mjs';
 
 const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length];
 
@@ -57,10 +57,9 @@ const mountains = {
       const color = env.material(env.colors[layer], { flatShading: true });
       mountainArc(env, 7 + layer, { spread: 1.5, radiusX: 96 + layer * 26, radiusZ: 70 + layer * 26 }, (x, z) => {
         const angle = Math.atan2(x, z - env.midZ - 40);
-        batch.add(dome.clone(), color, {
-          position: [x, -2, z], rotation: [0, angle, 0],
-          scale: [(26 + rand() * 16) * (1 + layer * 0.35), (9 + rand() * 6) * (1 + layer * 0.5), 9 + rand() * 4],
-        });
+        const scale = [(26 + rand() * 16) * (1 + layer * 0.35), (9 + rand() * 6) * (1 + layer * 0.5), 9 + rand() * 4];
+        // Chân núi chạm khu đi lại ngoài tường (Phước Điền) thì bỏ; số ngẫu nhiên vẫn rút như cũ để các núi khác giữ dáng.
+        if (clearOfWalkways(env, x, z, scale[0], scale[0])) batch.add(dome.clone(), color, { position: [x, -2, z], rotation: [0, angle, 0], scale });
       });
     }
     dome.dispose();

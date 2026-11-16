@@ -2,7 +2,7 @@
 // cỏ lá rụng, đồi rừng thu nhiều màu, đá xám phủ rêu. Dữ liệu vùng ở scenes/thien-default/themes/autumn.json (chùa gỗ
 // nâu mái xám hai tầng); hình dạng bộ đồ xem đầu landscape/common.mjs.
 import * as THREE from 'three';
-import { canvasTexture, mountainArc, seeded, speckle } from './common.mjs';
+import { canvasTexture, mountainArc, seeded, speckle, clearOfWalkways } from './common.mjs';
 
 // Tông lá thu: mỗi cây chọn một tông chính, vài khối lá lấy tông kề bên cho tán có chiều sâu.
 const FOLIAGE = ['#b8241a', '#c9381d', '#d9531e', '#e57a1c', '#ee9b1f', '#f0b72e', '#9c2a1c'];
@@ -75,8 +75,12 @@ const mountains = {
       mountainArc(env, count, { spread: 1.5, radiusX, radiusZ }, (x, z, index) => {
         const width = (16 + rand() * 12) * scale;
         const height = (7 + rand() * 7) * scale;
+        // Đồi chạm khu đi lại ngoài tường (Phước Điền ở góc tây nam) thì bỏ; số ngẫu nhiên vẫn rút như cũ để các đồi khác
+        // giữ nguyên dáng.
+        const keep = clearOfWalkways(env, x, z, width, width * 0.8);
+        const add = (...args) => { if (keep) batch.add(...args); };
         const base = env.colors[(index + row) % env.colors.length];
-        batch.add(dome.clone(), env.material(base, { flatShading: true }), { position: [x, -1, z], scale: [width, height, width * 0.8] });
+        add(dome.clone(), env.material(base, { flatShading: true }), { position: [x, -1, z], scale: [width, height, width * 0.8] });
         if (row) return;
         // Tán cây trên sườn đồi gần.
         for (let tree = 0; tree < 22; tree += 1) {
@@ -85,7 +89,7 @@ const mountains = {
           const px = Math.cos(angle) * along;
           const pz = Math.sin(angle) * along;
           const py = Math.sqrt(Math.max(0, 1 - along * along));
-          batch.add(new THREE.IcosahedronGeometry(1.3 + rand() * 1.1, 0), env.material(pick(rand, FOLIAGE), { flatShading: true }), {
+          add(new THREE.IcosahedronGeometry(1.3 + rand() * 1.1, 0), env.material(pick(rand, FOLIAGE), { flatShading: true }), {
             position: [x + px * width, -1 + py * height + 0.6, z + pz * width * 0.8],
           });
         }

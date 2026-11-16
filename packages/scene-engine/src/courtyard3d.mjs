@@ -15,6 +15,11 @@ import { seeded } from './landscape/common.mjs';
 import { daylightGrade, GLOW_ORDER, SKY_LIGHTS_ORDER, VEIL_ORDER } from './daylight3d.mjs';
 
 const SCENE_MODELS = '/models/scene';
+// Mô hình Meshy của Phước Điền (công trình, đồ vật; file gốc nhanvat/farm/).
+const FARM_MODELS = '/models/farm';
+const FIELDS_LOAD_DISTANCE = 55;
+// Cổng gỗ Phước Điền: bề ngang mô hình = khe cổng + phần cột, mái chìa hai bên.
+const GATE_FRAME = 1.5;
 const NIGHT_LIGHT_COUNT = 5;
 
 // Chọn vài đèn cách xa nhau thay vì biến mọi sprite đèn thành PointLight. Năm nguồn sáng không đổ bóng đủ tạo những
@@ -82,6 +87,8 @@ function courtyardLightSites(data, fallback) {
   add(fromObject(data.wishGarden?.entrance));
   add(data.grove?.pavilion ? [data.grove.pavilion.x, data.grove.pavilion.z] : null);
   add(fromObject(data.grove?.gate));
+  add(pointsCenter(data.fields?.plots));
+  add(fromObject(data.fields?.market));
   return sites.length ? sites : spreadLightSites(fallback, NIGHT_LIGHT_COUNT);
 }
 
@@ -530,6 +537,245 @@ function buildGrove(batch, root, m, { area, gate, entry, pond, loop, pier, pavil
     slope.rotateZ(-side * 0.5);
     batch.add(slope, m.roof, { position: [gx + side * 0.5, 3.4, gate.z] });
   }
+}
+
+// Phước Điền ngoài cổng đông (data.fields, KE_HOACH_NONG_TRAI.md): phần tĩnh giống nhau với mọi người — thảm cỏ, lối
+// chính, 36 luống viền gỗ, hàng rào, cổng có biển tên, chuồng gà + sân, chuồng bò + bãi cỏ, quầy chợ, giếng, nhà nhỏ, bù
+// nhìn — và mesh ẩn để chạm. Cây, gà, bò, trứng, sữa của từng người do farm3d.mjs vẽ theo dữ liệu tài khoản.
+function buildFields(batch, root, m, fields, pickables, signs, lazyAssets) {
+  const { area, gate, path, plots, bed, coop, barn, market, basket, well, house, scarecrow } = fields;
+  const proxyMaterial = new THREE.MeshBasicMaterial({ visible: false });
+  const proxy = (size, position, target) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), proxyMaterial);
+    mesh.position.set(...position);
+    mesh.userData.farm = target;
+    root.add(mesh);
+    pickables.push(mesh);
+  };
+  const turn = (item) => [0, item.ry || 0, 0];
+  const at = (item, local) => localTransform({ ...item, scale: 1 }, local);
+  // Công trình / đồ vật có mô hình Meshy (/models/farm/<tên>.glb, mặt trước +z): hình khối vẽ vào nhóm dự phòng riêng,
+  // mô hình tải xong thì ẩn nhóm đó. place = { x, y?, z, ry, width | height } như placeProp (props3d.mjs). Chỉ tải khi
+  // camera tới gần khu (FIELDS_LOAD_DISTANCE), người chỉ ở chánh điện không tải.
+  const loads = [];
+  const swap = (file, place, draw) => {
+    const fallback = new StaticBatch();
+    draw(fallback);
+    const holder = new THREE.Group();
+    fallback.build(holder, { castShadow: true, receiveShadow: true });
+    root.add(holder);
+    loads.push(() => placeProp(root, `${FARM_MODELS}/${file}.glb`, place).then((group) => {
+      if (!group) return;
+      holder.visible = false;
+      // Ảnh màu Meshy đã có bóng đổ nướng sẵn: mặt nhám hẳn (tường vôi, gỗ, ngói) để không loáng như nhựa.
+      group.traverse((node) => { if (node.isMesh) node.material.roughness = 1; });
+    }));
+  };
+  // Nhiều bản một mô hình (InstancedMesh): hàng rào, khung luống. Nhóm dự phòng dựng sau khi đã thêm đủ khối.
+  const swapInstances = (file, fallback, items, base = {}) => {
+    const holder = new THREE.Group();
+    fallback.build(holder, { castShadow: true, receiveShadow: true });
+    root.add(holder);
+    loads.push(() => instanceProp(root, `${FARM_MODELS}/${file}.glb`, items, base).then((group) => { if (group) holder.visible = false; }));
+  };
+  const center = { x: (area.x[0] + area.x[1]) / 2, z: (area.z[0] + area.z[1]) / 2 };
+  let started = false;
+  lazyAssets.push({
+    update(point) {
+      if (started || !point || Math.hypot(point.x - center.x, point.z - center.z) > FIELDS_LOAD_DISTANCE) return;
+      started = true;
+      for (const load of loads) load();
+    },
+  });
+  // Thảm cỏ (theo cỏ sân của vùng) + lối sỏi chính.
+  const lawn = new THREE.Mesh(groundShape({ x: [Math.min(area.x[0], gate.x), Math.max(area.x[1], gate.x)], z: area.z }, [], 0.012), m.grass);
+  lawn.receiveShadow = true;
+  root.add(lawn);
+  const gravel = new THREE.PlaneGeometry(path.x[1] - path.x[0], path.z[1] - path.z[0]);
+  gravel.rotateX(-Math.PI / 2);
+  batch.add(gravel, m.gravel, { position: [(path.x[0] + path.x[1]) / 2, 0.02, (path.z[0] + path.z[1]) / 2] });
+  // Hàng rào gỗ thấp quanh khu, chừa lối vào ở cạnh phía cổng tường sân. Mỗi nhịp giữa hai cọc là một bản mô hình
+  // Meshy `fence` (trục dài theo x, kéo giãn vừa nhịp); thanh / cọc khối là dự phòng.
+  const fenceBatch = new StaticBatch();
+  const fenceSpans = [];
+  const rail = (x0, z0, x1, z1, height = 0.9) => {
+    const length = Math.hypot(x1 - x0, z1 - z0);
+    const ry = Math.atan2(x1 - x0, z1 - z0);
+    for (const y of [height * 0.35, height * 0.75]) fenceBatch.add(new THREE.BoxGeometry(0.07, 0.07, length), m.fence, { position: [(x0 + x1) / 2, y, (z0 + z1) / 2], rotation: [0, ry, 0] });
+    const posts = Math.max(1, Math.ceil(length / 1.6));
+    for (let index = 0; index <= posts; index += 1) {
+      const k = index / posts;
+      fenceBatch.add(new THREE.BoxGeometry(0.11, height, 0.11), m.wood, { position: [x0 + (x1 - x0) * k, height / 2, z0 + (z1 - z0) * k] });
+    }
+    const span = length / posts;
+    for (let index = 0; index < posts; index += 1) {
+      const k = (index + 0.5) / posts;
+      fenceSpans.push({ x: x0 + (x1 - x0) * k, z: z0 + (z1 - z0) * k, ry: Math.atan2(-(z1 - z0), x1 - x0), box: [span + 0.12, height + 0.1, 0.22] });
+    }
+  };
+  const [x0, x1] = area.x;
+  const [z0, z1] = area.z;
+  const gateSide = gate.x > (x0 + x1) / 2 ? x1 : x0;
+  const farSide = gateSide === x1 ? x0 : x1;
+  rail(x0, z0, x1, z0);
+  rail(x0, z1, x1, z1);
+  rail(farSide, z0, farSide, z1);
+  rail(gateSide, z0, gateSide, gate.z - gate.width / 2 - 0.3);
+  rail(gateSide, gate.z + gate.width / 2 + 0.3, gateSide, z1);
+  // Cổng gỗ trên tường sân (như cổng Rừng thiền), biển tên quay vào sân chùa.
+  // Mô hình Meshy `gate` (lối đi theo trục z của mô hình) xoay cho lối đi xuyên tường, kéo vừa khe cổng.
+  const inward = gate.x < 0 ? 1 : -1;
+  const gx = gate.x + inward * 0.2;
+  const gateBatch = new StaticBatch();
+  for (const side of [-1, 1]) gateBatch.add(new THREE.BoxGeometry(0.42, 3.2, 0.42), m.pillar, { position: [gx, 1.6, gate.z + side * (gate.width / 2 + 0.15)] });
+  gateBatch.add(new THREE.BoxGeometry(0.36, 0.3, gate.width + 1.2), m.wood, { position: [gx, 3.0, gate.z] });
+  for (const side of [-1, 1]) {
+    const slope = new THREE.BoxGeometry(1.2, 0.12, gate.width + 1.8);
+    slope.rotateZ(-side * 0.5);
+    gateBatch.add(slope, m.roof, { position: [gx + side * 0.5, 3.4, gate.z] });
+  }
+  swapInstances('gate', gateBatch, [{ x: gx, z: gate.z, ry: Math.PI / 2, box: [gate.width + GATE_FRAME, 3.9, 1.3] }]);
+  // Biển hai mặt: một tấm quay vào sân chùa, một tấm quay vào nông trại (một tấm nhìn từ sau thì chữ bị ngược).
+  signs.push({ text: fields.sign || '', position: [gx + inward * 0.25, 2.5, gate.z], ry: inward * Math.PI / 2, width: 2.2 });
+  signs.push({ text: fields.sign || '', position: [gx - inward * 0.25, 2.5, gate.z], ry: -inward * Math.PI / 2, width: 2.2 });
+  // Luống: đất, khung gỗ (mô hình Meshy `bedframe` kéo vừa luống; viền khối là dự phòng); vùng chạm cao để chạm được cả
+  // khi cây lớn.
+  const bedBatch = new StaticBatch();
+  for (const plot of plots) {
+    batch.add(new THREE.BoxGeometry(bed, 0.2, bed), m.soil, { position: [plot.x, 0.1, plot.z] });
+    for (const [dx, dz, w, d] of [[0, -bed / 2, bed + 0.16, 0.12], [0, bed / 2, bed + 0.16, 0.12], [-bed / 2, 0, 0.12, bed], [bed / 2, 0, 0.12, bed]]) {
+      bedBatch.add(new THREE.BoxGeometry(w, 0.26, d), m.fence, { position: [plot.x + dx, 0.13, plot.z + dz] });
+    }
+    proxy([bed + 0.2, 1.8, bed + 0.2], [plot.x, 0.9, plot.z], { kind: 'plot', slot: plot.slot });
+  }
+  swapInstances('bedframe', bedBatch, plots.map((plot) => ({ x: plot.x, z: plot.z, ry: (plot.slot % 4) * (Math.PI / 2) })), { box: [bed + 0.2, 0.3, bed + 0.2] });
+  // Chuồng: hàng rào sân (chừa cửa phía nam), nhà gỗ mái dốc ở cuối sân. Gà: nhà nhỏ có ổ rơm; bò: chuồng đỏ lớn.
+  const pen = (item, kind) => {
+    const { x: [px0, px1], z: [pz0, pz1] } = item.area;
+    const half = item.gate.width / 2;
+    const gz = item.gate.z;
+    // Hàng rào bốn cạnh; cạnh có cửa: cánh cổng gỗ đóng (người đứng ngoài cửa làm việc).
+    rail(px1, pz0, px1, pz1, 1);
+    rail(px0, pz1, px0, pz0, 1);
+    for (const z of [pz0, pz1]) {
+      if (z !== gz) {
+        rail(px0, z, px1, z, 1);
+        continue;
+      }
+      rail(px0, z, item.gate.x - half, z, 1);
+      rail(item.gate.x + half, z, px1, z, 1);
+      batch.add(new THREE.BoxGeometry(item.gate.width - 0.1, 0.7, 0.06), m.fence, { position: [item.gate.x, 0.5, z] });
+      batch.add(new THREE.BoxGeometry(Math.hypot(item.gate.width - 0.1, 0.7), 0.07, 0.07), m.wood, { position: [item.gate.x, 0.5, z + 0.05], rotation: [0, 0, Math.atan2(0.7, item.gate.width - 0.1)] });
+    }
+    const yard = new THREE.PlaneGeometry(px1 - px0 - 0.2, pz1 - pz0 - 0.2);
+    yard.rotateX(-Math.PI / 2);
+    batch.add(yard, kind === 'coop' ? m.gravel : m.petGrass, { position: [(px0 + px1) / 2, 0.018, (pz0 + pz1) / 2] });
+    const h = item.house;
+    if (kind === 'coop') {
+      // Nhà gà: cửa ở mặt -z cục bộ (quay ra sân); mô hình nhìn về +z nên xoay thêm nửa vòng.
+      swap('coop', { x: h.x, z: h.z, ry: (h.ry || 0) + Math.PI, width: 3.4 }, (b) => {
+        b.add(new THREE.BoxGeometry(3.2, 1.7, 2.4), m.wood, { position: at(h, [0, 1.05, 0]), rotation: turn(h) });
+        for (const side of [-1, 1]) b.add(new THREE.BoxGeometry(0.16, 0.5, 0.16), m.wood, { position: at(h, [side * 1.4, 0.25, 0]) });
+        for (const side of [-1, 1]) {
+          const slope = new THREE.BoxGeometry(3.6, 0.1, 1.6);
+          slope.rotateX(side * 0.55);
+          b.add(slope, m.roof, { position: at(h, [0, 2.15, side * 0.62]), rotation: turn(h) });
+        }
+        b.add(new THREE.BoxGeometry(0.7, 0.9, 0.06), m.barnTrim, { position: at(h, [0, 0.95, -1.23]), rotation: turn(h) });
+        b.add(new THREE.BoxGeometry(0.5, 0.06, 1.3), m.wood, { position: at(h, [0, 0.35, -1.75]), rotation: [-0.45, h.ry || 0, 0, 'YXZ'] });
+      });
+      // Máng thóc trước nhà.
+      batch.add(new THREE.BoxGeometry(1.6, 0.22, 0.36), m.wood, { position: at(h, [1.0, 0.11, -2.4]), rotation: turn(h) });
+      batch.add(new THREE.BoxGeometry(1.45, 0.05, 0.24), m.hay, { position: at(h, [1.0, 0.23, -2.4]), rotation: turn(h) });
+      // Gà trống đứng trên gốc cây cạnh nhà (trang trí, không thuộc nông trại của ai).
+      const perch = at(h, [-1.25, 0, -2.3]);
+      batch.add(new THREE.CylinderGeometry(0.26, 0.3, 0.45, 12), m.wood, { position: [perch[0], 0.225, perch[2]] });
+      swap('rooster', { x: perch[0], y: 0.45, z: perch[2], ry: (h.ry || 0) + Math.PI + 0.6, height: 0.62 }, () => {});
+    } else {
+      const ry = h.ry || 0;
+      swap('barn', { x: h.x, z: h.z, ry: ry + Math.PI, width: 5.4 }, (b) => {
+        b.add(new THREE.BoxGeometry(5, 2.6, 3.4), m.barn, { position: at(h, [0, 1.3, 0]), rotation: turn(h) });
+        for (const side of [-1, 1]) b.add(new THREE.BoxGeometry(2.9, 0.12, 3.8), m.roof, { position: at(h, [side * 1.28, 3.18, 0]), rotation: [0, ry, side * -0.62, 'YXZ'] });
+        b.add(new THREE.BoxGeometry(1.8, 1.9, 0.08), m.barnTrim, { position: at(h, [0, 0.95, -1.72]), rotation: turn(h) });
+        for (const tilt of [-0.75, 0.75]) b.add(new THREE.BoxGeometry(0.1, 2.5, 0.1), m.barnTrim, { position: at(h, [0, 0.95, -1.77]), rotation: [0, ry, tilt, 'YXZ'] });
+      });
+      // Máng nước (dọc theo z), cỏ khô cuộn.
+      const trough = { x: item.area.x[0] + 1, z: (pz0 + pz1) / 2 };
+      swap('trough', { ...trough, ry: Math.PI / 2, width: 2.0 }, (b) => {
+        b.add(new THREE.BoxGeometry(0.7, 0.45, 2), m.wood, { position: [trough.x, 0.23, trough.z] });
+        b.add(new THREE.BoxGeometry(0.55, 0.04, 1.85), m.water, { position: [trough.x, 0.44, trough.z] });
+      });
+      for (const [dx, dz] of [[-2.1, -2.4], [2.2, -2.6]]) {
+        const spot = at(h, [dx, 0, dz]);
+        swap('haybale', { x: spot[0], z: spot[2], ry: ry + 0.3 + Math.PI / 2, height: 1.05 }, (b) => {
+          b.add(new THREE.CylinderGeometry(0.55, 0.55, 0.9, 14), m.hay, { position: at(h, [dx, 0.55, dz]), rotation: [Math.PI / 2, ry + 0.3, 0, 'YXZ'] });
+        });
+      }
+    }
+    const width = px1 - px0;
+    const depth = pz1 - pz0;
+    proxy([width, 2.6, depth], [(px0 + px1) / 2, 1.3, (pz0 + pz1) / 2], { kind });
+  };
+  pen(coop, 'coop');
+  pen(barn, 'barn');
+  swapInstances('fence', fenceBatch, fenceSpans);
+  // Quầy chợ: sạp gỗ có mái vải, rổ nông sản, biển tên.
+  swap('stall', { x: market.x, z: market.z, ry: market.ry || 0, width: 3.0 }, (b) => {
+    b.add(new THREE.BoxGeometry(2.6, 0.9, 0.9), m.wood, { position: at(market, [0, 0.45, 0]), rotation: turn(market) });
+    b.add(new THREE.BoxGeometry(2.8, 0.06, 1.05), m.stone, { position: at(market, [0, 0.93, 0]), rotation: turn(market) });
+    for (const side of [-1, 1]) for (const back of [-1, 1]) {
+      b.add(new THREE.BoxGeometry(0.1, 2.3, 0.1), m.wood, { position: at(market, [side * 1.3, 1.15, back * 0.45]) });
+    }
+    const awning = new THREE.BoxGeometry(3, 0.08, 1.5);
+    awning.rotateX(-0.25);
+    b.add(awning, m.barn, { position: at(market, [0, 2.35, 0.1]), rotation: turn(market) });
+    [m.lantern, m.flowerYellow, m.leaf, m.gold].forEach((material, index) => {
+      b.add(new THREE.CylinderGeometry(0.26, 0.2, 0.18, 12), m.hay, { position: at(market, [-0.95 + index * 0.63, 1.05, 0.05]) });
+      b.add(new THREE.SphereGeometry(0.17, 10, 8), material, { position: at(market, [-0.95 + index * 0.63, 1.18, 0.05]), scale: [1, 0.6, 1] });
+    });
+  });
+  // Biển tên trên mái sạp (không che mái vải và quầy hàng của mô hình).
+  signs.push({ text: market.sign || '', position: at(market, [0, 2.78, 0.62]), ry: market.ry || 0, width: 2.2 });
+  proxy([3, 2.6, 1.6], [market.x, 1.3, market.z], { kind: 'market' });
+  // Kệ rổ chia sẻ cạnh cổng (hàng xóm lấy quà): kệ gỗ thấp, rổ tre to, biển nhỏ. Đồ trong rổ do farm3d vẽ theo người xem.
+  if (basket) {
+    batch.add(new THREE.BoxGeometry(1.3, 0.55, 0.75), m.wood, { position: at(basket, [0, 0.28, 0]), rotation: turn(basket) });
+    // Rổ tre (mô hình Meshy, mặt kệ ở 0,55 m); đồ trong rổ farm3d vẽ ở 0,66–0,76 m.
+    swap('basket', { x: basket.x, y: 0.55, z: basket.z, ry: basket.ry || 0, width: 1.05 }, (b) => {
+      b.add(new THREE.CylinderGeometry(0.5, 0.38, 0.3, 16, 1, true), m.hay, { position: at(basket, [0, 0.7, 0]) });
+      b.add(new THREE.CylinderGeometry(0.38, 0.38, 0.02, 16), m.hay, { position: at(basket, [0, 0.56, 0]) });
+      b.add(new THREE.TorusGeometry(0.5, 0.035, 6, 20), m.wood, { position: at(basket, [0, 0.85, 0]), rotation: [Math.PI / 2, 0, 0] });
+    });
+    for (const side of [-1, 1]) batch.add(new THREE.BoxGeometry(0.06, 1.4, 0.06), m.wood, { position: at(basket, [side * 0.55, 0.7, 0.3]), rotation: turn(basket) });
+    signs.push({ text: basket.sign || '', position: at(basket, [0, 1.3, 0.33]), ry: basket.ry || 0, width: 1.2 });
+    proxy([1.5, 1.8, 1.1], [basket.x, 0.9, basket.z], { kind: 'basket' });
+  }
+  // Giếng đá có mái, gàu.
+  swap('well', { x: well.x, z: well.z, ry: well.ry || 0, height: 2.2 }, (b) => {
+    b.add(new THREE.CylinderGeometry(0.62, 0.68, 0.7, 16, 1, true), m.stone, { position: [well.x, 0.35, well.z] });
+    b.add(new THREE.TorusGeometry(0.64, 0.08, 6, 18), m.darkStone, { position: [well.x, 0.7, well.z], rotation: [Math.PI / 2, 0, 0] });
+    b.add(new THREE.CircleGeometry(0.58, 16), m.water, { position: [well.x, 0.42, well.z], rotation: [-Math.PI / 2, 0, 0] });
+    for (const side of [-1, 1]) b.add(new THREE.BoxGeometry(0.1, 1.7, 0.1), m.wood, { position: [well.x + side * 0.6, 0.85, well.z] });
+    b.add(new THREE.ConeGeometry(0.95, 0.5, 4), m.roof, { position: [well.x, 1.95, well.z], rotation: [0, Math.PI / 4, 0] });
+    b.add(new THREE.CylinderGeometry(0.13, 0.11, 0.2, 10), m.wood, { position: [well.x + 0.2, 0.86, well.z + 0.3] });
+  });
+  // Nhà nhỏ: tường vôi, mái ngói, cửa (mặt +z cục bộ), hiên.
+  swap('farmhouse', { x: house.x, z: house.z, ry: house.ry || 0, size: Math.max(...(house.size || [4.2, 3.4])) }, (b) => {
+    b.add(new THREE.BoxGeometry(4.2, 2.4, 3.4), m.wall, { position: at(house, [0, 1.2, 0]), rotation: turn(house) });
+    b.add(new THREE.ConeGeometry(3.3, 1.5, 4), m.roof, { position: at(house, [0, 3.15, 0]), rotation: [0, (house.ry || 0) + Math.PI / 4, 0], scale: [1, 1, 0.82] });
+    b.add(new THREE.BoxGeometry(0.9, 1.6, 0.08), m.wood, { position: at(house, [0, 0.8, 1.72]), rotation: turn(house) });
+    for (const side of [-1, 1]) b.add(new THREE.BoxGeometry(0.7, 0.6, 0.08), m.paper, { position: at(house, [side * 1.3, 1.45, 1.72]), rotation: turn(house) });
+  });
+  // Bù nhìn: cọc, tay ngang, áo, nón lá.
+  swap('scarecrow', { x: scarecrow.x, z: scarecrow.z, ry: scarecrow.ry || 0, height: 2.3 }, (b) => {
+    b.add(new THREE.CylinderGeometry(0.05, 0.06, 2, 6), m.wood, { position: [scarecrow.x, 1, scarecrow.z] });
+    b.add(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 6), m.wood, { position: [scarecrow.x, 1.45, scarecrow.z], rotation: [0, 0, Math.PI / 2] });
+    b.add(new THREE.BoxGeometry(0.62, 0.7, 0.22), m.barn, { position: [scarecrow.x, 1.3, scarecrow.z] });
+    b.add(new THREE.SphereGeometry(0.17, 10, 8), m.hay, { position: [scarecrow.x, 1.84, scarecrow.z] });
+    b.add(new THREE.ConeGeometry(0.42, 0.26, 16), m.hay, { position: [scarecrow.x, 2.05, scarecrow.z] });
+  });
+  // Đồ trang trí (lu nước, xe cút kít, thùng rau, đống củi…): chỉ có mô hình Meshy; vật cản ở scripts/thien-garden-layout.mjs.
+  for (const item of fields.decor || []) swap(item.model, { x: item.x, z: item.z, ry: item.ry || 0, height: item.height }, () => {});
 }
 
 // Hình cá chép (koi) nhỏ: thân thoi, đuôi xoè, hai vây; đầu hướng +z. Một geometry cho InstancedMesh.
@@ -1760,6 +2006,20 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   // ---- Rừng thiền ngoài cổng hông phía tây (data.grove): cổng gỗ, lối đá, vòng lối quanh hồ sen, bến gỗ, thủy đình. Cây
   // của rừng do lớp phong cảnh vẽ theo vùng (landscape3d: grove.trees). ----
   if (data.grove) buildGrove(batch, root, m, data.grove);
+  // ---- Phước Điền ngoài cổng đông (data.fields): phần tĩnh + vùng chạm; biển tên là mesh riêng (texture chữ). ----
+  const fieldsPickables = [];
+  // Mô hình Meshy của Phước Điền tải khi camera tới gần (gộp vào lazyAssets bên dưới).
+  const fieldsLazy = [];
+  if (data.fields) {
+    const fieldSigns = [];
+    buildFields(batch, root, m, data.fields, fieldsPickables, fieldSigns, fieldsLazy);
+    for (const sign of fieldSigns) {
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.width * 0.24), new THREE.MeshStandardMaterial({ map: textBoard(sign.text), roughness: 0.6, side: THREE.DoubleSide }));
+      board.position.set(...sign.position);
+      board.rotation.y = sign.ry;
+      root.add(board);
+    }
+  }
 
   // ---- Đèn đá hai bên lối đi ----
   for (const [x, z] of data.lanterns) {
@@ -1989,7 +2249,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   const guanyinBatch = new StaticBatch();
   const benchPickables = [];
   const meritBoardPickables = [];
-  const lazyAssets = [];
+  const lazyAssets = [...fieldsLazy];
   const benchProxyGeometry = new THREE.BoxGeometry(2.3, 1.05, 0.85);
   const benchProxyMaterial = new THREE.MeshBasicMaterial({ visible: false });
   (data.arhats || []).forEach((item, index) => addArhat(arhatBatch, m, item, index));
@@ -2119,18 +2379,23 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
   }
 
   // ---- Tường gạch thấp hai bên, cột đèn lồng (cổng tam quan và tường hai bên cổng dựng cùng chùa) ----
-  // Tường phía tây chừa cổng hông ra Rừng thiền (data.grove.gate).
-  const sideGate = data.grove?.gate;
+  // Tường phía tây chừa cổng hông ra Rừng thiền (data.grove.gate) và cổng ra Phước Điền (data.fields.gate).
+  const westGates = [data.grove?.gate, data.fields?.gate].filter(Boolean).sort((a, b) => a.z - b.z);
   for (const s of [-1, 1]) {
-    const spans = s < 0 && sideGate
-      ? [[frontZ, sideGate.z - sideGate.width / 2], [sideGate.z + sideGate.width / 2, ground.z[1]]]
-      : [[frontZ, ground.z[1]]];
+    const gates = s < 0 ? westGates : [];
+    const spans = [];
+    let from = frontZ;
+    for (const gate of gates) {
+      spans.push([from, gate.z - gate.width / 2]);
+      from = gate.z + gate.width / 2;
+    }
+    spans.push([from, ground.z[1]]);
     for (const [z0, z1] of spans) {
       batch.add(new THREE.BoxGeometry(0.4, 1.3, z1 - z0), m.brick, { position: [s * (ground.x[1] - 0.2), 0.65, (z0 + z1) / 2] });
       batch.add(new THREE.BoxGeometry(0.6, 0.12, z1 - z0), m.roof, { position: [s * (ground.x[1] - 0.2), 1.36, (z0 + z1) / 2] });
     }
     for (let z = frontZ + 2; z < ground.z[1]; z += 5) {
-      if (s < 0 && sideGate && Math.abs(z - sideGate.z) < sideGate.width / 2 + 1) continue;
+      if (gates.some((gate) => Math.abs(z - gate.z) < gate.width / 2 + 1)) continue;
       batch.add(new THREE.BoxGeometry(0.3, 2.4, 0.3), m.pillar, { position: [s * (ground.x[1] - 0.6), 1.2, z] });
       batch.add(new THREE.SphereGeometry(0.22, 12, 10), m.lantern, { position: [s * (ground.x[1] - 0.6), 2.55, z], scale: [1, 1.25, 1] });
       lanternGlows.push(new THREE.Vector3(s * (ground.x[1] - 0.6), 2.55, z));
@@ -2498,6 +2763,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     playRigs,
     meritBoardPickables,
     gardenPickables,
+    fieldsPickables,
     memorialPickables,
     guidePickables,
     pilgrimagePickables: wishGarden?.pickables || [],
