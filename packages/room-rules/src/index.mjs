@@ -833,6 +833,15 @@ export function roomTypeOf(roomId) {
   return ROOM_CATALOG.find((room) => room.id === roomId)?.type || null;
 }
 
+// Khu của một loại phòng trong thống kê người chơi thật (apps/api/visitor-stats.mjs): chánh điện, rạp phim (cả rạp
+// riêng) hoặc phòng game (mọi loại còn lại).
+export const VISITOR_AREAS = Object.freeze(['temple', 'cinema', 'games']);
+export function visitorAreaOf(roomType) {
+  if (roomType === 'thien') return 'temple';
+  if (typeof roomType === 'string' && roomType.startsWith('cinema')) return 'cinema';
+  return 'games';
+}
+
 // Mốc "trong ngày" dùng chung (chat phòng, tin nhắn bạn bè): nửa đêm hôm nay theo múi giờ dự án (GARDEN_TIMEZONE, mặc
 // định giờ California). Trả timestamp ms của 00:00 ngày chứa `timestamp`.
 export function dayStartOf(timestamp, timeZone = 'America/Los_Angeles') {

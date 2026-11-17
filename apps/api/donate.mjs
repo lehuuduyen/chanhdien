@@ -16,6 +16,7 @@ import { internalKey } from '@chanh-dien/session-token';
 import { json, readJson } from './http.mjs';
 import { botChatTelegramCommand } from './bot-chat.mjs';
 import { MODERATION_HELP, moderationTelegramCommand } from './moderation.mjs';
+import { visitorStatsTelegramCommand } from './visitor-stats.mjs';
 import { memorialTelegramCommand } from './memorial.mjs';
 import { videoReviewOf, videoReviewTelegramCommand } from './video-review.mjs';
 
@@ -281,6 +282,12 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
     json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: memorialReply });
     return true;
   }
+  // Thống kê người chơi thật mấy giờ gần nhất: /thongke (cùng nội dung tin báo định kỳ).
+  const statsReply = visitorStatsTelegramCommand(message.text, options.visitorStats, { hours: options.visitorReportHours || 2 });
+  if (statsReply) {
+    json(req, res, 200, { method: 'sendMessage', chat_id: message.chat.id, text: statsReply });
+    return true;
+  }
   // Lệnh kiểm duyệt: /blockchattu dm, /unban k-…, /ban, /dsban…
   const moderationReply = moderationTelegramCommand(message.text, options.moderation, `Telegram ${by}`);
   if (moderationReply) {
@@ -379,7 +386,7 @@ export async function handleTelegramDonateRequest(req, res, pathname, options) {
   if (!match) {
     json(req, res, 200, {
       method: 'sendMessage', chat_id: message.chat.id,
-      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\naddbot baucua 20\naddbot taixiu 20\naddbot loto 20\naddbot oantuti 20\naddbot tienlen 20\naddbot cinema 20\naddbot chanhdien 20\n/tl <mã> <nội dung> (trả lời thay bot)\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
+      text: `Cú pháp:\ndonate 1\naddbot 100\naddbot 0\naddbot baucua 20\naddbot taixiu 20\naddbot loto 20\naddbot oantuti 20\naddbot tienlen 20\naddbot cinema 20\naddbot chanhdien 20\n/tl <mã> <nội dung> (trả lời thay bot)\nxu <tài_khoản> +100\nxu <tài_khoản> -20\nkimcuong <tài_khoản> +50\n/thongke (người chơi thật mấy giờ gần nhất)${options.moderation ? `\n\n${MODERATION_HELP}` : ''}`,
     });
     return true;
   }
