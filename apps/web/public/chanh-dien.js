@@ -15,6 +15,7 @@ import { buildRecitation } from '/prayer-recite.js';
 import { sutraById, sutraLines } from '/sutras.js';
 import { createMala } from '/mala.js';
 import { createPlayerSocial } from '/player-social.js';
+import { COMPATIBILITY_BANK_VERSION, COMPATIBILITY_QUESTIONS } from '/compatibility-questions.js';
 import { createChatCenter } from '/chat-center.js';
 import { createGardenUI } from '/garden-ui.js';
 import { createFarmUI } from '/farm-ui.js';
@@ -143,6 +144,8 @@ let lastBellAt = 0;
 let statusKey = 'hud.notIn';
 const session = createRoomSession({
   roomId: 'thien-1',
+  questionBankSize: COMPATIBILITY_QUESTIONS.length,
+  questionBankVersion: COMPATIBILITY_BANK_VERSION,
   onMessage: handleMessage,
   onStatus: (state, label, key) => {
     elements.presence.className = `chip ${state}`;

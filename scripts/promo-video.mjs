@@ -5,6 +5,8 @@
 // .data/promo/promo-farm.mp4.
 // --film stopwatch: clip ~28 giây trò Bấm Giờ (suýt trúng, trúng đúng 1/100 giây, cấp 2, Bảng vàng), mặc định ghi
 // .data/promo/promo-stopwatch.mp4.
+// --film hieu-y: clip ~39 giây trò hai người trên thẻ người chơi (Oẳn tù tì, Đo độ hiểu ý, Đoán ý bạn), mặc định ghi
+// .data/promo/promo-hieu-y.mp4. Cần bot trong chánh điện (BOTS_THIEN) để có người nắm tay / mời chơi.
 //
 // Quay video giới thiệu 9:16 (1080×1920) từ apps/web/public/promo.html bằng Chrome chạy ngầm có GPU rồi ghép MP4 bằng
 // ffmpeg. Cần web/API/realtime đang chạy (`BOTS_THIEN=30 npm run dev` cho sân đông vui) và ffmpeg trong PATH.
@@ -47,7 +49,7 @@ const option = (name, fallback) => {
   return value;
 };
 const FILM = option('--film', 'tour');
-if (!['tour', 'garden', 'farm', 'stopwatch'].includes(FILM)) throw new Error('--film phải là tour, garden, farm hoặc stopwatch');
+if (!['tour', 'garden', 'farm', 'stopwatch', 'hieu-y'].includes(FILM)) throw new Error('--film phải là tour, garden, farm, stopwatch hoặc hieu-y');
 const BASE = option('--base', 'http://localhost:3000').replace(/\/$/, '');
 const OUT = path.resolve(ROOT, option('--out', FILM === 'tour' ? '.data/promo/promo.mp4' : `.data/promo/promo-${FILM}.mp4`));
 const STATE = option('--state', 'vn');
@@ -305,7 +307,7 @@ async function main() {
   const query = new URLSearchParams({ record: '1', film: FILM, state: STATE, ...(URL_TEXT ? { url: URL_TEXT } : {}) });
   await cmd('Page.navigate', { url: `${BASE}/promo.html?${query}` });
   for (let index = 0; index < 60 && !(await evaluate('Boolean(window.promo)').catch(() => false)); index += 1) await sleep(500);
-  console.log({ garden: '… tải chánh điện 3D, chọn luống ở Vườn Công Đức', farm: '… tải chánh điện 3D, đi vào Phước Điền', stopwatch: '… tải chánh điện 3D, bốc đề Bấm Giờ' }[FILM] || '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
+  console.log({ garden: '… tải chánh điện 3D, chọn luống ở Vườn Công Đức', farm: '… tải chánh điện 3D, đi vào Phước Điền', stopwatch: '… tải chánh điện 3D, bốc đề Bấm Giờ', 'hieu-y': '… tải chánh điện 3D, nắm tay một người bạn' }[FILM] || '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
   await evaluate('window.promo.prepare()');
   const endAt = await evaluate('window.promo.endAt');
   const checks = await evaluate("[...document.querySelectorAll('#checks li')].map((li) => `${li.className === 'ok' ? '✓' : '!'} ${li.textContent}`).join('\\n')");

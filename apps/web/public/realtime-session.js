@@ -8,7 +8,22 @@ function realtimeEndpoint(url) {
   return new URL(url, `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`);
 }
 
-export function createRoomSession({ roomId, roomInvite = null, onMessage, onStatus }) {
+export function addQuestionBankCapability(url, size, version) {
+  if (!Number.isSafeInteger(size) || size <= 0) return;
+  if (Number.isSafeInteger(version) && version > 0) {
+    // Realtime cũ chỉ hiểu questionBankSize và bộ v2 dùng id 101–600 với nội dung khác. Luôn báo 100 cho máy
+    // cũ; realtime mới đọc thêm max + version để mở đủ ngân hàng khi cả hai người cùng phiên bản.
+    url.searchParams.set('questionBankSize', String(Math.min(size, 100)));
+    url.searchParams.set('questionBankMax', String(size));
+    url.searchParams.set('questionBankVersion', String(version));
+    return;
+  }
+  url.searchParams.set('questionBankSize', String(size));
+}
+
+export function createRoomSession({
+  roomId, roomInvite = null, questionBankSize = null, questionBankVersion = null, onMessage, onStatus,
+}) {
   let storageKey = `room-session-${roomId}`;
   let session = null;
   let socket = null;
@@ -103,6 +118,9 @@ export function createRoomSession({ roomId, roomInvite = null, onMessage, onStat
     const url = realtimeEndpoint(session.realtimeUrl);
     url.searchParams.set('ticket', session.ticket);
     if (session.resumeToken) url.searchParams.set('resumeToken', session.resumeToken);
+    // Capability nằm trên URL thay vì thêm trường hello: web mới vẫn kết nối được realtime cũ (máy cũ bỏ qua
+    // query lạ), còn realtime mới biết trang đang mở có đủ bao nhiêu câu để không gửi id client cũ chưa có.
+    addQuestionBankCapability(url, questionBankSize, questionBankVersion);
     // connect() gọi lần hai (bấm Vào hai lần, nối lại trùng lúc trang tự vào) thì đóng socket cũ và bỏ qua mọi sự kiện
     // của nó: trước đây socket cũ mở ra lại gửi hello vào socket mới, hai kết nối cùng người đá nhau (4001) mãi không dừng.
     const previous = socket;

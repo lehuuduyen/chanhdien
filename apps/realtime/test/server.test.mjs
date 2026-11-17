@@ -3,7 +3,7 @@ import { EventEmitter, once } from 'node:events';
 import { test } from 'node:test';
 import { createMemoryDirectory } from '@chanh-dien/room-directory';
 import { THIEN_GARDEN, THIEN_RULES } from '@chanh-dien/room-rules';
-import { parseServerMessage, PROTOCOL_VERSION } from '@chanh-dien/protocol';
+import { COMPATIBILITY_BANK_VERSION, parseServerMessage, PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { createJoinTicket, internalKey } from '@chanh-dien/session-token';
 import { WebSocket } from 'ws';
 import { cinemaPlaylistProvider, createRealtimeServer, handleRealtimeRequest, Room, RoomRegistry, shopBotSkinProvider } from '../server.mjs';
@@ -1481,6 +1481,51 @@ test('đo độ hiểu ý: 10 câu không trùng, giữ kín đáp án và chỉ
   assert.deepEqual(reveal.answers[0], { id: started.questions[0].id, from: 0, to: 0 });
   assert.equal(reveal.answers.filter((item) => item.from === item.to).length, 7);
   assert.equal(inbox['u-3'].some((message) => message.challengeId === sent.challengeId), false, 'người ngoài không thấy kết quả');
+  room.close();
+});
+
+test('trò câu hỏi tương thích client cũ: chỉ dùng 100 câu khi một bên chưa có ngân hàng 600 câu', () => {
+  const room = new Room('thien-1', { botCount: 0 });
+  const socket = { readyState: WebSocket.OPEN, send() {}, close() {} };
+  room.join(socket, { participantId: 'old', displayName: 'Bản cũ' });
+  room.join(socket, { participantId: 'new', displayName: 'Bản mới' }, null, { questionBankSize: 600, questionBankVersion: COMPATIBILITY_BANK_VERSION });
+  assert.equal(room.participants.get('old').questionBankSize, 100);
+  assert.equal(room.participants.get('new').questionBankSize, 600);
+  assert.equal(room.participants.get('old').questionBankVersion, 0);
+  assert.equal(room.participants.get('new').questionBankVersion, COMPATIBILITY_BANK_VERSION);
+  const sent = room.challengeSend('new', 'old', 'guess-you');
+  room.challengeRespond('old', sent.challengeId, true);
+  const challenge = room.challenges.get(sent.challengeId);
+  assert.equal(room.questionBankSize(challenge), 100);
+  assert.equal(challenge.questions.every(({ id }) => Number(id.slice(3)) <= 100), true);
+  room.close();
+});
+
+test('trò câu hỏi dùng capability 600 khi hai client mới hoặc một client mới chơi với bot', () => {
+  const room = new Room('thien-1', { botCount: 0 });
+  const socket = { readyState: WebSocket.OPEN, send() {}, close() {} };
+  room.join(socket, { participantId: 'new-1', displayName: 'Mới 1' }, null, { questionBankSize: 600, questionBankVersion: COMPATIBILITY_BANK_VERSION });
+  room.join(socket, { participantId: 'new-2', displayName: 'Mới 2' }, null, { questionBankSize: 600, questionBankVersion: COMPATIBILITY_BANK_VERSION });
+  const sent = room.challengeSend('new-1', 'new-2', 'same-choice');
+  assert.equal(room.questionBankSize(room.challenges.get(sent.challengeId)), 600);
+  room.challengeCancel('new-1', sent.challengeId);
+  room.participants.set('bot-test', { id: 'bot-test', displayName: 'Bạn máy', bot: true, connected: true });
+  const botGame = room.challengeSend('new-1', 'bot-test', 'compatibility');
+  assert.equal(room.questionBankSize(room.challenges.get(botGame.challengeId)), 600);
+  room.close();
+});
+
+test('hai client có nội dung ngân hàng khác phiên bản chỉ dùng 100 câu gốc', () => {
+  const room = new Room('thien-1', { botCount: 0 });
+  const socket = { readyState: WebSocket.OPEN, send() {}, close() {} };
+  // Trang cũ (bản trước) gặp trang mới: id 101–600 mang nội dung khác nhau nên chỉ được rút 100 câu gốc.
+  room.join(socket, { participantId: 'old', displayName: 'Bản trước' }, null, { questionBankSize: 600, questionBankVersion: COMPATIBILITY_BANK_VERSION - 1 });
+  room.join(socket, { participantId: 'new', displayName: 'Bản mới' }, null, { questionBankSize: 600, questionBankVersion: COMPATIBILITY_BANK_VERSION });
+  const sent = room.challengeSend('new', 'old', 'same-choice');
+  room.challengeRespond('old', sent.challengeId, true);
+  const challenge = room.challenges.get(sent.challengeId);
+  assert.equal(room.questionBankSize(challenge), 100);
+  assert.equal(challenge.questions.every(({ id }) => Number(id.slice(3)) <= 100), true);
   room.close();
 });
 
