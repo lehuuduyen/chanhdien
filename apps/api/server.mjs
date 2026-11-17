@@ -27,6 +27,7 @@ import { createStopwatchStore, handleStopwatchRequest } from './stopwatch.mjs';
 import { createPrivateRooms, handlePrivateRoomRequest, realtimePrivateRoomNotifier } from './private-rooms.mjs';
 import { batchNotifier, banMessage, handleModerationRequest, openModerationStore, requestIpHash } from './moderation.mjs';
 import { createTelegramNotifier, createTelegramSender } from './notify.mjs';
+import { createVisitorStats, startVisitorReports, visitorIp, visitorReportHours } from './visitor-stats.mjs';
 import { openThienEventStore } from './thien-event.mjs';
 import { openPrayerSlipStore } from './prayer-slips.mjs';
 import { handleCinemaPlaylistRequest, openCinemaPlaylistStore } from './cinema-playlist.mjs';
@@ -211,6 +212,8 @@ export async function handleApiRequest(req, res, options = {}) {
         return;
       }
       result.body.realtimeUrl = located.realtimeUrl;
+      // Thống kê người chơi thật (bot không xin vé): thành viên theo tài khoản, khách theo mạng băm.
+      options.visitorStats?.recordJoin({ accountId: account?.id || null, ip: visitorIp(req), roomId: result.body.roomId });
     }
     json(req, res, result.status, result.body);
     return;
@@ -300,8 +303,18 @@ if (isMain) {
     token: process.env.TELEGRAM_BOT_TOKEN,
     chatId: process.env.TELEGRAM_CHAT_ID,
   })));
+  // Thống kê người chơi thật gửi nhóm Telegram mỗi VISITOR_REPORT_HOURS giờ (mặc định 2, 0 = tắt) và lệnh /thongke.
+  const visitorTimeZone = process.env.GARDEN_TIMEZONE || 'America/Los_Angeles';
+  const visitorStats = accounts ? createVisitorStats({ db: accounts.database, secret, timeZone: visitorTimeZone }) : null;
+  const visitorHours = visitorReportHours(process.env.VISITOR_REPORT_HOURS);
+  const visitorSend = createTelegramSender({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID });
+  if (visitorStats && visitorSend && visitorHours) {
+    startVisitorReports({ stats: visitorStats, send: visitorSend, hours: visitorHours, timeZone: visitorTimeZone });
+    console.log(`Thống kê người chơi thật: báo Telegram mỗi ${visitorHours} giờ (giờ chẵn theo ${visitorTimeZone})`);
+  }
   const server = createApiServer({
     secret, adminSecret, realtimeUrl, directory: shared ? directory : null, accounts, garden, communityProject,
+    visitorStats, visitorReportHours: visitorHours || 2,
     googleClientId, realtimeInternalUrl, thienEventStore, prayerSlipStore, cinemaPlaylistStore, donate, donateStore,
     telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
     telegramChatId: process.env.TELEGRAM_CHAT_ID || null,

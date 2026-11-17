@@ -18,7 +18,7 @@ import {
 } from '@chanh-dien/room-directory';
 import {
   cinemaRoomName, dayStartOf, getRoomRules, isPremiumSkin, isPrivateRoomId, isShopSkin, parseThienRoomId,
-  roomLangOf, roomTypeOf, THIEN_GARDEN,
+  roomLangOf, roomTypeOf, THIEN_GARDEN, VISITOR_AREAS, visitorAreaOf,
 } from '@chanh-dien/room-rules';
 import {
   createResumeToken,
@@ -3642,6 +3642,26 @@ export class RoomRegistry {
     return entries;
   }
 
+  // Số người thật đang kết nối trên máy này cho thống kê gửi Telegram (apps/api/visitor-stats.mjs): không tính bot;
+  // thành viên mở nhiều tab / nhiều phòng chỉ tính một lần, khách tính theo kết nối; theo khu chánh điện / rạp / game.
+  humanCounts() {
+    const members = new Set();
+    let guests = 0;
+    const areas = Object.fromEntries(VISITOR_AREAS.map((area) => [area, 0]));
+    for (const room of this.rooms.values()) {
+      if (room.closed) continue;
+      for (const participant of room.participants.values()) {
+        if (participant.bot || !participant.connected) continue;
+        if (participant.accountId) {
+          if (members.has(participant.accountId)) continue;
+          members.add(participant.accountId);
+        } else guests += 1;
+        areas[visitorAreaOf(room.type)] += 1;
+      }
+    }
+    return { members: members.size, guests, areas };
+  }
+
   // Có lời nhắn / lời mời bạn bè mới: báo mọi kết nối của tài khoản này trên máy này để trang tải hộp thư.
   // API báo linh thú dẫn theo của một tài khoản vừa đổi (đổi con, nhận nuôi, lên cấp): cập nhật mọi kết nối của tài
   // khoản đó trên máy này rồi phát lại danh sách phòng. Trả số người đã đổi.
@@ -4499,14 +4519,15 @@ export function hideSeekRewardRecorder(apiInternalUrl, secret) {
   });
 }
 
-// Báo API danh sách thành viên đang online trên máy này (cả danh sách mỗi lần, để người đã rời tự mất khỏi danh sách).
+// Báo API danh sách thành viên đang online trên máy này (cả danh sách mỗi lần, để người đã rời tự mất khỏi danh sách),
+// kèm số người thật đang kết nối (thành viên + khách) cho thống kê.
 export function presenceReporter(apiInternalUrl, secret, registry) {
   const key = internalKey(secret);
   const url = new URL('/internal/presence', apiInternalUrl);
   return () => fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-internal-key': key },
-    body: JSON.stringify({ nodeId: registry.nodeId, entries: registry.presenceEntries() }),
+    body: JSON.stringify({ nodeId: registry.nodeId, entries: registry.presenceEntries(), humans: registry.humanCounts() }),
     signal: AbortSignal.timeout(5_000),
   }).catch(() => {});
 }

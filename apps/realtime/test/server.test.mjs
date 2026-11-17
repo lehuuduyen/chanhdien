@@ -1199,12 +1199,25 @@ test('bot ngoài sân tự chọn chỗ tới, tìm đường rồi đi, phát r
   // Nhịp đầu chọn chỗ muốn tới và tìm đường, nhịp sau mới bước.
   assert.equal(room.advanceBotWalk(walker, Date.now()), true);
   assert.ok(walker.walk.route.length > 0 || walker.errand, 'đã có tuyến đi');
-  walker.walk.waitUntil = 0;
-  walker.walk.lastAt = Date.now() - 1_000;
-  assert.equal(room.advanceBotWalk(walker, Date.now()), true);
+  // Điểm lưới đầu của A* có thể chỉ cách vị trí rải ngẫu nhiên vài chục cm. Khi đó bot đã tới đúng điểm kế
+  // nhưng quãng đường nhỏ hơn 0,5 m (hoặc < 0,08 m thì chỉ bỏ điểm đó); đợi bước có chuyển động thật thay vì
+  // giả định điểm đầu tiên luôn cách xa. Tăng giờ mô phỏng cũng cho bot đang nhường đường cơ hội bước chếch.
+  let stepBefore = { ...walker.pos };
+  let moved = false;
+  let tick = Date.now();
+  for (let attempt = 0; attempt < 8 && !moved; attempt += 1) {
+    tick += 1_000;
+    walker.walk.waitUntil = 0;
+    walker.walk.lastAt = tick - 1_000;
+    stepBefore = { ...walker.pos };
+    assert.equal(room.advanceBotWalk(walker, tick), true);
+    // Dùng một bước đủ dài để phép kiểm tra góc không bị sai bởi move() làm tròn x/z/ry tới 0,01.
+    moved = Math.hypot(walker.pos.x - stepBefore.x, walker.pos.z - stepBefore.z) > 0.5;
+  }
   room.flushMoves();
-  assert.ok(Math.hypot(walker.pos.x - before.x, walker.pos.z - before.z) > 0.5, 'bot đã bước sang điểm tiếp theo');
-  const expectedHeading = Math.atan2(-(walker.pos.x - before.x), -(walker.pos.z - before.z));
+  assert.equal(moved, true, 'bot đã bước sang điểm tiếp theo');
+  assert.ok(Math.hypot(walker.pos.x - before.x, walker.pos.z - before.z) > 0.05, 'bot đã rời vị trí ban đầu');
+  const expectedHeading = Math.atan2(-(walker.pos.x - stepBefore.x), -(walker.pos.z - stepBefore.z));
   const headingError = Math.atan2(Math.sin(walker.pos.ry - expectedHeading), Math.cos(walker.pos.ry - expectedHeading));
   assert.ok(Math.abs(headingError) < 0.02, 'bot quay mặt đúng hướng đang đi, không trượt lùi');
   const batch = sent.find((message) => message.type === 'room.moves' && message.moves.some((move) => move.id === walker.id));

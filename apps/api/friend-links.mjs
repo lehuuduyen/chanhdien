@@ -256,6 +256,8 @@ export async function handleFriendLinksRequest(req, res, pathname, options) {
     if (!PARTICIPANT_ID.test(input?.nodeId || '') || !Array.isArray(input.entries) || input.entries.length > 20_000) return json(req, res, 400, { error: 'invalid_presence' }), true;
     const entries = input.entries.filter((entry) => ACCOUNT_ID.test(entry?.accountId || '') && ROOM_ID.test(entry?.roomId || '') && PARTICIPANT_ID.test(entry?.participantId || ''));
     links.presence.report(input.nodeId, entries);
+    // Số người thật đang kết nối trên máy đó (thành viên + khách, không tính bot) cho thống kê gửi Telegram.
+    if (input.humans) options.visitorStats?.reportOnline(input.nodeId, input.humans);
     return json(req, res, 200, { ok: true, count: entries.length }), true;
   }
 
