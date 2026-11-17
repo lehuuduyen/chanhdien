@@ -7,6 +7,7 @@
 // ?film=garden: clip ~33 giây chỉ ở Vườn Công Đức (chọn hạt, gieo, tưới, cây lớn, hái, đem ra quầy bán lấy xu).
 // ?film=farm: clip ~47 giây ở Phước Điền (gieo, tưới, thu hoạch, gà, bò, chợ, thăm hàng xóm).
 // ?film=stopwatch: clip ~28 giây trò Bấm Giờ (suýt trúng, trúng đúng 1/100 giây, cấp 2 đồng hồ tắt, Bảng vàng).
+// ?film=hieu-y: clip ~39 giây trò hai người trên thẻ người chơi (Oẳn tù tì, Đo độ hiểu ý, Đoán ý bạn).
 import { thienThemeOf, US_STATES } from '/shared/room-rules.mjs';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -125,7 +126,7 @@ function silence(page) {
 }
 
 const keepSound = () => $('soundToggle').checked || PARAMS.get('sound') === '1';
-const FILMS = ['tour', 'garden', 'farm', 'stopwatch'];
+const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y'];
 const chosenFilm = () => {
   const name = PARAMS.get('film') || $('filmSelect').value;
   return FILMS.includes(name) ? name : 'tour';
@@ -174,6 +175,10 @@ async function prepareTemple(page) {
   }
   if (chosenFilm() === 'stopwatch') {
     await prepareStopwatch(page);
+    return;
+  }
+  if (chosenFilm() === 'hieu-y') {
+    await prepareHieuY(page);
     return;
   }
   // Đưa nhân vật của mình tới cổng nông trại sẵn cho cảnh linh thú.
@@ -979,6 +984,150 @@ async function prepareStopwatch(page) {
 
 const SW_BOARD_TAGS = ['⏱ Bấm Giờ', '🌾 Nông trại', '🎬 Rạp phim', '🎲 Game', '💬 Bạn bè'];
 
+// ---- Trò hai người: Oẳn tù tì, Đo độ hiểu ý, Đoán ý bạn (kịch bản ?film=hieu-y) ----
+// Thẻ người chơi thật của trang chánh điện (chạm vào người → thẻ có các trò hai người). Chuẩn bị: đi tới người (bot)
+// gần nhất, nắm tay (bot nhận lời rồi đi theo), dắt nhau ra trước chánh điện. Lúc quay: khiêu chiến Oẳn tù tì, Đo độ
+// hiểu ý, Đoán ý bạn đều gửi thật qua server; bot nhận lời và trả lời như người, kết quả (thắng thua, phần trăm) là
+// kết quả thật nên mỗi lần quay một khác. Bot rủ chơi tự phát được tắt (🔕) để không chen ngang.
+const duoShot = { partner: null, partnerName: '', live: false };
+const duoDoc = () => temple().doc;
+const duoButton = (scope, pattern) => [...duoDoc().querySelectorAll(`${scope} button`)].find((item) => pattern.test(item.textContent) && !item.disabled);
+// Chờ điều kiện rồi mới làm (bot nhận lời / trả lời trễ ngẫu nhiên).
+function whenReady(test, run, ms = 6_000) {
+  const until = performance.now() + ms;
+  const tick = () => {
+    let ready = false;
+    try { ready = test(); } catch {}
+    if (ready) run();
+    else if (performance.now() < until) setTimeout(tick, 100);
+  };
+  tick();
+}
+function duoCard() {
+  if (duoShot.partner) temple().s.open(duoShot.partner);
+}
+function duoClosePanel() {
+  duoDoc().querySelector('.rps:not([hidden]) .social-close')?.click();
+  duoDoc().querySelector('.social-card:not([hidden]) .social-close')?.click();
+}
+// Mời một trò từ thẻ người chơi (nút trên thẻ, kèm vòng chạm).
+function duoInvite(pattern) {
+  if (!duoDoc().querySelector('.social-card:not([hidden])')) duoCard();
+  setTimeout(() => tap(duoButton('.social-card', pattern)), 250);
+}
+// Oẳn tù tì: bot nhận lời xong thì ra Búa.
+function duoPickRock() {
+  whenReady(() => duoDoc().querySelector('.rps:not([hidden]) .rps-pick:not(:disabled)'), () => tap(duoDoc().querySelector('.rps .rps-pick')));
+}
+// Trả lời 10 câu liền tay (chọn hai phía xen nhau), rồi bấm nút chính (Nộp).
+const DUO_PICKS = [0, 1, 1, 0, 1, 0, 0, 1, 0, 1];
+function duoAnswerAll(step = 330) {
+  let count = 0;
+  const next = () => {
+    const options = [...duoDoc().querySelectorAll('.rps:not([hidden]) .compat-option')];
+    if (options.length) {
+      tap(options[DUO_PICKS[count % DUO_PICKS.length]] || options[0], 90);
+      count += 1;
+      setTimeout(next, step);
+      return;
+    }
+    const submit = duoDoc().querySelector('.rps:not([hidden]) .compat-tools button.primary');
+    if (submit) tap(submit, 120);
+    else if (count < 12) setTimeout(next, step);
+  };
+  whenReady(() => duoDoc().querySelector('.rps:not([hidden]) .compat-option'), next, 6_000);
+}
+// Chữ kết quả theo đúng phần trăm trên màn hình (kết quả thật).
+function duoResultCaption(kicker, words) {
+  whenReady(() => duoDoc().querySelector('.rps:not([hidden]) .compat-score strong'), () => {
+    const percent = duoDoc().querySelector('.rps .compat-score strong').textContent;
+    caption({ cls: 'tight', kicker, title: [...words, [percent, 'pink'], '💞'] });
+  }, 7_000);
+}
+const duoPose = () => {
+  const list = temple().x.debugState().walkers;
+  const self = selfPose();
+  const partner = list.find((item) => item.id === duoShot.partner);
+  if (!self) return null;
+  if (!partner) return self;
+  return [(self[0] + partner.x) / 2, (self[1] + partner.z) / 2, self[2]];
+};
+
+async function prepareHieuY(page) {
+  const { win } = page;
+  await waitFor(() => win.chanhDienSocial, 20_000, 'thẻ người chơi');
+  page.s = win.chanhDienSocial;
+  duoShot.live = state.signedIn;
+  // Thẻ người chơi và bảng trò hiện như giao diện điện thoại trong vùng an toàn; bảng trò thu xuống nửa dưới để còn thấy
+  // hai nhân vật phía trên.
+  injectStyle(page, `
+    .social-card, .social-card *, .rps, .rps * { visibility: visible !important; }
+    .social-card { left: 4.5% !important; right: 17% !important; bottom: 20.5% !important; }
+    .social-card .social-safety, .social-card .social-note { display: none !important; }
+    .rps { top: 42% !important; bottom: 16% !important; left: 3.5% !important; right: 15.5% !important; gap: 8px !important; padding: 12px 14px !important; border: 1px solid rgba(217, 164, 65, .45) !important; border-radius: 22px !important; }
+    .rps > * { flex-shrink: 0 !important; }
+    .rps h2 { margin: 0 !important; font-size: 22px !important; }
+    .rps .compat-scenario { margin: 0 !important; }
+    .rps .compat-question { margin: 0 !important; font-size: 17px !important; }
+    .rps .compat-option { min-height: 0 !important; padding: 10px 12px !important; }
+    .rps .compat-answer-list { display: none !important; }
+  `);
+  const near = () => {
+    const { selfId, walkers: all } = page.x.debugState();
+    const self = all.find((item) => item.id === selfId);
+    if (!self) return null;
+    return all.filter((item) => item.id !== selfId && !item.benchId && item.z > 18 && item.z < 80 && Math.abs(item.x) < 30)
+      .map((item) => ({ ...item, distance: Math.hypot(item.x - self.x, item.z - self.z) }))
+      .sort((a, b) => a.distance - b.distance)[0] || null;
+  };
+  // Mới bật máy realtime thì bot vào phòng dần: chờ có người trong sân.
+  await waitFor(() => page.x.debugState().walkers.length > 4, 40_000, 'người trong sân').catch(() => {});
+  // Đi tới người gần nhất, mời nắm tay; bot nhận lời thì đi sát bên mình.
+  for (let attempt = 0; attempt < 4 && !duoShot.partner; attempt += 1) {
+    const target = near();
+    if (!target) break;
+    const reached = await waitFor(() => {
+      const now = page.x.debugState().walkers.find((item) => item.id === target.id);
+      const self = selfPose();
+      if (!now || !self) return false;
+      if (Math.hypot(now.x - self[0], now.z - self[1]) < 2.6) return true;
+      page.x.walkTo({ x: now.x + 1.2, z: now.z + 0.6 });
+      return false;
+    }, 12_000, 'tới gần người').then(() => true, () => false);
+    if (!reached) continue;
+    page.s.open(target.id);
+    await sleep(300);
+    duoButton('.social-card', /Nắm tay/)?.click();
+    const held = await waitFor(() => {
+      const now = page.x.debugState().walkers.find((item) => item.id === target.id);
+      const self = selfPose();
+      return now && self && Math.hypot(now.x - self[0], now.z - self[1]) < 1.4;
+    }, 8_000, 'nắm tay').then(() => true, () => false);
+    duoClosePanel();
+    if (held) {
+      duoShot.partner = target.id;
+      duoShot.partnerName = target.name;
+    }
+  }
+  if (!duoShot.partner) {
+    const fallback = near();
+    duoShot.partner = fallback?.id || null;
+    duoShot.partnerName = fallback?.name || '';
+    state.warnings.push('Chưa nắm tay được ai: vẫn mời chơi người gần nhất.');
+  }
+  // Dắt nhau ra trước chánh điện, bước cuối quay mặt ra sân (camera trước mặt, chánh điện phía sau lưng).
+  const walkVia = async (point) => {
+    page.x.walkTo(point);
+    await waitFor(() => {
+      const pose = selfPose();
+      return pose && Math.hypot(pose[0] - point.x, pose[1] - point.z) < 0.2;
+    }, 20_000, 'đi ra trước chánh điện').catch(() => {});
+  };
+  await walkVia({ x: 0, z: 34.5 });
+  await walkVia({ x: 0, z: 36.5 });
+  await sleep(1_500);
+}
+
 // ---- Kịch bản ----
 // Mỗi cảnh: page, dur (giây), transition, cam(u, now) cho chánh điện, sun (độ hoặc hàm u → độ), caption (undefined = giữ chữ
 // cũ, null = xóa), enter(), at: [[giây, hàm]] chạy giữa cảnh.
@@ -1404,6 +1553,75 @@ function buildStopwatchFilm() {
   ];
 }
 
+// Trò hai người (~39 giây): hai bạn nắm tay trước chánh điện → thẻ người chơi → Oẳn tù tì → Đo độ hiểu ý (trả lời 10
+// câu, kết quả phần trăm) → Đoán ý bạn (mình trả lời, bạn đoán) → màn cuối. Camera trước mặt hai người, chánh điện phía
+// sau; bảng trò chiếm nửa dưới.
+function buildHieuYFilm() {
+  // Hai người đứng ở phần trên khung (đầu dưới chữ, chân khuất sau mép bảng trò).
+  const face = (from, to, radius = 6.4, height = 2.4) => track({ subject: duoPose, relative: true, radius, radius2: radius - 0.4, height, height2: height - 0.1, from, to, look: 0.05, fov: 46, smooth: 5 });
+  return [
+    // 0. Mở đầu: bay từ sân tới hai người đang nắm tay.
+    {
+      page: 'temple', dur: 3.2, transition: 'cut', sun: 22,
+      cam: move({ pos: [6, 11, 60], at: [0, 2, 34], fov: 52 }, { pos: [1.4, 2.6, 41.2], at: [0, 0.6, 35.8], fov: 46 }),
+      caption: { cls: 'big', title: ['Hiểu', 'ý', 'nhau', '\n', ['bao nhiêu %?', 'pink'], '💞'] },
+    },
+    // 1. Chạm vào bạn: thẻ người chơi với các trò hai người.
+    {
+      page: 'temple', dur: 2.8, transition: 'flash', sun: 22,
+      enter: duoCard,
+      cam: face(-0.35, -0.2),
+      caption: { cls: 'tight', kicker: '👆 Chạm vào một người', title: ['Mời', 'chơi', ['trò hai người', '']], sub: '⚔️ Oẳn tù tì · 🧠 Hiểu ý · 🎯 Cùng lựa chọn · 🔮 Đoán ý' },
+    },
+    // 2. Oẳn tù tì: khiêu chiến, bạn nhận lời, ra Búa, hai tay lật cùng lúc.
+    {
+      page: 'temple', dur: 7.0, transition: 'cut', sun: 22,
+      at: [[0.2, () => duoInvite(/Khiêu chiến/)], [0.8, duoPickRock]],
+      cam: face(-0.2, 0.15),
+      caption: { cls: 'tight', kicker: '⚔️ Khiêu chiến', title: ['Oẳn', 'tù', 'tì,', ['ra cái gì?', 'pink']], sub: '✊ Búa · ✋ Bao · ✌️ Kéo — ai thắng 2 lượt trước' },
+    },
+    // 3. Đo độ hiểu ý: 10 câu kín đáp án, trả lời liền tay.
+    {
+      page: 'temple', dur: 6.6, transition: 'flash', sun: 22,
+      enter: duoClosePanel,
+      at: [[0.3, () => duoInvite(/Đo độ hiểu ý/)], [0.9, () => duoAnswerAll()]],
+      cam: face(0.3, 0.1),
+      caption: { cls: 'tight', kicker: '🧠 Đo độ hiểu ý', title: ['10', 'câu', 'hỏi,', ['giữ kín', 'blue'], 'đáp', 'án'], sub: 'Theo bạn, bạn ấy sẽ chọn gì?' },
+    },
+    {
+      page: 'temple', dur: 3.8, transition: 'cut', sun: 22,
+      at: [[0.1, () => duoResultCaption('🧠 Đo độ hiểu ý', ['Hiểu', 'ý', 'nhau'])]],
+      cam: face(0.1, -0.05, 6.0),
+      caption: { cls: 'tight', kicker: '🧠 Đo độ hiểu ý', title: ['Kết', 'quả…'] },
+    },
+    // 4. Đoán ý bạn: mình trả lời trước, bạn đoán lựa chọn của mình.
+    {
+      page: 'temple', dur: 6.2, transition: 'flash', sun: 22,
+      enter: duoClosePanel,
+      at: [[0.3, () => duoInvite(/Đoán ý bạn/)], [0.9, () => duoAnswerAll()]],
+      cam: face(-0.3, -0.12),
+      caption: { cls: 'tight', kicker: '🔮 Đoán ý bạn', title: ['Mình', 'chọn', 'trước,', '\n', 'bạn', ['đoán ý', 'pink'], 'mình'] },
+    },
+    {
+      page: 'temple', dur: 6.0, transition: 'cut', sun: 22,
+      at: [[0.1, () => duoResultCaption('🔮 Đoán ý bạn', ['Đoán', 'đúng'])]],
+      cam: face(-0.12, 0.05, 6.0),
+      caption: { cls: 'tight', kicker: '🔮 Đoán ý bạn', title: ['Bạn', 'ấy', 'đang', 'đoán…', '🤔'] },
+    },
+    // 5. Màn cuối.
+    {
+      page: 'temple', dur: 3.6, transition: 'cut', end: true, sun: (u) => lerp(22, 8, u),
+      enter: () => {
+        duoClosePanel();
+        $('brand').classList.add('hidden');
+        $('endcard').hidden = false;
+      },
+      cam: move({ pos: [1.4, 2.6, 41.2], at: [0, 0.6, 35.8], fov: 46 }, { pos: [0, 9, 52], at: [0, 3, 20], fov: 50 }, ease.out),
+      caption: null,
+    },
+  ];
+}
+
 // Việc làm trước một cảnh (giây trước lúc cảnh bắt đầu): vào bàn Tiến Lên để kịp chia bài, mua vé Lô Tô ở pha mua vé,
 // vào trận Oẳn Tù Tì để lúc quay đang tới lượt ra tay. Chỉ khi đã đăng nhập (khách không chơi được).
 const PREP = [
@@ -1460,6 +1678,8 @@ async function prepare() {
     status('Đang tải các cảnh…');
     try {
       Object.entries({ 'thien-view': '3d', 'debug-explore': '1', 'debug-cinema': '1', 'thien-lang': 'vi', 'tienlen-stake': '20' }).forEach(([key, value]) => localStorage.setItem(key, value));
+      // Clip trò hai người: tắt bot tự rủ chơi (lời mời đến làm mình bận, không gửi được khiêu chiến của kịch bản).
+      if (chosenFilm() === 'hieu-y') localStorage.setItem('bot-quiet', '1');
     } catch {}
     const me = await fetch('/api/v1/me', { credentials: 'same-origin' }).then((response) => (response.ok ? response.json() : null)).catch(() => null);
     state.signedIn = Boolean(me?.account || me?.id);
@@ -1469,7 +1689,7 @@ async function prepare() {
     setCheck('account', state.signedIn ? `Đăng nhập: ${me.account?.displayName || me.displayName}` : 'Khách (đăng nhập tài khoản có xu để quay cảnh đang đánh bài)', state.signedIn ? 'ok' : 'warn');
     const kind = chosenFilm();
     const jobs = [
-      ['temple', `/chanh-dien.html?state=${chosenState()}&sun=16`, prepareTemple, { garden: 'Chánh điện 3D · Vườn Công Đức', farm: 'Chánh điện 3D · Phước Điền', stopwatch: 'Chánh điện 3D · Bấm Giờ' }[kind] || 'Chánh điện 3D'],
+      ['temple', `/chanh-dien.html?state=${chosenState()}&sun=16`, prepareTemple, { garden: 'Chánh điện 3D · Vườn Công Đức', farm: 'Chánh điện 3D · Phước Điền', stopwatch: 'Chánh điện 3D · Bấm Giờ', 'hieu-y': 'Chánh điện 3D · Trò hai người' }[kind] || 'Chánh điện 3D'],
       // Clip vườn / nông trại chỉ quay ở chánh điện.
       ...(kind !== 'tour' ? [] : [
         ['cinema', `/room.html?room=${CINEMA_ROOM}`, prepareCinema, 'Rạp phim'],
@@ -1494,12 +1714,13 @@ async function prepare() {
     }));
     if (!results[0]) throw new Error('Chánh điện 3D chưa sẵn sàng');
     // Kịch bản dựng sau khi chuẩn bị xong (góc máy clip vườn tính theo luống vừa chọn).
-    film = { garden: buildGardenFilm, farm: buildFarmFilm, stopwatch: buildStopwatchFilm }[kind]?.() || buildFilm();
+    film = { garden: buildGardenFilm, farm: buildFarmFilm, stopwatch: buildStopwatchFilm, 'hieu-y': buildHieuYFilm }[kind]?.() || buildFilm();
     // Khoảng trắng trong từng mục không ngắt dòng (chỉ xuống dòng ở dấu ·).
     const tags = {
       garden: ['🌱 Trồng cây', '🧺 Thu hoạch', '💰 Bán lấy xu', '🐾 Linh thú', '🎬 Rạp phim'],
       farm: ['🌾 Nông trại riêng', '🐔 Nuôi gà, bò', '💰 Bán lấy xu', '🏡 Hàng xóm', '🎬 Rạp phim'],
       stopwatch: SW_BOARD_TAGS,
+      'hieu-y': ['⚔️ Oẳn tù tì', '🧠 Hiểu ý', '🔮 Đoán ý', '🌾 Nông trại', '🎬 Rạp phim'],
     }[kind] || ['🐐 Nông trại', '🐾 Thú cưng', '🎬 Rạp phim', '🎲 Game', '💬 Bạn bè'];
     $('endTags').textContent = tags.map((tag) => tag.replaceAll(' ', '\u00a0')).join(' · ');
     for (const warning of state.warnings) status(warning);
@@ -1656,6 +1877,7 @@ window.promo = {
   // Chỉ để duyệt góc máy clip nông trại: đổi giai đoạn ô 1 (seed | sprout | growing | ripe | empty | null).
   farm: { stage: (stage) => fStage(stage), shot: farmShot },
   stopwatch: swShot,
+  duo: duoShot,
   // Giây bắt đầu màn cuối (script quay cắt thêm bản không có màn cuối để ghép với clip khác).
   get endAt() {
     const index = film.findIndex((shot) => shot.end);

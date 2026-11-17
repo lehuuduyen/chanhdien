@@ -4,7 +4,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  AVATAR_FRAMES, AVATAR_URL, CHAT_HISTORY_MAX, COMPATIBILITY_BANK_SIZE, COMPATIBILITY_QUESTION_COUNT, GAMES, GAME_ROOMS,
+  AVATAR_FRAMES, AVATAR_URL, CHAT_HISTORY_MAX, COMPATIBILITY_BANK_SIZE, COMPATIBILITY_BANK_VERSION,
+  COMPATIBILITY_QUESTION_COUNT, GAMES, GAME_ROOMS,
   parseClientMessage, parseServerMessage, PET_ACTIONS, PLAYER_TITLES, PROTOCOL_VERSION, RPS_CHOICES,
   QUESTION_GAMES, SPIRIT_LEVEL_MAX, SPIRIT_SPECIES,
 } from '@chanh-dien/protocol';
@@ -77,12 +78,13 @@ const COMPATIBILITY_ANSWER_MS = 180_000;
 const CHALLENGE_TARGET = 2;
 const CHALLENGE_MAX_ROUNDS = 9;
 const CHALLENGE_LINGER_MS = 5_000;
+const LEGACY_COMPATIBILITY_BANK_SIZE = 100;
 const BEATS = { rock: 'scissors', paper: 'rock', scissors: 'paper' };
 
-// Mỗi trận lấy 10 trong 600 câu, không lặp. Nội dung câu nằm ở client theo 4 ngôn ngữ; server chỉ giữ id ổn định
-// và làm trọng tài nên không tin dữ liệu câu hỏi do client gửi lên.
-function choiceQuestions() {
-  const pool = Array.from({ length: COMPATIBILITY_BANK_SIZE }, (_, index) => index + 1);
+// Mỗi trận lấy 10 câu không lặp trong phần ngân hàng mà cả hai trang đều có. Trang cũ không báo capability nên
+// chỉ nhận 100 câu gốc; trang mới báo 600 qua query WebSocket. Nội dung câu vẫn nằm ở client theo 4 ngôn ngữ.
+function choiceQuestions(bankSize = LEGACY_COMPATIBILITY_BANK_SIZE) {
+  const pool = Array.from({ length: bankSize }, (_, index) => index + 1);
   for (let index = pool.length - 1; index > 0; index -= 1) {
     const swap = Math.floor(Math.random() * (index + 1));
     [pool[index], pool[swap]] = [pool[swap], pool[index]];
@@ -93,9 +95,9 @@ function choiceQuestions() {
 }
 
 // Đo độ hiểu ý chia đều câu hỏi về hai người; hai trò mới chỉ cần cùng một danh sách lựa chọn A/B.
-function compatibilityQuestions() {
+function compatibilityQuestions(bankSize) {
   const first = Math.random() < 0.5 ? 'from' : 'to';
-  return choiceQuestions().map((question, index) => ({
+  return choiceQuestions(bankSize).map((question, index) => ({
     ...question,
     focus: index % 2 === 0 ? first : first === 'from' ? 'to' : 'from',
   }));
@@ -1247,8 +1249,26 @@ export class Room {
     return { ok: true };
   }
 
+  questionBankSize(challenge) {
+    const capabilities = [challenge.fromId, challenge.toId].map((id) => {
+      const participant = this.participants.get(id);
+      return participant?.bot
+        ? { size: COMPATIBILITY_BANK_SIZE, version: COMPATIBILITY_BANK_VERSION }
+        : {
+            size: participant?.questionBankSize || LEGACY_COMPATIBILITY_BANK_SIZE,
+            version: participant?.questionBankVersion || 0,
+          };
+    });
+    // Id 1–100 giữ nguyên từ đầu. Id 101–600 chỉ an toàn khi hai bên cùng đúng phiên bản nội dung hiện tại.
+    if (capabilities.some(({ version }) => version !== COMPATIBILITY_BANK_VERSION)) {
+      return LEGACY_COMPATIBILITY_BANK_SIZE;
+    }
+    return Math.min(...capabilities.map(({ size }) => size));
+  }
+
   startQuestionGame(challenge) {
-    challenge.questions = challenge.game === 'compatibility' ? compatibilityQuestions() : choiceQuestions();
+    const bankSize = this.questionBankSize(challenge);
+    challenge.questions = challenge.game === 'compatibility' ? compatibilityQuestions(bankSize) : choiceQuestions(bankSize);
     challenge.answers = { from: null, to: null };
     challenge.deadline = Date.now() + COMPATIBILITY_ANSWER_MS;
     challenge.timer = setTimeout(() => this.endChallenge(challenge, 'expired'), COMPATIBILITY_ANSWER_MS);
@@ -2941,6 +2961,13 @@ export class Room {
       expireTimer: null,
       // Danh sách người mình chặn (giữ khi nối lại).
       blocked: previous?.blocked || new Set(),
+      // Không đưa vào snapshot/phát cho phòng. Mỗi kết nối tự khai size + phiên bản qua URL; thiếu hoặc lệch phiên
+      // bản thì hai người chỉ dùng 100 câu gốc có nội dung ổn định.
+      questionBankSize: Math.max(LEGACY_COMPATIBILITY_BANK_SIZE, Math.min(
+        COMPATIBILITY_BANK_SIZE,
+        Number.isSafeInteger(options.questionBankSize) ? options.questionBankSize : LEGACY_COMPATIBILITY_BANK_SIZE,
+      )),
+      questionBankVersion: Number.isSafeInteger(options.questionBankVersion) ? options.questionBankVersion : 0,
       ...this.personalization(claims.participantId, previous, claims),
     };
     this.participants.set(claims.participantId, participant);
@@ -3693,7 +3720,11 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     context.participantId = context.claims.participantId;
-    const joined = room.join(socket, context.claims, message.resumeToken, { broadcast: false });
+    const joined = room.join(socket, context.claims, message.resumeToken, {
+      broadcast: false,
+      questionBankSize: context.questionBankSize,
+      questionBankVersion: context.questionBankVersion,
+    });
     if (joined === false) {
       protocolError(socket, room.epoch, 'ROOM_FULL', 'Phòng đã đủ người');
       socket.close(1013, 'Phòng đã đầy');
@@ -4729,8 +4760,18 @@ export function createRealtimeServer(options = {}) {
       socket.close(CLOSE_BANNED, 'Bị khóa');
       return;
     }
+    const bankQuery = new URL(req.url, 'http://local').searchParams;
+    const requestedBankSize = Number(bankQuery.get('questionBankSize'));
+    const requestedBankMax = Number(bankQuery.get('questionBankMax'));
+    const requestedBankVersion = Number(bankQuery.get('questionBankVersion'));
+    const versionedBank = Number.isSafeInteger(requestedBankVersion) && requestedBankVersion > 0;
     const context = {
-      claims, participantId: null, room, ipHash: ipKey, fetchVideoInfo: options.fetchVideoInfo || fetchYouTubeInfo, presenceChanged: registry.presenceChanged,
+      claims, participantId: null, room, ipHash: ipKey,
+      questionBankSize: versionedBank && Number.isSafeInteger(requestedBankMax)
+        ? requestedBankMax
+        : Number.isSafeInteger(requestedBankSize) ? requestedBankSize : LEGACY_COMPATIBILITY_BANK_SIZE,
+      questionBankVersion: versionedBank ? requestedBankVersion : 0,
+      fetchVideoInfo: options.fetchVideoInfo || fetchYouTubeInfo, presenceChanged: registry.presenceChanged,
     };
     const helloTimer = setTimeout(() => {
       if (!context.participantId) socket.close(1008, 'Chưa gửi hello');

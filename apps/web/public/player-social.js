@@ -375,33 +375,41 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
         const question = compatibilityQuestion(item.id, lang());
         const progress = el('div', 'compat-progress', t('compat.progress', { n: compatibilityIndex + 1, total: state.questions.length }));
         progress.style.setProperty('--compat-progress', `${((compatibilityIndex + 1) / state.questions.length) * 100}%`);
-        let prompt = t('sameChoice.prompt');
-        if (state.game === 'compatibility') {
-          const focusId = item.focus === 'from' ? state.fromId : state.toId;
-          const focusName = focusId === session.participantId ? t('compat.you') : nameOf(focusId);
-          prompt = t('compat.prompt', { name: focusName });
-        } else if (state.game === 'guess-you') {
-          prompt = me === 'from' ? t('guessYou.answerPrompt') : t('guessYou.guessPrompt', { name: rival });
-        }
         body.append(progress);
-        if (question?.prompt) body.append(el('p', 'compat-scenario', question.prompt));
-        body.append(el('h3', 'compat-question', prompt));
-        const options = el('div', 'compat-options');
-        for (const [choice, label] of (question?.options || []).entries()) {
-          const option = button('compat-option', label, () => {
-            compatibilityAnswers.set(item.id, choice);
-            compatibilityIndex += 1;
-            audio?.bead?.();
+        if (!question) {
+          body.append(el('div', 'compat-wait-icon', '↻'), el('p', 'compat-hint', t('compat.questionUnavailable')));
+          tools.append(button('chip primary', t('compat.reload'), () => {
+            send({ type: 'challenge.cancel', challengeId: state.challengeId });
+            setTimeout(() => location.reload(), 120);
+          }));
+        } else {
+          let prompt = t('sameChoice.prompt');
+          if (state.game === 'compatibility') {
+            const focusId = item.focus === 'from' ? state.fromId : state.toId;
+            // Câu về chính mình hỏi thẳng ("Bạn sẽ chọn điều nào?"), câu về người kia hỏi đoán theo tên.
+            prompt = focusId === session.participantId ? t('compat.promptSelf') : t('compat.prompt', { name: nameOf(focusId) });
+          } else if (state.game === 'guess-you') {
+            prompt = me === 'from' ? t('guessYou.answerPrompt') : t('guessYou.guessPrompt', { name: rival });
+          }
+          if (question.prompt) body.append(el('p', 'compat-scenario', question.prompt));
+          body.append(el('h3', 'compat-question', prompt));
+          const options = el('div', 'compat-options');
+          for (const [choice, label] of question.options.entries()) {
+            const option = button('compat-option', label, () => {
+              compatibilityAnswers.set(item.id, choice);
+              compatibilityIndex += 1;
+              audio?.bead?.();
+              renderGame();
+            });
+            if (compatibilityAnswers.get(item.id) === choice) option.classList.add('chosen');
+            options.append(option);
+          }
+          body.append(options);
+          if (compatibilityIndex > 0) tools.append(button('chip', t('compat.back'), () => {
+            compatibilityIndex -= 1;
             renderGame();
-          });
-          if (compatibilityAnswers.get(item.id) === choice) option.classList.add('chosen');
-          options.append(option);
+          }));
         }
-        body.append(options);
-        if (compatibilityIndex > 0) tools.append(button('chip', t('compat.back'), () => {
-          compatibilityIndex -= 1;
-          renderGame();
-        }));
       } else {
         body.append(el('div', 'compat-wait-icon', '✅'), el('p', 'compat-hint', t(`${key}.reviewHint`)));
         tools.append(

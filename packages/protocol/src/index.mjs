@@ -56,6 +56,8 @@ export const QUESTION_GAMES = Object.freeze(['compatibility', 'same-choice', 'gu
 export const GAMES = Object.freeze(['rps', ...QUESTION_GAMES]);
 export const RPS_CHOICES = Object.freeze(['rock', 'paper', 'scissors']);
 export const COMPATIBILITY_BANK_SIZE = 600;
+// v5: 500 câu id 101–600 là từng tình huống riêng và đã rà lại nghĩa; hai client khác phiên bản chỉ dùng 100 câu gốc.
+export const COMPATIBILITY_BANK_VERSION = 5;
 export const COMPATIBILITY_QUESTION_COUNT = 10;
 export const CHALLENGE_STATUSES = Object.freeze(['pending', 'declined', 'cancelled', 'expired', 'playing', 'finished']);
 export const FRIEND_STATUSES = Object.freeze(['pending', 'accepted', 'declined']);
