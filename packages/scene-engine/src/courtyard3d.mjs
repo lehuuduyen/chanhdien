@@ -638,17 +638,12 @@ function buildFields(batch, root, m, fields, pickables, signs, lazyAssets) {
   // Biển hai mặt: một tấm quay vào sân chùa, một tấm quay vào nông trại (một tấm nhìn từ sau thì chữ bị ngược).
   signs.push({ text: fields.sign || '', position: [gx + inward * 0.25, 2.5, gate.z], ry: inward * Math.PI / 2, width: 2.2 });
   signs.push({ text: fields.sign || '', position: [gx - inward * 0.25, 2.5, gate.z], ry: -inward * Math.PI / 2, width: 2.2 });
-  // Luống: đất, khung gỗ (mô hình Meshy `bedframe` kéo vừa luống; viền khối là dự phòng); vùng chạm cao để chạm được cả
-  // khi cây lớn.
-  const bedBatch = new StaticBatch();
+  // Luống: đất; vùng chạm cao để chạm được cả khi cây lớn. Khung gỗ chỉ ở ô đã mở của nông trại đang xem nên farm3d vẽ
+  // (ô khóa là bãi cỏ hoang).
   for (const plot of plots) {
     batch.add(new THREE.BoxGeometry(bed, 0.2, bed), m.soil, { position: [plot.x, 0.1, plot.z] });
-    for (const [dx, dz, w, d] of [[0, -bed / 2, bed + 0.16, 0.12], [0, bed / 2, bed + 0.16, 0.12], [-bed / 2, 0, 0.12, bed], [bed / 2, 0, 0.12, bed]]) {
-      bedBatch.add(new THREE.BoxGeometry(w, 0.26, d), m.fence, { position: [plot.x + dx, 0.13, plot.z + dz] });
-    }
     proxy([bed + 0.2, 1.8, bed + 0.2], [plot.x, 0.9, plot.z], { kind: 'plot', slot: plot.slot });
   }
-  swapInstances('bedframe', bedBatch, plots.map((plot) => ({ x: plot.x, z: plot.z, ry: (plot.slot % 4) * (Math.PI / 2) })), { box: [bed + 0.2, 0.3, bed + 0.2] });
   // Chuồng: hàng rào sân (chừa cửa phía nam), nhà gỗ mái dốc ở cuối sân. Gà: nhà nhỏ có ổ rơm; bò: chuồng đỏ lớn.
   const pen = (item, kind) => {
     const { x: [px0, px1], z: [pz0, pz1] } = item.area;
