@@ -177,6 +177,7 @@ const SOCIAL_DICT = {
     'toast.share': 'Đã bỏ {items} vào rổ', 'toast.unshare': 'Đã lấy lại {items}',
     'err.HELP_LIMIT': 'Hôm nay đã giúp đủ ở ruộng này', 'err.TAKE_LIMIT': 'Hôm nay đã lấy đủ phần ở rổ này', 'err.GIFT_LIMIT': 'Hôm nay đã tặng đủ số lần',
     'err.RECEIVER_FULL': 'Kho của bạn ấy đã đầy', 'err.BASKET_FULL': 'Rổ đã đầy', 'err.NOT_NEIGHBOR': 'Chỉ ghé được ruộng của bạn bè',
+    hudHide: 'Thu gọn thanh nông trại', hudShow: 'Mở thanh nông trại',
     remind: '🌾 Phước Điền: {list}', 'remind.ripe': '{n} ô đã chín', 'remind.eggs': '{n} trứng chờ nhặt', 'remind.milk': '{n} xô sữa chờ lấy', 'remind.visitors': '{n} lượt hàng xóm ghé',
   },
   en: {
@@ -196,6 +197,7 @@ const SOCIAL_DICT = {
     'toast.share': 'Put {items} in the basket', 'toast.unshare': 'Took back {items}',
     'err.HELP_LIMIT': "You've helped enough here today", 'err.TAKE_LIMIT': "You've taken your share here today", 'err.GIFT_LIMIT': 'No gifts left today',
     'err.RECEIVER_FULL': 'Their storage is full', 'err.BASKET_FULL': 'The basket is full', 'err.NOT_NEIGHBOR': "You can only visit friends' farms",
+    hudHide: 'Collapse farm panel', hudShow: 'Open farm panel',
     remind: '🌾 Farm: {list}', 'remind.ripe': '{n} plots ripe', 'remind.eggs': '{n} eggs to collect', 'remind.milk': '{n} pails of milk', 'remind.visitors': '{n} neighbor visits',
   },
   zh: {
@@ -215,6 +217,7 @@ const SOCIAL_DICT = {
     'toast.share': '已放 {items} 進籃子', 'toast.unshare': '已拿回 {items}',
     'err.HELP_LIMIT': '今天在這塊田已經幫夠了', 'err.TAKE_LIMIT': '今天在這個籃子已經拿夠了', 'err.GIFT_LIMIT': '今天的送禮次數用完了',
     'err.RECEIVER_FULL': '對方的倉庫滿了', 'err.BASKET_FULL': '籃子滿了', 'err.NOT_NEIGHBOR': '只能拜訪朋友的田',
+    hudHide: '收起農場面板', hudShow: '打開農場面板',
     remind: '🌾 福田：{list}', 'remind.ripe': '{n} 塊成熟了', 'remind.eggs': '{n} 顆蛋待撿', 'remind.milk': '{n} 桶奶待取', 'remind.visitors': '鄰居來過 {n} 次',
   },
   es: {
@@ -234,6 +237,7 @@ const SOCIAL_DICT = {
     'toast.share': 'Pusiste {items} en la canasta', 'toast.unshare': 'Recuperaste {items}',
     'err.HELP_LIMIT': 'Ya ayudaste lo suficiente aquí hoy', 'err.TAKE_LIMIT': 'Ya tomaste tu parte de esta canasta hoy', 'err.GIFT_LIMIT': 'No te quedan regalos hoy',
     'err.RECEIVER_FULL': 'Su granero está lleno', 'err.BASKET_FULL': 'La canasta está llena', 'err.NOT_NEIGHBOR': 'Solo puedes visitar granjas de amigos',
+    hudHide: 'Ocultar panel de la granja', hudShow: 'Abrir panel de la granja',
     remind: '🌾 Granja: {list}', 'remind.ripe': '{n} parcelas maduras', 'remind.eggs': '{n} huevos por recoger', 'remind.milk': '{n} cubos de leche', 'remind.visitors': '{n} visitas de vecinos',
   },
 };
@@ -306,6 +310,22 @@ export function createFarmUI({ stage, showToast, explore, account, openSignIn, o
 
   const hud = el('div', 'farm-hud');
   hud.hidden = true;
+  // Thu gọn thanh nông trại thành một viên nhỏ (đỡ che cảnh trên điện thoại); nhớ trên máy, lỗi bộ nhớ thì mở như mặc định.
+  const COLLAPSED_KEY = 'farm-hud-collapsed';
+  let collapsed = (() => {
+    try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; }
+  })();
+  const toggleHud = () => {
+    collapsed = !collapsed;
+    try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch {}
+    renderHud();
+  };
+  const hideButton = () => {
+    const node = button('farm-hud-toggle', '▴', toggleHud);
+    node.title = tr('hudHide');
+    node.setAttribute('aria-label', tr('hudHide'));
+    return node;
+  };
   const card = el('section', 'garden-card farm-card');
   card.hidden = true;
   card.setAttribute('role', 'dialog');
@@ -511,22 +531,39 @@ export function createFarmUI({ stage, showToast, explore, account, openSignIn, o
   function renderHud() {
     hud.hidden = place !== 'myfarm';
     if (hud.hidden) return;
+    hud.classList.toggle('collapsed', collapsed);
+    const fresh = farm && !visiting ? (farm.visitors || []).find((row) => row.at > seenAt()) : null;
+    if (collapsed) {
+      // Viên thu gọn: biểu tượng + cấp (ruộng mình) hoặc tên chủ ruộng đang thăm, 📬 khi có lượt ghé mới.
+      const label = !account() ? `🌾 ${tr('title')}`
+        : visiting ? `🏡 ${visiting.owner.name}`
+          : farm ? `🌾 ${tr('level', { n: farm.level })}${fresh ? ' · 📬' : ''}` : `🌾 ${tr('title')}`;
+      const pill = button('farm-hud-pill', `${label} ▾`, toggleHud);
+      pill.title = tr('hudShow');
+      pill.setAttribute('aria-label', `${label} · ${tr('hudShow')}`);
+      hud.replaceChildren(pill);
+      return;
+    }
     const parts = [];
     if (!account()) {
-      parts.push(el('b', 'farm-hud-title', `🌾 ${tr('title')} · ${tr('demo')}`), el('span', 'farm-hud-note', tr('signIn')), button('chip primary', tr('signInButton'), () => openSignIn?.()));
+      const top = el('div', 'farm-hud-row');
+      top.append(el('b', 'farm-hud-title', `🌾 ${tr('title')} · ${tr('demo')}`), hideButton());
+      parts.push(top, el('span', 'farm-hud-note', tr('signIn')), button('chip primary', tr('signInButton'), () => openSignIn?.()));
       hud.replaceChildren(...parts);
       return;
     }
     if (visiting) {
       const v = visiting.visit;
       const top = el('div', 'farm-hud-row');
-      top.append(el('b', '', tr('visitTitle', { name: visiting.owner.name })));
+      top.append(el('b', '', tr('visitTitle', { name: visiting.owner.name })), hideButton());
       parts.push(top, el('span', 'farm-hud-note', `${tr('level', { n: v.farm.level })} · ${tr('visitNote', { done: v.helps.done, max: v.helps.max, left: v.takes.left })}`), button('chip primary', tr('goHome'), goHome));
       hud.replaceChildren(...parts);
       return;
     }
     if (!farm) {
-      hud.replaceChildren(el('b', 'farm-hud-title', `🌾 ${tr('title')}`));
+      const top = el('div', 'farm-hud-row');
+      top.append(el('b', 'farm-hud-title', `🌾 ${tr('title')}`), hideButton());
+      hud.replaceChildren(top);
       return;
     }
     const bar = el('span', 'farm-xp');
@@ -535,12 +572,13 @@ export function createFarmUI({ stage, showToast, explore, account, openSignIn, o
     fill.style.width = `${Math.round(Math.max(0, Math.min(1, span)) * 100)}%`;
     bar.append(fill);
     const top = el('div', 'farm-hud-row');
-    top.append(el('b', '', `🌾 ${tr('level', { n: farm.level })}`), button('chip', `🧺 ${tr('market')}`, openMarket));
+    const actions = el('span', 'farm-hud-actions');
+    actions.append(button('chip', `🧺 ${tr('market')}`, openMarket), hideButton());
+    top.append(el('b', '', `🌾 ${tr('level', { n: farm.level })}`), actions);
     const left = Math.max(0, farm.market.cap - farm.market.full);
     parts.push(top, bar, el('span', 'farm-hud-note', `🛒 ${tr('marketLeft', { n: left })}`), button('chip', `🏡 ${tr('neighbors')}`, openNeighbors));
     // Lượt hàng xóm ghé mới nhất chưa xem: chạm để mở sổ.
-    const latest = (farm.visitors || []).find((row) => row.at > seenAt());
-    if (latest) parts.push(button('farm-hud-link', `📬 ${visitorLine(latest)}`, openNeighbors));
+    if (fresh) parts.push(button('farm-hud-link', `📬 ${visitorLine(fresh)}`, openNeighbors));
     hud.replaceChildren(...parts);
   }
 

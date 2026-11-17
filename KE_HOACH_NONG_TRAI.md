@@ -475,6 +475,8 @@ thì hiện hình khối.
   khỏi bóng như nhựa. Vết lem do Remesh khi dí sát camera vẫn còn.
 - Làm lại 3 bản nháp: khung luống (có cọc cao), ổ rơm (ra cục đá), rổ (ra quả cầu kín).
 - Chưa làm: máng thóc trong chuồng gà, cánh cổng sân chuồng, kệ rổ, hạt gieo bằng ảnh.
+- Góp ý người dùng (16/11/2026): ô khóa khó phân biệt → khung gỗ chỉ ở ô đã mở (`farm3d` vẽ theo nông trại đang xem), ô
+  khóa là bãi cỏ hoang phủ kín + cọc + dây thừng; thanh nông trại che nhiều → nút ▴ thu gọn thành viên nhỏ, nhớ trên máy.
 
 **Trong lúc chờ mô hình:**
 - Gà / bò dựng tạm bằng khối, như các thú khối ở khu thú cưng.

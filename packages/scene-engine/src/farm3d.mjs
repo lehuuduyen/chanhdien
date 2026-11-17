@@ -55,7 +55,7 @@ const CROP_SPRITES = {
 };
 const SPROUT = { spots: 'grid9', height: 0.22 };
 // Ô chưa mở: cỏ dại thấp mọc lác đác (dùng ảnh cỏ voi non).
-const WILD = { sprite: 'grass-grow', spots: 'wild', height: 0.3 };
+const WILD = { sprite: 'grass-grow', spots: 'wild', height: 0.4 };
 // Cỏ dại / sâu trên ô đang trồng: [x, z, cao gốc ảnh] trong luống; sâu bám trên lá (gốc ảnh cao hơn mặt đất).
 const ISSUE_SPRITES = {
   weed: { sprite: 'weeds', height: 0.34, spots: [[-0.95, -0.9, 0], [0.92, 0.3, 0], [-0.2, 0.95, 0]] },
@@ -118,6 +118,7 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
 
   // Lưới chỗ trồng trong một luống (2,2 m): 3 × 3 cụm.
   const GRID = [-0.6, 0, 0.6].flatMap((x) => [-0.6, 0, 0.6].map((z) => [x, z]));
+  const BED = fields.bed || 2.2;
   const jitter = (index, amount) => ((Math.sin(index * 12.9898) * 43_758.5453) % 1) * amount;
 
   // Hình cây theo loài; s: tỉ lệ lớn (đang lớn 0,6, chín 1); ripe: có quả / bông.
@@ -226,11 +227,26 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
       p.add(G.ball(0.04, 6, 4), '#7bb33a', { position: [x + 0.08, h + 0.02, z] });
     }
   }
-  function addLocked(p) {
+  // Ô chưa mở: bãi cỏ hoang phủ kín luống đất (không khung gỗ), bốn cọc + dây thừng khoanh lại; cỏ dại bằng ảnh (WILD),
+  // ảnh chưa tải thì cỏ khối.
+  function addLocked(p, wildReady) {
+    const half = BED / 2 + 0.05;
+    p.add(G.box(BED + 0.1, 0.215, BED + 0.1), '#5d8a38', { position: [0, 0.108, 0] });
+    for (const [x, z] of [[-half, -half], [half, -half], [half, half], [-half, half]]) p.add(G.rod(0.035, 0.5, 6), '#8a6a3c', { position: [x, 0.25, z] });
+    for (const [x, z, w, d] of [[0, -half, BED + 0.1, 0.025], [0, half, BED + 0.1, 0.025], [-half, 0, 0.025, BED + 0.1], [half, 0, 0.025, BED + 0.1]]) {
+      p.add(G.box(w, 0.025, d), '#d9c48c', { position: [x, 0.42, z] });
+    }
+    if (wildReady) return;
     for (let k = 0; k < 7; k += 1) {
       const x = jitter(k, 1.6) - 0.8;
       const z = jitter(k + 9, 1.6) - 0.8;
       for (let b = 0; b < 4; b += 1) p.add(G.cone(0.05, 0.3, 3), k % 2 ? '#6f8a3a' : '#57702c', { position: [x + (b - 1.5) * 0.05, 0.36, z], rotation: [(b - 1.5) * 0.3, 0, 0] });
+    }
+  }
+  // Khung gỗ dự phòng của ô đã mở (khi mô hình Meshy `bedframe` chưa tải).
+  function addFrame(p) {
+    for (const [dx, dz, w, d] of [[0, -BED / 2, BED + 0.16, 0.12], [0, BED / 2, BED + 0.16, 0.12], [-BED / 2, 0, 0.12, BED], [BED / 2, 0, 0.12, BED]]) {
+      p.add(G.box(w, 0.26, d), '#b5874f', { position: [dx, 0.13, dz] });
     }
   }
 
@@ -261,10 +277,9 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
     }
     if (!state) return;
     const p = painter();
-    if (state.locked) {
-      if (!spriteReady(WILD.sprite)) addLocked(p);
-    }
-    else if (state.crop) {
+    if (state.locked) addLocked(p, spriteReady(WILD.sprite));
+    else if (!framesReady) addFrame(p);
+    if (state.crop) {
       if (state.dry) p.add(G.box(2.1, 0.012, 2.1), '#b89466', { position: [0, 0.205, 0] });
       if (state.stage === 'seed') addSeedRows(p);
       else if (spriteReady(spriteOf(state))) {
@@ -353,6 +368,40 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
       entry.mesh.count = list.length;
       entry.mesh.instanceMatrix.needsUpdate = true;
     }
+  }
+
+  // ---- Khung gỗ luống: mô hình Meshy `bedframe` (InstancedMesh kéo vừa luống) chỉ ở ô đã mở; dựng lại khi số ô mở đổi
+  // (thăm hàng xóm, mở thêm đất). Tải xong lần đầu thì vẽ lại các ô cho bỏ khung khối dự phòng. ----
+  let frames = null;
+  let framesKey = '';
+  let framesToken = 0;
+  let framesReady = false;
+  function renderFrames(open) {
+    const key = String(open);
+    if (key === framesKey || typeof document === 'undefined') return;
+    framesKey = key;
+    const token = (framesToken += 1);
+    const openPlots = [...plots.values()].filter((item) => item.slot <= open);
+    if (!openPlots.length) {
+      if (frames) group.remove(frames);
+      frames = null;
+      return;
+    }
+    const items = openPlots.map((item) => ({ x: item.x, z: item.z, ry: (item.slot % 4) * (Math.PI / 2) }));
+    instanceProp(group, `${FARM_PROPS}/bedframe.glb`, items, { box: [BED + 0.2, 0.3, BED + 0.2] }).then((loaded) => {
+      if (!loaded) return;
+      if (token !== framesToken) {
+        group.remove(loaded);
+        return;
+      }
+      if (frames) group.remove(frames);
+      frames = loaded;
+      if (!framesReady) {
+        framesReady = true;
+        for (const item of plots.values()) item.key = '';
+        if (lastFarm) api.setFarm(lastFarm);
+      }
+    });
   }
 
   // ---- Chuồng: gà / bò đi lại, ổ trứng, thùng sữa ----
@@ -619,7 +668,7 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
         const plot = bySlot.get(item.slot);
         const state = item.slot > open
           ? { locked: true }
-          : plot ? { crop: plot.crop, stage: plot.stage, dry: plot.dry, issues: plot.issues } : null;
+          : plot ? { crop: plot.crop, stage: plot.stage, dry: plot.dry, issues: plot.issues } : { empty: true };
         if (state) ensureSprite(spriteOf(state));
         for (const issue of state?.issues || []) ensureSprite(ISSUE_SPRITES[issue]?.sprite);
         renderPlot(item, state);
@@ -630,6 +679,7 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
         setIcon(item, icon, item.x, plot?.stage === 'ripe' && ['corn', 'grass', 'dragonfruit'].includes(plot.crop) ? 2.45 : 1.65, item.z);
       }
       renderSprites(states);
+      renderFrames(open);
       const list = data?.animals || [];
       syncAnimals(list);
       const eggs = list.filter((item) => item.kind === 'chicken').reduce((sum, item) => sum + item.stored, 0);
