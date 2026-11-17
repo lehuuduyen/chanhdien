@@ -1,6 +1,10 @@
-// `node scripts/promo-video.mjs [--film tour|garden] [--base http://localhost:3000] [--out .data/promo/promo.mp4] [--state vn] [--url chanhdien.online]`
+// `node scripts/promo-video.mjs [--film tour|garden|farm] [--base http://localhost:3000] [--out .data/promo/promo.mp4] [--state vn] [--url chanhdien.online]`
 // `node scripts/promo-video.mjs --setup-only`: chỉ chuẩn bị dữ liệu máy dev rồi thôi (để tự quay màn hình /promo.html).
 // --film garden: clip ~33 giây ở Vườn Công Đức (gieo, tưới, hái, đem bán), mặc định ghi .data/promo/promo-garden.mp4.
+// --film farm: clip ~47 giây ở Phước Điền (gieo, tưới, thu hoạch, gà, bò, chợ, thăm hàng xóm), mặc định ghi
+// .data/promo/promo-farm.mp4.
+// --film stopwatch: clip ~28 giây trò Bấm Giờ (suýt trúng, trúng đúng 1/100 giây, cấp 2, Bảng vàng), mặc định ghi
+// .data/promo/promo-stopwatch.mp4.
 //
 // Quay video giới thiệu 9:16 (1080×1920) từ apps/web/public/promo.html bằng Chrome chạy ngầm có GPU rồi ghép MP4 bằng
 // ffmpeg. Cần web/API/realtime đang chạy (`BOTS_THIEN=30 npm run dev` cho sân đông vui) và ffmpeg trong PATH.
@@ -14,6 +18,11 @@
 // - Clip vườn: kết thúc các vụ còn dở của tài khoản thử (lần quay trước hỏng giữa chừng), kho quả về 0, có ít nhất 3 hạt
 //   Đào. Lúc quay, trang gọi window.promoHost('ripen'): cây vừa gieo được cho ra quả ngay trong SQLite máy dev (thay cho
 //   16 giờ chờ tưới đủ 3 lần) để thẻ luống thật hiện "Hái hết (10)", hái được vào kho rồi đem bán.
+// - Clip nông trại: dựng lại Phước Điền của tài khoản thử cho đầy đặn (cấp 18, 23 ô mở, ruộng nhiều cây đang lớn / đã
+//   chín, ô 1 trống để gieo, ô 2 đất khô để tưới, 7 gà mái + 2 gà con có trứng, 2 bò + 1 bê có sữa, kho có thức ăn và
+//   nông sản, 3 bạn hàng xóm, hai lượt hàng xóm ghé sáng nay). Lúc quay, trang gọi window.promoHost('farm-ripen'): dưa
+//   hấu vừa gieo ở ô 1 chín ngay (thay cho 12 giờ) để thu hoạch thật rồi đem ra chợ bán.
+// - Clip Bấm Giờ: xóa số lượt, lần trúng, đề của tài khoản thử để lần quay nào cũng bắt đầu từ cấp 1.
 //
 // Ghi ra <out> (MP4 H.264 30 khung/giây, không tiếng: thêm nhạc trên TikTok / CapCut), <out>-ghep.mp4 (cùng clip, bỏ màn
 // cuối, để ghép nối với clip khác) và <out>-sheet.jpg (ảnh ghép mỗi giây một khung để duyệt nhanh). Chrome: CHROME_PATH, mặc định bản cài sẵn trên macOS / google-chrome trên Linux;
@@ -38,9 +47,9 @@ const option = (name, fallback) => {
   return value;
 };
 const FILM = option('--film', 'tour');
-if (!['tour', 'garden'].includes(FILM)) throw new Error('--film phải là tour hoặc garden');
+if (!['tour', 'garden', 'farm', 'stopwatch'].includes(FILM)) throw new Error('--film phải là tour, garden, farm hoặc stopwatch');
 const BASE = option('--base', 'http://localhost:3000').replace(/\/$/, '');
-const OUT = path.resolve(ROOT, option('--out', FILM === 'garden' ? '.data/promo/promo-garden.mp4' : '.data/promo/promo.mp4'));
+const OUT = path.resolve(ROOT, option('--out', FILM === 'tour' ? '.data/promo/promo.mp4' : `.data/promo/promo-${FILM}.mp4`));
 const STATE = option('--state', 'vn');
 const URL_TEXT = option('--url', '');
 const FPS = Number(option('--fps', '30'));
@@ -119,16 +128,82 @@ async function setup() {
     db.exec('COMMIT');
     console.log(`✓ Vườn: tài khoản thử có 3 hạt Đào, kho quả trống${ended ? `, kết thúc ${ended} vụ còn dở` : ''}`);
   }
+  if (FILM === 'farm') await stageFarm(db, info.id);
+  if (FILM === 'stopwatch') {
+    for (const table of ['stopwatch_stats', 'stopwatch_hits', 'stopwatch_rounds']) db.prepare(`DELETE FROM ${table} WHERE account_id = ?`).run(info.id);
+    console.log('✓ Bấm Giờ: tài khoản thử về cấp 1, chưa có lần trúng');
+  }
   db.close();
   console.log(`✓ Tài khoản thử ${account.username} / ${account.password} (Minh An) · ví ${Math.max(balance, 2_000)} xu`);
   return { ...account, id: info.id };
 }
 
+// Phước Điền của tài khoản thử, dựng thẳng trong SQLite máy dev (xóa ruộng / chuồng cũ của tài khoản này). Mọi ô / con
+// mang mốc settled_at = bây giờ nên lượt bạn bot ghé (tính lùi 10–90 phút) không đụng tới; hai lượt ghé sáng nay ghi sẵn
+// vào sổ cũng làm hôm nay hết lượt ghé, để ô khô / con sắp đói còn nguyên tới lúc quay.
+const FARM_FRIENDS = ['Minh Tâm', 'Diệu Hạnh', 'Hương Sen'];
+// [ô, cây, phần đã lớn (1 = chín)]: ô 1 trống (gieo dưa hấu), ô 2 lúa đất khô (tưới), còn lại xen cây chín / đang lớn.
+const FARM_PLOTS = [
+  [2, 'rice', 0.35], [3, 'tomato', 1], [4, 'pumpkin', 0.7], [5, 'corn', 1], [6, 'carrot', 0.6],
+  [7, 'corn', 0.8], [8, 'watermelon', 1], [9, 'rice', 0.75], [10, 'rice', 0.75], [11, 'pumpkin', 1], [12, 'dragonfruit', 0.6],
+  [13, 'tomato', 0.5], [14, 'grass', 0.9], [15, 'carrot', 1], [16, 'corn', 0.55], [17, 'spinach', 0.7], [18, 'watermelon', 0.5],
+  [19, 'pumpkin', 0.45], [20, 'rice', 0.6], [21, 'dragonfruit', 1], [22, 'grass', 0.6], [23, 'tomato', 0.85],
+];
+async function stageFarm(db, accountId) {
+  const { FARM_CROPS, FARM_MOIST_MS, farmXpFor, gardenDay } = await import('@chanh-dien/garden');
+  const now = Date.now();
+  const day = gardenDay(now, GARDEN_TIMEZONE);
+  const MIN = 60_000;
+  db.exec('BEGIN IMMEDIATE');
+  db.prepare(`INSERT INTO farm_profiles (account_id, xp, plots, coop, barn, storage, created_at) VALUES (?, ?, 23, 2, 2, 4, ?)
+    ON CONFLICT(account_id) DO UPDATE SET xp = excluded.xp, plots = 23, coop = 2, barn = 2, storage = 4`).run(accountId, farmXpFor(18) + 140, now - 20 * 86_400_000);
+  for (const table of ['farm_plots', 'farm_animals', 'farm_items', 'farm_basket']) db.prepare(`DELETE FROM ${table} WHERE account_id = ?`).run(accountId);
+  db.prepare('DELETE FROM farm_market WHERE account_id = ? AND day = ?').run(accountId, day);
+  db.prepare('DELETE FROM farm_log WHERE owner = ? AND day = ?').run(accountId, day);
+  const plot = db.prepare(`INSERT INTO farm_plots (account_id, slot, crop, planted_at, cycle, growth_ms, settled_at, moist_until, seed, tended)
+    VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 3)`);
+  for (const [slot, crop, part] of FARM_PLOTS) {
+    const need = FARM_CROPS[crop].growMs;
+    // Ô 2 đất đã khô (có giọt 💧 trên ô, thẻ ô có nút Tưới); các ô khác còn ẩm cả buổi quay.
+    plot.run(accountId, slot, crop, now - Math.round(need * part), Math.round(need * part), now, slot === 2 ? now - 5 * MIN : now + FARM_MOIST_MS, slot * 7919);
+  }
+  // Gà / bò no thêm 20 phút: chưa đói (không hiện dấu đói) nhưng thẻ chuồng đã có nút Cho ăn (còn ≤ 30 phút).
+  const animal = db.prepare(`INSERT INTO farm_animals (account_id, kind, adult, grow_ms, prod_ms, stored, fed_until, settled_at, bought_at)
+    VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`);
+  const fed = now + 20 * MIN;
+  for (const stored of [2, 1, 2, 1, 1, 2, 1]) animal.run(accountId, 'chicken', 1, 12 * 3_600_000, stored, fed, now, now - 9 * 86_400_000);
+  for (const grown of [0.4, 0.7]) animal.run(accountId, 'chicken', 0, Math.round(12 * 3_600_000 * grown), 0, fed, now, now - 86_400_000);
+  for (const stored of [2, 1]) animal.run(accountId, 'cow', 1, 48 * 3_600_000, stored, fed, now, now - 12 * 86_400_000);
+  animal.run(accountId, 'cow', 0, 20 * 3_600_000, 0, fed, now, now - 2 * 86_400_000);
+  const item = db.prepare('INSERT INTO farm_items (account_id, item, quantity) VALUES (?, ?, ?)');
+  for (const [name, quantity] of Object.entries({ corn: 14, grass: 10, hay: 8, tomato: 6 })) item.run(accountId, name, quantity);
+  const basket = db.prepare('INSERT INTO farm_basket (account_id, item, quantity) VALUES (?, ?, ?)');
+  for (const [name, quantity] of Object.entries({ tomato: 3, corn: 2 })) basket.run(accountId, name, quantity);
+  const friend = db.prepare('INSERT INTO bot_friends (account_id, bot_name, since) VALUES (?, ?, ?) ON CONFLICT(account_id, bot_name) DO UPDATE SET since = MIN(since, excluded.since)');
+  for (const name of FARM_FRIENDS) friend.run(accountId, name, now - 3 * 86_400_000);
+  const log = db.prepare('INSERT INTO farm_log (owner, actor, actor_name, kind, item, count, coins, day, at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)');
+  log.run(accountId, `bot:${FARM_FRIENDS[0]}`, FARM_FRIENDS[0], 'water', null, 2, day, now - 150 * MIN);
+  log.run(accountId, `bot:${FARM_FRIENDS[1]}`, FARM_FRIENDS[1], 'gift', 'corn', 3, day, now - 70 * MIN);
+  db.exec('COMMIT');
+  console.log(`✓ Phước Điền: tài khoản thử cấp 18, 23 ô, 9 gà, 3 bò, hàng xóm ${FARM_FRIENDS.join(', ')}`);
+}
+
 // Trang gọi window.promoHost(JSON) (chỉ khi quay bằng script này, máy dev). 'ripen': cây đang lớn của tài khoản thử ở
-// luống đó ra quả ngay, như vừa tưới đủ 3 lần.
+// luống đó ra quả ngay, như vừa tưới đủ 3 lần. 'farm-ripen': cây ở ô Phước Điền đó chín ngay (không cỏ / sâu).
 async function hostCall(account, payload) {
   let message = null;
   try { message = JSON.parse(payload); } catch {}
+  if (message?.op === 'farm-ripen' && account?.id && Number.isSafeInteger(message.slot)) {
+    const { FARM_CROPS, FARM_MOIST_MS } = await import('@chanh-dien/garden');
+    const db = await openDb();
+    const now = Date.now();
+    const row = db.prepare('SELECT crop FROM farm_plots WHERE account_id = ? AND slot = ? AND cycle = 0').get(account.id, message.slot);
+    const changed = row && FARM_CROPS[row.crop] ? db.prepare(`UPDATE farm_plots SET growth_ms = ?, settled_at = ?, moist_until = ?, tended = 3
+      WHERE account_id = ? AND slot = ?`).run(FARM_CROPS[row.crop].growMs, now, now + FARM_MOIST_MS, account.id, message.slot).changes : 0;
+    db.close();
+    console.log(changed ? `  ✓ ô ${message.slot}: ${row.crop} chín` : `  ! ô ${message.slot}: không thấy cây của tài khoản thử`);
+    return;
+  }
   if (message?.op !== 'ripen' || !account?.id || !Number.isSafeInteger(message.plotId)) return;
   const { FRUITS_PER_CROP, WATER_DAYS_TO_FRUIT, gardenDay } = await import('@chanh-dien/garden');
   const db = await openDb();
@@ -230,7 +305,7 @@ async function main() {
   const query = new URLSearchParams({ record: '1', film: FILM, state: STATE, ...(URL_TEXT ? { url: URL_TEXT } : {}) });
   await cmd('Page.navigate', { url: `${BASE}/promo.html?${query}` });
   for (let index = 0; index < 60 && !(await evaluate('Boolean(window.promo)').catch(() => false)); index += 1) await sleep(500);
-  console.log(FILM === 'garden' ? '… tải chánh điện 3D, chọn luống ở Vườn Công Đức' : '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
+  console.log({ garden: '… tải chánh điện 3D, chọn luống ở Vườn Công Đức', farm: '… tải chánh điện 3D, đi vào Phước Điền', stopwatch: '… tải chánh điện 3D, bốc đề Bấm Giờ' }[FILM] || '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
   await evaluate('window.promo.prepare()');
   const endAt = await evaluate('window.promo.endAt');
   const checks = await evaluate("[...document.querySelectorAll('#checks li')].map((li) => `${li.className === 'ok' ? '✓' : '!'} ${li.textContent}`).join('\\n')");

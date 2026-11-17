@@ -383,10 +383,9 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
         } else if (state.game === 'guess-you') {
           prompt = me === 'from' ? t('guessYou.answerPrompt') : t('guessYou.guessPrompt', { name: rival });
         }
-        body.append(
-          progress,
-          el('h3', 'compat-question', prompt),
-        );
+        body.append(progress);
+        if (question?.prompt) body.append(el('p', 'compat-scenario', question.prompt));
+        body.append(el('h3', 'compat-question', prompt));
         const options = el('div', 'compat-options');
         for (const [choice, label] of (question?.options || []).entries()) {
           const option = button('compat-option', label, () => {
@@ -420,6 +419,7 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
         );
       }
     } else if (state.status === 'finished') {
+      body.classList.add('result');
       const percent = state.result?.percent || 0;
       const tone = compatibilityTone(percent);
       const ring = el('div', 'compat-score');
@@ -430,6 +430,27 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
         el('h3', 'compat-result-title', t(`${key}.level.${tone}`)),
         el('p', 'compat-hint', t(`${key}.matches`, { n: state.result.matches, total: state.result.total })),
       );
+      const review = el('div', 'compat-answer-list');
+      review.append(el('h3', 'compat-answer-title', t('compat.answerReview')));
+      const fromName = nameOf(state.fromId);
+      const toName = nameOf(state.toId);
+      const fromLabel = state.game === 'guess-you' ? t('guessYou.actualBy', { name: fromName }) : fromName;
+      const toLabel = state.game === 'guess-you' ? t('guessYou.guessedBy', { name: toName }) : toName;
+      for (const [index, answer] of (state.revealed || []).entries()) {
+        const question = compatibilityQuestion(answer.id, lang());
+        if (!question) continue;
+        const same = answer.from === answer.to;
+        const row = el('article', 'compat-answer-row');
+        row.dataset.tone = same ? 'same' : 'different';
+        row.append(el('div', 'compat-answer-question', `${index + 1}. ${question.prompt || question.options.join(' / ')}`));
+        const first = el('div', 'compat-answer-choice');
+        first.append(el('b', '', `${fromLabel}: `), document.createTextNode(question.options[answer.from]));
+        const second = el('div', 'compat-answer-choice');
+        second.append(el('b', '', `${toLabel}: `), document.createTextNode(question.options[answer.to]));
+        row.append(first, second, el('div', 'compat-answer-mark', same ? `✓ ${t('compat.same')}` : `• ${t('compat.different')}`));
+        review.append(row);
+      }
+      body.append(review);
       tools.append(
         button('chip primary', t(`${key}.again`), () => {
           const target = opponentId(state);
@@ -623,6 +644,14 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
     if (state.game === 'rps' && state.status === 'playing' && previous && previous.round !== state.round && !state.last) myChoice = null;
     if (questionGame(state.game) && state.answered?.[side(state)]) compatibilitySubmitted = true;
     if (questionGame(state.game) && state.status === 'finished' && previous?.status !== 'finished') audio?.bead?.();
+    renderGame();
+  }
+
+  // Server chỉ mở đáp án sau khi đã phát kết quả hoàn tất. Ghép message riêng vào state cục bộ để dựng lại
+  // ngay danh sách 10 câu; không lưu hay phát lựa chọn này cho người ngoài trận.
+  function onChallengeReveal(message) {
+    if (!game || game.challengeId !== message.challengeId || game.status !== 'finished') return;
+    game = { ...game, revealed: message.answers };
     renderGame();
   }
 
@@ -888,6 +917,7 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
       else if (message.type === 'game.invite') onGameInvite(message);
       else if (message.type === 'friend.state') onFriend(message);
       else if (message.type === 'challenge.state') onChallenge(message);
+      else if (message.type === 'challenge.reveal') onChallengeReveal(message);
       else if (message.type === 'hand.state') onHand(message);
       else return false;
       return true;

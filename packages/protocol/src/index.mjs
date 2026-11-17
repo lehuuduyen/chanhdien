@@ -55,7 +55,7 @@ export const PRAYER_KINDS = Object.freeze(['peace', 'memorial']);
 export const QUESTION_GAMES = Object.freeze(['compatibility', 'same-choice', 'guess-you']);
 export const GAMES = Object.freeze(['rps', ...QUESTION_GAMES]);
 export const RPS_CHOICES = Object.freeze(['rock', 'paper', 'scissors']);
-export const COMPATIBILITY_BANK_SIZE = 100;
+export const COMPATIBILITY_BANK_SIZE = 600;
 export const COMPATIBILITY_QUESTION_COUNT = 10;
 export const CHALLENGE_STATUSES = Object.freeze(['pending', 'declined', 'cancelled', 'expired', 'playing', 'finished']);
 export const FRIEND_STATUSES = Object.freeze(['pending', 'accepted', 'declined']);
@@ -199,7 +199,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
 });
 
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/;
-const COMPATIBILITY_QUESTION_ID = /^cq-(?:00[1-9]|0[1-9][0-9]|100)$/;
+const COMPATIBILITY_QUESTION_ID = /^cq-(?:00[1-9]|0[1-9][0-9]|[1-5][0-9]{2}|600)$/;
 const ROLES = new Set(['guest', 'member', 'moderator', 'host']);
 const COMMANDS = new Set(['pause', 'resume', 'skip']);
 
@@ -1017,6 +1017,17 @@ const serverSchemas = {
       if (message.status === 'finished' && (message.phase !== 'result' || !message.answered.from || !message.answered.to)) return false;
     } else if (message.phase !== undefined) return false;
     return message.status === 'finished' ? resultValid : message.result === undefined;
+  },
+  // Chỉ gửi sau challenge.state `finished`, đúng hai người chơi nhận được. Tách message để client cũ bỏ qua an toàn.
+  'challenge.reveal'(message) {
+    const answer = (item) => isRecord(item) && exactKeys(item, ['id', 'from', 'to'])
+      && typeof item.id === 'string' && COMPATIBILITY_QUESTION_ID.test(item.id)
+      && [0, 1].includes(item.from) && [0, 1].includes(item.to);
+    return exactKeys(message, ['v', 'type', 'epoch', 'challengeId', 'answers'])
+      && isString(message.challengeId, LIMITS.itemId, ID_PATTERN)
+      && Array.isArray(message.answers) && message.answers.length === COMPATIBILITY_QUESTION_COUNT
+      && message.answers.every(answer)
+      && new Set(message.answers.map((item) => item.id)).size === COMPATIBILITY_QUESTION_COUNT;
   },
   // Luống vườn vừa đổi (gieo, tưới, ra quả, hái, trống lại). effect: hiệu ứng để mọi người cùng thấy. at: mốc thứ tự của
   // API (ms, tăng dần) để client bỏ qua tin tới trễ có trạng thái cũ hơn cái đang hiện.

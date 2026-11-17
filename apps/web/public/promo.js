@@ -5,6 +5,8 @@
 // máy đang quay (renderer.say / react / petInteraction), không gửi lên server. Người dùng quay màn hình khung 9:16, hoặc
 // chạy scripts/promo-video.mjs để Chrome chạy ngầm tự quay ra MP4 (?record=1: khung phủ kín cửa sổ, window.promo điều khiển).
 // ?film=garden: clip ~33 giây chỉ ở Vườn Công Đức (chọn hạt, gieo, tưới, cây lớn, hái, đem ra quầy bán lấy xu).
+// ?film=farm: clip ~47 giây ở Phước Điền (gieo, tưới, thu hoạch, gà, bò, chợ, thăm hàng xóm).
+// ?film=stopwatch: clip ~28 giây trò Bấm Giờ (suýt trúng, trúng đúng 1/100 giây, cấp 2 đồng hồ tắt, Bảng vàng).
 import { thienThemeOf, US_STATES } from '/shared/room-rules.mjs';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -123,7 +125,11 @@ function silence(page) {
 }
 
 const keepSound = () => $('soundToggle').checked || PARAMS.get('sound') === '1';
-const chosenFilm = () => ((PARAMS.get('film') || $('filmSelect').value) === 'garden' ? 'garden' : 'tour');
+const FILMS = ['tour', 'garden', 'farm', 'stopwatch'];
+const chosenFilm = () => {
+  const name = PARAMS.get('film') || $('filmSelect').value;
+  return FILMS.includes(name) ? name : 'tour';
+};
 const chosenState = () => (/^[a-z]{2}$/.test(PARAMS.get('state') || '') ? PARAMS.get('state') : $('stateSelect').value);
 
 // Chánh điện 3D: vào phòng (khách thì lấy tên "Minh An"), ẩn giao diện, camera tự do chất lượng cao, linh thú cho mình.
@@ -160,6 +166,14 @@ async function prepareTemple(page) {
   page.x = explore;
   if (chosenFilm() === 'garden') {
     await prepareGarden(page);
+    return;
+  }
+  if (chosenFilm() === 'farm') {
+    await prepareFarm(page);
+    return;
+  }
+  if (chosenFilm() === 'stopwatch') {
+    await prepareStopwatch(page);
     return;
   }
   // Đưa nhân vật của mình tới cổng nông trại sẵn cho cảnh linh thú.
@@ -456,13 +470,7 @@ const gClick = (selector) => click(temple(), selector);
 // Bấm nút trong trang chánh điện kèm vòng chạm ngón tay ở đúng chỗ nút (trang phủ kín khung nên tọa độ trùng khung).
 function tap(element, delay = 220) {
   if (!element || element.disabled) return false;
-  const rect = element.getBoundingClientRect();
-  const frame = $('frame').getBoundingClientRect();
-  const ring = Object.assign(document.createElement('span'), { className: 'tap' });
-  ring.style.left = `${((rect.left + rect.width / 2) / frame.width) * 100}%`;
-  ring.style.top = `${((rect.top + rect.height / 2) / frame.height) * 100}%`;
-  $('overlay').append(ring);
-  setTimeout(() => ring.remove(), 900);
+  tapRing(element);
   setTimeout(() => element.click(), delay);
   return true;
 }
@@ -638,6 +646,338 @@ async function prepareGarden(page) {
   await walkVia({ x: stand.x, z: stand.z + garden.side * 0.6 });
   await walkVia(stand);
 }
+
+// ---- Phước Điền (kịch bản ?film=farm) ----
+// Nông trại riêng của tài khoản đang đăng nhập; scripts/promo-video.mjs --film farm dựng sẵn ruộng đầy đặn trên máy dev
+// (ô 1 trống, ô 2 đất khô, gà / bò có trứng / sữa, kho có thức ăn, ba bạn hàng xóm). Gieo, tưới, thu hoạch, cho gà ăn,
+// nhặt trứng, vắt sữa, bán ở chợ, thăm và tưới giúp hàng xóm là thao tác thật: kịch bản bấm nút trên thẻ ô / chuồng, bảng
+// chợ, bảng Hàng xóm của trang (window.chanhDienFarm). Chỉ đoạn tua 12 giờ dưa hấu lớn là vẽ trên máy quay, rồi script
+// quay cho cây thật chín ngay (window.promoHost 'farm-ripen'). Chưa đăng nhập: bay camera qua ruộng mẫu, động tác dựng bằng
+// hình.
+const FARM_SLOT = 1;
+const FARM_DRY = 2;
+const FARM_CROP = 'watermelon';
+const FARM_USES = ['🌱 Mua hạt', '🐾 Linh thú', '🎬 Mở phim', '🎲 Chơi game'];
+const farmShot = { fields: null, live: false, overlay: null, last: null, push: null, neighbor: null, helpSlot: null, cow: null };
+const farmUI = () => temple().f;
+const farmData = () => farmUI()?.debug().farm || null;
+const plotAt = (slot) => farmShot.fields.plots.find((plot) => plot.slot === slot);
+// Điểm [x, y, z] lệch từ tâm một ô.
+const atPlot = (slot, dx, y, dz) => [plotAt(slot).x + dx, y, plotAt(slot).z + dz];
+const farmSpot = (name) => farmShot.fields[name];
+
+// Đoạn tua: ô 1 vẽ theo giai đoạn của máy quay (empty = ô trống); null = theo dữ liệu thật.
+function fStage(stage) {
+  farmShot.overlay = stage;
+  farmShot.push?.();
+}
+function dressFarm(data) {
+  const stage = farmShot.overlay;
+  if (!data || !stage || farmUI()?.debug().visiting) return data;
+  const plots = data.plots.filter((plot) => plot.slot !== FARM_SLOT);
+  if (stage !== 'empty') plots.push({ slot: FARM_SLOT, crop: FARM_CROP, stage, progress: { seed: 0.05, sprout: 0.3, growing: 0.7, ripe: 1 }[stage], dry: false, issues: [] });
+  return { ...data, plots };
+}
+
+const farmButton = (scope, pattern) => [...temple().doc.querySelectorAll(`${scope} button`)].find((item) => pattern.test(item.textContent) && !item.disabled);
+function fTap(scope, pattern) {
+  if (!farmShot.live) return false;
+  return tap(farmButton(scope, pattern));
+}
+function fOpen(target) {
+  if (farmShot.live) farmUI().onTap(target);
+}
+function fClose() {
+  gClick('.farm-card:not([hidden]) .social-close');
+  gClick('.farm-sheet:not([hidden]) .mala-back');
+}
+// Không bấm thật được (khách / lỗi): chỉ hiệu ứng + động tác trên máy quay.
+const fFake = (kind, target) => temple().x.farmEffect(kind, target);
+
+function fChooseSeed() {
+  fOpen({ kind: 'plot', slot: FARM_SLOT });
+  setTimeout(() => fTap('.farm-card', /Dưa hấu/), 500);
+}
+function fPlant() {
+  if (fTap('.farm-card', /^🌱 Gieo Dưa hấu/)) return;
+  fStage('seed');
+  fFake('plant', { kind: 'plot', slot: FARM_SLOT });
+}
+function fWater() {
+  fOpen({ kind: 'plot', slot: FARM_DRY });
+  setTimeout(() => {
+    if (!fTap('.farm-card', /^💧/)) fFake('water', { kind: 'plot', slot: FARM_DRY });
+  }, 550);
+}
+// Sau đoạn tua: nhờ script quay cho dưa hấu thật chín, tải lại nông trại, rồi trả ô về dữ liệu thật.
+async function fRipen() {
+  if (!farmShot.live || typeof window.promoHost !== 'function') return;
+  window.promoHost(JSON.stringify({ op: 'farm-ripen', slot: FARM_SLOT }));
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await sleep(250);
+    await farmUI().refresh();
+    if (farmData()?.plots.find((plot) => plot.slot === FARM_SLOT)?.stage === 'ripe') {
+      farmShot.ripe = true;
+      return;
+    }
+  }
+}
+function fHarvest() {
+  if (farmShot.ripe) {
+    fStage(null);
+    fOpen({ kind: 'plot', slot: FARM_SLOT });
+    setTimeout(() => fTap('.farm-card', /^🧺/), 550);
+    return;
+  }
+  fFake('harvest', { kind: 'plot', slot: FARM_SLOT });
+  setTimeout(() => fStage('empty'), 400);
+}
+const stored = (kind) => (farmData()?.animals || []).filter((item) => item.kind === kind).reduce((sum, item) => sum + item.stored, 0);
+function fPen(kind) {
+  fOpen({ kind });
+}
+function fFeed() {
+  if (!fTap('.farm-card', /Cho ăn/)) fFake('feed', { kind: 'coop' });
+}
+function fCollect(kind) {
+  const count = stored(kind === 'coop' ? 'chicken' : 'cow') || (kind === 'coop' ? 9 : 3);
+  if (!fTap('.farm-card', kind === 'coop' ? /Nhặt trứng/ : /Vắt sữa/)) fFake('collect', { kind });
+  setTimeout(() => pop(`+${count} ${kind === 'coop' ? '🥚' : '🥛'}`, { small: true, top: 33 }), 600);
+}
+// Số xu đổi sau một thao tác (bán, giúp hàng xóm): chờ câu trả lời của server, không có thì dùng số dự phòng.
+async function coinsGained(before, fallback) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await sleep(150);
+    const now = farmData()?.coins;
+    if (Number.isFinite(now) && now !== before) return now - before;
+  }
+  return fallback;
+}
+function fMarket() {
+  if (farmShot.live) farmUI().onTap({ kind: 'market' });
+}
+// Cuộn bảng chợ tới dòng dưa hấu (như người chơi vuốt), rồi bấm Bán hết.
+const sellRow = () => [...temple().doc.querySelectorAll('.farm-sheet .garden-shop-row')].find((item) => /Dưa hấu/.test(item.textContent));
+function fScrollSell() {
+  sellRow()?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+async function fSell() {
+  const before = farmData()?.coins;
+  const row = sellRow();
+  const button = row && [...row.querySelectorAll('button')].find((item) => /Bán hết/.test(item.textContent));
+  if (farmShot.live) tap(button);
+  const gained = farmShot.live && button ? await coinsGained(before, 40) : 40;
+  pop(`+${gained} xu`, { coin: true });
+  coinRain(18);
+}
+function fNeighbors() {
+  if (farmShot.live) farmUI().openNeighbors();
+}
+function fVisit() {
+  const name = farmShot.neighbor?.name;
+  const row = name && [...temple().doc.querySelectorAll('.farm-sheet .garden-shop-row')].find((item) => item.querySelector('b')?.textContent === name);
+  const button = row && [...row.querySelectorAll('button')].find((item) => /Thăm/.test(item.textContent));
+  if (farmShot.live && button) tap(button);
+}
+async function fHelp() {
+  const slot = farmShot.helpSlot;
+  if (!slot || !farmUI()?.debug().visiting) return;
+  fOpen({ kind: 'plot', slot });
+  await sleep(550);
+  const before = farmData()?.coins;
+  if (!fTap('.farm-card', /Tưới giúp$/)) return;
+  const gained = await coinsGained(before, 0);
+  pop(gained > 0 ? `🤝 +${gained} xu` : '🤝', { small: true, top: 33 });
+}
+// Bò lớn mình bám camera (vị trí do bộ vẽ nông trại tự đi lại).
+function cowPose() {
+  const list = temple().x.debugFarm()?.animals || [];
+  const found = list.find((item) => item.id === farmShot.cow) || list.find((item) => item.kind === 'cow' && item.form === 'adult');
+  return found ? [found.x, found.z] : null;
+}
+// Nhân vật chạy (giữ Shift trong trang chánh điện) cho đoạn đường ngắn giữa ô ruộng và chuồng gà.
+function runTo(point) {
+  const { win } = temple();
+  win.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Shift' }));
+  temple().x.walkTo(point, () => win.dispatchEvent(new win.KeyboardEvent('keyup', { key: 'Shift' })));
+}
+
+// Bạn hàng xóm để quay cảnh thăm: người có ô khô (tưới giúp được), chọn ô khô ở hàng gần cổng.
+async function pickNeighbor() {
+  const data = await fetch('/api/v1/farm/neighbors', { credentials: 'same-origin' }).then((response) => (response.ok ? response.json() : null)).catch(() => null);
+  // Ưu tiên bạn hàng xóm script quay dựng sẵn (ruộng đầy đặn), rồi tới bạn khác.
+  const rows = [...(data?.neighbors || [])].sort((a, b) => Number(Boolean(b.bot)) - Number(Boolean(a.bot)));
+  for (const row of rows) {
+    if (!row.needs?.water || row.helped >= row.helpMax) continue;
+    const query = row.bot ? `bot=${encodeURIComponent(row.bot)}` : `friend=${encodeURIComponent(row.accountId)}`;
+    const visit = await fetch(`/api/v1/farm/visit?${query}`, { credentials: 'same-origin' }).then((response) => (response.ok ? response.json() : null)).catch(() => null);
+    const slots = visit?.visit?.needs?.water || [];
+    if (!slots.length) continue;
+    farmShot.neighbor = row;
+    farmShot.helpSlot = Math.min(...slots);
+    return;
+  }
+  farmShot.neighbor = data?.neighbors?.[0] || null;
+  state.warnings.push('Không có hàng xóm nào có ô khô: cảnh hàng xóm chỉ bấm Thăm.');
+}
+
+// Chuẩn bị: vào Phước Điền, đứng giữa lối ô 1 và ô 2 (làm được cả hai ô, không phải đi), camera ở trên ruộng để tải mô
+// hình, chọn bạn hàng xóm.
+async function prepareFarm(page) {
+  const { win } = page;
+  await waitFor(() => win.chanhDienFarm, 20_000, 'Phước Điền');
+  page.f = win.chanhDienFarm;
+  const scene = await fetch('/scenes/thien-default/scene.json').then((response) => response.json());
+  farmShot.fields = scene.world.courtyard.fields;
+  farmShot.live = state.signedIn;
+  if (!state.signedIn) state.warnings.push('Chưa đăng nhập: clip nông trại chỉ có ruộng mẫu và động tác dựng bằng hình (chạy scripts/promo-video.mjs --film farm để bấm thật).');
+  // Mọi lần trang gửi nông trại xuống bộ vẽ đều đi qua đây (đoạn tua vẽ đè ô 1).
+  const engineSet = page.x.setFarm.bind(page.x);
+  page.x.setFarm = (data) => {
+    farmShot.last = data;
+    engineSet(dressFarm(data));
+  };
+  farmShot.push = () => engineSet(dressFarm(farmShot.last));
+  // Thẻ ô / chuồng, bảng chợ / hàng xóm hiện như giao diện điện thoại trong vùng an toàn (chừa cột nút bên phải của TikTok).
+  injectStyle(page, `
+    .farm-card, .farm-card *, .farm-sheet, .farm-sheet * { visibility: visible !important; }
+    .farm-card { left: 4.5% !important; right: 17% !important; bottom: 20.5% !important; max-height: 46% !important; transform: scale(.9); transform-origin: 0 100%; }
+    .farm-card .farm-crop { min-height: 0 !important; padding: 6px 4px !important; }
+    .farm-card .farm-crop small, .farm-card .garden-hint, .farm-card .farm-secondary, .farm-card .farm-animals { display: none !important; }
+    .farm-sheet { top: 40% !important; bottom: 20.5% !important; left: 4% !important; right: 16.5% !important; border-radius: 22px !important; border: 1px solid rgba(166, 214, 120, .45) !important; }
+    .farm-sheet .social-note, .farm-sheet .farm-secondary { display: none !important; }
+    .farm-sheet .mala-back { position: absolute; opacity: 0; }
+    .farm-sheet h2 { font-size: 22px !important; }
+  `);
+  click(page, '.quick-travel-panel button[data-destination="myfarm"]');
+  await waitFor(() => {
+    const pose = selfPose();
+    return pose && pose[0] < -50 && pose[1] > 90;
+  }, 15_000, 'tới Phước Điền');
+  page.r.debugView([-58, 14, 106], [-72, 0, 84], 50);
+  const one = plotAt(FARM_SLOT);
+  const two = plotAt(FARM_DRY);
+  farmShot.stand = { x: (one.x + two.x) / 2, z: one.aisle };
+  page.x.walkTo(farmShot.stand);
+  await waitFor(() => {
+    const pose = selfPose();
+    return pose && Math.hypot(pose[0] - farmShot.stand.x, pose[1] - farmShot.stand.z) < 0.15;
+  }, 20_000, 'đi tới ô 1');
+  if (farmShot.live) await waitFor(() => farmData()?.plots?.length, 15_000, 'dữ liệu nông trại');
+  await waitFor(() => {
+    const debug = page.x.debugFarm();
+    return debug && debug.animals.every((item) => item.model) && Object.values(debug.crops).every((value) => value !== 'loading');
+  }, 30_000, 'mô hình nông trại').catch(() => state.warnings.push('Mô hình / ảnh cây Phước Điền chưa tải xong.'));
+  farmShot.cow = farmData()?.animals.find((item) => item.kind === 'cow' && item.adult)?.id ?? null;
+  if (farmShot.live) await pickNeighbor();
+}
+
+// ---- Bấm Giờ (kịch bản ?film=stopwatch) ----
+// Thẻ Bấm Giờ thật của trang chánh điện (nút ⏱ trên thanh phòng), tài khoản thử đăng nhập (script quay xóa lịch sử Bấm
+// Giờ của tài khoản thử trên máy dev nên lần quay nào cũng bắt đầu từ cấp 1). Kịch bản bấm Bắt đầu / Dừng bằng sự kiện
+// chạm như ngón tay (pointerdown, trang lấy mốc của chính lần chạm) và canh giờ chính xác: lượt đầu dừng trễ 0,02 giây
+// (Suýt trúng), lượt hai dừng đúng mục tiêu (Trúng, mở cấp 2 thật trên server), lượt ở cấp 2 trễ 0,03 giây. Chỉ trên máy
+// quay: đề do server bốc được bốc lại (vẫn là đề thật) tới khi mục tiêu ngắn, để clip không phải chờ tới 10 giây.
+const SW_SHORT = [160, 340];
+const SW_LEVEL2 = [200, 300];
+const swShot = { pool: [], targets: [], reroll: null, startStamp: 0, live: false };
+const swDoc = () => temple().doc;
+const swMain = () => swDoc().querySelector('.sw-main');
+const swTarget = () => {
+  const match = /^(\d\d):(\d\d)$/.exec(swDoc().querySelector('.sw-target')?.textContent || '');
+  return match ? Number(match[1]) * 100 + Number(match[2]) : null;
+};
+
+// Vòng chạm ngón tay ở đúng chỗ nút (trang phủ kín khung nên tọa độ trùng khung).
+function tapRing(element) {
+  if (!element) return;
+  const rect = element.getBoundingClientRect();
+  const frame = $('frame').getBoundingClientRect();
+  const ring = Object.assign(document.createElement('span'), { className: 'tap' });
+  ring.style.left = `${((rect.left + rect.width / 2) / frame.width) * 100}%`;
+  ring.style.top = `${((rect.top + rect.height / 2) / frame.height) * 100}%`;
+  $('overlay').append(ring);
+  setTimeout(() => ring.remove(), 900);
+}
+// Chạm nút Bắt đầu / Dừng / Lượt mới: pointerdown như ngón tay; trả mốc thời gian của lần chạm (đồng hồ của trang).
+function swPress() {
+  const { win } = temple();
+  const main = swMain();
+  if (!main || main.disabled) return null;
+  const event = new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'touch', isPrimary: true });
+  const stamp = event.timeStamp;
+  main.dispatchEvent(event);
+  tapRing(main);
+  return stamp;
+}
+function swStart() {
+  const stamp = swPress();
+  if (stamp !== null) swShot.startStamp = stamp;
+}
+// Dừng lúc đồng hồ của trang chạy được (mục tiêu + lệch) phần trăm giây: hẹn giờ tới sát mốc rồi chờ bận vài chục ms cho
+// đúng tới dưới 1 ms.
+function swStopAt(offset) {
+  const target = swTarget();
+  if (target === null || !swShot.startStamp) return;
+  const { win } = temple();
+  const goal = swShot.startStamp + (target + offset) * 10 + 1;
+  setTimeout(() => {
+    while (win.performance.now() < goal) { /* chờ đúng mốc */ }
+    swPress();
+  }, Math.max(0, goal - win.performance.now() - 30));
+}
+const swClick = (selector) => {
+  const element = swDoc().querySelector(selector);
+  if (!element) return;
+  tapRing(element);
+  element.click();
+};
+
+// Bốc đề (đề thật của server) cho tới khi mục tiêu nằm trong [min, max]; hết lượt cho phép thì lấy đề cuối.
+async function swRoll(fetchReal, level, [min, max], tries = 14) {
+  let last = null;
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    const response = await fetchReal('/api/v1/stopwatch/round', {
+      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ level }),
+    });
+    if (!response.ok) return last;
+    last = await response.json();
+    if (last.target >= min && last.target <= max) return last;
+  }
+  return last;
+}
+
+async function prepareStopwatch(page) {
+  const { win } = page;
+  swShot.live = state.signedIn;
+  if (!state.signedIn) state.warnings.push('Chưa đăng nhập: khách chỉ chơi cấp 1, không lưu lịch sử (chạy scripts/promo-video.mjs --film stopwatch).');
+  try { win.localStorage.setItem('thien-stopwatch-level', '1'); } catch {}
+  // Đề cho hai lượt đầu bốc sẵn (biết trước độ dài cảnh); trang xin đề nào thì đưa đề bốc sẵn, cấp 2 thì bốc lại tới khi ngắn.
+  const fetchReal = win.fetch.bind(win);
+  for (let index = 0; index < 2; index += 1) {
+    const round = await swRoll(fetchReal, 1, SW_SHORT);
+    if (round) swShot.pool.push(round);
+  }
+  swShot.targets = swShot.pool.map((round) => round.target);
+  win.fetch = async (url, init) => {
+    if (String(url) === '/api/v1/stopwatch/round' && init?.method === 'POST') {
+      const level = JSON.parse(init.body || '{}').level;
+      const ready = level === 1 ? swShot.pool.shift() : null;
+      const round = ready || (level === 2 ? await swRoll(fetchReal, 2, SW_LEVEL2) : null);
+      if (round) return new win.Response(JSON.stringify(round), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return fetchReal(url, init);
+  };
+  // Thẻ Bấm Giờ và thông báo mở cấp hiện như giao diện điện thoại trong vùng an toàn (chừa cột nút bên phải của TikTok).
+  injectStyle(page, `
+    .sw-card, .sw-card *, #toast, #toast * { visibility: visible !important; }
+    .sw-card { left: 4.5% !important; right: 17% !important; bottom: 20.5% !important; max-height: 52% !important; }
+    .sw-card .sw-guest { display: none !important; }
+    #toast { top: 41% !important; font-size: 17px !important; }
+  `);
+}
+
+const SW_BOARD_TAGS = ['⏱ Bấm Giờ', '🌾 Nông trại', '🎬 Rạp phim', '🎲 Game', '💬 Bạn bè'];
 
 // ---- Kịch bản ----
 // Mỗi cảnh: page, dur (giây), transition, cam(u, now) cho chánh điện, sun (độ hoặc hàm u → độ), caption (undefined = giữ chữ
@@ -870,6 +1210,200 @@ function buildGardenFilm() {
   ];
 }
 
+// Phước Điền (~47 giây, ~43 giây không tính màn cuối): ruộng riêng → gieo → tưới → tua 12 giờ → thu hoạch → gà → bò →
+// chợ → hàng xóm → màn cuối.
+// Góc máy tính theo ô / chuồng trong scene (chạy sau khi chuẩn bị). Thẻ / bảng của trang chiếm nửa dưới khung nên camera
+// nhắm thấp hơn chỗ làm việc (chỗ làm việc nằm ở nửa trên).
+function buildFarmFilm() {
+  const one = plotAt(FARM_SLOT);
+  const two = plotAt(FARM_DRY);
+  const stand = farmShot.stand || { x: (one.x + two.x) / 2, z: one.aisle };
+  const coop = farmSpot('coop');
+  const barn = farmSpot('barn');
+  const market = farmSpot('market');
+  const help = farmShot.helpSlot ? plotAt(farmShot.helpSlot) : plotAt(8);
+  const center = [-72, 0, 85];
+  return [
+    // 0. Mở đầu: bay từ trên cổng vào ruộng, gà bò dạo trong chuồng.
+    {
+      page: 'temple', dur: 3.4, transition: 'cut', sun: 14,
+      cam: move({ pos: [-44, 20, 108], at: [-70, 0, 84], fov: 52 }, { pos: [-57, 9.5, 101], at: [-70, 0.4, 86], fov: 48 }),
+      caption: { cls: 'big', title: ['Mỗi', 'người', 'một', '\n', ['nông trại riêng', 'green'], '🌾'] },
+    },
+    // 1. Chọn hạt dưa hấu trên thẻ ô rồi gieo: nhân vật rải hạt.
+    {
+      page: 'temple', dur: 4.6, transition: 'flash', sun: 14,
+      at: [[0.15, fChooseSeed], [1.6, fPlant], [2.6, fClose]],
+      cam: move({ pos: [one.x + 1.8, 2.5, one.z - 3.6], at: [one.x - 1.3, -0.3, one.z + 1.6], fov: 46 }, { pos: [one.x + 1.55, 2.28, one.z - 3.18], at: [one.x - 1.3, -0.3, one.z + 1.6], fov: 46 }),
+      caption: { cls: 'tight', kicker: '🌱 Gieo hạt', title: ['Chọn', 'cây,', ['gieo', 'green'], 'xuống', 'ruộng'], sub: '🥬 🍅 🌽 🌾 🥕 🎃 🍉 🐉 · 9 loại cây' },
+    },
+    // 2. Tưới ô lúa đất khô bên cạnh.
+    {
+      page: 'temple', dur: 3.6, transition: 'cut', sun: 14,
+      at: [[0.1, fWater], [2.4, fClose]],
+      cam: move({ pos: [two.x - 0.7, 2.5, two.z - 3.8], at: [two.x + 1.9, -0.3, two.z + 1.4], fov: 46 }, { pos: [two.x - 0.49, 2.28, two.z - 3.38], at: [two.x + 1.9, -0.3, two.z + 1.4], fov: 46 }),
+      caption: { cls: 'tight', kicker: '💧 Chăm cây', title: ['Đất', 'khô', 'thì', ['tưới nước', 'blue']], sub: 'Cây không chết, chỉ ngừng lớn chờ bạn' },
+    },
+    // 3. Tua nhanh 12 giờ: chiều → đêm → sáng, dưa hấu mầm → lớn → chín.
+    {
+      page: 'temple', dur: 4.2, transition: 'fade', sun: timelapseSun, night: (u) => clamp01((14 - timelapseSun(u)) / 28) * 0.8,
+      enter: () => fStage('sprout'),
+      at: [[1.4, () => fStage('growing')], [3.0, () => fStage('ripe')], [3.3, fRipen]],
+      cam: move({ pos: [one.x - 3.4, 3.4, one.z - 4.6], at: [one.x, 0.3, one.z + 0.6], fov: 44 }, { pos: [one.x - 2.6, 3.0, one.z - 3.8], at: [one.x, 0.3, one.z + 0.6], fov: 44 }, ease.linear),
+      caption: { cls: 'tight', kicker: '⏩ 12 giờ sau', title: ['Dưa', 'hấu', ['chín rộ', 'green'], '🍉'] },
+    },
+    // 4. Thu hoạch: nhân vật xách giỏ, dưa vào kho.
+    {
+      page: 'temple', dur: 3.6, transition: 'flash', sun: 14,
+      at: [[0.15, fHarvest], [1.3, fClose], [1.4, () => pop('+4 🍉', { small: true, top: 33 })]],
+      cam: move({ pos: [one.x + 1.4, 2.0, one.z - 3.0], at: [one.x - 0.8, 0.2, one.z + 1.6], fov: 44 }, { pos: [one.x + 1.0, 1.7, one.z - 2.5], at: [one.x - 0.8, 0.3, one.z + 1.6], fov: 43 }),
+      caption: { cls: 'tight', kicker: '🧺 Thu hoạch', title: ['Thu', 'cả', ['ô dưa', 'green'], 'về', 'kho'] },
+    },
+    // 5. Chuồng gà: chạy ra cửa sân gà (camera trong sân nhìn ra, quầy chợ chắn phía ngoài), cho ăn; rồi nhìn vào sân gà
+    // lúc nhặt trứng.
+    {
+      page: 'temple', dur: 2.9, transition: 'flash', sun: 14,
+      enter: () => runTo(coop.stand),
+      at: [[1.3, () => fPen('coop')], [1.8, fFeed]],
+      cam: move({ pos: [coop.stand.x + 2.3, 2.9, coop.stand.z - 5.2], at: [coop.stand.x - 0.3, -0.4, coop.stand.z + 0.9], fov: 50 }, { pos: [coop.stand.x + 2.1, 2.8, coop.stand.z - 4.8], at: [coop.stand.x - 0.3, -0.4, coop.stand.z + 0.9], fov: 50 }),
+      caption: { cls: 'tight', kicker: '🐔 Chuồng gà', title: ['Cho', 'gà', 'ăn,', ['nhặt trứng', '']], sub: 'Gà con ăn no sẽ lớn thành gà mái' },
+    },
+    {
+      page: 'temple', dur: 2.3, transition: 'cut', sun: 14,
+      at: [[0.2, () => fCollect('coop')], [1.3, fClose]],
+      cam: move({ pos: [coop.stand.x + 1.3, 4.8, coop.stand.z - 2.8], at: [coop.stand.x - 0.3, -0.5, coop.stand.z - 11.3], fov: 50 }, { pos: [coop.stand.x + 1.1, 4.5, coop.stand.z - 3.4], at: [coop.stand.x - 0.3, -0.5, coop.stand.z - 11.3], fov: 49 }),
+    },
+    // 6. Chuồng bò: camera bám một con bò đang gặm cỏ, vắt sữa.
+    {
+      page: 'temple', dur: 3.8, transition: 'flash', sun: 14,
+      enter: fClose,
+      at: [[0.6, () => fPen('barn')], [1.3, () => fCollect('barn')], [3.0, fClose]],
+      cam: track({ subject: cowPose, radius: 5.6, radius2: 4.8, height: 2.4, height2: 2.1, from: 0.5, to: 0.95, look: -0.6, fov: 46 }),
+      caption: { cls: 'tight', kicker: '🐄 Chuồng bò', title: ['Nuôi', 'bò', 'lấy', ['sữa', 'blue'], '🥛'], sub: 'Ổ đầy, thùng đầy thì chờ bạn — vắng không mất gì' },
+    },
+    // 7. Chợ ngay cổng: bán hết dưa hấu.
+    {
+      page: 'temple', dur: 4.0, transition: 'flash', sun: 14,
+      at: [[0.1, fMarket], [0.9, fScrollSell], [1.8, fSell]],
+      cam: move({ pos: [market.x + 3.8, 5.6, market.z + 9.2], at: [market.x, -4.2, market.z - 0.9], fov: 46 }, { pos: [market.x + 3.4, 5.2, market.z + 8.4], at: [market.x, -4.2, market.z - 0.9], fov: 46 }),
+      caption: { cls: 'tight', kicker: '💰 Chợ Phước Điền', title: ['Bán', 'ở', 'chợ', ['lấy xu', '']], sub: 'Giá đổi mỗi ngày · hoặc dâng lên Tam Bảo 🙏' },
+    },
+    // 8. Hàng xóm: bảng bạn bè, bấm Thăm → ruộng bạn hiện ra.
+    {
+      page: 'temple', dur: 3.0, transition: 'cut', sun: 14,
+      enter: () => { fClose(); setTimeout(fNeighbors, 120); },
+      at: [[1.9, fVisit]],
+      cam: move({ pos: [-55, 13, 104], at: [-71, -3, 84], fov: 50 }, { pos: [-57, 12, 103], at: [-71, -3, 84], fov: 50 }),
+      caption: { cls: 'tight', kicker: '🏡 Hàng xóm', title: ['Ghé', 'thăm', ['ruộng bạn bè', 'pink']] },
+    },
+    // 9. Ruộng của bạn: tưới giúp ô khô.
+    {
+      page: 'temple', dur: 4.2, transition: 'flash', sun: 14,
+      at: [[0.5, fHelp], [3.3, fClose]],
+      cam: move({ pos: [help.x + 3.0, 6.0, help.z + 8.5], at: [help.x, -3.0, help.z - 1.0], fov: 48 }, { pos: [help.x + 2.6, 5.4, help.z + 7.6], at: [help.x, -3.0, help.z - 1.0], fov: 47 }),
+      caption: { cls: 'tight', kicker: '🏡 Hàng xóm', title: ['Tưới', 'giúp,', 'nhận', ['quà', 'pink']], sub: 'Không hái trộm — chỉ giúp nhau 🤝' },
+    },
+    // 10. Xu dùng khắp web: camera bay lên lộ cả ruộng lúc nắng chiều.
+    {
+      page: 'temple', dur: 3.4, transition: 'fade', sun: (u) => lerp(9, 5, u),
+      enter: () => gameChips(FARM_USES, 0),
+      at: [0.6, 1.2, 1.8].map((at, index) => [at, () => gameChips(FARM_USES, index + 1)]),
+      cam: move({ pos: [help.x + 2.6, 5.4, help.z + 7.6], at: [help.x, -3.0, help.z - 1.0], fov: 47 }, { pos: [-52, 19, 106], at: center, fov: 50 }),
+      caption: { cls: 'tight', title: ['Xu', 'dùng', 'cho', ['cả web', '']] },
+    },
+    // 11. Màn cuối.
+    {
+      page: 'temple', dur: 3.6, transition: 'cut', end: true, sun: (u) => lerp(5, -1, u),
+      cam: move({ pos: [-52, 19, 106], at: center, fov: 50 }, { pos: [-50, 21, 109], at: center, fov: 50 }, ease.out),
+      caption: null,
+      enter: () => {
+        gameChips(null);
+        $('brand').classList.add('hidden');
+        $('endcard').hidden = false;
+      },
+    },
+  ];
+}
+
+// Bấm Giờ (~28 giây): mở thẻ → lượt 1 suýt trúng → lượt 2 trúng, mở cấp 2 → cấp 2 đồng hồ tắt trước mục tiêu → Bảng vàng
+// → màn cuối. Độ dài hai lượt đầu theo đề đã bốc sẵn; cảnh nhìn từ sân vào chánh điện (tượng Phật phía trên thẻ).
+function buildStopwatchFilm() {
+  const [first = 300, second = 260] = swShot.targets;
+  const one = first / 100;
+  const two = second / 100;
+  // Sau lưng nhân vật, nhìn thẳng vào cửa chánh điện: tượng Phật nằm giữa chữ và thẻ Bấm Giờ.
+  const behind = (dx, y, z) => ({ pos: [dx, y, z], at: [0, 0.9, 25], fov: 44 });
+  return [
+    // 0. Mở đầu: bay từ sân vào trước chánh điện.
+    {
+      page: 'temple', dur: 3.0, transition: 'cut', sun: 22,
+      cam: move({ pos: [7, 10, 56], at: [0, 4, 20], fov: 52 }, { pos: [1.8, 3.4, 45], at: [0, 1.2, 25], fov: 46 }),
+      caption: { cls: 'big', title: ['Bấm', 'dừng', 'đúng', '\n', ['1/100 giây', 'green'], '⏱'] },
+    },
+    // 1. Mở thẻ Bấm Giờ: mục tiêu ngẫu nhiên.
+    {
+      page: 'temple', dur: 2.0, transition: 'flash', sun: 22,
+      // Nút ⏱ nằm trên thanh phòng (đang ẩn khi quay): bấm thẳng, không vẽ vòng chạm.
+      enter: () => swDoc().querySelector('.sw-chip')?.click(),
+      cam: move(behind(1.6, 3.0, 43.5), behind(1.4, 2.9, 42.8)),
+      caption: { cls: 'tight', kicker: '⏱ Bấm Giờ', title: ['Mục', 'tiêu', ['ngẫu nhiên', '']], sub: 'Từ 00:01 tới 10:00 · bấm Bắt đầu rồi Dừng' },
+    },
+    // 2. Lượt 1: dừng trễ 0,02 giây.
+    {
+      page: 'temple', dur: 0.3 + one + 2.1, transition: 'cut', sun: 22,
+      enter: () => setTimeout(swStart, 300),
+      at: [
+        [0.6, () => swStopAt(2)],
+        [0.5 + one, () => caption({ cls: 'tight', kicker: '⏱ Cấp 1 · Tập sự', title: ['Suýt!', 'Lệch', ['0,02 giây', 'pink'], '😮'] })],
+      ],
+      cam: move(behind(1.4, 2.9, 42.8), behind(1.1, 2.8, 41.8), ease.linear),
+      caption: { cls: 'tight', kicker: '⏱ Cấp 1 · Tập sự', title: ['Bấm', ['Dừng', ''], 'đúng', 'lúc', 'chạm', 'mục', 'tiêu'] },
+    },
+    // 3. Lượt 2: lượt mới (đề đã tải sẵn), dừng đúng mục tiêu → Trúng, mở cấp 2.
+    {
+      page: 'temple', dur: 0.9 + two + 2.7, transition: 'cut', sun: 22,
+      enter: () => setTimeout(swPress, 150),
+      at: [
+        [0.9, swStart],
+        [1.2, () => swStopAt(0)],
+        [1.05 + two, () => {
+          pop('🎯 TRÚNG!');
+          flash(true);
+          caption({ cls: 'tight', kicker: '⏱ Cấp 1 · Tập sự', title: ['Trúng!', 'Lệch', ['0,00 giây', 'green']], sub: 'Trúng là mở cấp kế 🔓' });
+        }],
+      ],
+      cam: move(behind(-1.2, 2.9, 42.8), behind(-0.9, 2.8, 41.8), ease.linear),
+      caption: { cls: 'tight', kicker: '⏱ Cấp 1 · Tập sự', title: ['Thử', 'lại', 'lần', 'nữa…'] },
+    },
+    // 4. Cấp 2: đồng hồ tắt 0,5 giây trước mục tiêu (đếm thầm), dừng trễ 0,03 giây.
+    {
+      page: 'temple', dur: 6.2, transition: 'flash', sun: 22,
+      enter: () => swClick('.sw-level:nth-child(2)'),
+      at: [[1.3, swStart], [1.6, () => swStopAt(3)]],
+      cam: move(behind(1.3, 2.8, 42.2), behind(1.0, 2.7, 41.2), ease.linear),
+      caption: { cls: 'tight', kicker: '🌘 Cấp 2 · Tỉnh thức', title: ['Đồng', 'hồ', ['tắt', 'blue'], 'trước', 'mục', 'tiêu'], sub: 'Đếm thầm 🤫 · 5 cấp, cấp sau khó hơn' },
+    },
+    // 5. Lịch sử + Bảng vàng.
+    {
+      page: 'temple', dur: 3.2, transition: 'flash', sun: 22,
+      enter: () => swClick('.sw-tab'),
+      cam: move(behind(0.4, 3.4, 44.5), behind(0.2, 3.8, 46), ease.out),
+      caption: { cls: 'tight', kicker: '📜 Lịch sử', title: ['Lên', ['Bảng vàng', ''], '🏆'], sub: 'Lưu mọi lần bấm trúng · chơi miễn phí' },
+    },
+    // 6. Màn cuối.
+    {
+      page: 'temple', dur: 3.6, transition: 'cut', end: true, sun: (u) => lerp(22, 8, u),
+      enter: () => {
+        swClick('.sw-close');
+        $('brand').classList.add('hidden');
+        $('endcard').hidden = false;
+      },
+      cam: move(behind(0.2, 3.8, 46), { pos: [0, 9, 52], at: [0, 3, 20], fov: 50 }, ease.out),
+      caption: null,
+    },
+  ];
+}
+
 // Việc làm trước một cảnh (giây trước lúc cảnh bắt đầu): vào bàn Tiến Lên để kịp chia bài, mua vé Lô Tô ở pha mua vé,
 // vào trận Oẳn Tù Tì để lúc quay đang tới lượt ra tay. Chỉ khi đã đăng nhập (khách không chơi được).
 const PREP = [
@@ -933,11 +1467,11 @@ async function prepare() {
       try { localStorage.setItem('displayName', NAME); localStorage.setItem('phapdanh', NAME); } catch {}
     }
     setCheck('account', state.signedIn ? `Đăng nhập: ${me.account?.displayName || me.displayName}` : 'Khách (đăng nhập tài khoản có xu để quay cảnh đang đánh bài)', state.signedIn ? 'ok' : 'warn');
-    const gardenFilm = chosenFilm() === 'garden';
+    const kind = chosenFilm();
     const jobs = [
-      ['temple', `/chanh-dien.html?state=${chosenState()}&sun=16`, prepareTemple, gardenFilm ? 'Chánh điện 3D · Vườn Công Đức' : 'Chánh điện 3D'],
-      // Clip vườn chỉ quay ở chánh điện.
-      ...(gardenFilm ? [] : [
+      ['temple', `/chanh-dien.html?state=${chosenState()}&sun=16`, prepareTemple, { garden: 'Chánh điện 3D · Vườn Công Đức', farm: 'Chánh điện 3D · Phước Điền', stopwatch: 'Chánh điện 3D · Bấm Giờ' }[kind] || 'Chánh điện 3D'],
+      // Clip vườn / nông trại chỉ quay ở chánh điện.
+      ...(kind !== 'tour' ? [] : [
         ['cinema', `/room.html?room=${CINEMA_ROOM}`, prepareCinema, 'Rạp phim'],
         ['tienlen', '/tien-len.html', prepareGame, 'Tiến Lên'],
         ['baucua', '/game.html', prepareGame, 'Bầu Cua'],
@@ -960,9 +1494,13 @@ async function prepare() {
     }));
     if (!results[0]) throw new Error('Chánh điện 3D chưa sẵn sàng');
     // Kịch bản dựng sau khi chuẩn bị xong (góc máy clip vườn tính theo luống vừa chọn).
-    film = gardenFilm ? buildGardenFilm() : buildFilm();
+    film = { garden: buildGardenFilm, farm: buildFarmFilm, stopwatch: buildStopwatchFilm }[kind]?.() || buildFilm();
     // Khoảng trắng trong từng mục không ngắt dòng (chỉ xuống dòng ở dấu ·).
-    const tags = gardenFilm ? ['🌱 Trồng cây', '🧺 Thu hoạch', '💰 Bán lấy xu', '🐾 Linh thú', '🎬 Rạp phim'] : ['🐐 Nông trại', '🐾 Thú cưng', '🎬 Rạp phim', '🎲 Game', '💬 Bạn bè'];
+    const tags = {
+      garden: ['🌱 Trồng cây', '🧺 Thu hoạch', '💰 Bán lấy xu', '🐾 Linh thú', '🎬 Rạp phim'],
+      farm: ['🌾 Nông trại riêng', '🐔 Nuôi gà, bò', '💰 Bán lấy xu', '🏡 Hàng xóm', '🎬 Rạp phim'],
+      stopwatch: SW_BOARD_TAGS,
+    }[kind] || ['🐐 Nông trại', '🐾 Thú cưng', '🎬 Rạp phim', '🎲 Game', '💬 Bạn bè'];
     $('endTags').textContent = tags.map((tag) => tag.replaceAll(' ', '\u00a0')).join(' · ');
     for (const warning of state.warnings) status(warning);
     // Đứng yên ở góc đầu tiên trong lúc chờ bấm Bắt đầu.
@@ -1101,7 +1639,7 @@ $('urlInput').value = PARAMS.get('url') || location.host;
 $('urlInput').addEventListener('input', () => { $('endUrl').textContent = $('urlInput').value.trim() || location.host; });
 $('endTags').textContent = '🐐 Nông trại · 🐾 Thú cưng · 🎬 Rạp phim · 🎲 Game · 💬 Bạn bè';
 if (/^[a-z]{2}$/.test(PARAMS.get('state') || '')) $('stateSelect').value = PARAMS.get('state');
-if (PARAMS.get('film') === 'garden') $('filmSelect').value = 'garden';
+if (FILMS.includes(PARAMS.get('film'))) $('filmSelect').value = PARAMS.get('film');
 $('prepare').addEventListener('click', () => { prepare().catch(() => {}); });
 $('start').addEventListener('click', () => { start(); });
 if (RECORD) {
@@ -1115,6 +1653,9 @@ window.promo = {
   get film() { return film; },
   // Chỉ để duyệt góc máy clip vườn: đổi giai đoạn cây của mình, cho nhân vật làm động tác.
   garden: { stage: (stage) => gStage(stage), act: (kind) => gAct(kind), plot: () => garden.plot },
+  // Chỉ để duyệt góc máy clip nông trại: đổi giai đoạn ô 1 (seed | sprout | growing | ripe | empty | null).
+  farm: { stage: (stage) => fStage(stage), shot: farmShot },
+  stopwatch: swShot,
   // Giây bắt đầu màn cuối (script quay cắt thêm bản không có màn cuối để ghép với clip khác).
   get endAt() {
     const index = film.findIndex((shot) => shot.end);
