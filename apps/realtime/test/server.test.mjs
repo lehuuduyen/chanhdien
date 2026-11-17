@@ -1465,14 +1465,21 @@ test('đo độ hiểu ý: 10 câu không trùng, giữ kín đáp án và chỉ
   const waiting = last('u-2', 'challenge.state');
   assert.deepEqual(waiting.answered, { from: true, to: false });
   assert.equal(Object.hasOwn(waiting, 'answers'), false, 'không gửi đáp án thật cho đối phương');
+  assert.equal(Object.hasOwn(waiting, 'revealed'), false, 'chỉ mở đáp án sau khi cả hai hoàn tất');
+  assert.equal(inbox['u-2'].some((message) => message.type === 'challenge.reveal' && message.challengeId === sent.challengeId), false);
   assert.equal(JSON.stringify(inbox['u-2']).includes('"choice"'), false, 'lựa chọn không lọt vào lịch sử message');
   assert.equal(room.challengeAnswer('u-1', sent.challengeId, first).error, 'ALREADY_ANSWERED');
 
   const second = started.questions.map(({ id }, index) => ({ questionId: id, choice: index < 7 ? 0 : 1 }));
   assert.deepEqual(room.challengeAnswer('u-2', sent.challengeId, second), { ok: true });
   const done = last('u-1', 'challenge.state');
+  const reveal = last('u-1', 'challenge.reveal');
   assert.equal(done.status, 'finished');
   assert.deepEqual(done.result, { matches: 7, total: 10, percent: 70 });
+  assert.equal(Object.hasOwn(done, 'revealed'), false);
+  assert.equal(reveal.answers.length, 10);
+  assert.deepEqual(reveal.answers[0], { id: started.questions[0].id, from: 0, to: 0 });
+  assert.equal(reveal.answers.filter((item) => item.from === item.to).length, 7);
   assert.equal(inbox['u-3'].some((message) => message.challengeId === sent.challengeId), false, 'người ngoài không thấy kết quả');
   room.close();
 });
@@ -1491,9 +1498,15 @@ test('cùng một lựa chọn: hai người trả lời đồng thời và ch�
   const second = started.questions.map(({ id }, index) => ({ questionId: id, choice: index < 6 ? 0 : 1 }));
   assert.deepEqual(room.challengeAnswer('u-2', sent.challengeId, second), { ok: true });
   assert.deepEqual(last('u-1', 'challenge.state').answered, { from: false, to: true });
+  assert.equal(Object.hasOwn(last('u-1', 'challenge.state'), 'revealed'), false);
+  assert.equal(inbox['u-1'].some((message) => message.type === 'challenge.reveal' && message.challengeId === sent.challengeId), false);
   assert.equal(JSON.stringify(inbox['u-1']).includes('"choice"'), false);
   assert.deepEqual(room.challengeAnswer('u-1', sent.challengeId, first), { ok: true });
-  assert.deepEqual(last('u-2', 'challenge.state').result, { matches: 6, total: 10, percent: 60 });
+  const done = last('u-2', 'challenge.state');
+  const reveal = last('u-2', 'challenge.reveal');
+  assert.deepEqual(done.result, { matches: 6, total: 10, percent: 60 });
+  assert.equal(reveal.answers.length, 10);
+  assert.equal(reveal.answers.filter((item) => item.from === item.to).length, 6);
   assert.equal(inbox['u-3'].some((message) => message.challengeId === sent.challengeId), false);
   room.close();
 });
@@ -1511,13 +1524,18 @@ test('đoán ý bạn: người gửi trả lời trước, người nhận ch�
   const guessing = last('u-2', 'challenge.state');
   assert.equal(guessing.phase, 'guess');
   assert.deepEqual(guessing.answered, { from: true, to: false });
+  assert.equal(Object.hasOwn(guessing, 'revealed'), false);
+  assert.equal(inbox['u-2'].some((message) => message.type === 'challenge.reveal' && message.challengeId === sent.challengeId), false);
   assert.equal(JSON.stringify(inbox['u-2']).includes('"choice"'), false, 'không lộ đáp án gốc cho người đoán');
 
   const guesses = started.questions.map(({ id }, index) => ({ questionId: id, choice: index < 8 ? index % 2 : 1 - (index % 2) }));
   assert.deepEqual(room.challengeAnswer('u-2', sent.challengeId, guesses), { ok: true });
   const done = last('u-1', 'challenge.state');
+  const reveal = last('u-1', 'challenge.reveal');
   assert.equal(done.phase, 'result');
   assert.deepEqual(done.result, { matches: 8, total: 10, percent: 80 });
+  assert.equal(reveal.answers.length, 10);
+  assert.equal(reveal.answers.filter((item) => item.from === item.to).length, 8);
   assert.equal(inbox['u-3'].some((message) => message.challengeId === sent.challengeId), false);
   room.close();
 });

@@ -524,6 +524,7 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
       if (item.mesh) {
         group.remove(item.mesh);
         item.mesh.geometry.dispose();
+        item.mesh = null;
       }
       const p = painter();
       if (name === 'coop') {
@@ -542,10 +543,14 @@ export function createFarmView({ THREE, root, fields, makeBubble, disposeSprite,
           if (milk) p.add(G.rod(0.09, 0.02, 10), '#ffffff', { position: [x, 0.63, z] });
         }
       }
-      item.mesh = meshOf(p.build());
-      const spot = name === 'coop' ? coopNest : barnCan;
-      item.mesh.position.set(spot.x, 0, spot.z);
-      group.add(item.mesh);
+      // Ổ Meshy đã tải và hết trứng thì không còn khối nào để vẽ (THREE.Mesh không nhận hình rỗng).
+      const geometry = p.build();
+      if (geometry) {
+        item.mesh = meshOf(geometry);
+        const spot = name === 'coop' ? coopNest : barnCan;
+        item.mesh.position.set(spot.x, 0, spot.z);
+        group.add(item.mesh);
+      }
       if (name === 'barn') modelCans(milk, item.mesh);
     }
   }

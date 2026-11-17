@@ -284,8 +284,17 @@ test('đo độ hiểu ý: nhận đúng 10 đáp án riêng tư và trạng th�
   assert.equal(parseServerMessage(playing).ok, true);
   assert.equal(parseServerMessage({ ...playing, answers }).error, 'INVALID_MESSAGE', 'server không phát đáp án thật');
   assert.equal(parseServerMessage({ ...playing, questions: questions.slice(0, 9) }).error, 'INVALID_MESSAGE');
-  assert.equal(parseServerMessage({ ...playing, status: 'finished', result: { matches: 7, total: 10, percent: 70 } }).ok, true);
-  assert.equal(parseServerMessage({ ...playing, status: 'finished', result: { matches: 7, total: 10, percent: 71 } }).error, 'INVALID_MESSAGE');
+  const revealed = questions.map(({ id }, index) => ({ id, from: 0, to: index < 7 ? 0 : 1 }));
+  const finished = { ...playing, status: 'finished', result: { matches: 7, total: 10, percent: 70 } };
+  assert.equal(parseServerMessage(finished).ok, true);
+  assert.equal(parseServerMessage({ ...finished, result: { matches: 7, total: 10, percent: 71 } }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...finished, revealed }).error, 'INVALID_MESSAGE', 'đáp án không nằm trong challenge.state');
+  const reveal = { v: PROTOCOL_VERSION, type: 'challenge.reveal', epoch: 1, challengeId: 'g-1', answers: revealed };
+  assert.equal(parseServerMessage(reveal).ok, true);
+  assert.equal(parseServerMessage({ ...reveal, answers: revealed.slice(0, 9) }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...reveal, answers: [...revealed.slice(0, 9), revealed[0]] }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...reveal, answers: revealed.map((item, index) => index ? item : { ...item, to: 2 }) }).error, 'INVALID_MESSAGE');
+  assert.equal(parseServerMessage({ ...reveal, answers: revealed.map((item, index) => index ? item : { ...item, id: 'cq-601' }) }).error, 'INVALID_MESSAGE');
 
   const plainQuestions = answers.map(({ questionId }) => ({ id: questionId }));
   const sameChoice = { ...playing, game: 'same-choice', questions: plainQuestions };

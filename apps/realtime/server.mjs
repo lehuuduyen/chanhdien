@@ -79,7 +79,7 @@ const CHALLENGE_MAX_ROUNDS = 9;
 const CHALLENGE_LINGER_MS = 5_000;
 const BEATS = { rock: 'scissors', paper: 'rock', scissors: 'paper' };
 
-// Mỗi trận lấy 10 trong 100 câu, không lặp. Nội dung câu nằm ở client theo 4 ngôn ngữ; server chỉ giữ id ổn định
+// Mỗi trận lấy 10 trong 600 câu, không lặp. Nội dung câu nằm ở client theo 4 ngôn ngữ; server chỉ giữ id ổn định
 // và làm trọng tài nên không tin dữ liệu câu hỏi do client gửi lên.
 function choiceQuestions() {
   const pool = Array.from({ length: COMPATIBILITY_BANK_SIZE }, (_, index) => index + 1);
@@ -1164,11 +1164,31 @@ export class Room {
     this.sendTo(challenge.toId, message);
   }
 
+  // Đáp án là message riêng, chỉ gửi sau state `finished`. Nhờ vậy client cũ vẫn đọc được kết quả dù chưa biết
+  // kiểu message mới, còn trong lúc chơi không có lựa chọn thật nào lọt sang máy đối phương.
+  challengeReveal(challenge) {
+    const message = {
+      v: PROTOCOL_VERSION,
+      type: 'challenge.reveal',
+      epoch: this.epoch,
+      challengeId: challenge.id,
+      answers: challenge.questions.map(({ id }) => ({
+        id,
+        from: challenge.answers.from.get(id),
+        to: challenge.answers.to.get(id),
+      })),
+    };
+    this.sendTo(challenge.fromId, message);
+    this.sendTo(challenge.toId, message);
+  }
+
   // Kết thúc trận (từ chối, huỷ, hết hạn, xong): báo hai bên rồi xoá sau một lúc.
   endChallenge(challenge, status) {
     clearTimeout(challenge.timer);
     challenge.status = status;
     this.challengeState(challenge);
+    if (status === 'finished' && QUESTION_GAMES.includes(challenge.game)
+      && challenge.answers.from && challenge.answers.to) this.challengeReveal(challenge);
     challenge.timer = setTimeout(() => this.challenges.delete(challenge.id), CHALLENGE_LINGER_MS);
     challenge.timer.unref?.();
   }

@@ -1,4 +1,4 @@
-// Ngân hàng 100 câu cho trò "Đo độ hiểu ý". Mỗi dòng là hai lựa chọn theo thứ tự:
+// 100 câu gốc cho các trò lựa chọn. Mỗi dòng là hai lựa chọn theo thứ tự:
 // vi-A, vi-B, en-A, en-B, zh-A, zh-B, es-A, es-B. Id phụ thuộc thứ tự nên chỉ thêm câu ở cuối hoặc giữ nguyên vị trí.
 const PAIRS = [
   ['Ở nhà thư giãn', 'Ra ngoài khám phá', 'Relax at home', 'Go out exploring', '在家放鬆', '外出探索', 'Relajarse en casa', 'Salir a explorar'],
@@ -103,12 +103,71 @@ const PAIRS = [
   ['Trồng cây xanh', 'Trồng hoa nhiều màu', 'Grow green plants', 'Grow colorful flowers', '種綠色植物', '種多彩花朵', 'Cultivar plantas verdes', 'Cultivar flores de colores'],
 ];
 
+// 500 câu bổ sung = 20 tình huống × 25 cặp lựa chọn. Tách tình huống khỏi lựa chọn giúp câu tự nhiên ở bốn
+// ngôn ngữ, giữ file gọn và vẫn cho mỗi câu một id ổn định. Không đổi thứ tự hai bảng này sau khi phát hành.
+const EXTRA_CONTEXTS = [
+  ['Vào cuối tuần, lựa chọn nào hợp với bạn hơn?', 'On a weekend, which choice suits you better?', '週末時，哪個選擇更適合你？', 'En un fin de semana, ¿qué opción te representa más?'],
+  ['Trong một chuyến đi xa, bạn nghiêng về lựa chọn nào?', 'On a long trip, which would you prefer?', '長途旅行時，你比較偏好哪一個？', 'En un viaje largo, ¿qué preferirías?'],
+  ['Khi có một buổi tối rảnh, bạn sẽ chọn gì?', 'When you have a free evening, what would you choose?', '有一個空閒夜晚時，你會選什麼？', 'Cuando tienes una noche libre, ¿qué elegirías?'],
+  ['Khi đi cùng bạn thân, lựa chọn nào giống bạn hơn?', 'When you are with a close friend, which is more like you?', '和好友在一起時，哪個更像你？', 'Cuando estás con un amigo cercano, ¿qué se parece más a ti?'],
+  ['Trong một ngày mưa, bạn thích lựa chọn nào hơn?', 'On a rainy day, which would you rather choose?', '下雨天時，你比較喜歡哪個選擇？', 'En un día lluvioso, ¿qué opción prefieres?'],
+  ['Khi cần nạp lại năng lượng, bạn thường chọn gì?', 'When you need to recharge, what do you usually choose?', '需要恢復能量時，你通常會選什麼？', 'Cuando necesitas recargar energía, ¿qué sueles elegir?'],
+  ['Khi tổ chức sinh nhật, lựa chọn nào hợp với bạn?', 'When planning a birthday, which choice fits you?', '安排生日時，哪個選擇適合你？', 'Al organizar un cumpleaños, ¿qué opción va contigo?'],
+  ['Trong buổi gặp mặt đầu tiên, bạn nghiêng về điều nào?', 'At a first meeting, which would you lean toward?', '第一次見面時，你比較傾向哪個？', 'En un primer encuentro, ¿hacia qué opción te inclinas?'],
+  ['Khi chọn cho cả nhóm, bạn thường chọn bên nào?', 'When choosing for a group, which side do you usually take?', '替一群人做選擇時，你通常選哪邊？', 'Al elegir para un grupo, ¿qué lado sueles tomar?'],
+  ['Nếu chỉ có một giờ rảnh, bạn sẽ chọn gì?', 'If you had only one free hour, what would you choose?', '如果只有一小時空閒，你會選什麼？', 'Si solo tuvieras una hora libre, ¿qué elegirías?'],
+  ['Trong một kỳ nghỉ dài, lựa chọn nào hấp dẫn bạn hơn?', 'On a long vacation, which choice appeals to you more?', '在長假中，哪個選擇更吸引你？', 'En unas vacaciones largas, ¿qué opción te atrae más?'],
+  ['Sau một ngày bận rộn, bạn muốn chọn điều nào?', 'After a busy day, which would you want?', '忙碌一天後，你想選哪一個？', 'Después de un día ocupado, ¿qué elegirías?'],
+  ['Khi muốn tự thưởng cho mình, bạn sẽ chọn gì?', 'When treating yourself, what would you choose?', '想犒賞自己時，你會選什麼？', 'Cuando quieres darte un gusto, ¿qué elegirías?'],
+  ['Khi khám phá một nơi mới, bạn nghiêng về bên nào?', 'When exploring somewhere new, which side do you prefer?', '探索新地方時，你偏好哪一邊？', 'Al explorar un lugar nuevo, ¿qué lado prefieres?'],
+  ['Khi cần quyết định nhanh, lựa chọn nào giống bạn hơn?', 'When deciding quickly, which choice is more like you?', '需要快速決定時，哪個選擇更像你？', 'Cuando debes decidir rápido, ¿qué opción se parece más a ti?'],
+  ['Khi ở nhà một mình, bạn thường chọn điều nào?', 'When you are home alone, which do you usually choose?', '獨自在家時，你通常會選哪個？', 'Cuando estás solo en casa, ¿qué sueles elegir?'],
+  ['Khi gặp chuyện bất ngờ, bạn nghiêng về cách nào?', 'When something unexpected happens, which way do you lean?', '遇到意外狀況時，你傾向哪種方式？', 'Cuando ocurre algo inesperado, ¿qué opción prefieres?'],
+  ['Trong buổi sáng lý tưởng, lựa chọn nào hợp với bạn?', 'In your ideal morning, which choice fits you?', '在理想的早晨，哪個選擇適合你？', 'En tu mañana ideal, ¿qué opción va contigo?'],
+  ['Trong buổi tối lý tưởng, bạn thích bên nào hơn?', 'In your ideal evening, which side do you prefer?', '在理想的夜晚，你比較喜歡哪一邊？', 'En tu noche ideal, ¿qué lado prefieres?'],
+  ['Khi cùng nhau lên kế hoạch, bạn sẽ chọn cách nào?', 'When planning together, which approach would you choose?', '一起做計畫時，你會選哪種方式？', 'Al planear juntos, ¿qué enfoque elegirías?'],
+];
+
+const EXTRA_AXES = [
+  ['Lên kế hoạch rõ ràng', 'Tùy hứng theo tình hình', 'Make a clear plan', 'Stay spontaneous', '做清楚的計畫', '隨情況行動', 'Hacer un plan claro', 'Improvisar según el momento'],
+  ['Chọn nơi yên tĩnh', 'Chọn nơi náo nhiệt', 'Choose somewhere quiet', 'Choose somewhere lively', '選安靜的地方', '選熱鬧的地方', 'Elegir un lugar tranquilo', 'Elegir un lugar animado'],
+  ['Hoạt động trong nhà', 'Hoạt động ngoài trời', 'Do something indoors', 'Do something outdoors', '室內活動', '戶外活動', 'Hacer algo bajo techo', 'Hacer algo al aire libre'],
+  ['Bắt đầu thật sớm', 'Bắt đầu muộn hơn', 'Start very early', 'Start later', '很早開始', '晚一點開始', 'Empezar muy temprano', 'Empezar más tarde'],
+  ['Chủ động trò chuyện', 'Lắng nghe nhiều hơn', 'Start the conversation', 'Listen more', '主動聊天', '多聆聽', 'Iniciar la conversación', 'Escuchar más'],
+  ['Chọn điều quen thuộc', 'Thử một điều mới', 'Choose something familiar', 'Try something new', '選熟悉的事物', '嘗試新事物', 'Elegir algo conocido', 'Probar algo nuevo'],
+  ['Chụp ảnh để lưu lại', 'Chỉ tận hưởng khoảnh khắc', 'Take photos to remember it', 'Simply enjoy the moment', '拍照留念', '單純享受當下', 'Tomar fotos para recordar', 'Disfrutar el momento'],
+  ['Đứng ra dẫn dắt', 'Hỗ trợ người khác', 'Take the lead', 'Support someone else', '站出來帶領', '協助別人', 'Tomar la iniciativa', 'Apoyar a otra persona'],
+  ['Tiết kiệm cho sau này', 'Chi cho trải nghiệm', 'Save for later', 'Spend on an experience', '為以後存錢', '花在體驗上', 'Ahorrar para después', 'Gastar en una experiencia'],
+  ['Chọn món ngọt', 'Chọn món mặn', 'Choose something sweet', 'Choose something savory', '選甜食', '選鹹食', 'Elegir algo dulce', 'Elegir algo salado'],
+  ['Uống trà', 'Uống cà phê', 'Drink tea', 'Drink coffee', '喝茶', '喝咖啡', 'Tomar té', 'Tomar café'],
+  ['Tới nơi đông vui', 'Tới gần thiên nhiên', 'Go somewhere bustling', 'Go close to nature', '去熱鬧的地方', '親近大自然', 'Ir a un lugar concurrido', 'Acercarse a la naturaleza'],
+  ['Đi nhanh tới đích', 'Đi chậm ngắm cảnh', 'Walk quickly to the destination', 'Stroll and enjoy the view', '快走到目的地', '慢慢走看風景', 'Caminar rápido al destino', 'Pasear y disfrutar la vista'],
+  ['Chọn món quà thiết thực', 'Chọn món quà kỷ niệm', 'Choose a practical gift', 'Choose a sentimental gift', '選實用禮物', '選紀念禮物', 'Elegir un regalo práctico', 'Elegir un regalo sentimental'],
+  ['Gọi điện trực tiếp', 'Nhắn tin trước', 'Call directly', 'Send a message first', '直接打電話', '先傳訊息', 'Llamar directamente', 'Enviar un mensaje primero'],
+  ['Đi cùng một nhóm', 'Đi cùng một người thân', 'Go with a group', 'Go with one close person', '和一群人同行', '和一位親近的人同行', 'Ir con un grupo', 'Ir con una persona cercana'],
+  ['Có nhạc nhẹ', 'Giữ không gian im lặng', 'Play soft music', 'Keep the space silent', '播放輕音樂', '保持安靜', 'Poner música suave', 'Mantener el silencio'],
+  ['Tự chuẩn bị mọi thứ', 'Đặt sẵn cho tiện', 'Prepare everything yourself', 'Order it for convenience', '自己準備一切', '預訂現成的比較方便', 'Prepararlo todo tú mismo', 'Pedirlo por comodidad'],
+  ['Xem một bộ phim', 'Đọc một cuốn sách', 'Watch a movie', 'Read a book', '看一部電影', '讀一本書', 'Ver una película', 'Leer un libro'],
+  ['Đi biển', 'Đi núi', 'Go to the beach', 'Go to the mountains', '去海邊', '去山裡', 'Ir a la playa', 'Ir a la montaña'],
+  ['Chuẩn bị thật chi tiết', 'Giữ mọi thứ đơn giản', 'Prepare every detail', 'Keep everything simple', '準備每個細節', '保持簡單', 'Preparar cada detalle', 'Mantenerlo simple'],
+  ['Nói thẳng suy nghĩ', 'Nói nhẹ nhàng khéo léo', 'Speak directly', 'Speak gently and tactfully', '直接說出想法', '溫和委婉地說', 'Hablar directamente', 'Hablar con suavidad y tacto'],
+  ['Vận động cho khỏe', 'Nghỉ ngơi thật thoải mái', 'Get active', 'Rest comfortably', '活動身體', '舒服休息', 'Mantenerse activo', 'Descansar cómodamente'],
+  ['Tự xử lý trước', 'Nhờ người khác giúp', 'Handle it yourself first', 'Ask someone for help', '先自己處理', '請別人幫忙', 'Resolverlo primero por tu cuenta', 'Pedir ayuda a alguien'],
+  ['Theo lịch cố định', 'Linh hoạt theo cảm xúc', 'Follow a set schedule', 'Stay flexible with your mood', '照固定行程', '隨心情彈性調整', 'Seguir un horario fijo', 'Ser flexible según el ánimo'],
+];
+
+const EXTRA_QUESTIONS = EXTRA_CONTEXTS.flatMap((prompt) => EXTRA_AXES.map((pair) => ({ prompt, pair })));
+
 const LANGUAGE_OFFSET = Object.freeze({ vi: 0, en: 2, zh: 4, es: 6 });
 
-export const COMPATIBILITY_BANK_VERSION = 1;
-export const COMPATIBILITY_QUESTIONS = Object.freeze(PAIRS.map((pair, index) => Object.freeze({
+export const COMPATIBILITY_BANK_VERSION = 2;
+export const COMPATIBILITY_QUESTIONS = Object.freeze([
+  ...PAIRS.map((pair) => ({ pair, prompt: null })),
+  ...EXTRA_QUESTIONS,
+].map(({ pair, prompt }, index) => Object.freeze({
   id: `cq-${String(index + 1).padStart(3, '0')}`,
   pair: Object.freeze(pair.slice()),
+  prompt: prompt ? Object.freeze(prompt.slice()) : null,
 })));
 
 const BY_ID = new Map(COMPATIBILITY_QUESTIONS.map((question) => [question.id, question]));
@@ -117,5 +176,9 @@ export function compatibilityQuestion(id, language = 'vi') {
   const question = BY_ID.get(id);
   if (!question) return null;
   const offset = LANGUAGE_OFFSET[language] ?? LANGUAGE_OFFSET.vi;
-  return { id, options: [question.pair[offset], question.pair[offset + 1]] };
+  return {
+    id,
+    prompt: question.prompt?.[offset / 2] || null,
+    options: [question.pair[offset], question.pair[offset + 1]],
+  };
 }
