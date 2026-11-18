@@ -56,6 +56,18 @@ test('Cinema đặt ô nhập ngay dưới lịch sử trò chuyện và giữ t
   assert.match(client, /participants\.get\(message\.participantId\)\?\.displayName \|\| message\.displayName \|\| 'Khách'/);
 });
 
+test('HUD ưu tiên trạng thái và thao tác thường dùng, gom chức năng phụ vào menu', () => {
+  const temple = readFileSync(resolveWebFile('/chanh-dien.html'), 'utf8');
+  const cinema = readFileSync(resolveWebFile('/room.html'), 'utf8');
+  const templeClient = readFileSync(resolveWebFile('/chanh-dien.js'), 'utf8');
+  assert.doesNotMatch(temple, /id="shopChip"/);
+  assert.match(temple, /id="presence"[\s\S]*id="coinChip"[\s\S]*id="gemChip"/);
+  assert.match(templeClient, /\{ element: shopButton, label: 'menu\.shop' \}/);
+  assert.match(cinema, /class="hud-actions"[\s\S]*id="coinChip"[\s\S]*id="gemChip"[\s\S]*id="fullscreen"[\s\S]*class="hud-more"/);
+  assert.match(cinema, /id="hudTools"[\s\S]*data-tool="send"[\s\S]*data-tool="queue"[\s\S]*data-tool="chat"[\s\S]*data-tool="react"[\s\S]*class="tool-more"/);
+  for (const tool of ['seat', 'people', 'private', 'donate']) assert.match(cinema, new RegExp(`class="tool-more-panel"[\\s\\S]*data-tool="${tool}"`));
+});
+
 test('web không cho thoát khỏi public directory', () => {
   assert.equal(resolvePublicFile('/../../package.json'), null);
   assert.equal(resolveWebFile('/thien/assets/../../../package.json'), null);

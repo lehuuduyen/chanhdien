@@ -43,12 +43,11 @@
 
       <div class="hud top">
         <a class="chip back" href="/" data-i18n-aria="hud.back" aria-label="Về sảnh">←</a>
-        <span class="chip" id="presence"><i></i><span id="statusText" data-i18n="hud.notIn">Chưa vào</span><b id="count">0</b> <span data-i18n="hud.people">phật tử</span></span>
+        <span class="chip" id="presence"><i></i><span id="statusText" data-i18n="hud.notIn">Chưa vào</span><b id="count">0</b> <span class="presence-label" data-i18n="hud.people">phật tử</span></span>
         <!-- Xu Vườn Công Đức (bán trái cây; dùng cược ở phòng game): luôn hiện, bấm để mở ví. -->
         <button type="button" class="chip coin-chip" id="coinChip" data-i18n-title="coins.title" title="Xu Vườn Công Đức">🪙 <b id="coinCount">—</b></button>
-        <!-- Kim cương (nạp qua Stripe, mua hình nhân vật): bấm để mở các gói nạp; 🛍 mở Shop nhân vật. -->
+        <!-- Kim cương (nạp qua Stripe, mua hình nhân vật): bấm để mở các gói nạp. Shop nằm trong menu ⚙ vì ít dùng hơn. -->
         <button type="button" class="chip coin-chip gem-chip" id="gemChip" data-i18n-title="gem.chip" title="Kim cương · bấm để nạp">💎 <b id="gemCount">—</b></button>
-        <button type="button" class="chip shop-chip" id="shopChip" data-i18n-title="shop.open" title="Shop nhân vật">🛍</button>
         <span class="spacer"></span>
         <button type="button" class="chip me-chip" id="meChip" hidden></button>
         <span class="tools" id="tools" hidden>

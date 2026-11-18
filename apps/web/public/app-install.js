@@ -3,7 +3,9 @@
 // - Android / máy tính / iPad: nút ⛶ (cột góc nhìn khi màn rộng, mục "Màn hình" trong menu ⚙) gọi requestFullscreen.
 // - iPhone: Safari không cho trang tự toàn màn hình, nên hướng dẫn "Thêm vào MH chính" (hộp thoại ba bước).
 // - Chrome báo cài được (beforeinstallprompt) thì nút "Thêm vào màn hình chính" mở hộp cài của trình duyệt.
-// Điện thoại xoay ngang lần đầu (thanh địa chỉ chiếm chỗ nhất) thì gợi ý một lần, nhớ ở localStorage.
+// Điện thoại xoay ngang (Android): lần chạm đầu tiên sau khi xoay tự vào toàn màn hình (trình duyệt chỉ cho mở toàn màn
+// hình ngay sau một thao tác của người dùng), xoay dọc lại thì tự thoát. iPhone xoay ngang lần đầu thì gợi ý thêm vào màn
+// hình chính một lần, nhớ ở localStorage.
 import { onLangChange, t } from '/thien-i18n.js';
 
 const HINT_KEY = 'thien-app-hint';
@@ -154,16 +156,42 @@ export function createAppInstall({ stage, viewTools, toast = () => {}, ready = (
     if (!hint.hidden || standalone() || fullscreenElement() || !phoneLandscape.matches) return;
     if (!stage.classList.contains('view-3d') || !ready()) return;
     try { if (localStorage.getItem(HINT_KEY)) return; } catch { return; }
-    const action = canFullscreen ? 'fullscreen' : installable() ? 'install' : null;
-    if (!action) return;
+    // Máy toàn màn hình được thì đã tự vào ở lần chạm đầu (autoEnter): chỉ gợi ý cho máy không có (iPhone).
+    if (canFullscreen || !installable()) return;
     try { localStorage.setItem(HINT_KEY, String(Date.now())); } catch {}
-    hintText.textContent = t(action === 'fullscreen' ? 'app.hintFullscreen' : 'app.hintInstall');
-    hintGo.textContent = action === 'fullscreen' ? '⛶' : t('app.hintGo');
-    hintGo.onclick = action === 'fullscreen' ? toggleFullscreen : install;
+    hintText.textContent = t('app.hintInstall');
+    hintGo.textContent = t('app.hintGo');
+    hintGo.onclick = install;
     hint.hidden = false;
     clearTimeout(hintTimer);
     hintTimer = setTimeout(hideHint, 12_000);
   }
+
+  // Tự toàn màn hình khi xoay ngang: chờ lần chạm kế tiếp (pointerup / click mới được trình duyệt tính là thao tác người
+  // dùng). Tự thoát khi xoay dọc nếu chính trang đã tự mở; người dùng tự thoát (vuốt / nút back) thì thôi tới lần xoay sau.
+  let autoArmed = false;
+  let autoEntered = false;
+  const armAuto = () => {
+    autoArmed = canFullscreen && phoneLandscape.matches && !standalone() && !fullscreenElement();
+  };
+  const autoEnter = () => {
+    if (!autoArmed || !ready()) return;
+    autoArmed = false;
+    if (!phoneLandscape.matches || standalone() || fullscreenElement()) return;
+    hideHint();
+    const request = root.requestFullscreen || root.webkitRequestFullscreen;
+    Promise.resolve(request.call(root, { navigationUI: 'hide' })).then(() => { autoEntered = true; }, () => {});
+  };
+  for (const name of ['pointerup', 'click']) document.addEventListener(name, autoEnter, true);
+  phoneLandscape.addEventListener('change', () => {
+    if (phoneLandscape.matches) armAuto();
+    else {
+      autoArmed = false;
+      if (autoEntered && fullscreenElement()) (document.exitFullscreen || document.webkitExitFullscreen).call(document)?.catch?.(() => {});
+    }
+  });
+  for (const name of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(name, () => { if (!fullscreenElement()) autoEntered = false; });
+  armAuto();
 
   fullscreenButton.addEventListener('click', toggleFullscreen);
   viewButton.addEventListener('click', toggleFullscreen);
