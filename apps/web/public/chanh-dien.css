@@ -947,15 +947,21 @@ button.chip { cursor: pointer; }
     --dock-top: 0px;
     --dock: max(var(--dock-lecture), var(--dock-sheet));
     --wide-chip: clamp(26px, 8cqmin, 36px);
+    /* cqmin tăng rất mạnh trên iPad / cửa sổ gần vuông. Không chặn lại thì hàng phòng rơi xuống giữa bầu trời
+       (13cqmin có thể gần 100 px) và kéo mọi bảng phía dưới theo. Điện thoại ngang nhỏ vẫn dùng đúng tỉ lệ cũ. */
+    --wide-row-top: clamp(54px, 13cqmin, 76px);
+    --wide-gap: clamp(8px, 1.6cqmin, 12px);
     /* Ngay dưới hàng nút phòng (một dòng, hoặc nhiều dòng khi hẹp: --room-bar-bottom do placeRoomBar trong chanh-dien.js ghi). */
-    --wide-row2: max(13cqmin + var(--wide-chip) + 1.6cqmin, var(--room-bar-bottom, 0px) + 1.6cqmin);
+    --wide-row2: max(calc(var(--wide-row-top) + var(--wide-chip) + var(--wide-gap)), calc(var(--room-bar-bottom, 0px) + var(--wide-gap)));
     /* Chừa cột cần điều khiển hai bên để chat nằm giữa màn; có ngăn phải thì bên phải chỉ chừa ngăn. */
     --wide-side: calc(6cqmin + clamp(96px, 28cqmin, 130px));
     --wide-right: max(var(--wide-side), var(--dock) + 2.5cqmin);
   }
+  #stage.view-3d .hud.top { top: clamp(8px, 2.5cqmin, 18px); }
+  #stage.view-3d .view-tools, #stage.view-3d .room-bar { top: var(--wide-row-top); }
   /* Khung bài giảng (YouTube tối thiểu 200 × 200, không gì được đè lên) thành ngăn phải, từ dưới thanh trên trở xuống. */
   #stage.view-3d.in-hall:has(> .lecture:not([hidden])) { --dock-lecture: calc(216px + 2.5cqmin); }
-  #stage.view-3d .lecture { top: 13cqmin; left: auto; right: 2.5cqmin; }
+  #stage.view-3d .lecture { top: var(--wide-row-top); left: auto; right: 2.5cqmin; }
   /* Bảng (vườn, nông trại, linh thú, tin nhắn, bạn bè, trò hai người, chuỗi hạt, công trình chung): ngăn phải cao kín màn,
      cuộn bên trong; thanh trên co lại chừa chỗ. Thẻ (luống, ô ruộng, mộ, người chơi, Bấm giờ): thẻ nổi ở cột phải, đáy
      màn, không lên quá thanh trên. */
@@ -977,7 +983,7 @@ button.chip { cursor: pointer; }
   #stage.view-3d > .spirit-sheet { border-left-color: rgba(255, 210, 122, .35); }
   #stage.view-3d > :is(.garden-card, .social-card, .sw-card) {
     top: auto; left: auto; right: max(2.5cqmin, env(safe-area-inset-right, 0)); bottom: max(2.5cqmin, env(safe-area-inset-bottom, 0));
-    width: calc(var(--sheet) - 2.5cqmin); max-height: calc(100% - 13cqmin - 2.5cqmin); margin: 0; overflow-y: auto;
+    width: calc(var(--sheet) - 2.5cqmin); max-height: calc(100% - var(--wide-row-top) - 2.5cqmin); margin: 0; overflow-y: auto;
   }
   #stage.view-3d .dock-probe { width: var(--dock); }
   /* Đang mở bảng / thẻ: bảng Tấm lòng thành, dòng tin, thanh nông trại nhường chỗ (hiện lại khi đóng). */
@@ -989,7 +995,7 @@ button.chip { cursor: pointer; }
   #stage.view-3d .farm-hud { top: var(--wide-row2); right: calc(2.5cqmin + var(--dock)); }
   /* Thẻ Trốn tìm dưới nút "Ẩn chữ & nút" (cùng cột, nút này ở --wide-row2). */
   #stage.view-3d .hs-hud { top: calc(var(--wide-row2) + var(--wide-chip) + 1.6cqmin); right: calc(2.5cqmin + var(--dock)); max-width: min(300px, 66cqmin); max-height: calc(100% - var(--wide-row2) - 2 * var(--wide-chip) - var(--controls-gap, 64px) - 6cqmin); overflow-y: auto; }
-  #stage.view-3d .social-invites { top: 13cqmin; left: var(--wide-side); right: var(--wide-right); max-width: 440px; margin-inline: auto; }
+  #stage.view-3d .social-invites { top: var(--wide-row-top); left: var(--wide-side); right: var(--wide-right); max-width: 440px; margin-inline: auto; }
   #stage.view-3d .view-tools .fs-toggle:not([hidden]) { display: inline-flex; }
   /* Gợi ý toàn màn hình: dưới hàng nút phòng (hàng đó xuống dòng khi hẹp), thông báo lùi xuống dưới gợi ý. */
   #stage.view-3d .app-hint { top: var(--wide-row2); left: var(--wide-side); right: var(--wide-right); max-width: 460px; margin-inline: auto; transform: none; }
@@ -1006,8 +1012,8 @@ button.chip { cursor: pointer; }
   #stage.view-3d .hs-clean-toggle { top: var(--wide-row2); right: calc(2.5cqmin + var(--dock)); }
   #stage.view-3d .emote-bar { right: calc(2.5cqmin + var(--dock)); }
   #stage.view-3d :is(.near-sit, .temple-chore, .pet-actions, .toast) { left: calc((100% - var(--dock)) / 2); }
-  #stage.view-3d .joystick { bottom: max(2.5cqmin, env(safe-area-inset-bottom, 0)); }
-  #stage.view-3d .hud.bottom { left: var(--wide-side); right: var(--wide-right); width: auto; max-width: 600px; margin-inline: auto; }
+  #stage.view-3d .joystick { bottom: max(clamp(8px, 2.5cqmin, 18px), env(safe-area-inset-bottom, 0)); }
+  #stage.view-3d .hud.bottom { left: var(--wide-side); right: var(--wide-right); bottom: max(clamp(8px, 2.5cqmin, 18px), env(safe-area-inset-bottom, 0)); width: auto; max-width: 600px; margin-inline: auto; }
   /* Dòng tin: cạnh cần điều khiển, trên hàng nút động tác (hàng này dài ra bên trái khi có ngăn phải). */
   #stage.view-3d .feed { top: auto; right: auto; bottom: calc(var(--controls-gap, 64px) + var(--wide-chip) + 3cqmin); left: var(--wide-side); }
   /* Thông báo: dưới hàng nút phòng (hàng này xuống nhiều dòng khi có ngăn phải). */

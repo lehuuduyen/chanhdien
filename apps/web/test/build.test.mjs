@@ -10,7 +10,7 @@ test('build web tĩnh mang đủ trang, scene engine, Three.js và tài nguyên 
   t.after(() => rm(output, { recursive: true, force: true }));
   await buildWeb(output);
   for (const file of [
-    'index.html', 'chanh-dien.html', 'room.html', 'engine/renderer3d.mjs',
+    'index.html', 'chanh-dien.html', 'room.html', 'robots.txt', 'sitemap.xml', 'engine/renderer3d.mjs',
     'scenes/thien-default/scene.json', 'shared/room-rules.mjs',
     'models/ground/grass-all.base.567ae6b1.webp', 'models/ground/grass-all.normal.ddc960a5.webp',
     'models/ground/grass-all.roughness.3c775481.webp', 'models/ground/grass-pets.base.9aa7b911.webp',
@@ -18,4 +18,5 @@ test('build web tĩnh mang đủ trang, scene engine, Three.js và tài nguyên 
     'vendor/three/build/three.module.js', 'thien/index.html', 'thien/assets/hall.webp',
   ]) assert.equal((await stat(path.join(output, file))).isFile(), true, file);
   assert.match(await readFile(path.join(output, 'index.html'), 'utf8'), /Chánh Điện Online/);
+  assert.match(await readFile(path.join(output, 'robots.txt'), 'utf8'), /Sitemap: https:\/\/lotusgather\.online\/sitemap\.xml/);
 });

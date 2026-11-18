@@ -7,11 +7,50 @@ import { resolvePublicFile, resolveWebFile } from '../server.mjs';
 test('web resolve sảnh phòng', () => {
   const file = resolvePublicFile('/');
   assert.ok(file);
-  assert.match(readFileSync(file, 'utf8'), /Phòng trải nghiệm/);
+  assert.match(readFileSync(file, 'utf8'), /Chùa online dành cho người Việt/);
   assert.ok(resolveWebFile('/home-i18n.js'));
   assert.ok(resolveWebFile('/home.js'));
   assert.ok(resolveWebFile('/thien-scene.js'));
   assert.match(readFileSync(file, 'utf8'), /id="homeLanguage"/);
+});
+
+test('SEO công khai đúng trang chính, có canonical, sitemap và robots cho Google', async (t) => {
+  const { once } = await import('node:events');
+  const { createWebServer } = await import('../server.mjs');
+  const indexed = [
+    ['/', 'https://lotusgather.online/'],
+    ['/chanh-dien.html', 'https://lotusgather.online/chanh-dien.html'],
+    ['/room.html', 'https://lotusgather.online/room.html'],
+  ];
+  for (const [pathname, canonical] of indexed) {
+    const html = readFileSync(resolveWebFile(pathname), 'utf8');
+    assert.match(html, /<meta name="description" content="[^"]{50,}"/i, pathname);
+    assert.match(html, new RegExp(`<link rel="canonical" href="${canonical.replaceAll('.', '\\.')}">`), pathname);
+    assert.match(html, /<meta name="robots" content="index, follow,/i, pathname);
+  }
+  const home = readFileSync(resolveWebFile('/'), 'utf8');
+  assert.match(home, /<script type="application\/ld\+json">[\s\S]*"@type": "WebSite"[\s\S]*"@type": "WebApplication"/);
+
+  const noindex = ['/admin-thien.html', '/shop.html', '/ung-ho.html', '/ho-tro.html', '/game.html', '/tai-xiu.html', '/loto.html', '/oan-tu-ti.html', '/tien-len.html', '/scene-demo.html'];
+  for (const pathname of noindex) assert.match(readFileSync(resolveWebFile(pathname), 'utf8'), /<meta name="robots" content="noindex,/i, pathname);
+
+  const robots = readFileSync(resolveWebFile('/robots.txt'), 'utf8');
+  assert.match(robots, /^User-agent: \*$/m);
+  assert.match(robots, /^Sitemap: https:\/\/lotusgather\.online\/sitemap\.xml$/m);
+  const sitemap = readFileSync(resolveWebFile('/sitemap.xml'), 'utf8');
+  for (const [, canonical] of indexed) assert.match(sitemap, new RegExp(`<loc>${canonical.replaceAll('.', '\\.')}</loc>`));
+  assert.doesNotMatch(sitemap, /admin-thien|game\.html|shop\.html/);
+
+  const web = createWebServer().listen(0, '127.0.0.1');
+  await once(web, 'listening');
+  t.after(() => new Promise((resolve) => web.close(resolve)));
+  const base = `http://127.0.0.1:${web.address().port}`;
+  const robotsResponse = await fetch(`${base}/robots.txt`);
+  const sitemapResponse = await fetch(`${base}/sitemap.xml`);
+  assert.equal(robotsResponse.status, 200);
+  assert.match(robotsResponse.headers.get('content-type'), /^text\/plain/);
+  assert.equal(sitemapResponse.status, 200);
+  assert.match(sitemapResponse.headers.get('content-type'), /^application\/xml/);
 });
 
 test('web phục vụ phòng Thiền và asset legacy trong cùng origin', () => {
@@ -60,12 +99,16 @@ test('HUD ưu tiên trạng thái và thao tác thường dùng, gom chức năn
   const temple = readFileSync(resolveWebFile('/chanh-dien.html'), 'utf8');
   const cinema = readFileSync(resolveWebFile('/room.html'), 'utf8');
   const templeClient = readFileSync(resolveWebFile('/chanh-dien.js'), 'utf8');
+  const templeStyles = readFileSync(resolveWebFile('/chanh-dien.css'), 'utf8');
   assert.doesNotMatch(temple, /id="shopChip"/);
   assert.match(temple, /id="presence"[\s\S]*id="coinChip"[\s\S]*id="gemChip"/);
   assert.match(templeClient, /\{ element: shopButton, label: 'menu\.shop' \}/);
   assert.match(cinema, /class="hud-actions"[\s\S]*id="coinChip"[\s\S]*id="gemChip"[\s\S]*id="fullscreen"[\s\S]*class="hud-more"/);
   assert.match(cinema, /id="hudTools"[\s\S]*data-tool="send"[\s\S]*data-tool="queue"[\s\S]*data-tool="chat"[\s\S]*data-tool="react"[\s\S]*class="tool-more"/);
   for (const tool of ['seat', 'people', 'private', 'donate']) assert.match(cinema, new RegExp(`class="tool-more-panel"[\\s\\S]*data-tool="${tool}"`));
+  assert.match(templeStyles, /--wide-row-top:\s*clamp\(54px,\s*13cqmin,\s*76px\)/, 'màn gần vuông không kéo hàng phòng xuống giữa cảnh');
+  assert.match(templeStyles, /\.view-tools,\s*#stage\.view-3d \.room-bar\s*\{\s*top:\s*var\(--wide-row-top\)/, 'công cụ và phòng nằm cùng hàng gọn');
+  assert.match(templeStyles, /\.hud\.bottom\s*\{[^}]*bottom:\s*max\(clamp\(8px,\s*2\.5cqmin,\s*18px\)/s, 'thanh dưới luôn nằm trọn trong khung');
 });
 
 test('web không cho thoát khỏi public directory', () => {
