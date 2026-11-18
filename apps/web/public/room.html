@@ -74,22 +74,32 @@
           <div class="hud-actions">
             <button type="button" class="coin" id="coinChip" title="Xu Vườn Công Đức (bán trái cây, dùng ở phòng game)">🪙 <b id="coinCount">—</b></button>
             <button type="button" class="coin gem" id="gemChip" title="Kim cương · bấm để nạp">💎 <b id="gemCount">—</b></button>
-            <button type="button" id="support" title="Góp ý / Báo lỗi" aria-label="Góp ý / Báo lỗi">🛟</button>
-            <button type="button" id="copyLink" title="Chép link phòng" aria-label="Chép link phòng">🔗</button>
             <button type="button" id="fullscreen" title="Xem ngang, phóng to màn chiếu" aria-label="Xem ngang, phóng to màn chiếu">⛶</button>
-            <button type="button" id="hideHud" title="Ẩn giao diện" aria-label="Ẩn giao diện">👁</button>
+            <details class="hud-more" id="hudMore">
+              <summary title="Thêm tùy chọn" aria-label="Thêm tùy chọn">•••</summary>
+              <div class="hud-more-panel" role="menu">
+                <button type="button" id="copyLink" role="menuitem"><b>🔗</b><span>Sao chép link phòng</span></button>
+                <button type="button" id="hideHud" role="menuitem"><b>👁</b><span>Ẩn giao diện</span></button>
+                <button type="button" id="support" role="menuitem"><b>🛟</b><span>Góp ý / Báo lỗi</span></button>
+              </div>
+            </details>
           </div>
         </div>
 
         <nav class="hud hud-tools" id="hudTools" aria-label="Công cụ">
-          <button type="button" data-tool="seat"><b>💺</b><span>Đổi ghế</span></button>
           <button type="button" data-tool="send"><b>➕</b><span>Gửi video</span></button>
           <button type="button" data-tool="queue"><b>📃</b><span>Hàng chờ</span><i class="badge" id="queueBadge" hidden></i></button>
           <button type="button" data-tool="chat"><b>💬</b><span>Trò chuyện</span><i class="badge" id="chatBadge" hidden></i></button>
           <button type="button" data-tool="react"><b>✨</b><span>Tương tác</span></button>
-          <button type="button" data-tool="people"><b>👥</b><span>Người xem</span></button>
-          <button type="button" data-tool="private"><b>🔒</b><span>Phòng riêng</span></button>
-          <button type="button" data-tool="donate"><b>💝</b><span>Ủng hộ</span></button>
+          <details class="tool-more">
+            <summary><b>•••</b><span>Thêm</span></summary>
+            <div class="tool-more-panel" role="menu">
+              <button type="button" data-tool="seat" role="menuitem"><b>💺</b><span>Đổi ghế</span></button>
+              <button type="button" data-tool="people" role="menuitem"><b>👥</b><span>Người xem</span></button>
+              <button type="button" data-tool="private" role="menuitem"><b>🔒</b><span>Phòng riêng</span></button>
+              <button type="button" data-tool="donate" role="menuitem"><b>💝</b><span>Ủng hộ</span></button>
+            </div>
+          </details>
         </nav>
         <div class="reaction-picker" id="reactionPicker" role="menu" hidden>
           <button type="button" data-reaction="clap" aria-label="Vỗ tay">👏</button>

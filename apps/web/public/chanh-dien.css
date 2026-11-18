@@ -90,11 +90,13 @@ button.chip { cursor: pointer; }
 .quest-reward { color: var(--gold); font-weight: 700; }
 .coin-chip b { color: var(--gold); font-variant-numeric: tabular-nums; }
 .gem-chip b { color: #7fd7ff; }
-.shop-chip { cursor: pointer; }
 /* Đang kết nối thì hiện chữ trạng thái; đã kết nối chỉ cần chấm xanh và số người. */
 #presence.online #statusText { display: none; }
 #presence #statusText::after { content: " ·"; }
-@container (max-width: 360px) { #nowPlaying { display: none; } }
+@container (max-width: 360px) {
+  #nowPlaying, #presence .presence-label { display: none; }
+  #presence #statusText::after { content: ""; }
+}
 
 .board { position: absolute; z-index: 5; top: 13cqmin; right: 2.5cqmin; width: 40cqmin; padding: 1.6cqmin 2.4cqmin; color: var(--fg); text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 2.8cqmin; font-size: clamp(9px, 2.7cqmin, 12px); cursor: pointer; }
 .board h2 { display: flex; justify-content: space-between; align-items: baseline; gap: 1cqmin; margin: 0 0 .8cqmin; color: var(--gold); font-family: var(--display); font-size: 1em; letter-spacing: .06em; text-transform: uppercase; }
@@ -960,8 +962,14 @@ button.chip { cursor: pointer; }
   #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet):not([hidden])) { --dock-sheet: var(--sheet); --dock-top: var(--sheet); }
   #stage.view-3d:has(> :is(.garden-card, .social-card, .sw-card):not([hidden])) { --dock-sheet: var(--sheet); }
   #stage.view-3d .hud.top { right: calc(2.5cqmin + var(--dock-top)); }
+  /* iPhone xoay ngang: #wrap chừa vùng tai thỏ hai bên nên nút bấm luôn nằm trong vùng an toàn; riêng cảnh 3D và các lớp
+     phủ kín (hộp thoại, hướng dẫn khu, màn đen trốn tìm, cổng, chuyển phòng) tràn ra hai dải đó cho kín màn hình. Ngăn phải
+     tràn tới mép, nội dung vẫn trong vùng an toàn (padding-right). Máy không có tai thỏ: --bleed-* = 0, không đổi gì. */
+  #stage.view-3d { --bleed-l: env(safe-area-inset-left, 0px); --bleed-r: env(safe-area-inset-right, 0px); overflow: visible; }
+  #stage.view-3d > #scene3d { left: calc(-1 * var(--bleed-l)); width: calc(100% + var(--bleed-l) + var(--bleed-r)); }
+  #stage.view-3d > :is(.ledger, .zone-guide, .hs-blind, .gate, .room-switch, .boot) { left: calc(-1 * var(--bleed-l)); right: calc(-1 * var(--bleed-r)); }
   #stage.view-3d > :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet) {
-    inset: 0 0 0 auto; width: var(--sheet);
+    inset: 0 calc(-1 * var(--bleed-r)) 0 auto; width: calc(var(--sheet) + var(--bleed-r));
     padding-top: max(14px, env(safe-area-inset-top, 0)); padding-right: max(18px, env(safe-area-inset-right, 0));
     border: 0; border-left: 1px solid var(--line); border-radius: 22px 0 0 22px; box-shadow: -20px 0 50px rgba(0, 0, 0, .6);
   }

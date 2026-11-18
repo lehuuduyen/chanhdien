@@ -354,7 +354,12 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     effects.sticks.push({ group, stick, ember, t: 0 });
   }
   let participants = [];
+  // insets: phần trang báo bị giao diện che (đích); shownInsets: phần đang dùng để dời tâm, trượt dần về đích (mở / đóng
+  // ngăn phải ở màn rộng không làm cả cảnh nhảy một cái).
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
+  let shownInsets = { ...insets };
+  let insetTween = null;
+  const INSET_MS = 300;
   let size = { width: 0, height: 0 };
   let destroyed = false;
   let frames = 0;
@@ -404,17 +409,34 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     const portraitChanged = !first && (width < height) !== (size.width < size.height);
     size = { width, height };
     renderer.setSize(width, height, false);
-    // Lần đầu hoặc xoay ngang/dọc: đặt lại góc mặc định cho vừa khung; còn lại giữ góc người dùng đang xem.
-    if (first || portraitChanged) resetView();
-    else applyView();
+    // Lần đầu hoặc xoay ngang/dọc: đặt lại góc mặc định cho vừa khung (khoảng chừa nhảy thẳng tới đích); còn lại giữ góc
+    // người dùng đang xem.
+    if (first || portraitChanged) {
+      shownInsets = { ...insets };
+      insetTween = null;
+      resetView();
+    } else applyView();
   }
 
   // Khoảng chừa cho thanh điều khiển (và ngăn bên phải ở màn rộng): dời tâm phối cảnh vào giữa phần còn lại (không thu
   // nhỏ khung WebGL).
   function applyView() {
+    const view = shownInsets;
     camera.aspect = size.width / size.height;
-    camera.setViewOffset(size.width, size.height, (insets.right - insets.left) / 2, (insets.bottom - insets.top) / 2, size.width, size.height);
+    camera.setViewOffset(size.width, size.height, (view.right - view.left) / 2, (view.bottom - view.top) / 2, size.width, size.height);
     camera.updateProjectionMatrix();
+  }
+
+  // Trượt khoảng chừa về đích trong INSET_MS, chậm – nhanh – chậm (bắt đầu êm, không giật); true khi vừa đổi.
+  function stepInsets(time) {
+    if (!insetTween) return false;
+    const t = reduceMotion ? 1 : Math.min(1, Math.max(0, (time - insetTween.start) / INSET_MS));
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - ((2 - 2 * t) ** 3) / 2;
+    for (const key of ['top', 'bottom', 'left', 'right']) {
+      shownInsets[key] = insetTween.from[key] + (insets[key] - insetTween.from[key]) * eased;
+    }
+    if (t >= 1) insetTween = null;
+    return true;
   }
 
   function removePerson(id) {
@@ -704,6 +726,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     resize();
     const dt = Math.min((time - last) / 1000, 0.05);
     last = time;
+    if (stepInsets(time)) applyView();
     // Quay video giới thiệu: camera bay theo kịch bản (debugView), không qua giới hạn khoảng cách / góc của OrbitControls.
     if (cinematic) camera.lookAt(controls.target);
     else controls.update();
@@ -890,8 +913,15 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     offer,
     setInsets(next) {
       const side = (key) => Math.max(0, next[key] || 0);
-      insets = { top: side('top'), bottom: side('bottom'), left: side('left'), right: side('right') };
-      applyView();
+      const target = { top: side('top'), bottom: side('bottom'), left: side('left'), right: side('right') };
+      if (Object.keys(target).every((key) => target[key] === insets[key])) return;
+      insets = target;
+      // Chưa vẽ khung nào (mới dựng cảnh) hoặc đang tạm dừng vẽ: nhảy thẳng tới đích; còn lại vòng vẽ trượt dần.
+      if (!size.width || paused) {
+        shownInsets = { ...insets };
+        insetTween = null;
+        applyView();
+      } else insetTween = { from: { ...shownInsets }, start: performance.now() };
     },
     // Về góc mặc định (sau lưng khán đường nhìn lên bàn thờ).
     setCamera() {
@@ -913,6 +943,8 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
         pixelRatio: renderer.getPixelRatio(),
         shadows: courtyard?.shadowsEnabled() || false,
         paused,
+        insets: { ...shownInsets },
+        camera: camera.position.toArray().map((value) => Math.round(value * 1000) / 1000),
         quality: ['màu nhẹ mặc định', 'độ phân giải 1×', 'giảm chi tiết'][quality.level],
       };
     },

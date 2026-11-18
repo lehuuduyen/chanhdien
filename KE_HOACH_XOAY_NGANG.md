@@ -178,7 +178,9 @@ Mở một thẻ (vườn, nông trại, Bấm giờ, trò hai người, linh th
   200 × 200 để còn chỗ cho chat. Dưới 1300 px ngăn đè lên khung bài giảng như bản dọc. iPad / máy tính (≥ 1000 × 600):
   khung bài giảng 16:9 356 × 200 khi không mở ngăn.
 - Camera dời tâm: `#dockProbe` (ô ẩn rộng đúng `--dock`) + ResizeObserver → `updateInsets()` → `setInsets({ right })`, nên
-  bảng / thẻ mới chỉ cần thêm class vào danh sách trong khối "Màn rộng" là tự dời cảnh.
+  bảng / thẻ mới chỉ cần thêm class vào danh sách trong khối "Màn rộng" là tự dời cảnh. Bộ vẽ trượt tâm tới chỗ mới trong
+  0,3 giây (chậm – nhanh – chậm, `stepInsets` trong `renderer3d.mjs`) thay vì nhảy một khung — trước đây chạm ô ruộng / luống
+  ở màn ngang làm cả cảnh giật sang trái một cái; `stats().insets` cho khoảng chừa đang dùng.
 - Đang mở bảng / thẻ: ẩn bảng Tấm lòng thành, dòng tin, thanh nông trại. `placeRoomBar()` ghi `--room-bar-bottom` để bảng
   Tấm lòng thành, bảng Đi nhanh, thanh nông trại, thông báo luôn dưới hàng nút phòng (hàng này xuống 2–3 dòng khi hẹp).
   Dòng tin lên trên hàng nút động tác; thẻ Trốn tìm dưới nút "Ẩn chữ & nút", giới hạn cao (cuộn), rộng tới 300 px; nút
@@ -250,3 +252,11 @@ Mở một thẻ (vườn, nông trại, Bấm giờ, trò hai người, linh th
 - **Cần thử trên máy thật** (chưa làm được ở máy dev): iPhone Safari thêm vào màn hình chính rồi mở từ biểu tượng (toàn màn
   hình, xoay ngang, vùng tai thỏ), video YouTube trong rạp, đăng nhập Google và thanh toán Stripe khi mở từ biểu tượng (trang
   ngoài mở trong khung Safari riêng), Android Chrome hộp cài + nút ⛶, iPad ngang.
+- Sửa sau thử máy thật (17/11/2026): **iPhone ngang chưa kín màn hình** — `#wrap` chừa vùng tai thỏ hai bên (~47–59 px) nên hai
+  dải đen; nay cảnh 3D và các lớp phủ kín (hộp thoại, hướng dẫn khu, màn đen trốn tìm, cổng, chuyển phòng) tràn ra hai dải
+  đó (`--bleed-l` / `--bleed-r` = `env(safe-area-inset-*)`, `#stage.view-3d` thôi cắt viền), nút bấm vẫn trong vùng an
+  toàn, ngăn phải tràn tới mép với nội dung trong vùng an toàn; `updateInsets()` tính ngăn phải theo khung cảnh 3D. Kiểm bằng
+  `Emulation.setSafeAreaInsetsOverride` (47 / 47 / 21): cảnh phủ 844 px, cột nút bắt đầu ở 57 px. **Android xoay ngang**
+  tự toàn màn hình ở lần chạm đầu sau khi vào sân (trình duyệt chỉ cho mở sau một thao tác: `pointerup` / `click`), xoay
+  dọc thì tự thoát nếu trang tự mở; người dùng tự thoát thì thôi tới lần xoay sau. Gợi ý một lần giờ chỉ còn cho máy không
+  toàn màn hình được (iPhone: thêm vào màn hình chính).

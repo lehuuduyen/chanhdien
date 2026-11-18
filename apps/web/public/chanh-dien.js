@@ -269,6 +269,11 @@ const lecture = createLecture({
 });
 
 let currentPlace = null;
+// Ngoài chánh điện (sân, vườn, nông trại…) màn hình giữ gọn: không hiện thông báo dâng lễ, sớ, lên cấp của người khác;
+// dòng tin chỉ hiện tin nhắn của mình và của TOP 1–3 công đức trong phòng. Tin của người khác vẫn có bong bóng trên đầu
+// và trong 💬 Tin nhắn; lễ vẫn hiện trong cảnh.
+const outsideHall = () => Boolean(currentPlace) && currentPlace !== 'hall';
+const quietNotice = (participantId) => participantId !== session.participantId && outsideHall();
 function setCurrentPlace(place) {
   currentPlace = place;
   if (!place) return;
@@ -720,7 +725,10 @@ function updateInsets() {
   const stage = elements.stage.getBoundingClientRect();
   const top = elements.topBar.getBoundingClientRect().bottom - stage.top + 4;
   const bottom = elements.controls.hidden ? 0 : stage.bottom - elements.controls.getBoundingClientRect().top + 4;
-  renderer.setInsets({ top, bottom, right: elements.dockProbe.offsetWidth });
+  // Ngăn phải: tính theo khung cảnh 3D (ở iPhone xoay ngang cảnh tràn qua vùng tai thỏ, rộng hơn khung #stage).
+  const dock = elements.dockProbe.getBoundingClientRect();
+  const canvas = (viewMode === '3d' ? elements.scene3d : elements.scene).getBoundingClientRect();
+  renderer.setInsets({ top, bottom, right: dock.width ? Math.max(0, canvas.right - dock.left) : 0 });
 }
 // Màn rộng: hàng nút phòng (tên phòng, Đi nhanh, Trốn tìm…) tự xuống dòng khi hẹp; ghi đáy của hàng để bảng Tấm lòng
 // thành, bảng Đi nhanh… nằm ngay dưới (--wide-row2 trong chanh-dien.css, khối "Màn rộng"). Bản dọc không dùng.
@@ -914,7 +922,7 @@ function handleMessage(message) {
     for (const person of participants.values()) {
       const before = previous.get(person.id)?.level;
       if (before && person.level > before) {
-        say(person.displayName, t('feed.levelUp', { n: person.level, level: levelName(person.level) }), true, badgesOf(person.id));
+        if (!quietNotice(person.id)) say(person.displayName, t('feed.levelUp', { n: person.level, level: levelName(person.level) }), true, badgesOf(person.id));
         if (person.id === session.participantId) showToast(t('toast.levelUp', { level: levelName(person.level) }), badgesOf(person.id));
       }
     }
@@ -950,9 +958,10 @@ function handleMessage(message) {
     const name = nameOf(message.participantId, message.displayName);
     renderer?.offer(message.participantId, message.kind, { big });
     const badges = badgesOf(message.participantId);
-    say(name, `${act}${message.text ? ` · "${message.text}"` : ''}`, true, badges);
+    // Ngoài chánh điện: lễ của người khác không hiện ở dòng tin / thông báo (outsideHall).
+    if (!quietNotice(message.participantId)) say(name, `${act}${message.text ? ` · "${message.text}"` : ''}`, true, badges);
     // Đang chơi trốn tìm / đang ẩn chữ & nút: lễ của người khác không hiện thông báo (đè lên đồng hồ / tin bắt người).
-    if (mine || !hideSeek?.quiet()) showToast(`${name} ${act}${message.text ? ` — ${message.text}` : ''}`, badges);
+    if (mine || (!hideSeek?.quiet() && !outsideHall())) showToast(`${name} ${act}${message.text ? ` — ${message.text}` : ''}`, badges);
     // Ngoài chánh điện (sân, vườn, khu vui chơi…): lễ của người khác không phát tiếng (chuông, giọng đọc). Giọng đọc
     // giành loa trên điện thoại làm nhạc nền bị ngắt / hạ nhỏ liên tục khi trong điện đông người dâng lễ.
     if (!mine && currentPlace && currentPlace !== 'hall') return;
@@ -986,7 +995,10 @@ function handleMessage(message) {
   } else if (message.type === 'chat.message') {
     // Người mình đã chặn: không hiện lời chat của họ.
     if (social?.isBlocked(message.participantId)) return;
-    say(nameOf(message.participantId, message.displayName), message.text, false, badgesOf(message.participantId));
+    // Ngoài chánh điện: dòng tin chỉ hiện tin của mình và của TOP 1–3 công đức trong phòng (bong bóng thì ai cũng có).
+    if (!quietNotice(message.participantId) || [1, 2, 3].includes(roomRanks.get(message.participantId))) {
+      say(nameOf(message.participantId, message.displayName), message.text, false, badgesOf(message.participantId));
+    }
     if (!renderer?.say(message.participantId, message.text)) explore.say(message.participantId, message.text);
   } else if (message.type === 'hideseek.state') {
     hideSeek?.onState(message);
@@ -1222,8 +1234,11 @@ function reciteSlip() {
 function prayerReceived(message) {
   const name = nameOf(message.participantId, message.displayName);
   const text = t(message.kind === 'memorial' ? 'prayer.receivedMemorial' : 'prayer.receivedPeace', { name });
-  say(t('ceremony.teacher'), text, true);
-  showToast(text, badgesOf(message.participantId));
+  // Ngoài chánh điện: sớ của người khác không hiện ở dòng tin / thông báo (thầy vẫn đọc trong điện).
+  if (!quietNotice(message.participantId)) {
+    say(t('ceremony.teacher'), text, true);
+    showToast(text, badgesOf(message.participantId));
+  }
   renderer?.teacherRead?.(READING_MS, t('prayer.reading'));
   if (message.participantId === session.participantId) reciteSlip();
 }
@@ -1666,7 +1681,6 @@ const openShop = () => {
 };
 shopButton.addEventListener('click', openShop);
 $('openShop').addEventListener('click', openShop);
-$('shopChip').addEventListener('click', openShop);
 // Ô 💎 trên header: số kim cương; bấm mở các gói nạp (admin đặt) → Stripe.
 const gems = createGemUI({
   chip: $('gemChip'),

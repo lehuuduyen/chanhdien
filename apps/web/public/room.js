@@ -982,6 +982,8 @@ elements.drawerClose.addEventListener('click', () => openDrawer(drawerPart));
 elements.hudTools.addEventListener('click', (event) => {
   const tool = event.target.closest('[data-tool]')?.dataset.tool;
   if (!tool) return;
+  // Các thao tác ít dùng nằm trong “Thêm”: chọn xong đóng bảng để trả lại diện tích cho màn chiếu.
+  event.target.closest('details')?.removeAttribute('open');
   if (tool === 'react') {
     elements.reactionPicker.hidden = !elements.reactionPicker.hidden;
     event.target.closest('button').setAttribute('aria-pressed', String(!elements.reactionPicker.hidden));
@@ -1264,6 +1266,20 @@ function setHud(visible) {
 }
 elements.hideHud.addEventListener('click', () => setHud(false));
 elements.showHud.addEventListener('click', () => setHud(true));
+// Menu HUD dùng <details> để vẫn hoạt động khi JS đang tải. Đóng khi chọn mục, chạm ra ngoài hoặc nhấn Escape.
+document.addEventListener('click', (event) => {
+  const selected = event.target.closest('.hud-more-panel button, .tool-more-panel button');
+  if (selected) selected.closest('details')?.removeAttribute('open');
+});
+document.addEventListener('pointerdown', (event) => {
+  for (const menu of document.querySelectorAll('.hud-more[open], .tool-more[open]')) {
+    if (!menu.contains(event.target)) menu.removeAttribute('open');
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  for (const menu of document.querySelectorAll('.hud-more[open], .tool-more[open]')) menu.removeAttribute('open');
+});
 const hudObserver = new ResizeObserver(() => updateInsets());
 for (const element of [elements.stage, elements.hudTop, elements.hudBottom, elements.hudTools, elements.drawer]) hudObserver.observe(element);
 document.addEventListener('fullscreenchange', () => {
