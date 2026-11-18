@@ -243,3 +243,28 @@ test('giao diện chặn double-tap phóng chữ nhưng không chặn thao tác 
   assert.match(readFileSync(resolveWebFile('/chanh-dien.css'), 'utf8'), /#scene3d\s*\{[^}]*touch-action:\s*none/s);
   assert.match(readFileSync(resolveWebFile('/room.css'), 'utf8'), /#scene3d\s*\{[^}]*touch-action:\s*none/s);
 });
+
+test('cài như ứng dụng (PWA): manifest đúng kiểu file, đủ biểu tượng, trang người chơi đều trỏ tới manifest', async (t) => {
+  const { once } = await import('node:events');
+  const { createWebServer } = await import('../server.mjs');
+  const manifest = JSON.parse(readFileSync(resolveWebFile('/manifest.webmanifest'), 'utf8'));
+  assert.equal(manifest.display, 'fullscreen');
+  assert.equal(manifest.orientation, 'any');
+  assert.ok(resolveWebFile(manifest.start_url.split('?')[0]), 'start_url có thật');
+  for (const icon of manifest.icons) assert.ok(resolveWebFile(icon.src), icon.src);
+  assert.ok(manifest.icons.some((icon) => icon.purpose === 'maskable' && icon.sizes === '512x512'));
+  assert.ok(manifest.icons.some((icon) => icon.sizes === '192x192'));
+  assert.ok(resolveWebFile('/icons/apple-touch-icon.png'));
+  assert.ok(resolveWebFile('/app-install.js'));
+  for (const page of ['/', '/chanh-dien.html', '/room.html', '/game.html', '/tai-xiu.html', '/loto.html', '/oan-tu-ti.html', '/tien-len.html', '/shop.html', '/ung-ho.html', '/ho-tro.html']) {
+    const html = readFileSync(resolveWebFile(page), 'utf8');
+    assert.match(html, /<link rel="manifest" href="\/manifest\.webmanifest">/, page);
+    assert.match(html, /<link rel="apple-touch-icon" href="\/icons\/apple-touch-icon\.png">/, page);
+  }
+  const web = createWebServer().listen(0, '127.0.0.1');
+  await once(web, 'listening');
+  t.after(() => new Promise((resolve) => web.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${web.address().port}/manifest.webmanifest`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^application\/manifest\+json/);
+});

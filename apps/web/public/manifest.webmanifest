@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "Chánh Điện Online",
+  "short_name": "Chánh Điện",
+  "description": "Chánh điện 3D xem chung: thiền, tụng kinh, khu vườn, rạp phim và phòng game.",
+  "lang": "vi",
+  "start_url": "/chanh-dien.html",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#120a06",
+  "theme_color": "#120a06",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

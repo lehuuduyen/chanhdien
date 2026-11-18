@@ -70,14 +70,19 @@ export function screenBox(theater) {
 }
 
 // Nới khung cho vừa tỷ lệ khung hình: màn rộng hơn khung thì nới đều hai bên; màn dọc (điện thoại) thì giữ mép trên
-// và kéo dài xuống dưới để thấy thêm khán giả.
-export function fitWindow(window, aspect) {
+// và kéo dài xuống dưới để thấy thêm khán giả. center: nới đều trên dưới (góc "zoom": màn chiếu nằm giữa).
+export function fitWindow(window, aspect, { center = false } = {}) {
   const width = window.x[1] - window.x[0];
   const height = window.y[1] - window.y[0];
   if (width / height < aspect) {
     const half = (height * aspect) / 2;
-    const center = (window.x[0] + window.x[1]) / 2;
-    return { x: [center - half, center + half], y: [...window.y] };
+    const middle = (window.x[0] + window.x[1]) / 2;
+    return { x: [middle - half, middle + half], y: [...window.y] };
+  }
+  if (center) {
+    const half = width / aspect / 2;
+    const middle = (window.y[0] + window.y[1]) / 2;
+    return { x: [...window.x], y: [middle - half, middle + half] };
   }
   return { x: [...window.x], y: [window.y[1] - width / aspect, window.y[1]] };
 }
@@ -119,7 +124,10 @@ export function cameraPose(scene, seats, cameraId, seatId, aspect, self = null) 
   // Màn dọc (điện thoại) có thể dùng khung riêng: khung ngang rộng để thấy tường hội tụ thì trên điện thoại màn
   // chiếu sẽ quá nhỏ (YouTube cần khung player ≥ 200 px).
   const window = aspect < 1 && camera.windowPortrait ? camera.windowPortrait : camera.window;
-  return { kind: 'window', position: [...camera.position], window: fitWindow({ x: window.x, y: window.y }, aspect) };
+  // Xem ngang (zoom) khi phần còn lại gần vuông (mở ngăn trò chuyện cạnh màn chiếu): màn chiếu nằm giữa theo chiều dọc.
+  // Màn dọc vẫn giữ mép trên (gợi ý xoay ngang hiện giữa màn, dưới màn chiếu).
+  const center = cameraId === 'zoom' && camera === cameras.zoom && aspect >= 0.8;
+  return { kind: 'window', position: [...camera.position], window: fitWindow({ x: window.x, y: window.y }, aspect, { center }) };
 }
 
 // ---- Đi lại trong rạp (góc nhìn nhân vật) ----

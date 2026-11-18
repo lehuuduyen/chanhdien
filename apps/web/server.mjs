@@ -25,6 +25,7 @@ const CONTENT_TYPES = Object.freeze({
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.glb': 'model/gltf-binary',
 });
 

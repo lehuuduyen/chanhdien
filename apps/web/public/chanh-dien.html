@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#120a06">
+  <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Chánh điện · Chánh Điện Online</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@500;600&family=Be+Vietnam+Pro:wght@400;600&display=swap">
@@ -85,6 +92,7 @@
         <div id="lecturePlayer"></div>
         <p id="lectureNote"></p>
       </section>
+      <div class="dock-probe" id="dockProbe" aria-hidden="true"></div>
       <button type="button" class="board hall-only" id="boardPanel" data-i18n-aria="board.aria" aria-label="Tấm lòng thành, bấm để xem sổ công đức">
         <h2><span data-i18n="board.title">Tấm lòng thành</span> <small data-i18n="board.open">Xem sổ ›</small></h2>
         <ol id="board"></ol>

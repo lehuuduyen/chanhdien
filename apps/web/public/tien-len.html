@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#08251a">
+  <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Phòng game · Tiến Lên · Chánh Điện Online</title>
   <style>
     /* Tiến lên miền Nam: bàn 2–4 người theo thời gian thực. Máy realtime chia bài + làm trọng tài; ví xu Vườn Công Đức
@@ -213,6 +220,59 @@
     .sheet-card ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.55; color: var(--fg); }
     .sheet-card .chip { cursor: pointer; }
     @media (prefers-reduced-motion: reduce) { .flash.chop { animation: none; } .hand .card { transition: none; } }
+
+    /* ---- Màn rộng (điện thoại xoay ngang, iPad ngang, máy tính). Màn dọc không đổi. ---- */
+    @media (min-aspect-ratio: 1/1) {
+      /* Sảnh hai cột: chọn kiểu / mức cược bên trái, bàn đang mở bên phải. */
+      #lobbyView { max-width: 1040px; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-areas: "bar games" "title tables" "sub tables" "pick tables" "message tables" "note note"; grid-template-rows: auto auto auto auto minmax(0, 1fr) auto; align-content: start; column-gap: 16px; row-gap: 8px; }
+      #lobbyView > .bar { grid-area: bar; }
+      #lobbyView > .games { grid-area: games; align-self: center; }
+      #lobbyView > h1 { grid-area: title; }
+      #lobbyView > .sub { grid-area: sub; margin: 0; }
+      #lobbyView > .pick { grid-area: pick; }
+      #lobbyView > .message { grid-area: message; }
+      #lobbyView > .open-tables { grid-area: tables; align-self: start; }
+      #lobbyView > .note { grid-area: note; }
+      .open-tables .tables { max-height: none; }
+      .board { max-width: 820px; padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right)); }
+    }
+    @media (min-aspect-ratio: 1/1) and (min-height: 600px) {
+      #lobbyView { grid-template-rows: none; align-content: center; }
+    }
+    /* Điện thoại ngang (thấp): bàn chơi gọn để không chồng nhau — ba đối thủ một hàng (trái, trên, phải theo vị trí ngồi),
+       lá trên tay nhỏ hơn, bốn nút xếp 2 × 2 bên phải bài; màn kết quả theo cả bàn (không bó trong khoảng giữa). */
+    @media (min-aspect-ratio: 1/1) and (max-height: 520px) {
+      #lobbyView { grid-template-areas: "bar games" "pick tables" "message tables" "note note"; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+      #lobbyView > h1, #lobbyView > .sub { display: none; }
+      .board { max-width: none; }
+      .arena { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto minmax(0, 1fr); gap: 4px; padding-top: 2px; }
+      .seat.left { grid-column: 1; grid-row: 1; align-self: start; }
+      .seat.top { grid-column: 2; grid-row: 1; }
+      .seat.right { grid-column: 3; grid-row: 1; align-self: start; }
+      .seat { grid-template-columns: auto minmax(0, max-content); justify-content: center; align-items: center; column-gap: 8px; row-gap: 1px; text-align: left; }
+      .seat > * { grid-column: 2; justify-self: start; }
+      .seat .avatar { grid-column: 1; grid-row: 1 / span 3; width: 42px; height: 42px; font-size: 22px; }
+      .seat .mini-hand { grid-column: 1 / -1; justify-self: center; }
+      .center { grid-column: 1 / -1; position: relative; gap: 2px; }
+      .flash { position: absolute; z-index: 2; top: 0; left: 0; right: 0; min-height: 0; pointer-events: none; }
+      .pile { min-height: 60px; }
+      .pile .card { width: 42px; height: 60px; margin-left: -18px; font-size: 14px; }
+      .who-played, .status { min-height: 0; font-size: 12px; }
+      .me { grid-template-columns: minmax(0, 1fr) clamp(170px, 26%, 230px); column-gap: 10px; row-gap: 4px; }
+      .me > * { grid-column: 1 / -1; }
+      .board-message { min-height: 0; }
+      .hand { grid-column: 1; min-height: 88px; padding-top: 14px; }
+      .hand .card { width: 50px; height: 74px; font-size: 16px; }
+      .hand .card.on { transform: translateY(-14px); }
+      .buttons { grid-column: 2; grid-template-columns: 1fr 1fr; align-self: end; }
+      .buttons button { height: 42px; font-size: 13px; }
+      .buttons .play { font-size: 15px; }
+    }
+    /* Màn lớn (iPad ngang, máy tính): cỡ chữ / nút tính bằng px nên phóng to cả sảnh và bàn chơi theo bậc. */
+    @media (min-aspect-ratio: 1/1) and (min-width: 1100px) and (min-height: 760px) { :root { --zoom: 1.15; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1300px) and (min-height: 860px) { :root { --zoom: 1.3; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1700px) and (min-height: 1000px) { :root { --zoom: 1.5; } }
+    .app, .board { zoom: var(--zoom, 1); }
   </style>
 </head>
 <body>
@@ -243,7 +303,7 @@
     <h1>Tiến Lên</h1>
     <p class="sub" id="online">Đang vào sảnh…</p>
 
-    <section class="panel" aria-label="Chọn bàn">
+    <section class="panel pick" aria-label="Chọn bàn">
       <h2><span>Kiểu tính tiền</span><button type="button" class="link" id="rulesOpen">📖 Luật chơi</button></h2>
       <div class="modes" id="modes" role="group" aria-label="Kiểu tính tiền">
         <button type="button" data-mode="rank"><b>A · Xếp hạng</b><small>Bét trả nhất 2 phần, ba trả nhì 1 phần</small></button>
@@ -261,7 +321,7 @@
 
     <p class="message" id="message" role="status" aria-live="polite"></p>
 
-    <section class="panel" aria-label="Bàn đang mở">
+    <section class="panel open-tables" aria-label="Bàn đang mở">
       <h2><span>Bàn đang mở</span><span>Tự ghép 2–4 người</span></h2>
       <ul class="tables" id="tables"><li class="empty">Chưa có bàn nào · bấm Tạo bàn</li></ul>
     </section>

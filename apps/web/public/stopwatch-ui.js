@@ -92,9 +92,15 @@ export function createStopwatchUI({ stage, host, controls, t, onLangChange, loca
   const history = el('div', 'sw-history');
   card.append(head, play, history);
   stage.append(card);
+  const wide = matchMedia('(min-aspect-ratio: 1/1)');
+  wide.addEventListener('change', () => { if (open) place(); });
 
   function place() {
-    // Ngay trên thanh chat / nút hành động.
+    // Ngay trên thanh chat / nút hành động. Màn rộng khi 3D: thẻ ở cột phải, đáy màn (chanh-dien.css, khối "Màn rộng").
+    if (wide.matches && stage.classList.contains('view-3d')) {
+      card.style.bottom = '';
+      return;
+    }
     const stageBox = stage.getBoundingClientRect();
     const bottom = controls && !controls.hidden ? stageBox.bottom - controls.getBoundingClientRect().top + 8 : 12;
     card.style.bottom = `${Math.max(12, Math.round(bottom))}px`;

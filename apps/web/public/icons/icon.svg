@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<defs>
+<radialGradient id="bg" cx="50%" cy="42%" r="70%"><stop offset="0" stop-color="#7a1c1c"/><stop offset=".55" stop-color="#4a0f10"/><stop offset="1" stop-color="#1c0605"/></radialGradient>
+<radialGradient id="halo" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffd27a" stop-opacity=".55"/><stop offset=".6" stop-color="#ffb347" stop-opacity=".16"/><stop offset="1" stop-color="#ffb347" stop-opacity="0"/></radialGradient>
+<linearGradient id="petalFront" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#e2a238"/><stop offset=".6" stop-color="#ffd772"/><stop offset="1" stop-color="#fff2c4"/></linearGradient>
+<linearGradient id="petalMid" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#cf8a26"/><stop offset=".65" stop-color="#f6c45a"/><stop offset="1" stop-color="#ffe7a6"/></linearGradient>
+<linearGradient id="petalBack" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#b8711c"/><stop offset=".7" stop-color="#e7aa45"/><stop offset="1" stop-color="#ffd98a"/></linearGradient>
+<linearGradient id="base" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3c25a"/><stop offset="1" stop-color="#b8711c"/></linearGradient>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<g transform="translate(256 262) scale(1) translate(-256 -262)">
+<circle cx="256" cy="232" r="190" fill="url(#halo)"/>
+<g transform="translate(256 352)"><g transform="rotate(-64)"><path d="M0 0 C -52 -48, -40.56 -117, 0 -150 C 40.56 -117, 52 -48, 0 0 Z" fill="url(#petalBack)" stroke="#7a3d0c" stroke-width="5" stroke-linejoin="round"/><path d="M0 -18 L0 -122.99999999999999" stroke="#b5741f" stroke-width="4" stroke-linecap="round" opacity=".55"/></g><g transform="rotate(64)"><path d="M0 0 C -52 -48, -40.56 -117, 0 -150 C 40.56 -117, 52 -48, 0 0 Z" fill="url(#petalBack)" stroke="#7a3d0c" stroke-width="5" stroke-linejoin="round"/><path d="M0 -18 L0 -122.99999999999999" stroke="#b5741f" stroke-width="4" stroke-linecap="round" opacity=".55"/></g><g transform="rotate(-33)"><path d="M0 0 C -60 -59.52, -46.800000000000004 -145.08, 0 -186 C 46.800000000000004 -145.08, 60 -59.52, 0 0 Z" fill="url(#petalMid)" stroke="#7a3d0c" stroke-width="5" stroke-linejoin="round"/><path d="M0 -22.32 L0 -152.51999999999998" stroke="#b5741f" stroke-width="4" stroke-linecap="round" opacity=".55"/></g><g transform="rotate(33)"><path d="M0 0 C -60 -59.52, -46.800000000000004 -145.08, 0 -186 C 46.800000000000004 -145.08, 60 -59.52, 0 0 Z" fill="url(#petalMid)" stroke="#7a3d0c" stroke-width="5" stroke-linejoin="round"/><path d="M0 -22.32 L0 -152.51999999999998" stroke="#b5741f" stroke-width="4" stroke-linecap="round" opacity=".55"/></g><g transform="rotate(0)"><path d="M0 0 C -66 -68.48, -51.480000000000004 -166.92000000000002, 0 -214 C 51.480000000000004 -166.92000000000002, 66 -68.48, 0 0 Z" fill="url(#petalFront)" stroke="#7a3d0c" stroke-width="5" stroke-linejoin="round"/><path d="M0 -25.68 L0 -175.48" stroke="#b5741f" stroke-width="4" stroke-linecap="round" opacity=".55"/></g></g>
+<path d="M134 356 Q256 412 378 356 Q362 392 256 400 Q150 392 134 356 Z" fill="url(#base)" stroke="#7a3d0c" stroke-width="5" stroke-linejoin="round"/>
+</g>
+</svg>

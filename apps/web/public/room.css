@@ -119,17 +119,38 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .joystick i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; background: rgba(231, 184, 94, .85); border-radius: 50%; box-shadow: 0 4px 14px rgba(0,0,0,.5); pointer-events: none; }
 .stage.hud-off .joystick, .stage.hud-off .near-sit { display: none; }
 
-/* Xem ngang: ẩn mọi thanh, màn chiếu cao kín màn hình; vài nút nhỏ ở dải trống bên phải. */
-.stage.zoom-mode .hud, .stage.zoom-mode .joystick, .stage.zoom-mode .near-sit, .stage.zoom-mode .show-hud, .stage.zoom-mode .drawer { display: none !important; }
-.stage.zoom-mode .reaction-picker { left: auto; right: 64px; top: 50%; bottom: auto; transform: translateY(-50%); flex-direction: column; border-radius: 999px; }
+/* Xem ngang: ẩn mọi thanh, màn chiếu cao kín màn hình; vài nút nhỏ ở dải trống bên phải. Bảng cảm xúc ở dải trống
+   bên trái (rộng bằng dải nút, nên mở ra màn chiếu không co). Ngăn kéo (trò chuyện, hàng chờ, người xem) là cột cạnh dải
+   nút, rộng tối đa phần còn lại sau khi chừa màn chiếu 356 px (16:9 cao 200 px, cỡ nhỏ nhất YouTube cho phép);
+   updateInsets() chừa ngăn nên màn chiếu co vào phần bên trái, không bị che; lúc đó bảng cảm xúc xuống hàng ngang
+   dưới màn chiếu (dải trái không còn chỗ). */
+.stage.zoom-mode .hud, .stage.zoom-mode .joystick, .stage.zoom-mode .near-sit, .stage.zoom-mode .show-hud { display: none !important; }
+.stage.zoom-mode .reaction-picker { left: max(8px, env(safe-area-inset-left, 0)); right: auto; top: 50%; bottom: auto; transform: translateY(-50%); flex-direction: column; border-radius: 999px; }
+.stage.zoom-mode .drawer { --zoom-bar: calc(max(8px, env(safe-area-inset-right, 0px)) + 52px); left: auto; top: 8px; bottom: 8px; right: var(--zoom-bar); width: clamp(200px, calc(100% - 440px), min(340px, 36%)); height: auto; padding: 12px; border-radius: 16px; }
+.stage.zoom-mode .drawer-head { margin-bottom: 6px; }
+@media (orientation: landscape) {
+  .stage.zoom-mode:has(> .drawer:not([hidden])) .reaction-picker { top: auto; bottom: 8px; transform: none; flex-direction: row; }
+}
+.stage.zoom-mode .chat-compose small { display: none; }
 .zoom-bar { position: absolute; z-index: 4; right: max(8px, env(safe-area-inset-right, 0)); top: 50%; transform: translateY(-50%); display: grid; gap: 8px; }
-.zoom-bar button { width: 44px; height: 44px; color: #e7edf5; background: var(--glass); border: 1px solid var(--line); border-radius: 50%; font-size: 17px; cursor: pointer; }
+.zoom-bar button { position: relative; width: 44px; height: 44px; padding: 0; color: #e7edf5; background: var(--glass); border: 1px solid var(--line); border-radius: 50%; font-size: 17px; cursor: pointer; }
+.zoom-bar button[aria-pressed="true"] { color: #1a1206; background: var(--accent); border-color: var(--accent); }
+.zoom-bar .badge { top: -3px; right: -3px; }
+@media (max-height: 520px) {
+  .zoom-bar { gap: 6px; }
+  .zoom-bar button { width: 40px; height: 40px; font-size: 16px; }
+  .stage.zoom-mode .drawer { --zoom-bar: calc(max(8px, env(safe-area-inset-right, 0px)) + 48px); }
+  .stage.zoom-mode .reaction-picker button { width: 36px; height: 36px; font-size: 20px; }
+}
 .rotate-hint { position: absolute; z-index: 4; left: 50%; bottom: 46%; transform: translateX(-50%); margin: 0; padding: 8px 14px; color: #1a1206; background: var(--accent); border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap; pointer-events: none; }
 .stage.zoom-mode .room-notice { bottom: 12px; }
 @media (orientation: portrait) {
   .zoom-bar { top: auto; right: auto; left: 50%; bottom: max(16px, env(safe-area-inset-bottom, 0)); transform: translateX(-50%); grid-auto-flow: column; }
   .stage.zoom-mode .reaction-picker { right: auto; left: 50%; top: auto; bottom: 76px; transform: translateX(-50%); flex-direction: row; }
   .stage.zoom-mode .room-notice { bottom: 76px; }
+  /* Màn dọc: ngăn kéo là tấm đáy ngay trên dải nút; bảng cảm xúc lên trên tấm. */
+  .stage.zoom-mode .drawer { left: 8px; right: 8px; top: auto; bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 52px); width: auto; height: 46%; }
+  .stage.zoom-mode:has(> .drawer:not([hidden])) .reaction-picker { bottom: calc(46% + 76px); }
 }
 /* Đứng ngay trước ghế trống: nút "Ngồi" to, giữa màn, trên thanh công cụ. */
 .near-sit { position: absolute; z-index: 4; left: 50%; bottom: 120px; min-width: 132px; min-height: 46px; padding: 0 20px; color: #24180d; background: linear-gradient(180deg, #ffe296, #eab447); border: 1px solid rgba(90, 55, 16, .55); border-radius: 999px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); transform: translateX(-50%); font-size: 16px; font-weight: 800; cursor: pointer; touch-action: manipulation; }

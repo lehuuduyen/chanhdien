@@ -29,6 +29,7 @@ import { createZoneGuide } from '/zone-guide.js';
 import { guardWebGL } from '/webgl-guard.js';
 import { limitThienScene } from '/thien-scene.js';
 import { createBootLoader, waitFor } from '/boot-loader.js';
+import { createAppInstall } from '/app-install.js';
 import { renderChibiPortraits } from '/chibi-preview.js';
 import { ageForBirthYear, starKeyForAge } from '/shared/prayer-slip.mjs';
 
@@ -94,6 +95,7 @@ const elements = {
   prayerIntro: $('prayerIntro'),
   prayerNote: $('prayerNote'),
   prayerOpen: $('prayerOpen'),
+  dockProbe: $('dockProbe'),
   prayerPeople: $('prayerPeople'),
   prayerRequester: $('prayerRequester'),
   prayerSubmit: $('prayerSubmit'),
@@ -112,6 +114,14 @@ const elements = {
   tools: $('tools'),
   voiceInfo: $('voiceInfo'),
 };
+
+// Toàn màn hình (nút ⛶ ở cột góc nhìn khi màn rộng, mục "Màn hình" trong menu ⚙) và thêm vào màn hình chính.
+const appInstall = createAppInstall({
+  stage: elements.stage,
+  viewTools: $('viewTools'),
+  toast: (text) => showToast(text),
+  ready: () => elements.gate.hidden,
+});
 
 let renderer = null;
 let participants = new Map();
@@ -641,6 +651,7 @@ async function setupScene() {
   await setViewMode(capacityNeeds3D ? '3d' : (preferred === '2d' || !supportsWebGL() || !sceneData.world ? '2d' : '3d'));
   new ResizeObserver(updateInsets).observe(elements.stage);
   new ResizeObserver(updateInsets).observe(elements.controls);
+  new ResizeObserver(updateInsets).observe(elements.dockProbe);
 }
 
 async function setViewMode(mode) {
@@ -651,6 +662,8 @@ async function setViewMode(mode) {
   viewMode = mode;
   elements.scene.hidden = mode !== '2d';
   elements.scene3d.hidden = mode !== '3d';
+  // Màn rộng (xoay ngang, iPad, máy tính): chỉ 3D mới phủ cả màn; 2D giữ khung 9:16 (chanh-dien.css).
+  elements.stage.classList.toggle('view-3d', mode === '3d');
   elements.viewMode.textContent = mode === '3d' ? '2D' : '3D';
   elements.viewMode.title = mode === '3d' ? t('view.to2d') : t('view.to3d');
   elements.viewMode.hidden = capacityNeeds3D || !supportsWebGL() || !sceneData.world;
@@ -699,14 +712,26 @@ function showHint() {
   setTimeout(() => { elements.hint3d.hidden = true; }, 4_400);
 }
 
-// Cảnh nằm giữa thanh trên và dải nút dưới để không nút nào đè lên bồ đoàn (màn dài thì dùng luôn phần trống).
+// Cảnh nằm giữa thanh trên và dải nút dưới để không nút nào đè lên bồ đoàn (màn dài thì dùng luôn phần trống). Màn rộng
+// có ngăn bên phải (khung bài giảng, bảng / thẻ đang mở; chanh-dien.css khối "Màn rộng") thì dời tâm sang trái phần còn
+// lại: #dockProbe rộng đúng phần mép phải bị chiếm (bản dọc, 2D luôn 0).
 function updateInsets() {
   if (!renderer) return;
   const stage = elements.stage.getBoundingClientRect();
   const top = elements.topBar.getBoundingClientRect().bottom - stage.top + 4;
   const bottom = elements.controls.hidden ? 0 : stage.bottom - elements.controls.getBoundingClientRect().top + 4;
-  renderer.setInsets({ top, bottom });
+  renderer.setInsets({ top, bottom, right: elements.dockProbe.offsetWidth });
 }
+// Màn rộng: hàng nút phòng (tên phòng, Đi nhanh, Trốn tìm…) tự xuống dòng khi hẹp; ghi đáy của hàng để bảng Tấm lòng
+// thành, bảng Đi nhanh… nằm ngay dưới (--wide-row2 trong chanh-dien.css, khối "Màn rộng"). Bản dọc không dùng.
+function placeRoomBar() {
+  if (elements.roomBar.hidden) return;
+  const bottom = elements.roomBar.getBoundingClientRect().bottom - elements.stage.getBoundingClientRect().top;
+  elements.stage.style.setProperty('--room-bar-bottom', `${Math.round(bottom)}px`);
+}
+const roomBarObserver = new ResizeObserver(placeRoomBar);
+roomBarObserver.observe(elements.roomBar);
+roomBarObserver.observe(elements.stage);
 
 function moveTo(seat) {
   if (!session.online) return;
@@ -1090,6 +1115,8 @@ function showHall(visible) {
   elements.controls.hidden = !visible;
   elements.tools.hidden = !visible;
   updateInsets();
+  // Điện thoại ngang lần đầu vào sân: gợi ý toàn màn hình / thêm vào màn hình chính (một lần).
+  if (visible) setTimeout(appInstall.maybeHint, 1_500);
 }
 
 function enterHall(name) {
@@ -1142,6 +1169,9 @@ elements.chatForm.addEventListener('submit', (event) => {
   const text = elements.chatInput.value.trim();
   if (text && session.send({ type: 'chat.send', requestId: `chat-${crypto.randomUUID()}`, text })) elements.chatInput.value = '';
 });
+// Điện thoại ngang: đang gõ thì bàn phím chiếm gần hết màn, CSS ẩn bớt nút quanh cảnh (chanh-dien.css, khối "Màn rộng").
+elements.chatInput.addEventListener('focus', () => elements.stage.classList.add('typing'));
+elements.chatInput.addEventListener('blur', () => elements.stage.classList.remove('typing'));
 
 elements.prayerOpen.addEventListener('click', openPrayerDialog);
 elements.prayerClose.addEventListener('click', closePrayerDialog);
@@ -1810,6 +1840,8 @@ createSettingsMenu({
     { element: elements.nextTrack, container: elements.tools, label: 'menu.music', keepOpen: true },
     { element: elements.mute, container: elements.tools, label: 'menu.sound', keepOpen: true },
     { element: voiceTest, label: 'menu.voice', keepOpen: true },
+    { element: appInstall.fullscreenButton, label: 'menu.screen' },
+    { element: appInstall.installButton },
     { element: pets.menuButton },
     { element: shopButton, label: 'menu.shop' },
     { element: donateButton, label: 'menu.donate' },
