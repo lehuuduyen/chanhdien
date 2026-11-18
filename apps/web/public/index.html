@@ -11,8 +11,51 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Chánh Điện">
-  <meta name="description" content="Chọn một không gian và cùng tham gia tại Chánh Điện Online." data-home-i18n-content="meta.description">
-  <title>Chánh Điện Online</title>
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="description" content="LotusGather là chùa online 3D để thiền, tụng kinh, nghe pháp, cầu an và gặp gỡ cộng đồng Phật tử theo ngôn ngữ, tiểu bang." data-home-i18n-content="meta.description">
+  <link rel="canonical" href="https://lotusgather.online/">
+  <meta property="og:site_name" content="LotusGather">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="vi_VN">
+  <meta property="og:title" content="LotusGather · Chùa online cho cộng đồng Việt">
+  <meta property="og:description" content="Cùng thiền, tụng kinh, nghe pháp, cầu an và tham gia các hoạt động cộng đồng trong không gian chùa 3D.">
+  <meta property="og:url" content="https://lotusgather.online/">
+  <meta property="og:image" content="https://lotusgather.online/icons/icon-512.png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
+  <meta property="og:image:alt" content="Biểu tượng hoa sen LotusGather">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="LotusGather · Chùa online cho cộng đồng Việt">
+  <meta name="twitter:description" content="Cùng thiền, tụng kinh, nghe pháp và gặp gỡ cộng đồng Phật tử trực tuyến.">
+  <meta name="twitter:image" content="https://lotusgather.online/icons/icon-512.png">
+  <title data-home-i18n="meta.title">Chùa Online LotusGather · Thiền, Tụng Kinh & Nghe Pháp</title>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://lotusgather.online/#website",
+          "url": "https://lotusgather.online/",
+          "name": "LotusGather",
+          "alternateName": "Chánh Điện Online",
+          "description": "Không gian chùa online 3D cho thiền, tụng kinh, nghe pháp và sinh hoạt cộng đồng.",
+          "inLanguage": ["vi", "en", "zh-Hant", "es"]
+        },
+        {
+          "@type": "WebApplication",
+          "@id": "https://lotusgather.online/#app",
+          "name": "LotusGather",
+          "url": "https://lotusgather.online/",
+          "applicationCategory": "LifestyleApplication",
+          "operatingSystem": "Any",
+          "browserRequirements": "Requires JavaScript and a modern web browser",
+          "isAccessibleForFree": true,
+          "image": "https://lotusgather.online/icons/icon-512.png"
+        }
+      ]
+    }
+  </script>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -20,7 +63,7 @@
     <header class="topbar">
       <a class="brand" href="/" aria-label="Chánh Điện Online, trang chủ" data-home-i18n-aria="brand.aria">
         <span class="brand-mark" aria-hidden="true">蓮</span>
-        <span>Chánh Điện Online</span>
+        <span data-home-i18n="brand.name">LotusGather</span>
       </a>
       <div class="top-actions">
         <label class="language-picker">
@@ -32,24 +75,24 @@
             <option value="es">Español</option>
           </select>
         </label>
-        <span class="status"><i aria-hidden="true"></i><span data-home-i18n="status.local">Bản thử cục bộ</span></span>
+        <span class="status"><i aria-hidden="true"></i><span data-home-i18n="status.live">Đang mở</span></span>
       </div>
     </header>
 
     <main>
       <section class="hero">
         <div>
-          <p class="eyebrow" data-home-i18n="hero.eyebrow">Không gian chung, khoảnh khắc chung</p>
-          <h1 data-home-i18n="hero.title">Chọn một phòng\nvà cùng tham gia.</h1>
+          <p class="eyebrow" data-home-i18n="hero.eyebrow">Chùa online · Cộng đồng trực tuyến</p>
+          <h1 data-home-i18n="hero.title">Cùng thiền, tụng kinh\nvà nghe pháp.</h1>
         </div>
-        <p class="intro" data-home-i18n="hero.intro">Bước vào không gian 2.5D, chọn chỗ ngồi và trải nghiệm các tương tác đang được phát triển cho nền tảng nhiều phòng.</p>
+        <p class="intro" data-home-i18n="hero.intro">Vào chánh điện 3D, chọn tiểu bang và ngôn ngữ để gặp cộng đồng, gửi lời cầu an, nghe bài giảng và cùng chăm sóc khuôn viên chùa.</p>
       </section>
 
       <section class="rooms" aria-labelledby="room-title" data-home-i18n-aria="rooms.aria">
         <div class="section-heading">
           <div>
             <p class="eyebrow" data-home-i18n="rooms.open">Đang mở</p>
-            <h2 id="room-title" data-home-i18n="rooms.title">Phòng trải nghiệm</h2>
+            <h2 id="room-title" data-home-i18n="rooms.title">Không gian đang mở</h2>
           </div>
           <p class="room-count" data-home-i18n="rooms.count">Theo khu vực</p>
         </div>
@@ -62,8 +105,8 @@
           <div class="room-copy">
             <div>
               <p class="room-type" data-home-i18n="temple.type">Thiền · Tụng kinh</p>
-              <h3 data-home-i18n="temple.name">Chánh điện Tịnh Tâm</h3>
-              <p data-home-i18n="temple.description">Nhập pháp danh, chọn y phục, cùng mọi người an tọa, nghe chuông mõ chung nhịp, dâng hương và gửi lời nguyện.</p>
+              <h3 data-home-i18n="temple.name">Chánh điện online LotusGather</h3>
+              <p data-home-i18n="temple.description">Vào miễn phí, chọn khu vực và ngôn ngữ, cùng mọi người an tọa, nghe chuông mõ, nghe bài giảng, dâng hương và gửi lời nguyện.</p>
             </div>
             <ul class="features" aria-label="Tính năng" data-home-i18n-aria="features.aria">
               <li data-home-i18n="features.people">Nhiều người thật</li>
@@ -89,11 +132,56 @@
           </article>
         </div>
       </section>
+
+      <section class="about" aria-labelledby="about-title">
+        <p class="eyebrow" data-home-i18n="about.eyebrow">Một nơi để trở về mỗi ngày</p>
+        <div class="about-heading">
+          <h2 id="about-title" data-home-i18n="about.title">Chùa online dành cho người Việt ở mọi nơi</h2>
+          <p data-home-i18n="about.intro">LotusGather kết nối những người chưa thể đến chùa trực tiếp trong một không gian chung, hoạt động ngay trên trình duyệt và không cần cài ứng dụng.</p>
+        </div>
+        <div class="about-grid">
+          <article>
+            <span aria-hidden="true">🛕</span>
+            <h3 data-home-i18n="about.local.title">Phòng theo khu vực</h3>
+            <p data-home-i18n="about.local.text">Chọn Việt Nam hoặc tiểu bang đang sống, rồi vào phòng Tiếng Việt, English, 中文 hay Español.</p>
+          </article>
+          <article>
+            <span aria-hidden="true">🔔</span>
+            <h3 data-home-i18n="about.practice.title">Thiền và nghe pháp cùng nhau</h3>
+            <p data-home-i18n="about.practice.text">Nghe bài giảng theo lịch địa phương, tụng kinh, thỉnh chuông, dâng hương và gửi sớ cầu an hoặc cầu siêu.</p>
+          </article>
+          <article>
+            <span aria-hidden="true">🌱</span>
+            <h3 data-home-i18n="about.community.title">Khuôn viên sống động</h3>
+            <p data-home-i18n="about.community.text">Cùng trồng cây, chăm nông trại, xây hồ sen, nuôi linh thú và hoàn thành công trình chung của cộng đồng.</p>
+          </article>
+        </div>
+        <a class="about-enter" href="/chanh-dien.html" data-home-i18n="about.enter">Vào chùa online miễn phí →</a>
+      </section>
+
+      <section class="faq" aria-labelledby="faq-title">
+        <p class="eyebrow" data-home-i18n="faq.eyebrow">Câu hỏi thường gặp</p>
+        <h2 id="faq-title" data-home-i18n="faq.title">Bắt đầu với LotusGather</h2>
+        <div class="faq-list">
+          <details open>
+            <summary data-home-i18n="faq.free.q">LotusGather có miễn phí không?</summary>
+            <p data-home-i18n="faq.free.a">Có. Bạn có thể vào chánh điện, thiền, nghe pháp và tham gia cộng đồng miễn phí ngay trên trình duyệt.</p>
+          </details>
+          <details>
+            <summary data-home-i18n="faq.install.q">Có cần tải ứng dụng không?</summary>
+            <p data-home-i18n="faq.install.a">Không. LotusGather chạy trực tiếp trên điện thoại và máy tính; bạn có thể thêm trang vào màn hình chính nếu muốn.</p>
+          </details>
+          <details>
+            <summary data-home-i18n="faq.room.q">Làm sao vào cùng phòng với người thân?</summary>
+            <p data-home-i18n="faq.room.a">Vào chánh điện, bấm sao chép mã phòng trong menu cài đặt rồi gửi đường dẫn mời cho người thân.</p>
+          </details>
+        </div>
+      </section>
     </main>
 
     <footer>
-      <span>Protocol v1</span>
-      <span data-home-i18n="footer.stage">Giai đoạn nền móng</span>
+      <span>LotusGather</span>
+      <span data-home-i18n="footer.stage">Không gian cộng đồng trực tuyến</span>
       <a href="/ung-ho.html" data-home-i18n="footer.donate">💝 Góp duy trì server</a>
       <a href="/ho-tro.html?from=/" data-home-i18n="footer.support">🛟 Góp ý / Báo lỗi</a>
     </footer>

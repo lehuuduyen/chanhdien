@@ -303,6 +303,26 @@ h1 {
 .coming-card-active h3 { color: #ead9bd; }
 .coming-card-active b { margin-left: auto; color: var(--gold); font-size: 22px; }
 
+.about, .faq { margin-top: 96px; }
+.about-heading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .72fr); align-items: end; gap: 64px; }
+.about h2, .faq h2 { max-width: 760px; margin: 0; font-family: Georgia, serif; font-size: clamp(32px, 5vw, 56px); font-weight: 500; line-height: 1.08; }
+.about-heading > p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.75; }
+.about-grid { margin-top: 34px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.about-grid article { min-height: 210px; padding: 26px; background: rgba(255,255,255,.025); border: 1px solid var(--line); border-radius: 18px; }
+.about-grid article > span { font-size: 28px; }
+.about-grid h3 { margin: 24px 0 10px; color: #ead9bd; font-family: Georgia, serif; font-size: 21px; font-weight: 500; }
+.about-grid p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.about-enter { width: fit-content; min-height: 46px; margin-top: 24px; padding: 0 18px; display: inline-flex; align-items: center; color: #24130d; background: var(--gold); border-radius: 999px; font-size: 13px; font-weight: 750; text-decoration: none; }
+.about-enter:hover { background: #f1c97d; }
+
+.faq > h2 { margin-bottom: 28px; }
+.faq-list { display: grid; gap: 10px; }
+.faq-list details { padding: 0 20px; background: rgba(255,255,255,.025); border: 1px solid var(--line); border-radius: 14px; }
+.faq-list summary { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #ead9bd; font-family: Georgia, serif; font-size: 17px; cursor: pointer; }
+.faq-list summary::after { content: "+"; color: var(--gold); font-family: Inter, sans-serif; }
+.faq-list details[open] summary::after { content: "–"; }
+.faq-list p { max-width: 820px; margin: -2px 0 20px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
 footer {
   min-height: 72px;
   display: flex;
@@ -313,6 +333,8 @@ footer {
   font-size: 10px;
   letter-spacing: .08em;
   text-transform: uppercase;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 footer a {
@@ -347,6 +369,12 @@ footer a {
   .room-copy { gap: 22px; }
   .room-copy h3 { font-size: 28px; }
   .coming-grid { grid-template-columns: 1fr; }
+  .about, .faq { margin-top: 68px; }
+  .about-heading { display: block; }
+  .about-heading > p { margin-top: 20px; }
+  .about-grid { grid-template-columns: 1fr; }
+  .about-grid article { min-height: 0; }
+  footer { padding: 18px 0; justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
