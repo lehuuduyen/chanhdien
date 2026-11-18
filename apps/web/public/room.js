@@ -59,6 +59,9 @@ const elements = {
   zoomExit: $('zoomExit'),
   zoomMute: $('zoomMute'),
   zoomReact: $('zoomReact'),
+  zoomChatBadge: $('zoomChatBadge'),
+  zoomQueueBadge: $('zoomQueueBadge'),
+  zoomPrivate: $('zoomPrivate'),
   joystick: $('joystick'),
   nearSit: $('nearSit'),
   seatMap: $('seatMap'),
@@ -327,14 +330,26 @@ function setCamera(id) {
 function updateInsets() {
   if (!renderer?.setInsets) return;
   const stage = elements.stage.getBoundingClientRect();
-  // Xem ngang: chừa dải nút bên phải, và chừa bằng nhau bên trái để màn chiếu ở giữa.
+  // Xem ngang: chừa dải nút bên phải, và chừa bằng nhau bên trái để màn chiếu ở giữa. Mở ngăn kéo (trò chuyện,
+  // hàng chờ…) thì chừa cả ngăn, màn chiếu dồn sang trái; bảng cảm xúc nằm ở mép trái (vừa dải trống bên trái).
   if (zoom.on) {
-    const bar = elements.zoomBar.getBoundingClientRect();
-    // Màn dọc: thanh nút ở đáy, video rộng hết bề ngang.
-    if (stage.height > stage.width) renderer.setInsets({ top: 0, right: 0, bottom: stage.bottom - bar.top + 8, left: 0 });
-    else {
-      const side = stage.right - bar.left + 8;
-      renderer.setInsets({ top: 0, right: side, bottom: 0, left: side });
+    const box = (element) => (!element.hidden && element.getClientRects().length ? element.getBoundingClientRect() : null);
+    const bar = box(elements.zoomBar);
+    const drawer = box(elements.drawer);
+    const picker = box(elements.reactionPicker);
+    if (!bar) return;
+    // Màn dọc: thanh nút (ngăn kéo, bảng cảm xúc nằm trên thanh) ở đáy, video rộng hết bề ngang.
+    if (stage.height > stage.width) {
+      const top = Math.min(...[bar, drawer, picker].filter(Boolean).map((item) => item.top));
+      renderer.setInsets({ top: 0, right: 0, bottom: stage.bottom - top + 8, left: 0 });
+    } else {
+      const right = stage.right - Math.min(bar.left, drawer?.left ?? Infinity) + 8;
+      // Có ngăn kéo: bảng cảm xúc là hàng ngang dưới màn chiếu (CSS), chừa phía dưới.
+      if (drawer) renderer.setInsets({ top: 0, right, bottom: picker ? stage.bottom - picker.top + 8 : 0, left: 8 });
+      else {
+        const side = Math.max(right, picker ? picker.right - stage.left : 0);
+        renderer.setInsets({ top: 0, right: side, bottom: 0, left: side });
+      }
     }
     return;
   }
@@ -421,8 +436,10 @@ function addMessage(author, text, className = 'message') {
   elements.messages.scrollTop = elements.messages.scrollHeight;
   if (drawerPart !== 'chat' && className === 'message') {
     unread += 1;
-    elements.chatBadge.textContent = unread > 9 ? '9+' : String(unread);
-    elements.chatBadge.hidden = false;
+    for (const badge of [elements.chatBadge, elements.zoomChatBadge]) {
+      badge.textContent = unread > 9 ? '9+' : String(unread);
+      badge.hidden = false;
+    }
   }
 }
 
@@ -556,8 +573,10 @@ function renderPlayback() {
   elements.liveState.textContent = current ? '● Đang chiếu' : '● Chờ chiếu';
   elements.liveState.classList.toggle('on', Boolean(current));
   elements.queueCount.textContent = `${queue.length} video đang chờ`;
-  elements.queueBadge.textContent = String(queue.length);
-  elements.queueBadge.hidden = !queue.length;
+  for (const badge of [elements.queueBadge, elements.zoomQueueBadge]) {
+    badge.textContent = String(queue.length);
+    badge.hidden = !queue.length;
+  }
   elements.queueList.replaceChildren(...queue.map((item) => {
     const row = document.createElement('li');
     const body = document.createElement('div');
@@ -945,7 +964,7 @@ function openDrawer(part) {
   drawerPart = drawerPart === part ? null : part;
   elements.drawer.hidden = !drawerPart;
   for (const section of elements.drawer.querySelectorAll('[data-part]')) section.hidden = section.dataset.part !== drawerPart;
-  for (const button of elements.hudTools.querySelectorAll('[data-tool]')) {
+  for (const button of document.querySelectorAll('#hudTools [data-tool], #zoomBar [data-tool]')) {
     button.setAttribute('aria-pressed', String(button.dataset.tool === drawerPart || (button.dataset.tool === 'react' && !elements.reactionPicker.hidden)));
   }
   if (drawerPart) elements.drawerTitle.textContent = DRAWER_TITLES[drawerPart];
@@ -954,6 +973,7 @@ function openDrawer(part) {
   if (drawerPart === 'chat') {
     unread = 0;
     elements.chatBadge.hidden = true;
+    elements.zoomChatBadge.hidden = true;
     elements.messages.scrollTop = elements.messages.scrollHeight;
   }
   updateInsets();
@@ -1002,6 +1022,8 @@ elements.reactionPicker.addEventListener('click', (event) => {
   pickerTimer = setTimeout(() => {
     elements.reactionPicker.hidden = true;
     elements.hudTools.querySelector('[data-tool="react"]').setAttribute('aria-pressed', 'false');
+    elements.zoomReact.setAttribute('aria-pressed', 'false');
+    updateInsets();
   }, 2_000);
 });
 let pickerTimer = null;
@@ -1172,9 +1194,11 @@ function setZoom(on, { auto = false } = {}) {
   zoom.auto = on && auto;
   elements.stage.classList.toggle('zoom-mode', on);
   elements.zoomBar.hidden = !on;
+  elements.zoomExit.hidden = shortLandscape.matches;
   elements.reactionPicker.hidden = true;
+  elements.zoomReact.setAttribute('aria-pressed', 'false');
+  // Ngăn kéo đang mở (trò chuyện, hàng chờ…) giữ nguyên: xem ngang nó thành cột bên phải màn chiếu.
   if (on) {
-    if (drawerPart) openDrawer(drawerPart);
     zoom.previousCamera = cameraId;
     renderer?.setJoystick?.(0, 0);
     setCamera(renderer?.mode === '3d' ? 'zoom' : 'screen');
@@ -1185,31 +1209,31 @@ function setZoom(on, { auto = false } = {}) {
 function syncZoomMute() {
   elements.zoomMute.textContent = muted ? '🔇' : '🔊';
 }
-const phoneLandscape = matchMedia('(orientation: landscape) and (pointer: coarse) and (max-height: 520px)');
+// Màn ngang thấp (điện thoại xoay ngang, cửa sổ máy tính thấp): giao diện đầy đủ không đủ chỗ cho khung YouTube
+// ≥ 200 px, nên tự vào xem ngang; trò chuyện / hàng chờ / người xem mở từ dải nút bên phải.
+const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 520px)');
 function onOrientation() {
-  if (phoneLandscape.matches) {
+  elements.zoomExit.hidden = shortLandscape.matches;
+  if (shortLandscape.matches) {
     elements.rotateHint.hidden = true;
     if (renderer) setZoom(true, { auto: !zoom.on || zoom.auto });
   } else if (zoom.auto) setZoom(false);
   requestAnimationFrame(updateInsets);
 }
-phoneLandscape.addEventListener('change', onOrientation);
+shortLandscape.addEventListener('change', onOrientation);
 async function enterZoom() {
   setZoom(true);
   try { await elements.stage.requestFullscreen?.(); } catch {}
   try { await screen.orientation?.lock?.('landscape'); } catch {}
   // iPhone không khóa được hướng màn hình: nhắc xoay ngang.
-  if (touchDevice && !phoneLandscape.matches && matchMedia('(orientation: portrait)').matches) {
+  if (touchDevice && !shortLandscape.matches && matchMedia('(orientation: portrait)').matches) {
     elements.rotateHint.hidden = false;
     setTimeout(() => { elements.rotateHint.hidden = true; }, 3_500);
   }
 }
 async function exitZoom() {
-  // Điện thoại đang ngang: giao diện đầy đủ không đủ chỗ (khung YouTube sẽ nhỏ hơn 200 px), nên nhắc xoay dọc.
-  if (phoneLandscape.matches) {
-    notify('Xoay dọc điện thoại để về giao diện đầy đủ');
-    return;
-  }
+  // Màn ngang thấp: giao diện đầy đủ không đủ chỗ (khung YouTube sẽ nhỏ hơn 200 px); nút ✕ ẩn ở đó, xoay dọc là tự thoát.
+  if (shortLandscape.matches) return;
   setZoom(false);
   elements.rotateHint.hidden = true;
   try { screen.orientation?.unlock?.(); } catch {}
@@ -1224,7 +1248,14 @@ elements.zoomMute.addEventListener('click', () => {
 elements.zoomReact.addEventListener('click', () => {
   if (!session) return;
   elements.reactionPicker.hidden = !elements.reactionPicker.hidden;
+  elements.zoomReact.setAttribute('aria-pressed', String(!elements.reactionPicker.hidden));
+  updateInsets();
 });
+elements.zoomBar.addEventListener('click', (event) => {
+  const tool = event.target.closest('[data-tool]')?.dataset.tool;
+  if (tool) openDrawer(tool);
+});
+elements.zoomPrivate.hidden = !privateId;
 function setHud(visible) {
   elements.stage.classList.toggle('hud-off', !visible);
   elements.showHud.hidden = visible;

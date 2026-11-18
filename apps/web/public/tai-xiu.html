@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0b2a1f">
+  <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Phòng game · Tài Xỉu · Chánh Điện Online</title>
   <style>
     /* Phòng game: Tài Xỉu (Sic Bo) chơi chung theo thời gian thực, chung khung với Bầu Cua (game.html): máy realtime
@@ -143,6 +150,35 @@
       .pips { width: 32px; }
       .chips button { width: 40px; height: 40px; font-size: 12px; }
     }
+
+    /* Màn rộng (điện thoại xoay ngang, iPad ngang, máy tính): hai cột — bàn cược bên trái; đồng hồ, phỉnh, đĩa xúc xắc,
+       lịch sử bên phải — để đặt cược không phải cuộn. Màn dọc không đổi. */
+    @media (min-aspect-ratio: 1/1) {
+      .app { max-width: 1040px; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr auto; grid-template-areas: "bar games" "board phase" "board chips" "board plate" "note note"; align-content: start; column-gap: 16px; row-gap: 8px; overflow-y: auto; }
+      .bar { grid-area: bar; }
+      .games { grid-area: games; align-self: center; }
+      .phase { grid-area: phase; }
+      .board { grid-area: board; align-self: start; }
+      .chips { grid-area: chips; }
+      .plate { grid-area: plate; align-self: start; }
+      .note { grid-area: note; }
+    }
+    @media (min-aspect-ratio: 1/1) and (max-height: 520px) {
+      .cell { min-height: 40px; }
+      .cell .num { font-size: 22px; }
+      .cell.big { min-height: 84px; }
+      .plate { padding: 8px; gap: 6px; }
+    }
+
+    /* Màn rộng mà cao (iPad ngang, máy tính): nội dung nằm giữa màn thay vì dồn lên trên. */
+    @media (min-aspect-ratio: 1/1) and (min-height: 600px) {
+      .app { grid-template-rows: none; align-content: center; }
+    }
+    /* Màn lớn (iPad ngang, máy tính): cỡ chữ / nút tính bằng px nên phóng to cả trang game theo bậc. */
+    @media (min-aspect-ratio: 1/1) and (min-width: 1100px) and (min-height: 760px) { :root { --zoom: 1.15; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1300px) and (min-height: 860px) { :root { --zoom: 1.3; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1700px) and (min-height: 1000px) { :root { --zoom: 1.5; } }
+    .app { zoom: var(--zoom, 1); }
   </style>
 </head>
 <body>

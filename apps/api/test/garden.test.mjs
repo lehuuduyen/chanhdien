@@ -34,6 +34,20 @@ async function signUp(options, username) {
   return response.headers['set-cookie'].split(';')[0];
 }
 
+async function waitFor(predicate, timeoutMs = 3_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Hết ${timeoutMs} ms vẫn chưa nhận đủ tin realtime`);
+}
+
+const closeServer = (server) => new Promise((resolve, reject) => {
+  if (!server.listening) return resolve();
+  server.close((error) => (error ? reject(error) : resolve()));
+});
+
 let serial = 0;
 const key = () => `test-key-${(serial += 1).toString().padStart(6, '0')}`;
 
@@ -97,25 +111,32 @@ test('vườn: gieo / tưới báo MỌI máy realtime kèm mốc thứ tự; ng
     });
   }));
   await Promise.all(nodes.map((node) => new Promise((resolve) => node.listen(0, '127.0.0.1', resolve))));
-  const urls = nodes.map((node) => `http://127.0.0.1:${node.address().port}`);
-  const options = setup({ realtimeInternalUrl: urls[0], realtimeBroadcastUrls: urls.join(',') });
-  const an = await signUp(options, 'an.lac');
-  const binh = await signUp(options, 'binh.an');
-  for (const cookie of [an, binh]) await request(options, 'POST', '/api/v1/garden/buy', { body: { plantType: 'orange', quantity: 1 }, headers: { cookie, 'idempotency-key': key() } });
-  const before = await request(options, 'GET', '/api/v1/garden');
-  const planted = await request(options, 'POST', '/api/v1/garden/plant', { body: { plotId: 4, plantType: 'orange' }, headers: { cookie: an, 'idempotency-key': key() } });
-  assert.equal(planted.status, 200);
-  const taken = await request(options, 'POST', '/api/v1/garden/plant', { body: { plotId: 4, plantType: 'orange' }, headers: { cookie: binh, 'idempotency-key': key() } });
-  assert.equal(taken.status, 409);
-  assert.equal(taken.json.code, 'PLOT_TAKEN');
-  const watered = await request(options, 'POST', '/api/v1/garden/water', { body: { plotId: 4 }, headers: { cookie: binh, 'idempotency-key': key() } });
-  assert.equal(watered.json.plots[0].crop.stage, 'sprout');
-  // Mốc tăng dần theo thứ tự thao tác: tải vườn < gieo < tưới; câu trả lời cho người bấm cũng có mốc.
-  assert.ok(Number.isInteger(before.json.at) && before.json.at < planted.json.at && planted.json.at < watered.json.at);
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  nodes.forEach((node) => node.close());
+  let planted;
+  let watered;
+  try {
+    const urls = nodes.map((node) => `http://127.0.0.1:${node.address().port}`);
+    const options = setup({ realtimeInternalUrl: urls[0], realtimeBroadcastUrls: urls.join(',') });
+    const an = await signUp(options, 'an.lac');
+    const binh = await signUp(options, 'binh.an');
+    for (const cookie of [an, binh]) await request(options, 'POST', '/api/v1/garden/buy', { body: { plantType: 'orange', quantity: 1 }, headers: { cookie, 'idempotency-key': key() } });
+    const before = await request(options, 'GET', '/api/v1/garden');
+    planted = await request(options, 'POST', '/api/v1/garden/plant', { body: { plotId: 4, plantType: 'orange' }, headers: { cookie: an, 'idempotency-key': key() } });
+    assert.equal(planted.status, 200);
+    const taken = await request(options, 'POST', '/api/v1/garden/plant', { body: { plotId: 4, plantType: 'orange' }, headers: { cookie: binh, 'idempotency-key': key() } });
+    assert.equal(taken.status, 409);
+    assert.equal(taken.json.code, 'PLOT_TAKEN');
+    watered = await request(options, 'POST', '/api/v1/garden/water', { body: { plotId: 4 }, headers: { cookie: binh, 'idempotency-key': key() } });
+    assert.equal(watered.json.plots[0].crop.stage, 'sprout');
+    // Mốc tăng dần theo thứ tự thao tác: tải vườn < gieo < tưới; câu trả lời cho người bấm cũng có mốc.
+    assert.ok(Number.isInteger(before.json.at) && before.json.at < planted.json.at && planted.json.at < watered.json.at);
+    // Gửi realtime là việc nền: CI tải cao không đảm bảo xong trong một khoảng ngủ cố định 100 ms.
+    await waitFor(() => nodes.every((_, node) => received.filter((item) => item.node === node).length >= 2));
+  } finally {
+    await Promise.all(nodes.map(closeServer));
+  }
   for (const node of [0, 1]) {
-    const mine = received.filter((item) => item.node === node);
+    // Hai fetch chạy độc lập nên thứ tự tới qua mạng có thể đảo; `at` mới là thứ tự trạng thái mà client sử dụng.
+    const mine = received.filter((item) => item.node === node).sort((a, b) => a.body.at - b.body.at);
     assert.deepEqual(mine.map((item) => [item.url, item.body.effect?.kind]), [['/internal/garden', 'plant'], ['/internal/garden', 'water']], `máy ${node + 1} nhận đủ tin`);
     assert.deepEqual(mine.map((item) => item.body.at), [planted.json.at, watered.json.at]);
     assert.equal(mine[0].body.plots[0].crop.ownerName, 'an.lac');

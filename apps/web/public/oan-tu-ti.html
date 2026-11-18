@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#160a2a">
+  <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Phòng game · Oẳn Tù Tì · Chánh Điện Online</title>
   <style>
     /* Phòng game: Oẳn Tù Tì cược, đấu 1–1 theo thời gian thực. Máy realtime ghép cặp và làm trọng tài (giữ kín tay
@@ -123,6 +130,51 @@
     .note a { color: var(--gold); }
 
     @media (prefers-reduced-motion: reduce) { .shaking .hand { animation: none; } }
+
+    /* Hai nhóm bọc ngoài chỉ có tác dụng ở màn rộng; màn dọc coi như không có. */
+    .col-main, .col-side { display: contents; }
+    /* Màn rộng (điện thoại xoay ngang, iPad ngang, máy tính): sảnh / đấu trường bên trái, bàn đang chờ + trận vừa xong
+       bên phải. Đấu trường xếp ngang: hai người, hai bàn tay, đồng hồ bên trái; ba nút Kéo / Búa / Bao xếp dọc bên phải —
+       lượt 5 giây không phải cuộn mới thấy nút. */
+    @media (min-aspect-ratio: 1/1) {
+      .app { max-width: 1040px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "bar games" "main side"; column-gap: 16px; row-gap: 8px; overflow: hidden; }
+      .bar { grid-area: bar; }
+      .games { grid-area: games; align-self: center; }
+      .col-main, .col-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; }
+      .col-main { grid-area: main; }
+      .col-side { grid-area: side; }
+      .tables { max-height: none; }
+      .arena { grid-template-columns: minmax(0, 1fr) minmax(150px, .62fr); grid-template-areas: "vs choices" "hands choices" "call choices" "timer choices" "net net" "after after" "cancel cancel"; column-gap: 14px; row-gap: 6px; align-items: center; }
+      .vs { grid-area: vs; }
+      .hands { grid-area: hands; }
+      .call { grid-area: call; }
+      .timer { grid-area: timer; }
+      .choices { grid-area: choices; grid-template-columns: 1fr; align-self: stretch; align-content: center; }
+      .choices button { grid-template-columns: auto auto; justify-content: center; align-items: center; gap: 8px; padding: 6px 8px; font-size: 16px; }
+      .choices button span { font-size: 34px; }
+      .result-net { grid-area: net; }
+      .after { grid-area: after; }
+      #cancelWait { grid-area: cancel; }
+    }
+    /* Điện thoại ngang (thấp): bỏ tiêu đề lớn, thu nhỏ hình hai bên cho đấu trường vừa một màn. */
+    @media (min-aspect-ratio: 1/1) and (max-height: 520px) {
+      h1 { display: none; }
+      .sub { margin: 0; }
+      .avatar { width: 44px; height: 44px; font-size: 24px; }
+      .hands { min-height: 60px; }
+      .hand { font-size: 48px; }
+      .arena { padding: 10px 12px; }
+    }
+
+    /* Màn rộng mà cao (iPad ngang, máy tính): nội dung nằm giữa màn thay vì dồn lên trên. */
+    @media (min-aspect-ratio: 1/1) and (min-height: 600px) {
+      .app { grid-template-rows: none; align-content: center; }
+    }
+    /* Màn lớn (iPad ngang, máy tính): cỡ chữ / nút tính bằng px nên phóng to cả trang game theo bậc. */
+    @media (min-aspect-ratio: 1/1) and (min-width: 1100px) and (min-height: 760px) { :root { --zoom: 1.15; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1300px) and (min-height: 860px) { :root { --zoom: 1.3; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1700px) and (min-height: 1000px) { :root { --zoom: 1.5; } }
+    .app { zoom: var(--zoom, 1); }
   </style>
 </head>
 <body>
@@ -150,6 +202,9 @@
       <a href="/tien-len.html">🃏 Tiến Lên</a>
     </nav>
 
+    <!-- Hai nhóm: màn dọc vẫn là một cột như cũ (display: contents); màn rộng thành hai cột — sảnh / đấu trường bên trái,
+         bàn đang chờ và trận vừa xong bên phải. -->
+    <div class="col-main">
     <h1>Oẳn Tù Tì</h1>
     <p class="sub" id="online">Đang vào sảnh…</p>
 
@@ -189,7 +244,9 @@
     </section>
 
     <p class="message" id="message" role="status" aria-live="polite"></p>
+    </div>
 
+    <div class="col-side">
     <section class="panel" aria-label="Bàn đang chờ">
       <h2><span>Bàn đang chờ đối thủ</span></h2>
       <ul class="tables" id="tables"><li class="empty">Chưa có bàn nào · bấm Tạo bàn</li></ul>
@@ -201,6 +258,7 @@
     </section>
 
     <p class="note">Mỗi trận 1–1, cả hai đặt cùng mức cược. Có 5 giây để chọn Kéo, Búa hoặc Bao; không chọn kịp là thua lượt. Hòa thì đấu lại ngay, hòa 3 lượt liền thì hoàn cọc. Người thắng nhận cả cọc trừ 5% phí bàn. Xu ảo của Vườn Công Đức, không quy đổi ra tiền thật. · <a href="/ho-tro.html?from=/oan-tu-ti.html">🛟 Góp ý / Báo lỗi</a></p>
+    </div>
   </main>
 
   <script type="module">

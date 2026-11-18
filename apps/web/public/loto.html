@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#2a1033">
+  <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Phòng game · Lô Tô · Chánh Điện Online</title>
   <style>
     /* Phòng game: Lô Tô chơi chung theo thời gian thực. Máy realtime gọi số (4 giây/số) cho cả phòng; vé (3 × 9, mỗi
@@ -141,6 +148,39 @@
     .private-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8px 10px; background: rgba(0, 0, 0, .25); border-radius: 12px; font-size: 12px; user-select: all; }
     .private-link button { flex: none; }
     .note a { color: var(--gold); }
+
+    /* Hai nhóm bọc ngoài chỉ có tác dụng ở màn rộng; màn dọc coi như không có (các phần vẫn xếp một cột như cũ). */
+    .col-side, .col-main { display: contents; }
+    /* Màn rộng (điện thoại xoay ngang, iPad ngang, máy tính): vé bên trái (hai vé đứng cạnh nhau, mỗi vé cao vừa màn);
+       đồng hồ, số vừa gọi, nút mua vé bên phải — không phải cuộn để mua vé hay dò số. */
+    @media (min-aspect-ratio: 1/1) {
+      .app { max-width: 1100px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "bar games" "main side"; column-gap: 16px; row-gap: 8px; overflow: hidden; }
+      .bar { grid-area: bar; }
+      .games { grid-area: games; align-self: center; }
+      /* Lời dặn cuối cột vé (cuộn xuống mới thấy), để cột phải đủ chỗ cho nút mua vé. */
+      .note { margin-top: auto; }
+      .col-main, .col-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; }
+      .col-main { grid-area: main; }
+      .col-side { grid-area: side; }
+      /* Vé (3 hàng × 9 ô, ô cao 1,08 lần ô rộng: cao ≈ 22 px + 0,36 × bề rộng) xếp chồng, to hết cỡ mà vẫn vừa chiều cao:
+         một vé thì cao tối đa phần còn lại, hai vé thì mỗi vé nửa phần đó (chia --zoom: màn lớn phóng to cả trang). */
+      .tickets { grid-template-columns: 1fr; justify-items: center; gap: 8px; }
+      .ticket { width: 100%; max-width: calc((100dvh / var(--zoom, 1) - 122px) / .36); }
+      .tickets:has(.ticket ~ .ticket) .ticket { max-width: calc(((100dvh / var(--zoom, 1) - 108px) / 2 - 27px) / .36); }
+    }
+    /* Điện thoại ngang (thấp): gọn cột phải để nút mua vé và ô tự đánh dấu cùng một màn. */
+    @media (min-aspect-ratio: 1/1) and (max-height: 520px) {
+      .ball { width: 50px; height: 50px; font-size: 22px; }
+      .caller { padding: 6px 8px; gap: 8px; }
+      .waiting:empty { display: none; }
+      .buy { padding: 8px; gap: 6px; }
+      .buy button { height: 40px; }
+    }
+    /* Màn lớn (iPad ngang, máy tính): cỡ chữ / nút tính bằng px nên phóng to cả trang game theo bậc. */
+    @media (min-aspect-ratio: 1/1) and (min-width: 1100px) and (min-height: 760px) { :root { --zoom: 1.15; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1300px) and (min-height: 860px) { :root { --zoom: 1.3; } }
+    @media (min-aspect-ratio: 1/1) and (min-width: 1700px) and (min-height: 1000px) { :root { --zoom: 1.5; } }
+    .app { zoom: var(--zoom, 1); }
   </style>
 </head>
 <body>
@@ -168,18 +208,22 @@
       <a href="/tien-len.html">🃏 Tiến Lên</a>
     </nav>
 
-    <!-- Phòng riêng: ở bàn chung là nút tạo phòng (50 xu); trong phòng riêng là tên chủ phòng, mời / thành viên, rời. -->
-    <section class="private" id="privateBar" hidden>
-      <span class="private-title" id="privateTitle"></span>
-      <button type="button" id="privateMembers" hidden>👥 Thành viên</button>
-      <button type="button" class="primary" id="privateAction" hidden></button>
-    </section>
     <div class="private-sheet" id="privateSheet" hidden role="dialog" aria-modal="true" aria-labelledby="privateSheetTitle">
       <div class="private-card">
         <header><h2 id="privateSheetTitle">Phòng riêng</h2><button type="button" id="privateClose" aria-label="Đóng">✕</button></header>
         <div id="privateList"></div>
       </div>
     </div>
+
+    <!-- Hai nhóm: màn dọc vẫn là một cột như cũ (display: contents); màn rộng thành hai cột — vé bên trái, gọi số / mua vé
+         bên phải. -->
+    <div class="col-side">
+    <!-- Phòng riêng: ở bàn chung là nút tạo phòng (50 xu); trong phòng riêng là tên chủ phòng, mời / thành viên, rời. -->
+    <section class="private" id="privateBar" hidden>
+      <span class="private-title" id="privateTitle"></span>
+      <button type="button" id="privateMembers" hidden>👥 Thành viên</button>
+      <button type="button" class="primary" id="privateAction" hidden></button>
+    </section>
 
     <section class="phase" aria-live="polite">
       <div class="phase-top">
@@ -207,7 +251,9 @@
       </div>
       <label><input type="checkbox" id="autoMark"> 🤖 Tự động đánh dấu (+5 xu / ván)</label>
     </section>
+    </div>
 
+    <div class="col-main">
     <section class="tickets" id="tickets"><p class="no-ticket" id="noTicket">Chưa có vé · mua vé ở pha mua vé (10 xu/vé, mỗi người tối đa 2 vé · cần ít nhất 2 người chơi mới mở ván, không giới hạn số người)</p></section>
 
     <button type="button" class="kinh-button" id="kinh" hidden>KINH!</button>
@@ -216,6 +262,7 @@
     <button type="button" class="sign-in" id="signIn" hidden>🛕 Về chùa đăng nhập để chơi</button>
 
     <p class="note">Chạm số đã gọi để đánh dấu, chạm lần nữa để bỏ. Đủ 5 số một hàng ngang thì bấm KINH! — kinh sai khóa nút 10 giây. Người kinh nhận quỹ (tiền vé cả phòng) trừ 10% phế; kinh cùng nhịp chia đều. Xu ảo, không quy đổi ra tiền thật. · <a href="/ho-tro.html?from=/loto.html">🛟 Góp ý / Báo lỗi</a></p>
+    </div>
   </main>
 
   <script type="module">

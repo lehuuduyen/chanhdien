@@ -354,7 +354,7 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     effects.sticks.push({ group, stick, ember, t: 0 });
   }
   let participants = [];
-  let insets = { top: 0, bottom: 0 };
+  let insets = { top: 0, bottom: 0, left: 0, right: 0 };
   let size = { width: 0, height: 0 };
   let destroyed = false;
   let frames = 0;
@@ -409,10 +409,11 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     else applyView();
   }
 
-  // Khoảng chừa cho thanh điều khiển: dời tâm phối cảnh vào giữa phần còn lại (không thu nhỏ khung WebGL).
+  // Khoảng chừa cho thanh điều khiển (và ngăn bên phải ở màn rộng): dời tâm phối cảnh vào giữa phần còn lại (không thu
+  // nhỏ khung WebGL).
   function applyView() {
     camera.aspect = size.width / size.height;
-    camera.setViewOffset(size.width, size.height, 0, (insets.bottom - insets.top) / 2, size.width, size.height);
+    camera.setViewOffset(size.width, size.height, (insets.right - insets.left) / 2, (insets.bottom - insets.top) / 2, size.width, size.height);
     camera.updateProjectionMatrix();
   }
 
@@ -888,7 +889,8 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     say,
     offer,
     setInsets(next) {
-      insets = { top: Math.max(0, next.top || 0), bottom: Math.max(0, next.bottom || 0) };
+      const side = (key) => Math.max(0, next[key] || 0);
+      insets = { top: side('top'), bottom: side('bottom'), left: side('left'), right: side('right') };
       applyView();
     },
     // Về góc mặc định (sau lưng khán đường nhìn lên bàn thờ).

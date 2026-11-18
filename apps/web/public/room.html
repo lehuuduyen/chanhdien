@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#05070a">
+  <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Rạp phim · Chánh Điện Online</title>
   <link rel="stylesheet" href="/room.css">
   <script type="importmap">
@@ -112,11 +119,16 @@
         <div class="joystick" id="joystick" hidden aria-label="Kéo để đi"><i></i></div>
         <button type="button" class="near-sit" id="nearSit" hidden>💺 Ngồi</button>
         <button type="button" class="show-hud" id="showHud" hidden aria-label="Hiện giao diện">👁</button>
-        <!-- Xem ngang: chỉ còn vài nút ở dải trống bên phải màn chiếu (bộ vẽ chừa chỗ, không đè lên video). -->
+        <!-- Xem ngang: chỉ còn vài nút ở dải trống bên phải màn chiếu (bộ vẽ chừa chỗ, không đè lên video). Trò chuyện /
+             hàng chờ / người xem mở ngăn kéo cạnh dải nút, màn chiếu co lại phần còn lại. -->
         <div class="zoom-bar" id="zoomBar" hidden>
           <button type="button" id="zoomExit" aria-label="Thoát xem ngang">✕</button>
-          <button type="button" id="zoomMute" aria-label="Tắt/bật tiếng">🔇</button>
+          <button type="button" data-tool="chat" aria-label="Trò chuyện" title="Trò chuyện">💬<i class="badge" id="zoomChatBadge" hidden></i></button>
+          <button type="button" data-tool="queue" aria-label="Hàng chờ · gửi video" title="Hàng chờ · gửi video">📃<i class="badge" id="zoomQueueBadge" hidden></i></button>
+          <button type="button" data-tool="people" aria-label="Người xem" title="Người xem">👥</button>
+          <button type="button" data-tool="private" id="zoomPrivate" aria-label="Rạp riêng" title="Rạp riêng" hidden>🔒</button>
           <button type="button" id="zoomReact" aria-label="Thả cảm xúc">✨</button>
+          <button type="button" id="zoomMute" aria-label="Tắt/bật tiếng">🔇</button>
         </div>
         <p class="rotate-hint" id="rotateHint" hidden>↻ Xoay ngang điện thoại để xem to</p>
         <p class="room-notice" id="notice" role="status" aria-live="polite"></p>

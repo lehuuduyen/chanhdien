@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#2a0f06">
+  <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Shop · Chánh Điện Online</title>
   <script type="importmap">
     { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -113,6 +120,29 @@
     .footer { text-align: center; font-size: 13px; }
     .footer a { color: var(--muted); }
     .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: calc(100% - 32px); padding: 10px 16px; color: #2a1404; background: var(--gold); border-radius: 999px; font-weight: 700; font-size: 14px; text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+
+    /* Màn rộng (điện thoại xoay ngang, iPad ngang, máy tính): hai cột — tài khoản / quà đăng nhập / nạp kim cương bên trái,
+       linh thú + nhân vật bên phải (lưới). Màn dọc: hai khối bọc là display: contents nên bố cục một cột không đổi. */
+    .col-side, .col-main { display: contents; }
+    /* Nạp kim cương nằm trong cột trái (trong mã đứng trước linh thú): màn dọc vẫn xếp sau nhân vật như cũ. */
+    #topup { order: 1; }
+    .note, .footer { order: 2; }
+    @media (min-aspect-ratio: 1/1) and (min-width: 760px) {
+      .page { max-width: 1180px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr); align-items: start; column-gap: 18px; padding-inline: max(14px, env(safe-area-inset-left)) max(14px, env(safe-area-inset-right)); }
+      .bar, .hero, .footer { grid-column: 1 / -1; }
+      .col-side, .col-main { display: grid; gap: 14px; align-content: start; min-width: 0; }
+      /* Ghi chú thanh toán ngay dưới cột trái (cột phải kéo dài qua hai hàng). */
+      .col-main { grid-row: span 2; }
+      .note { grid-column: 1; }
+      .items { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+      .pet-items { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    }
+    /* Điện thoại ngang (thấp): tiêu đề gọn để thấy hàng hóa ngay. */
+    @media (min-aspect-ratio: 1/1) and (max-height: 520px) {
+      .hero { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 16px; padding: 0; text-align: left; }
+      .hero h1 { margin: 0; font-size: 24px; }
+      .hero p { margin: 0; max-width: none; font-size: 13px; }
+    }
   </style>
 </head>
 <body>
@@ -137,6 +167,7 @@
       <p>Nhận nuôi linh thú hoặc mua hình nhân vật bằng kim cương 💎. Mọi người trong phòng đều thấy lựa chọn của bạn.</p>
     </section>
 
+    <div class="col-side">
     <section class="card signin" id="signin" hidden>
       <p class="muted">Đăng nhập tài khoản (ở cổng chùa) để nạp kim cương và mua hình. Hình đã mua gắn với tài khoản, đổi máy vẫn còn.</p>
       <button type="button" class="primary" id="goSignin">Đăng nhập ở cổng chùa</button>
@@ -149,6 +180,14 @@
       <div class="event-rewards" id="loginRewards"></div>
     </section>
 
+    <section class="card" id="topup">
+      <h2>Nạp kim cương</h2>
+      <p class="muted" id="topupOff" hidden>Nạp kim cương đang được cập nhật, bạn quay lại sau nhé.</p>
+      <div class="packs" id="packs"></div>
+    </section>
+    </div>
+
+    <div class="col-main">
     <section class="card" id="petShop">
       <h2>🐾 Linh thú</h2>
       <p class="muted">Nhận nuôi một lần, chăm bằng xu và chọn một linh thú đi theo bạn ngoài sân chùa.</p>
@@ -159,12 +198,7 @@
       <h2>Nhân vật</h2>
       <div class="items" id="items"><p class="muted">Đang tải…</p></div>
     </section>
-
-    <section class="card" id="topup">
-      <h2>Nạp kim cương</h2>
-      <p class="muted" id="topupOff" hidden>Nạp kim cương đang được cập nhật, bạn quay lại sau nhé.</p>
-      <div class="packs" id="packs"></div>
-    </section>
+    </div>
 
     <section class="card note">
       <p><b>Thanh toán qua Stripe</b> (thẻ, Apple Pay, Google Pay). Trang này không thấy và không lưu số thẻ của bạn.</p>

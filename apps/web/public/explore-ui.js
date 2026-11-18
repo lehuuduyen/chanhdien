@@ -400,11 +400,14 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
 
   // Đặt thanh động tác và cần điều khiển ngay trên dải lễ vật (dải này cao thấp tùy nút đang có).
   const controls = document.getElementById('controls');
+  // Màn rộng khi 3D: cần điều khiển nằm ở góc trái dưới cạnh thanh chat (chanh-dien.css, khối "Màn rộng").
+  const wide = matchMedia('(min-aspect-ratio: 1/1)');
   function place() {
     if (!controls || controls.hidden) return;
     const gap = stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().top + 8;
+    stage.style.setProperty('--controls-gap', `${Math.round(gap)}px`);
     bar.style.bottom = `${gap}px`;
-    pad.style.bottom = `${gap + bar.offsetHeight + 10}px`;
+    pad.style.bottom = wide.matches && stage.classList.contains('view-3d') ? '' : `${gap + bar.offsetHeight + 10}px`;
     sitNearby.style.bottom = `${gap + bar.offsetHeight + 18}px`;
     choreButton.style.bottom = `${gap + bar.offsetHeight + 18}px`;
     petActions.style.bottom = `${gap + bar.offsetHeight + 18}px`;

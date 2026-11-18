@@ -43,6 +43,9 @@ test('khung nhìn giữ đúng tỷ lệ màn hình: màn dọc kéo dài xuốn
   const wide = fitWindow(window, 3);
   assert.deepEqual(wide.y, [0, 5]);
   assert.ok(Math.abs(wide.x[0] + 7.5) < 1e-9 && Math.abs(wide.x[1] - 7.5) < 1e-9);
+  const centered = fitWindow(window, 1, { center: true });
+  assert.deepEqual(centered.x, [-5, 5]);
+  assert.ok(Math.abs(centered.y[0] + 2.5) < 1e-9 && Math.abs(centered.y[1] - 7.5) < 1e-9);
 });
 
 test('mọi góc nhìn thẳng màn chiếu đều thấy trọn màn chiếu, khung player ≥ 200 px trên điện thoại', () => {
@@ -146,6 +149,14 @@ test('xem ngang: điện thoại xoay ngang thì màn chiếu cao gần kín mà
     assert.ok(rect.height >= height * 0.97, `${width}×${height}: cao ${rect.height.toFixed(0)}`);
     assert.ok(rect.x >= 0 && rect.x + rect.width <= width);
   }
+  // Mở ngăn trò chuyện: phần còn lại gần vuông, màn chiếu nằm giữa theo chiều dọc và vẫn ≥ 356 × 200 px.
+  const [width, height] = [356, 359];
+  const rect = windowToPixels(screen, cameraPose(scene, seats, 'zoom', null, width / height).window, width, height);
+  assert.ok(Math.abs(rect.y + rect.height / 2 - height / 2) < 4, `giữa: ${rect.y.toFixed(0)}`);
+  assert.ok(rect.width >= 340 && rect.height >= 190);
+  // Màn dọc (dải nút ở đáy): màn chiếu giữ mép trên như cũ.
+  const tall = windowToPixels(screen, cameraPose(scene, seats, 'zoom', null, 390 / 776).window, 390, 776);
+  assert.ok(tall.y < 4, `dọc: ${tall.y.toFixed(0)}`);
 });
 
 test('ghế đôi: hai hàng cuối ghép từng cặp từ lối giữa ra, giữ nguyên id ghế; ghế sát tường vẫn là ghế đơn', () => {
