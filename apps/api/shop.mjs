@@ -15,7 +15,6 @@
 import { spawn } from 'node:child_process';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { PET_LEVEL_DAYS, petRate, SPIRIT_PETS } from '@chanh-dien/garden';
@@ -83,23 +82,18 @@ export function inspectGlb(buffer) {
   return { ok: true, clips, triangles };
 }
 
-// Nén bằng gltf-transform CLI (đã có trong dependencies): giữ khung xương, động tác; texture WebP 1024.
-// Gói chỉ export file chính: đi từ đó lên thư mục gói để lấy bin/cli.js.
-const GLTF_CLI = (() => {
-  const main = createRequire(import.meta.url).resolve('@gltf-transform/cli');
-  const marker = `${path.sep}@gltf-transform${path.sep}cli${path.sep}`;
-  return path.join(main.slice(0, main.lastIndexOf(marker) + marker.length), 'bin', 'cli.js');
-})();
+// Nén bằng thư viện gltf-transform (model-optimize.mjs) trong tiến trình riêng: giữ khung xương, động tác; meshopt,
+// texture WebP 1024. Quá giờ thì giết tiến trình.
+const OPTIMIZE_SCRIPT = path.join(import.meta.dirname, 'model-optimize.mjs');
 export function optimizeModel(input, output, { timeoutMs = 120_000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [GLTF_CLI, 'optimize', input, output, '--compress', 'meshopt', '--texture-compress', 'webp',
-      '--texture-size', '1024', '--no-simplify', '--flatten', 'false', '--join', 'false', '--instance', 'false', '--palette', 'false'], { stdio: 'ignore' });
+    const child = spawn(process.execPath, [OPTIMIZE_SCRIPT, input, output], { stdio: 'ignore' });
     const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
     child.on('error', (error) => { clearTimeout(timer); reject(error); });
     child.on('exit', (code) => {
       clearTimeout(timer);
       if (code === 0) resolve();
-      else reject(new Error(`gltf-transform ${code}`));
+      else reject(new Error(`model-optimize ${code}`));
     });
   });
 }
