@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseServerMessage } from '@chanh-dien/protocol';
 import { TIENLEN_RULES } from '@chanh-dien/room-rules';
-import { botChoice, capTransfers, playOptions, smartSelect, TIENLEN_HOUSE_CUT_PERCENT, TIENLEN_MIN_COINS_UNITS, TIENLEN_MODES, TIENLEN_STAKES, tienLenMinCoins } from '@chanh-dien/tien-len';
+import { botChoice, capTransfers, playOptions, RANKS, smartSelect, SUITS, TIENLEN_HOUSE_CUT_PERCENT, TIENLEN_MIN_COINS_UNITS, TIENLEN_MODES, TIENLEN_STAKES, TienLenRound, tienLenMinCoins } from '@chanh-dien/tien-len';
 import { TienLenTable } from '../tien-len.mjs';
 
 const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
@@ -393,6 +393,37 @@ test('hết giờ lần đầu: hệ thống đánh hộ, lượt sau vẫn đ�
   assert.equal(last('an').players[seatOf(an)].missed, undefined);
   if (myTurn(an)) assert.ok(board.deadline - Date.now() > 100, 'đang tới lượt: được đủ giờ lại');
   assert.equal(table.back(binh, { tableId: 'tl-khong-co-1-1-1-abcd' }).code, 'NOT_IN_GAME');
+  table.stop();
+});
+
+test('bot cầm 4 đôi thông chặt heo ngoài lượt (chưa tới lượt bot)', async () => {
+  const cs = (text) => text.split(' ').map((name) => RANKS.indexOf(name.slice(0, -1)) * 4 + SUITS.indexOf(name.slice(-1)));
+  const botFill = { always: true, players: [3, 3], firstDelayMs: [1, 1], delayMs: [1, 1] };
+  const { table, join, last } = setup({ bots: 1, rules: { ...RULES, turnMs: 5_000, botFill } });
+  const an = join('an');
+  const binh = join('binh');
+  await table.open(an, { stake: 20, mode: 'rank' });
+  const { tableId } = last('an');
+  await table.join(binh, { tableId });
+  await until(() => last('an').phase === 'playing');
+  const board = table.tables.get(tableId);
+  const roundSeat = (person) => board.players.indexOf(board.seats.findIndex((seat) => seat?.accountId === person.accountId));
+  // Người mở vòng là người thật mà người đi kế cũng là người thật: bot đi cuối, chưa tới lượt khi heo lên bàn.
+  const [lead, next] = (roundSeat(an) + 1) % 3 === roundSeat(binh) ? [an, binh] : [binh, an];
+  const botSeat = [0, 1, 2].find((seat) => seat !== roundSeat(an) && seat !== roundSeat(binh));
+  const hands = [];
+  hands[roundSeat(lead)] = cs('2♥ 3♠ 4♦');
+  hands[roundSeat(next)] = cs('K♣ Q♦ J♥');
+  hands[botSeat] = cs('5♠ 5♣ 6♠ 6♣ 7♠ 7♣ 8♠ 8♣ 10♦');
+  board.round = new TienLenRound({ hands, mode: 'rank', leader: roundSeat(lead) });
+  board.freeChop = null;
+  table.startTurn(board);
+  assert.ok(table.play(lead, { tableId, cards: cs('2♥') }).ok);
+  assert.equal(board.round.turn, roundSeat(next), 'tới lượt người thứ hai, chưa tới bot');
+  await until(() => board.round.last?.action === 'chop', 1_000);
+  assert.equal(board.round.last.seat, botSeat);
+  assert.deepEqual(board.round.top.cards, cs('5♠ 5♣ 6♠ 6♣ 7♠ 7♣ 8♠ 8♣'));
+  assert.equal(last('an').last.action, 'chop', 'người chơi thấy bot vừa chặt');
   table.stop();
 });
 

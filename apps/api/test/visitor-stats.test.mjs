@@ -9,6 +9,9 @@ import {
   createVisitorStats, nextReportAt, startVisitorReports, visitorReportHours, visitorReportText, visitorStatsTelegramCommand,
 } from '../visitor-stats.mjs';
 
+// Phần hỏi tuổi + đồng ý điều khoản bắt buộc khi đăng ký qua API.
+const SIGNUP = { birthYear: 1990, birthMonth: 5, acceptTerms: true };
+
 const SECRET = 'test-secret-with-at-least-thirty-two-characters';
 const HOOK = 'telegram-hook-secret';
 const TZ = 'America/Los_Angeles';
@@ -137,7 +140,7 @@ test('qua API: vé vào phòng ghi người vào, presence realtime báo ngườ
   assert.equal((await join({ 'x-real-ip': '9.9.9.9' })).status, 200);
   assert.equal((await join({ 'x-real-ip': '9.9.9.9' }, { roomId: 'khong-co', displayName: 'Khách' })).status, 404, 'vé hỏng không tính');
   // Thành viên vào từ cùng mạng với một khách vẫn là người riêng (đếm theo tài khoản).
-  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'thanh.vien', password: 'matkhau123', displayName: 'Thành Viên' } });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'thanh.vien', password: 'matkhau123', ...SIGNUP, displayName: 'Thành Viên' } });
   const cookie = registered.headers['set-cookie'].split(';')[0];
   assert.equal((await join({ 'x-real-ip': '8.8.8.8', cookie }, { roomId: 'cinema-1' })).status, 200);
   const presence = await request(options, 'POST', '/internal/presence', {

@@ -153,7 +153,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   ping: { roles: ['guest', 'member', 'moderator', 'host'], rate: '1/10 giây' },
   'queue.add': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/60 giây, tối đa 3 video chờ mỗi người' },
   'queue.remove': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây, chỉ video mình mở còn trong hàng chờ' },
-  'vote.skip': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
+  'vote.skip': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây, chỉ người thật; bot không được gửi' },
   'playback.report': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/10 giây' },
   'avatar.set': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'offering.send': { roles: ['guest', 'member', 'moderator', 'host'], rate: 'theo từng lễ vật (room rules), tối đa 6/10 giây' },
@@ -841,7 +841,8 @@ const serverSchemas = {
   // (ms) hết lượt / hết đếm ngược. top: bộ đang nằm trên bàn. lead: mình đang mở vòng; mustInclude: lá phải đánh kèm.
   // last: nước vừa đi (chop kèm số phần người bị chặt phải trả). result: kết quả ván (ranks / nets theo ghế; lines là các
   // khoản đã tính ra xu; net / cut: xu của mình thực cộng / trừ sau phế; before / after: số dư của mình trước / sau ván;
-  // hands: bài còn lại của từng ghế, chỉ lật khi ván đã xong — tới trắng thì đủ 13 lá của người thắng).
+  // hands: bài còn lại của từng ghế, chỉ lật khi ván đã xong — tới trắng thì đủ 13 lá của người thắng; spade: người nhất
+  // tới 3 bích, tiền về trong lines đã nhân đôi).
   // minCoins: số xu tối thiểu để ngồi bàn này. bots: bàn có cho bot vào. players[].missed: số lượt liên tiếp hệ thống đánh
   // hộ (≥ 2 là đang tự đánh); away: mất kết nối. last.auto: nước vừa rồi do hệ thống đánh hộ.
   'tienlen.table'(message) {
@@ -858,7 +859,8 @@ const serverSchemas = {
     const line = (item) => isRecord(item) && exactKeys(item, ['from', 'to', 'units', 'coins', 'reason'])
       && tienLenSeat(item.from) && tienLenSeat(item.to) && item.from !== item.to
       && isInteger(item.units) && item.units >= 0 && isInteger(item.coins) && item.coins >= 0 && TIENLEN_REASONS.includes(item.reason);
-    const result = (value) => isRecord(value) && exactKeys(value, ['ranks', 'nets', 'lines'], ['white', 'net', 'cut', 'before', 'after', 'hands'])
+    const result = (value) => isRecord(value) && exactKeys(value, ['ranks', 'nets', 'lines'], ['white', 'spade', 'net', 'cut', 'before', 'after', 'hands'])
+      && (value.spade === undefined || value.spade === true)
       && (value.hands === undefined || seatList(value.hands, (cards) => tienLenCards(cards, 0)))
       && ['before', 'after'].every((key) => value[key] === undefined || (isInteger(value[key]) && value[key] >= 0))
       && seatList(value.ranks, (rank) => isInteger(rank) && rank >= 1 && rank <= TIENLEN_SEATS)

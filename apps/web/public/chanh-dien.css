@@ -170,6 +170,7 @@ button.chip { cursor: pointer; }
 .prayer-card header { align-items: flex-start; }
 .prayer-card header > div { min-width: 0; }
 .prayer-kicker { margin: 0 0 3px; color: #cdbb9b; font-size: 10px; font-weight: 700; letter-spacing: .14em; }
+.prayer-disclaimer { margin: 0; color: #b9a58a; font-size: 11.5px; line-height: 1.5; }
 .prayer-tabs { flex: none; }
 .prayer-requester { margin: 0; color: #cdbb9b; font-size: 12px; }
 .prayer-requester b { color: var(--gold); }
@@ -263,6 +264,19 @@ button.chip { cursor: pointer; }
 .account-card .error { min-height: 14px; margin: 0; color: #f0a08a; font-size: 12px; }
 .account-card .ledger-note { margin: 0; }
 .account-card h3 { margin: 6px 0 0; color: var(--gold); font-family: var(--display); font-size: 15px; }
+/* Form tài khoản: nhóm tên / mật khẩu và nhóm hỏi tuổi + điều khoản (fieldset tắt khi ẩn để ô required không chặn gửi). */
+.account-card fieldset { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+/* Form dài hơn khung (màn thấp, có thêm ô hỏi tuổi): cuộn cả form, không co nút / dòng lỗi lại. */
+#authForm > * { flex-shrink: 0; }
+.account-card fieldset[hidden] { display: none; }
+.account-card .label { color: #cdbb9b; font-size: 12px; }
+.account-card .birth { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.account-card select { height: 44px; min-width: 0; padding: 0 10px; color: var(--fg); background: rgba(12, 6, 3, .9); border: 1px solid var(--line); border-radius: 10px; outline: 0; font-size: 16px; }
+.account-card select:focus { border-color: var(--gold); }
+.account-card .check { display: flex; align-items: flex-start; gap: 8px; color: #e6d6ba; font-size: 12.5px; line-height: 1.45; cursor: pointer; }
+.account-card .check[hidden] { display: none; }
+.account-card .check input { flex: none; width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--gold); }
+.account-card .check a, .prayer-disclaimer a { color: var(--gold); }
 .tabs { display: flex; gap: 4px; padding: 3px; background: rgba(12, 6, 3, .7); border-radius: 999px; }
 .tabs[hidden] { display: none; }
 .tabs button { flex: 1; min-height: 34px; color: #cdbb9b; background: none; border: 0; border-radius: 999px; font-size: 13px; cursor: pointer; }
@@ -460,6 +474,8 @@ button.chip { cursor: pointer; }
 .settings-row .in-menu[hidden] { display: none; }
 .settings-row:not(:has(.settings-label:not([hidden]))) .in-menu { flex: 1 1 100%; }
 #leave.in-menu { color: #f0a08a; }
+.legal-links.in-menu { display: flex; gap: 6px; min-width: 0; cursor: default; }
+.legal-links a { flex: 1; min-width: 0; min-height: 34px; justify-content: center; color: var(--fg); font-size: 12px; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-pick { display: flex; flex: 1; gap: 6px; min-width: 0; }
 .voice-pick select { flex: 1; min-width: 0; height: 34px; padding: 0 6px; color: var(--fg); background: rgba(12, 6, 3, .9); border: 1px solid var(--line); border-radius: 999px; font: inherit; font-size: 12px; }
 .voice-pick .chip { flex: none; cursor: pointer; }

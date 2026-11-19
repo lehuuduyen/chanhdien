@@ -78,6 +78,36 @@ export function verifyPassword(password, stored) {
 
 const cleanName = (value) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, DISPLAY_NAME_MAX);
 
+// Hỏi tuổi khi tạo tài khoản (tên/mật khẩu hoặc Google lần đầu): tháng + năm sinh, không gợi ý tuổi tối thiểu trên form.
+// Dưới 13 tuổi không tạo tài khoản (COPPA ở Mỹ); 13–17 tuổi phải xác nhận cha mẹ / người giám hộ đồng ý. Phải đồng ý
+// Điều khoản sử dụng + Chính sách quyền riêng tư bản TERMS_VERSION (/dieu-khoan.html, /quyen-rieng-tu.html); đổi nội
+// dung hai trang đó thì tăng phiên bản.
+export const MIN_ACCOUNT_AGE = 13;
+export const ADULT_AGE = 18;
+export const TERMS_VERSION = '2026-11-18';
+
+// Tuổi tròn theo tháng + năm sinh; trùng tháng sinh thì chưa tính là đã qua sinh nhật (chọn phía an toàn).
+export function ageFrom(year, month, at = Date.now()) {
+  const today = new Date(at);
+  const age = today.getUTCFullYear() - year;
+  return today.getUTCMonth() + 1 > month ? age : age - 1;
+}
+
+// Kiểm tra phần hỏi tuổi + đồng ý điều khoản; trả { ok, birth 'YYYY-MM', age } hoặc mã lỗi.
+export function checkSignup(input, at = Date.now()) {
+  const year = Number(input?.birthYear);
+  const month = Number(input?.birthMonth);
+  const thisYear = new Date(at).getUTCFullYear();
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12 || year < thisYear - 120 || year > thisYear) {
+    return { ok: false, error: 'BIRTH_REQUIRED' };
+  }
+  const age = ageFrom(year, month, at);
+  if (age < MIN_ACCOUNT_AGE) return { ok: false, error: 'UNDER_AGE' };
+  if (input.acceptTerms !== true) return { ok: false, error: 'TERMS_REQUIRED' };
+  if (age < ADULT_AGE && input.guardianConsent !== true) return { ok: false, error: 'GUARDIAN_REQUIRED' };
+  return { ok: true, birth: `${year}-${String(month).padStart(2, '0')}`, age };
+}
+
 export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
@@ -138,10 +168,17 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
     );
     CREATE INDEX IF NOT EXISTS reports_at ON reports(at DESC);
   `);
+  // Tháng/năm sinh ('YYYY-MM') và lần đồng ý điều khoản lúc tạo tài khoản; tài khoản tạo trước khi có hỏi tuổi để trống.
+  const accountColumns = new Set(db.prepare('PRAGMA table_info(accounts)').all().map((column) => column.name));
+  if (!accountColumns.has('birth_month')) {
+    db.exec(`ALTER TABLE accounts ADD COLUMN birth_month TEXT;
+      ALTER TABLE accounts ADD COLUMN terms_version TEXT;
+      ALTER TABLE accounts ADD COLUMN terms_at INTEGER;`);
+  }
 
   const statements = {
-    insertAccount: db.prepare(`INSERT INTO accounts (id, username, password_hash, google_sub, email, display_name, avatar_url, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+    insertAccount: db.prepare(`INSERT INTO accounts (id, username, password_hash, google_sub, email, display_name, avatar_url, created_at,
+      birth_month, terms_version, terms_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     byId: db.prepare('SELECT * FROM accounts WHERE id = ?'),
     byUsername: db.prepare('SELECT * FROM accounts WHERE username = ?'),
     byGoogle: db.prepare('SELECT * FROM accounts WHERE google_sub = ?'),
@@ -183,9 +220,11 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
     createdAt: row.created_at,
   };
 
-  function createAccount({ username = null, passwordHash = null, googleSub = null, email = null, displayName, avatarUrl = null }) {
+  function createAccount({ username = null, passwordHash = null, googleSub = null, email = null, displayName, avatarUrl = null, birth = null }) {
     const id = `a-${randomUUID()}`;
-    statements.insertAccount.run(id, username, passwordHash, googleSub, email, cleanName(displayName) || username || 'Phật tử', avatarUrl, now());
+    const at = now();
+    statements.insertAccount.run(id, username, passwordHash, googleSub, email, cleanName(displayName) || username || 'Phật tử', avatarUrl, at,
+      birth || null, birth ? TERMS_VERSION : null, birth ? at : null);
     return publicAccount(statements.byId.get(id));
   }
 
@@ -215,12 +254,13 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
   }
 
   return {
-    register({ username, password, displayName }) {
+    // birth: 'YYYY-MM' đã qua checkSignup (API bắt buộc khi người dùng tự đăng ký; test / công cụ nội bộ có thể bỏ trống).
+    register({ username, password, displayName, birth = null }) {
       const name = String(username || '').trim().toLowerCase();
       if (!USERNAME.test(name)) return { ok: false, error: 'INVALID_USERNAME' };
       if (typeof password !== 'string' || password.length < PASSWORD_MIN || password.length > 200) return { ok: false, error: 'WEAK_PASSWORD' };
       if (statements.byUsername.get(name)) return { ok: false, error: 'USERNAME_TAKEN' };
-      return { ok: true, account: createAccount({ username: name, passwordHash: hashPassword(password), displayName: cleanName(displayName) || name }) };
+      return { ok: true, account: createAccount({ username: name, passwordHash: hashPassword(password), displayName: cleanName(displayName) || name, birth }) };
     },
 
     login({ username, password }) {
@@ -230,14 +270,25 @@ export function createAccountStore({ file = ':memory:', now = Date.now } = {}) {
       return row && ok ? { ok: true, account: publicAccount(row) } : { ok: false, error: 'INVALID_CREDENTIALS' };
     },
 
-    // Đăng nhập Google: tạo tài khoản lần đầu theo "sub" của Google, các lần sau cập nhật ảnh và email.
-    upsertGoogle({ sub, email, name, picture }) {
+    // Đăng nhập Google: tạo tài khoản lần đầu theo "sub" của Google, các lần sau cập nhật ảnh và email. birth như register
+    // (API hỏi tuổi trước khi tạo tài khoản Google mới, xem hasGoogle).
+    upsertGoogle({ sub, email, name, picture }, birth = null) {
       const existing = statements.byGoogle.get(sub);
       if (existing) {
         statements.updateGoogleProfile.run(email || existing.email, picture || existing.avatar_url, existing.id);
         return publicAccount(statements.byId.get(existing.id));
       }
-      return createAccount({ googleSub: sub, email, displayName: name || (email ? email.split('@')[0] : 'Phật tử'), avatarUrl: picture || null });
+      return createAccount({ googleSub: sub, email, displayName: name || (email ? email.split('@')[0] : 'Phật tử'), avatarUrl: picture || null, birth });
+    },
+
+    hasGoogle(sub) {
+      return Boolean(statements.byGoogle.get(sub));
+    },
+
+    // Tháng/năm sinh + phiên bản điều khoản đã đồng ý (chỉ dùng phía server, không trả ra trình duyệt).
+    signupInfo(accountId) {
+      const row = statements.byId.get(accountId);
+      return row ? { birth: row.birth_month || null, termsVersion: row.terms_version || null, termsAt: row.terms_at || null } : null;
     },
 
     get(accountId) {

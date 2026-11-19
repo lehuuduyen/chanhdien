@@ -1,0 +1,44 @@
+/* Trang pháp lý dùng chung (/dieu-khoan.html, /quyen-rieng-tu.html): cùng tông màu với trang Ủng hộ / Hỗ trợ, chữ dài
+   nên rộng tối đa 720px, dòng thưa. */
+:root {
+  color-scheme: dark;
+  --bg: #170904;
+  --panel: rgba(54, 24, 12, .86);
+  --line: rgba(255, 214, 140, .2);
+  --gold: #f3c969;
+  --fg: #fff4e2;
+  --muted: #d6b998;
+  font-family: Inter, "Be Vietnam Pro", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { min-height: 100dvh; margin: 0; color: var(--fg); background: radial-gradient(circle at 50% 0%, #5a1e0c 0%, #2a0f06 50%, var(--bg) 100%) fixed; }
+[hidden] { display: none !important; }
+.page { max-width: 720px; margin: 0 auto; padding: max(12px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); display: grid; gap: 14px; }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chip { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; color: var(--gold); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font: inherit; font-size: 14px; white-space: nowrap; text-decoration: none; cursor: pointer; }
+.langs { display: flex; gap: 3px; padding: 3px; background: rgba(12, 6, 3, .7); border-radius: 999px; }
+.langs button { min-height: 30px; padding: 0 12px; color: var(--muted); background: none; border: 0; border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; }
+.langs button[aria-pressed="true"] { color: #241a08; background: var(--gold); font-weight: 600; }
+article { display: grid; gap: 4px; line-height: 1.65; font-size: 15px; }
+h1 { margin: 8px 0 2px; color: var(--gold); font-family: Georgia, serif; font-size: clamp(25px, 7vw, 32px); font-weight: 600; line-height: 1.25; }
+h2 { margin: 22px 0 4px; color: var(--gold); font-family: Georgia, serif; font-size: 19px; font-weight: 500; scroll-margin-top: 12px; }
+h3 { margin: 12px 0 0; font-size: 15px; }
+p, ul { margin: 6px 0; }
+ul { padding-left: 20px; }
+li { margin: 4px 0; }
+a { color: var(--gold); }
+.date { margin: 0; color: var(--muted); font-size: 13px; }
+.summary { margin: 10px 0 4px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+.summary p { margin: 0 0 6px; color: var(--gold); font-weight: 600; }
+.summary ul { margin: 0; }
+nav.toc { margin: 4px 0; font-size: 14px; }
+nav.toc ol { margin: 6px 0; padding-left: 22px; columns: 2 220px; column-gap: 24px; }
+nav.toc li { margin: 2px 0; }
+table { width: 100%; margin: 8px 0; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; }
+td:first-child { width: 48%; }
+code { color: var(--fg); font-size: 13px; }
+.muted { color: var(--muted); }
+footer { margin-top: 18px; padding-top: 14px; display: flex; flex-wrap: wrap; gap: 8px 16px; border-top: 1px solid var(--line); font-size: 14px; }

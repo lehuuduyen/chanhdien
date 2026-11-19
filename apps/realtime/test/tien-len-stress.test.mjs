@@ -10,7 +10,7 @@ import test from 'node:test';
 import { parseServerMessage, PROTOCOL_VERSION } from '@chanh-dien/protocol';
 import { TIENLEN_RULES } from '@chanh-dien/room-rules';
 import { createJoinTicket } from '@chanh-dien/session-token';
-import { botChoice, capTransfers, classify, HAND_SIZE, isFreeChop, playOptions, TIENLEN_HOUSE_CUT_PERCENT, tienLenMinCoins } from '@chanh-dien/tien-len';
+import { botChoice, botDecide, capTransfers, classify, deal, HAND_SIZE, isFreeChop, playOptions, TIENLEN_HOUSE_CUT_PERCENT, TienLenRound, tienLenMinCoins } from '@chanh-dien/tien-len';
 import { WebSocket } from 'ws';
 import { createRealtimeServer, RoomRegistry } from '../server.mjs';
 import { TienLenTable } from '../tien-len.mjs';
@@ -377,9 +377,64 @@ test('tới trắng ngay lúc chia: ra thẳng kết quả, mỗi người vẫn
 test('bài chia bằng crypto.randomInt (không đoán trước được), bot chỉ được đọc bài của chính nó', () => {
   const table = new TienLenTable({ room: { id: 'tienlen-1', epoch: 1, participants: new Map() }, rules: TIENLEN_RULES.interaction });
   assert.equal(table.random, randomInt, 'mặc định dùng crypto.randomInt, không dùng Math.random');
-  // botChoice chỉ nhận bài của bot + bộ trên bàn + số lá ít nhất của đối thủ (không có tham số nào chứa bài người khác).
+  // botChoice chỉ nhận bài của bot + bộ trên bàn + các lá đã ra + số lá ít nhất của đối thủ (không tham số nào chứa bài
+  // người khác).
   assert.deepEqual(botChoice.toString().match(/\{([^}]*)\}/)[1].split(',').map((item) => item.split('=')[0].trim()).filter(Boolean),
-    ['hand', 'top', 'mustInclude', 'opponentMin', 'random']);
+    ['hand', 'top', 'mustInclude', 'opponentMin', 'random', 'seen', 'mode', 'tuning']);
+});
+
+test('botDecide (nhìn trước ở tàn cuộc) không phụ thuộc bài người khác: xáo bài đối thủ, nước đi vẫn y hệt', () => {
+  let seed = 2024;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) % 2 ** 31;
+    return seed / 2 ** 31;
+  };
+  const seeded = (start) => {
+    let value = start;
+    return () => {
+      value = (value * 1103515245 + 12345) % 2 ** 31;
+      return value / 2 ** 31;
+    };
+  };
+  // Bản sao ván với bài của các đối thủ bị xáo lại (giữ số lá từng người).
+  const shuffled = (round, seat) => {
+    const copy = Object.assign(Object.create(TienLenRound.prototype), round, {
+      hands: round.hands.map((hand) => [...hand]), played: [...round.played], out: [...round.out], order: [...round.order],
+      passed: new Set(round.passed), ledger: round.ledger.map((item) => ({ ...item })), discards: [...round.discards],
+    });
+    const pool = copy.hands.flatMap((hand, other) => (other === seat ? [] : hand));
+    for (let index = pool.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(random() * (index + 1));
+      [pool[index], pool[swap]] = [pool[swap], pool[index]];
+    }
+    let next = 0;
+    copy.hands = copy.hands.map((hand, other) => {
+      if (other === seat) return hand;
+      const part = pool.slice(next, next + hand.length).sort((a, b) => a - b);
+      next += hand.length;
+      return part;
+    });
+    return copy;
+  };
+  let checked = 0;
+  for (let game = 0; game < 40; game += 1) {
+    const players = 2 + (game % 3);
+    const hands = deal(players, (n) => Math.floor(random() * n));
+    const low = Math.min(...hands.flat());
+    const round = new TienLenRound({ hands, mode: game % 2 ? 'rank' : 'count', leader: hands.findIndex((hand) => hand.includes(low)), mustInclude: low });
+    while (!round.over) {
+      const seat = round.turn;
+      // Bỏ giới hạn thời gian để hai lần gọi thử cùng số cách chia (máy bận thì budgetMs làm số mẫu khác nhau).
+      const tuning = { budgetMs: Infinity };
+      const first = botDecide(round, seat, { random: seeded(game * 1000 + checked), tuning });
+      const again = botDecide(shuffled(round, seat), seat, { random: seeded(game * 1000 + checked), tuning });
+      assert.deepEqual(again, first, `ván ${game}: bot đổi nước khi bài đối thủ khác đi`);
+      checked += 1;
+      const result = first ? round.play(seat, first) : round.pass(seat);
+      assert.ok(result.ok);
+    }
+  }
+  assert.ok(checked > 500, `đã so ${checked} nước`);
 });
 
 // ---- Qua WebSocket thật: đúng những gì trình duyệt (F12 → Network) nhận được ----

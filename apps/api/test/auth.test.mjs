@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
-import { createAccountStore } from '@chanh-dien/accounts';
+import { createAccountStore, TERMS_VERSION } from '@chanh-dien/accounts';
 import { internalKey, verifyJoinTicket } from '@chanh-dien/session-token';
 import { botAllocation, realtimeBotController } from '../donate.mjs';
 import { createShopStore } from '../shop.mjs';
 import { handleApiRequest } from '../server.mjs';
+
+// Phần hỏi tuổi + đồng ý điều khoản bắt buộc khi đăng ký qua API.
+const SIGNUP = { birthYear: 1990, birthMonth: 5, acceptTerms: true };
 
 const SECRET = 'test-secret-with-at-least-thirty-two-characters';
 
@@ -29,7 +32,7 @@ const setup = (extra = {}) => ({ secret: SECRET, accounts: createAccountStore(),
 
 test('đăng ký đặt cookie HttpOnly; /me trả hồ sơ và thống kê; đăng xuất xóa cookie', async () => {
   const options = setup();
-  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'tam.an', password: 'matkhau123', displayName: 'Tâm An' } });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'tam.an', password: 'matkhau123', ...SIGNUP, displayName: 'Tâm An' } });
   assert.equal(registered.status, 200);
   assert.equal(registered.json.account.displayName, 'Tâm An');
   assert.equal(registered.json.account.sessionVersion, undefined);
@@ -50,7 +53,7 @@ test('đăng ký đặt cookie HttpOnly; /me trả hồ sơ và thống kê; đ�
 
 test('đăng nhập sai báo lỗi tiếng Việt; thử quá nhiều lần bị chặn; trang lạ không gửi hộ được', async () => {
   const options = setup();
-  await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'sai.mat.khau', password: 'matkhau123' } });
+  await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'sai.mat.khau', password: 'matkhau123', ...SIGNUP } });
   const wrong = await request(options, 'POST', '/api/v1/auth/login', { body: { username: 'sai.mat.khau', password: 'khong-dung' } });
   assert.equal(wrong.status, 401);
   assert.equal(wrong.json.message, 'Sai tên đăng nhập hoặc mật khẩu');
@@ -58,8 +61,32 @@ test('đăng nhập sai báo lỗi tiếng Việt; thử quá nhiều lần bị
   assert.match(https.headers['set-cookie'], /; Secure$/);
   for (let index = 0; index < 8; index += 1) await request(options, 'POST', '/api/v1/auth/login', { body: { username: 'x', password: 'y' } });
   assert.equal((await request(options, 'POST', '/api/v1/auth/login', { body: { username: 'x', password: 'y' } })).status, 429);
-  const foreign = await request(setup(), 'POST', '/api/v1/auth/register', { body: { username: 'bi.lua', password: 'matkhau123' }, headers: { origin: 'https://evil.example' } });
+  const foreign = await request(setup(), 'POST', '/api/v1/auth/register', { body: { username: 'bi.lua', password: 'matkhau123', ...SIGNUP }, headers: { origin: 'https://evil.example' } });
   assert.equal(foreign.status, 403);
+});
+
+test('đăng ký hỏi tháng/năm sinh: dưới 13 tuổi không tạo tài khoản, 13–17 cần cha mẹ đồng ý, phải đồng ý điều khoản', async () => {
+  // Mỗi lần thử (kể cả bị từ chối vì tuổi) đều tính vào giới hạn 5 lần / giờ / IP: chặn chọn lại năm sinh liên tục.
+  let options = setup();
+  const year = new Date().getUTCFullYear();
+  const register = (extra) => request(options, 'POST', '/api/v1/auth/register', { body: { username: 'tuoi.nho', password: 'matkhau123', ...extra } });
+  assert.deepEqual((await register({ acceptTerms: true })).json.error, 'birth_required');
+  assert.deepEqual((await register({ birthYear: year - 30, birthMonth: 13, acceptTerms: true })).json.error, 'birth_required');
+  const child = await register({ birthYear: year - 10, birthMonth: 1, acceptTerms: true, guardianConsent: true });
+  assert.deepEqual([child.status, child.json.error], [403, 'under_age']);
+  assert.doesNotMatch(child.json.message, /13/, 'câu từ chối không lộ tuổi tối thiểu');
+  assert.equal(options.accounts.login({ username: 'tuoi.nho', password: 'matkhau123' }).ok, false, 'không lưu tài khoản');
+  assert.deepEqual((await register({ birthYear: year - 15, birthMonth: 1, acceptTerms: true })).json.error, 'guardian_required');
+  assert.deepEqual((await register({ birthYear: year - 30, birthMonth: 0, acceptTerms: true })).json.error, 'birth_required');
+  assert.equal((await register({ birthYear: year - 30, birthMonth: 1, acceptTerms: true })).status, 429, 'lần thứ 6 trong giờ bị chặn');
+  options = setup();
+  assert.deepEqual((await register({ birthYear: year - 30, birthMonth: 1 })).json.error, 'terms_required');
+  const teen = await register({ birthYear: year - 15, birthMonth: 1, acceptTerms: true, guardianConsent: true });
+  assert.equal(teen.status, 200);
+  const info = options.accounts.signupInfo(teen.json.account.id);
+  assert.equal(info.birth, `${year - 15}-01`);
+  assert.equal(info.termsVersion, TERMS_VERSION);
+  assert.equal(JSON.stringify(teen.json).includes(info.birth), false, 'tháng/năm sinh không trả ra trình duyệt');
 });
 
 test('Google: ẩn khi chưa cấu hình; có client ID thì xác minh token rồi tạo tài khoản kèm ảnh', async () => {
@@ -71,8 +98,18 @@ test('Google: ẩn khi chưa cấu hình; có client ID thì xác minh token r�
       ? { sub: 'g-42', email: 'an@gmail.com', name: 'An', picture: 'https://lh3.googleusercontent.com/x' } : null),
   });
   assert.equal((await request(options, 'POST', '/api/v1/auth/google', { body: { credential: 'bad' } })).status, 401);
-  const signed = await request(options, 'POST', '/api/v1/auth/google', { body: { credential: 'good' } });
+  // Lần đầu: chưa gửi tháng/năm sinh thì trang phải hỏi rồi gửi lại cùng credential; chưa tạo tài khoản.
+  const first = await request(options, 'POST', '/api/v1/auth/google', { body: { credential: 'good' } });
+  assert.deepEqual([first.status, first.json.error], [400, 'signup_required']);
+  assert.equal(first.headers['set-cookie'], undefined);
+  const young = await request(options, 'POST', '/api/v1/auth/google', { body: { credential: 'good', birthYear: new Date().getUTCFullYear() - 8, birthMonth: 1, acceptTerms: true } });
+  assert.deepEqual([young.status, young.json.error], [403, 'under_age']);
+  assert.equal(options.accounts.hasGoogle('g-42'), false, 'dưới 13 tuổi không tạo tài khoản');
+  const signed = await request(options, 'POST', '/api/v1/auth/google', { body: { credential: 'good', ...SIGNUP } });
   assert.equal(signed.status, 200);
+  assert.deepEqual(options.accounts.signupInfo(signed.json.account.id).birth, '1990-05');
+  // Lần sau không hỏi lại.
+  assert.equal((await request(options, 'POST', '/api/v1/auth/google', { body: { credential: 'good' } })).status, 200);
   assert.equal(signed.json.account.avatarUrl, 'https://lh3.googleusercontent.com/x');
   assert.equal(signed.json.account.provider, 'google');
   const joined = await request(options, 'POST', '/api/v1/rooms/join', { body: { roomId: 'thien-1' }, headers: { cookie: cookieOf(signed) } });
@@ -84,7 +121,7 @@ test('sự kiện đăng nhập: ngày 3 tặng Bé Mũ Đỏ, ngày 7 tặng Ki
   const accounts = createAccountStore({ now: () => clock });
   const shopStore = createShopStore({ db: accounts.database, now: () => clock });
   const options = setup({ accounts, shopStore });
-  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'qua.login', password: 'matkhau123', displayName: 'Nhận Quà' } });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'qua.login', password: 'matkhau123', ...SIGNUP, displayName: 'Nhận Quà' } });
   const cookie = cookieOf(registered);
   assert.deepEqual([registered.json.loginReward.totalDays, registered.json.loginReward.newDay], [1, true]);
   assert.equal((await request(options, 'POST', '/api/v1/shop/skin', { body: { skin: 'swordsman' }, headers: { cookie } })).status, 409, 'chưa đủ ngày không thể tự mở skin');
@@ -112,7 +149,7 @@ test('sự kiện đăng nhập: ngày 3 tặng Bé Mũ Đỏ, ngày 7 tặng Ki
 
 test('thành viên vào phòng bằng tên tài khoản; lễ vật nội bộ cần khóa; lịch sử và bảng xếp hạng', async () => {
   const options = setup();
-  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'dieu.thien', password: 'matkhau123', displayName: 'Diệu Thiện' } });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'dieu.thien', password: 'matkhau123', ...SIGNUP, displayName: 'Diệu Thiện' } });
   const cookie = cookieOf(registered);
   const accountId = registered.json.account.id;
 
@@ -144,7 +181,7 @@ test('phòng game: chỉ máy realtime (khóa nội bộ) được đặt cượ
   const accounts = createAccountStore();
   const garden = createGardenStore({ db: accounts.database });
   const options = setup({ accounts, garden });
-  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'choi_ban_chung', password: 'matkhau123', displayName: 'Bé Na' } });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'choi_ban_chung', password: 'matkhau123', ...SIGNUP, displayName: 'Bé Na' } });
   const accountId = registered.json.account.id;
   const start = garden.me(accountId).coins;
   const key = { 'x-internal-key': internalKey(SECRET) };
@@ -385,7 +422,7 @@ test('hỗ trợ: nhận phiếu hỗ trợ xu và hiện đúng loại cho qu�
   const { createMemorySupportStore } = await import('../support.mjs');
   const options = setup({ adminSecret: 'khoa-quan-tri', supportStore: createMemorySupportStore() });
   const registered = await request(options, 'POST', '/api/v1/auth/register', {
-    body: { username: 'tho.iu.ca.rot', password: 'matkhau123', displayName: 'Thỏ iu cà rốt' },
+    body: { username: 'tho.iu.ca.rot', password: 'matkhau123', ...SIGNUP, displayName: 'Thỏ iu cà rốt' },
   });
   const sent = await request(options, 'POST', '/api/v1/support', {
     body: { kind: 'coins', message: 'Cho tôi 500 xu để chơi', page: '/chanh-dien.html?invite=ma-bi-mat&go=garden' },

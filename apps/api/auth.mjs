@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
-import { createAccountStore, OFFERING_RULES } from '@chanh-dien/accounts';
+import { checkSignup, createAccountStore, OFFERING_RULES } from '@chanh-dien/accounts';
 import { LOGIN_ACHIEVEMENT, LOGIN_REWARDS } from '@chanh-dien/room-rules';
 import { createSessionToken, DEFAULT_LOCAL_SECRET, internalKey, SESSION_TTL_MS, verifySessionToken } from '@chanh-dien/session-token';
 import { requestIp } from '../../packages/moderation/src/index.mjs';
@@ -143,7 +143,21 @@ const ERRORS = {
   WEAK_PASSWORD: [400, 'Mật khẩu cần ít nhất 8 ký tự'],
   USERNAME_TAKEN: [409, 'Tên đăng nhập đã có người dùng'],
   INVALID_CREDENTIALS: [401, 'Sai tên đăng nhập hoặc mật khẩu'],
+  BIRTH_REQUIRED: [400, 'Xin chọn tháng và năm sinh'],
+  // Câu trung tính, không nói tuổi tối thiểu (trang khóa form trong ngày để không chọn lại năm sinh khác).
+  UNDER_AGE: [403, 'Xin lỗi, hiện bạn chưa thể tạo tài khoản. Bạn vẫn có thể vào chánh điện với tư cách khách.'],
+  TERMS_REQUIRED: [400, 'Cần đồng ý Điều khoản sử dụng và Chính sách quyền riêng tư'],
+  GUARDIAN_REQUIRED: [400, 'Dưới 18 tuổi cần cha mẹ hoặc người giám hộ đồng ý'],
+  SIGNUP_REQUIRED: [400, 'Tài khoản mới: xin chọn tháng/năm sinh và đồng ý điều khoản'],
 };
+
+// Phần hỏi tuổi + đồng ý điều khoản trong body đăng ký (checkSignup ở @chanh-dien/accounts).
+const signupOf = (input) => ({
+  birthYear: input.birthYear,
+  birthMonth: input.birthMonth,
+  acceptTerms: input.acceptTerms,
+  guardianConsent: input.guardianConsent,
+});
 
 function fail(req, res, code) {
   const [status, message] = ERRORS[code] || [400, 'Yêu cầu không hợp lệ'];
@@ -278,10 +292,17 @@ export async function handleAuthRequest(req, res, pathname, options) {
         json(req, res, 400, { error: 'display_name_not_allowed', message: 'Tên có từ không phù hợp, xin chọn tên khác.' });
         return true;
       }
+      // Hỏi tuổi trước khi tạo tài khoản: dưới 13 tuổi không tạo và không lưu gì.
+      const signup = checkSignup(signupOf(input));
+      if (!signup.ok) {
+        fail(req, res, signup.error);
+        return true;
+      }
       const result = accounts.register({
         username: typeof input.username === 'string' ? input.username : '',
         password: typeof input.password === 'string' ? input.password : '',
         displayName: typeof input.displayName === 'string' ? input.displayName : '',
+        birth: signup.birth,
       });
       if (result.ok) signIn(req, res, options, result.account);
       else fail(req, res, result.error);
@@ -311,7 +332,19 @@ export async function handleAuthRequest(req, res, pathname, options) {
       json(req, res, 401, { error: 'invalid_credential', message: 'Không xác minh được tài khoản Google' });
       return true;
     }
-    signIn(req, res, options, accounts.upsertGoogle(profile));
+    // Tài khoản Google đã có thì vào luôn. Lần đầu: trang chưa gửi phần hỏi tuổi thì trả SIGNUP_REQUIRED để trang hỏi rồi
+    // gửi lại cùng credential (token Google còn hạn khoảng một giờ).
+    let birth = null;
+    if (!accounts.hasGoogle(profile.sub)) {
+      const asked = ['birthYear', 'birthMonth', 'acceptTerms'].some((key) => input[key] !== undefined);
+      const signup = asked ? checkSignup(signupOf(input)) : { ok: false, error: 'SIGNUP_REQUIRED' };
+      if (!signup.ok) {
+        fail(req, res, signup.error);
+        return true;
+      }
+      birth = signup.birth;
+    }
+    signIn(req, res, options, accounts.upsertGoogle(profile, birth));
     return true;
   }
 

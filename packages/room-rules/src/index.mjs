@@ -90,10 +90,11 @@ export const CINEMA_RULES = defineRoomRules({
   // giá kim cương khởi tạo); loại tiền (xu / 💎) + giá thật do admin đặt ở API (apps/api/cinema-pay.mjs), trừ trước khi
   // video vào hàng chờ, hoàn khi không thêm được / người mở hủy / video lỗi / rạp đóng khi video còn chờ.
   content: { source: 'youtube', videoPrice: 20 },
-  interaction: { queue: 'everyone', skipVotePercent: 35 },
+  interaction: { queue: 'everyone', skipVotePercent: 70 },
   // Rạp luôn có khán giả: số bot ngẫu nhiên trong range (10–30), realtime cho dao động trong khoảng đó như người ra
   // vào, mỗi bot ngồi một ghế trống ngẫu nhiên (randomSeat). Khoảng này cố định: addbot và BOTS_CINEMA đều không đổi
-  // (máy realtime bỏ qua BOTS_CINEMA). Bot chỉ trò chuyện mô phỏng, không vote đổi phim và không chiếm quyền điều khiển hàng chờ.
+  // (máy realtime bỏ qua BOTS_CINEMA). Bot chỉ trò chuyện mô phỏng, không vote đổi phim và không chiếm quyền điều khiển hàng chờ;
+  // tuy vậy bot vẫn được tính vào tổng số khán giả khi xác định ngưỡng 70% bỏ qua phim.
   bots: {
     range: [10, 30],
     alwaysOn: true,

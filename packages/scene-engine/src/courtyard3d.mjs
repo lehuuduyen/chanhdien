@@ -1282,6 +1282,11 @@ function addGarden(batch, m, garden, pickables, root, signs) {
     gableRoof(gate, half * 2 + 1, 1.1, 2.98);
     signs.push({ text: garden.sign || '', position: at([0, 2.35, -0.16]), ry: (gate.ry || 0) + Math.PI, width: Math.min(2.6, half * 2 - 0.2) });
   }
+  // Cổng mô hình Meshy: tấm biển trên xà cửa để trơn, gắn bảng chữ vào chỗ scene khai báo (hiện cùng lúc với mô hình).
+  const modelSign = hasDetailedModel ? garden.model.sign : null;
+  if (modelSign && [modelSign.x, modelSign.y, modelSign.z].every(Number.isFinite)) {
+    signs.push({ text: garden.sign || '', position: [modelSign.x, modelSign.y, modelSign.z], ry: modelSign.ry || 0, width: modelSign.width || 1.2, onModel: true });
+  }
   // Quầy hạt giống: mặt quầy, mái che, kệ hạt nhiều màu, biển tên.
   const shop = garden.shop;
   if (shop) {
@@ -2307,7 +2312,8 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     board.rotation.y = sign.ry;
     root.add(board);
   }
-  // Vườn Công Đức: phần tĩnh; biển tên là mesh riêng (texture chữ).
+  // Vườn Công Đức: phần tĩnh; biển tên là mesh riêng (texture chữ). Biển đọc được cả hai mặt: hai tấm một mặt quay lưng
+  // vào nhau (một tấm hai mặt thì nhìn từ phía sau thấy chữ ngược, như biển quầy hạt giống nhìn từ ngoài cổng).
   const gardenPickables = [];
   if (data.garden) {
     const gardenSigns = [];
@@ -2315,10 +2321,21 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     if (gardenModel?.userData.lazyAsset) lazyAssets.push(gardenModel.userData.lazyAsset);
     addGarden(batch, m, data.garden, gardenPickables, root, gardenSigns);
     for (const sign of gardenSigns) {
-      const board = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, sign.width * 0.24), new THREE.MeshStandardMaterial({ map: textBoard(sign.text), roughness: 0.6, side: THREE.DoubleSide }));
+      const geometry = new THREE.PlaneGeometry(sign.width, sign.width * 0.24);
+      const material = new THREE.MeshStandardMaterial({ map: textBoard(sign.text), roughness: 0.6 });
+      const board = new THREE.Group();
+      board.add(new THREE.Mesh(geometry, material));
+      const back = new THREE.Mesh(geometry, material);
+      back.rotation.y = Math.PI;
+      board.add(back);
       board.position.set(...sign.position);
       board.rotation.y = sign.ry;
-      root.add(board);
+      // Bảng trên cổng mô hình: con của nhóm mô hình (đổi về tọa độ của nhóm) để chỉ hiện khi mô hình đã tải.
+      if (sign.onModel && gardenModel) {
+        gardenModel.updateMatrix();
+        board.applyMatrix4(gardenModel.matrix.clone().invert());
+        gardenModel.add(board);
+      } else root.add(board);
     }
   }
   // Khu tưởng niệm: phần tĩnh; biển tên là mesh riêng (texture chữ).

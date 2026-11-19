@@ -5,6 +5,9 @@ import { createAccountStore } from '@chanh-dien/accounts';
 import { handleApiRequest } from '../server.mjs';
 import { openCommunityProjectStore } from '../community-project.mjs';
 
+// Phần hỏi tuổi + đồng ý điều khoản bắt buộc khi đăng ký qua API.
+const SIGNUP = { birthYear: 1990, birthMonth: 5, acceptTerms: true };
+
 const SECRET = 'test-secret-with-at-least-thirty-two-characters';
 
 async function request(options, method, url, { body, headers = {} } = {}) {
@@ -27,7 +30,7 @@ function setup(extra = {}) {
 
 async function signUp(options) {
   const response = await request(options, 'POST', '/api/v1/auth/register', {
-    body: { username: 'an.lac', password: 'matkhau123', displayName: 'An Lạc' },
+    body: { username: 'an.lac', password: 'matkhau123', ...SIGNUP, displayName: 'An Lạc' },
   });
   return response.headers['set-cookie'].split(';')[0];
 }

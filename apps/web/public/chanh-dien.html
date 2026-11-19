@@ -151,14 +151,28 @@
             <div id="googleButton"></div>
             <p class="or"><span data-i18n="acct.or">hoặc</span></p>
           </div>
-          <label for="authUser" data-i18n="acct.username">Tên đăng nhập</label>
-          <input id="authUser" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" data-i18n-placeholder="acct.usernamePlaceholder" placeholder="vd: dieu.hanh" required>
-          <label for="authPass" data-i18n="acct.password">Mật khẩu</label>
-          <input id="authPass" type="password" minlength="8" maxlength="200" autocomplete="current-password" data-i18n-placeholder="acct.passwordPlaceholder" placeholder="Ít nhất 8 ký tự" required>
-          <div class="field" id="authNameRow" hidden>
-            <label for="authName" data-i18n="acct.displayName">Pháp danh hoặc tên hiển thị</label>
-            <input id="authName" maxlength="40" autocomplete="nickname" data-i18n-placeholder="gate.namePlaceholder" placeholder="Ví dụ: Diệu Hạnh">
-          </div>
+          <p class="ledger-note" id="authGoogleNote" hidden data-i18n="acct.googleNote">Lần đầu đăng nhập bằng Google: xin chọn tháng, năm sinh và đồng ý điều khoản.</p>
+          <fieldset class="auth-fields" id="authCreds">
+            <label for="authUser" data-i18n="acct.username">Tên đăng nhập</label>
+            <input id="authUser" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false" data-i18n-placeholder="acct.usernamePlaceholder" placeholder="vd: dieu.hanh" required>
+            <label for="authPass" data-i18n="acct.password">Mật khẩu</label>
+            <input id="authPass" type="password" minlength="8" maxlength="200" autocomplete="current-password" data-i18n-placeholder="acct.passwordPlaceholder" placeholder="Ít nhất 8 ký tự" required>
+            <div class="field" id="authNameRow" hidden>
+              <label for="authName" data-i18n="acct.displayName">Pháp danh hoặc tên hiển thị</label>
+              <input id="authName" maxlength="40" autocomplete="nickname" data-i18n-placeholder="gate.namePlaceholder" placeholder="Ví dụ: Diệu Hạnh">
+            </div>
+          </fieldset>
+          <!-- Hỏi tuổi khi tạo tài khoản (đăng ký hoặc Google lần đầu): tháng + năm sinh, không gợi ý tuổi tối thiểu.
+               13–17 tuổi hiện thêm ô cha mẹ / người giám hộ đồng ý (account-ui.js; server kiểm tra lại). -->
+          <fieldset class="auth-fields" id="authSignup" hidden disabled>
+            <span class="label" id="authBirthLabel" data-i18n="acct.birth">Tháng và năm sinh</span>
+            <div class="birth" role="group" aria-labelledby="authBirthLabel">
+              <select id="authBirthMonth" required data-i18n-aria="acct.birthMonth" aria-label="Tháng sinh"></select>
+              <select id="authBirthYear" required data-i18n-aria="acct.birthYear" aria-label="Năm sinh"></select>
+            </div>
+            <label class="check" id="authGuardianRow" hidden><input type="checkbox" id="authGuardian"><span data-i18n="acct.guardian">Cha mẹ hoặc người giám hộ của tôi đồng ý cho tôi tạo và dùng tài khoản này.</span></label>
+            <label class="check"><input type="checkbox" id="authTerms" required><span id="authTermsText"></span></label>
+          </fieldset>
           <p class="error" id="authError" role="alert"></p>
           <button type="submit" class="primary" id="authSubmit" data-i18n="acct.signIn">Đăng nhập</button>
         </form>
@@ -209,7 +223,7 @@
         <form class="ledger-card prayer-card" id="prayerForm">
           <header>
             <div>
-              <p class="prayer-kicker" data-i18n="prayer.kicker">SỚ GỬI NHÀ CHÙA</p>
+              <p class="prayer-kicker" data-i18n="prayer.kicker">CHÁNH ĐIỆN TRỰC TUYẾN</p>
               <h2 id="prayerTitle" data-i18n="prayer.title">Cầu an và Cầu siêu</h2>
             </div>
             <button type="button" class="chip" id="prayerClose" data-i18n-aria="close" aria-label="Đóng">✕</button>
@@ -234,8 +248,9 @@
             </div>
             <p class="folk-note" data-i18n="prayer.folkNote">Bảng sao là tập tục Cửu Diệu dân gian để tham khảo; việc cầu an hướng đến sống thiện lành và nương tựa Tam bảo.</p>
           </details>
+          <p class="prayer-disclaimer"><span data-i18n="prayer.disclaimer">Nghi thức mô phỏng trong chánh điện trực tuyến: vị thầy đọc sớ là nhân vật trong cảnh, lời đọc là giọng máy. Họ tên, năm sinh, pháp danh và lời khấn trong sớ được lưu trên máy chủ để ban quản trị xem; chỉ ghi người thân khi họ (hoặc gia đình) đồng ý.</span> <a href="/quyen-rieng-tu.html#so-cau-nguyen" target="_blank" rel="noopener" data-i18n="acct.privacyLink">Chính sách quyền riêng tư</a></p>
           <p class="error" id="prayerError" role="alert"></p>
-          <button type="submit" class="primary" id="prayerSubmit" data-i18n="prayer.submit">Gửi sớ đến nhà chùa</button>
+          <button type="submit" class="primary" id="prayerSubmit" data-i18n="prayer.submit">Dâng sớ</button>
         </form>
       </div>
       <p class="toast" id="toast" role="status" aria-live="polite"></p>

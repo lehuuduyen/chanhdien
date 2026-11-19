@@ -199,7 +199,9 @@ export function validateWorld(scene) {
   if (gardenModel !== undefined && (typeof gardenModel.src !== 'string'
     || !/^\/models\/garden\/[a-z0-9-]{1,64}\.glb$/.test(gardenModel.src)
     || ![gardenModel.x, gardenModel.y, gardenModel.z, gardenModel.ry, gardenModel.scale].every(Number.isFinite)
-    || gardenModel.scale <= 0 || gardenModel.scale > 10)) {
+    || gardenModel.scale <= 0 || gardenModel.scale > 10
+    || (gardenModel.sign !== undefined && (![gardenModel.sign?.x, gardenModel.sign?.y, gardenModel.sign?.z, gardenModel.sign?.ry, gardenModel.sign?.width].every(Number.isFinite)
+      || gardenModel.sign.width <= 0 || gardenModel.sign.width > 4)))) {
     errors.push('world.courtyard.garden.model không hợp lệ');
   }
   const petZone = world.courtyard?.petZone;

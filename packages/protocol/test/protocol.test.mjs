@@ -539,6 +539,8 @@ test('tiến lên: chỉ thành viên chơi; bài là số 0–51 không trùng;
   assert.equal(parseServerMessage({ ...table, phase: 'result', result }).ok, true);
   assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, lines: [{ from: 3, to: 3, units: 2, coins: 100, reason: 'last' }] } }).ok, false);
   assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, white: 'flush' } }).ok, false);
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, spade: true } }).ok, true, 'tới 3 bích');
+  assert.equal(parseServerMessage({ ...table, phase: 'result', result: { ...result, spade: false } }).ok, false, 'không tới 3 bích thì bỏ trường');
   assert.equal(parseServerMessage({ ...table, minCoins: undefined, deposit: 500 }).ok, false, 'không còn cọc');
   assert.equal(parseServerMessage({ ...table, bots: true, players: [{ displayName: 'An', cards: 12, missed: 2 }, null, null, null],
     last: { seat: 0, action: 'pass', auto: true } }).ok, true, 'đánh hộ: missed + last.auto');

@@ -1843,6 +1843,18 @@ supportButton.addEventListener('click', () => {
   location.href = `/ho-tro.html?from=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
 });
 
+// Điều khoản sử dụng / Chính sách quyền riêng tư: hai link mở tab mới, kèm ngôn ngữ đang dùng.
+const legalLinks = document.createElement('span');
+legalLinks.className = 'legal-links';
+const labelLegal = () => {
+  legalLinks.replaceChildren(...[['dieu-khoan', 'menu.terms'], ['quyen-rieng-tu', 'menu.privacy']].map(([page, key]) => Object.assign(
+    document.createElement('a'),
+    { className: 'chip', href: `/${page}.html?lang=${lang()}`, target: '_blank', rel: 'noopener', textContent: t(key) },
+  )));
+};
+labelLegal();
+onLangChange(labelLegal);
+
 createSettingsMenu({
   topBar: elements.topBar,
   rows: [
@@ -1860,6 +1872,7 @@ createSettingsMenu({
     { element: shopButton, label: 'menu.shop' },
     { element: donateButton, label: 'menu.donate' },
     { element: supportButton, label: 'menu.support' },
+    { element: legalLinks, label: 'menu.legal' },
     { element: elements.leave, container: elements.tools },
   ],
 });

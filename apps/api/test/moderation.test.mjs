@@ -7,6 +7,9 @@ import { ipHash } from '../../../packages/moderation/src/index.mjs';
 import { createModerationStore, moderationTelegramCommand } from '../moderation.mjs';
 import { handleApiRequest } from '../server.mjs';
 
+// Phần hỏi tuổi + đồng ý điều khoản bắt buộc khi đăng ký qua API.
+const SIGNUP = { birthYear: 1990, birthMonth: 5, acceptTerms: true };
+
 const SECRET = 'test-secret-with-at-least-thirty-two-characters';
 const ADMIN = 'admin-secret-for-moderation-tests';
 const HOOK = 'telegram-hook-secret';
@@ -41,7 +44,7 @@ const telegram = (options, text, updateId = 1) => request(options, 'POST', '/api
 
 test('chửi 3 lần trong phòng strict → tắt chat 10 phút, báo Telegram che chữ; tái phạm → khóa nick, không vào được phòng', async () => {
   const { options, sent } = setup();
-  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'chui.the', password: 'matkhau123', displayName: 'Chửi Thề' } });
+  const registered = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'chui.the', password: 'matkhau123', ...SIGNUP, displayName: 'Chửi Thề' } });
   const accountId = registered.json.account.id;
   const cookie = registered.headers['set-cookie'].split(';')[0];
   const event = { accountId, name: 'Chửi Thề', roomId: 'thien-us-ca-vi-1', strict: true, evidence: 'đ* m* mày', words: ['dm'] };
@@ -166,7 +169,7 @@ test('từ khả nghi: báo Telegram kèm lệnh gợi ý, cùng từ không bá
 
 test('tên có từ cấm: không đăng ký, không vào phòng bằng tên khách; sớ có từ cấm bị từ chối', async () => {
   const { options } = setup();
-  const register = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'ten.dep', password: 'matkhau123', displayName: 'Thằng Đ.M' } });
+  const register = await request(options, 'POST', '/api/v1/auth/register', { body: { username: 'ten.dep', password: 'matkhau123', ...SIGNUP, displayName: 'Thằng Đ.M' } });
   assert.equal(register.status, 400);
   assert.equal(register.json.error, 'display_name_not_allowed');
   const join = await request(options, 'POST', '/api/v1/rooms/join', { body: { roomId: 'cinema-1', displayName: 'vcl 123' } });
