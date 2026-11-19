@@ -90,9 +90,18 @@ test('Vườn Công Đức dùng mô hình Meshy nội bộ nhưng giữ đủ 5
   assert.equal(garden.plots.length, 50);
   assert.ok(garden.shop && garden.entrance && garden.barrel);
   assert.ok(Math.hypot(guide.x - garden.shop.x, guide.z - garden.shop.z) > 4, 'bảng hướng dẫn và Store nằm riêng hai bên cổng');
+  // Đứng ngoài cổng (phía tây) đọc được tên vườn và bảng hướng dẫn: bảng tên trên cổng mô hình quay mặt chữ theo ry,
+  // bảng hướng dẫn quay mặt chữ theo ry + π. Thành phần x của hướng mặt chữ phải là −1 (về phía tây).
+  const faceX = (ry) => Math.round(Math.sin(ry));
+  assert.ok(garden.model.sign && garden.model.sign.x < garden.entrance.x, 'cổng mô hình có bảng tên ở mặt ngoài');
+  assert.equal(faceX(garden.model.sign.ry), -1);
+  assert.equal(faceX(guide.ry + Math.PI), -1);
   const broken = structuredClone(scene);
   broken.world.courtyard.garden.model.src = 'https://example.com/garden.glb';
   assert.ok(validateWorld(broken).errors.some((error) => error.includes('garden.model')));
+  const brokenSign = structuredClone(scene);
+  brokenSign.world.courtyard.garden.model.sign = { x: 11 };
+  assert.ok(validateWorld(brokenSign).errors.some((error) => error.includes('garden.model')));
 });
 
 test('khu thú cưng có hàng rào, đồ chơi và mã thú khớp room rules', () => {

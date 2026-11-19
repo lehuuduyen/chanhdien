@@ -107,7 +107,9 @@ async function setup() {
   const headers = { 'content-type': 'application/json', origin: BASE };
   let response = await fetch(`${BASE}/api/v1/auth/login`, { method: 'POST', headers, body: JSON.stringify({ username: account.username, password: account.password }) });
   if (!response.ok) {
-    response = await fetch(`${BASE}/api/v1/auth/register`, { method: 'POST', headers, body: JSON.stringify(account) });
+    // Đăng ký cần tháng/năm sinh + đồng ý điều khoản (tài khoản thử là người lớn).
+    const signup = { birthYear: 1990, birthMonth: 1, acceptTerms: true };
+    response = await fetch(`${BASE}/api/v1/auth/register`, { method: 'POST', headers, body: JSON.stringify({ ...account, ...signup }) });
     if (!response.ok) throw new Error(`Không tạo được tài khoản thử ${account.username}: ${await response.text()} (xóa ${ACCOUNT_FILE} nếu đổi máy dev)`);
   }
   const { account: info } = await response.json();

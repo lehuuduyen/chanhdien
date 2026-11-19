@@ -11,6 +11,9 @@ import { internalKey, verifyJoinTicket } from '@chanh-dien/session-token';
 import { handleApiRequest } from '../server.mjs';
 import { createShopStore, DIAMOND_PACKS, inspectGlb, shopIdFor, verifyStripeSignature } from '../shop.mjs';
 
+// Phần hỏi tuổi + đồng ý điều khoản bắt buộc khi đăng ký qua API.
+const SIGNUP = { birthYear: 1990, birthMonth: 5, acceptTerms: true };
+
 const SECRET = 'test-secret-with-at-least-thirty-two-characters';
 const WEBHOOK_SECRET = 'whsec_testsecret1234567890';
 
@@ -69,7 +72,7 @@ function setup(extra = {}) {
 }
 
 async function signUp(options, username) {
-  const response = await request(options, 'POST', '/api/v1/auth/register', { body: { username, password: 'matkhau123', displayName: username } });
+  const response = await request(options, 'POST', '/api/v1/auth/register', { body: { username, password: 'matkhau123', ...SIGNUP, displayName: username } });
   return { cookie: response.headers['set-cookie'].split(';')[0], accountId: response.json.account.id };
 }
 

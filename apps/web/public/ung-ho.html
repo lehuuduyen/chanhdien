@@ -14,9 +14,10 @@
   <meta name="apple-mobile-web-app-title" content="Chánh Điện">
   <title>Ủng hộ · Chánh Điện Online</title>
   <style>
-    /* Trang Ủng hộ: quyên góp tự nguyện để duy trì server (dự án phi lợi nhuận). Thông tin Zelle lấy từ API
-       /api/v1/donate (biến môi trường DONATE_* trên server), không ghi trong repo. Khoản góp không đổi ra xu hay quyền
-       lợi gì trong game. */
+    /* Trang Ủng hộ: góp tự nguyện để trả chi phí server. Thông tin Zelle lấy từ API /api/v1/donate (biến môi trường
+       DONATE_* trên server), không ghi trong repo. Khoản góp không đổi ra xu, kim cương hay quyền lợi gì trong game.
+       Câu chữ phải đúng sự thật (Điều khoản mục 8): không ghi "phi lợi nhuận" khi chưa đăng ký tổ chức phi lợi nhuận,
+       không ghi "không bán gì" vì Shop có bán kim cương; khoản góp không phải cúng dường chùa, không khấu trừ thuế. */
     :root {
       color-scheme: dark;
       --bg: #170904;
@@ -72,6 +73,7 @@
     .note { display: grid; gap: 8px; color: var(--muted); font-size: 13px; line-height: 1.55; }
     .note p { margin: 0; }
     .note b { color: var(--fg); }
+    .note a { color: var(--gold); }
     .thanks { text-align: center; color: var(--gold); font-family: Georgia, serif; font-size: 16px; }
     .thanks a { color: var(--muted); font-family: Inter, system-ui, sans-serif; font-size: 13px; }
     .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); padding: 10px 16px; color: #2a1404; background: var(--gold); border-radius: 999px; font-weight: 700; font-size: 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
@@ -96,7 +98,7 @@
     <section class="hero">
       <div class="lotus" aria-hidden="true">🪷</div>
       <h1>Cùng duy trì Chánh Điện Online</h1>
-      <p>Chánh Điện Online là dự án phi lợi nhuận: không quảng cáo, không bán xu. Mỗi khoản góp tự nguyện giúp trả chi phí máy chủ để chánh điện, rạp phim và khu vườn luôn mở cửa cho mọi người.</p>
+      <p>Chánh Điện Online do một nhóm nhỏ tự vận hành và không chạy quảng cáo. Mỗi khoản góp tự nguyện giúp trả chi phí máy chủ để chánh điện, rạp phim và khu vườn luôn mở cửa cho mọi người.</p>
     </section>
 
     <section class="card" id="goalCard" hidden>
@@ -142,13 +144,14 @@
     </section>
 
     <section class="card note">
-      <p><b>Hoàn toàn tự nguyện.</b> Khoản góp không đổi ra xu, không mở khóa vật phẩm hay lợi thế nào trong game; ai cũng chơi như nhau.</p>
+      <p><b>Hoàn toàn tự nguyện.</b> Khoản góp không đổi ra xu hay kim cương và không mở khóa vật phẩm hay lợi thế nào trong game.</p>
+      <p><b>Đây là quà tặng cho người vận hành</b> để trả chi phí máy chủ: không phải cúng dường cho chùa hay tăng ni, không phải quyên góp cho tổ chức từ thiện hay tổ chức phi lợi nhuận đã đăng ký, nên không được khấu trừ thuế. Xem <a href="/dieu-khoan.html#ung-ho">Điều khoản sử dụng, mục 8</a>.</p>
       <p><b>Kiểm tra kỹ tên người nhận</b> trước khi gửi: tiền đã chuyển không hoàn lại được. Chỉ gửi theo thông tin trên trang này.</p>
       <p id="contactLine" hidden>Liên hệ: <b id="contact"></b></p>
     </section>
 
     <p class="thanks">Nam mô A Di Đà Phật · cảm ơn tấm lòng của bạn 🙏</p>
-    <p class="thanks"><a href="/ho-tro.html?from=/ung-ho.html">🛟 Góp ý / Báo lỗi</a></p>
+    <p class="thanks"><a href="/ho-tro.html?from=/ung-ho.html">🛟 Góp ý / Báo lỗi</a> · <a href="/dieu-khoan.html">Điều khoản</a> · <a href="/quyen-rieng-tu.html">Quyền riêng tư</a></p>
   </main>
   <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
 

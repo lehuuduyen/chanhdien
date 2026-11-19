@@ -175,6 +175,8 @@
     .mini-hand .card .big { display: none; }
     .mini-empty { color: var(--muted); font-size: 11px; font-weight: 700; }
     .result li .mini-hand { grid-column: 2 / -1; }
+    /* Nước đánh kết thúc ván (bảng kết quả che mất bàn). */
+    .result .final-move { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
     .seat .mini-hand { justify-content: center; max-width: 100%; }
     .seat .mini-hand .card { width: 20px; height: 29px; margin-left: -9px; font-size: 9px; }
 
@@ -402,7 +404,8 @@
       <ul>
         <li><b>A · Xếp hạng:</b> chơi tới khi còn một người. Bét trả nhất 2 phần; bàn 4 người thì ba trả nhì 1 phần. Cóng (người khác đã về nhất mà mình chưa đánh lá nào) trả nhất 4 phần. Tới trắng: mỗi người trả 2 phần.</li>
         <li><b>B · Đếm lá:</b> có người hết bài là xong; mỗi lá còn lại 1 phần, cóng gấp đôi (26 phần). Tới trắng: mỗi người 13 phần.</li>
-        <li>Thối (hết ván còn trên tay, trả người nhất): heo đen 1, heo đỏ 2, 3 đôi thông 3, tứ quý 4 phần. Kiểu A tính cho người bét (hoặc người cóng), kiểu B tính cho mọi người còn bài.</li>
+        <li><b>Tới 3 bích ×2:</b> người về nhất mà nước cuối là lá 3♠ đánh lẻ thì tiền về nhân đôi (kiểu A: bét 4 phần, cóng 8 phần; kiểu B: mỗi lá còn lại 2 phần, cóng 52 phần). Chặt, thối và ba trả nhì giữ nguyên. Ván đầu lá 3♠ phải đánh ở nước đầu nên không tới 3 bích được.</li>
+        <li>Thối (hết ván còn trên tay, trả người nhất): heo đen 1, heo đỏ 2, 3 đôi thông 3, tứ quý 4, lá 3♠ 1 phần. Kiểu A tính cho người bét (hoặc người cóng), kiểu B tính cho mọi người còn bài.</li>
         <li>Ngồi bàn cần có ít nhất 10 phần (10 lần mức cược) trong ví, kiểm tra lúc vào bàn và đầu mỗi ván. Không giữ cọc: hết ván mới trừ / cộng xu; ai phải trả nhiều hơn số xu đang có thì chỉ trả hết số đó. Phế 5% trên phần thắng.</li>
       </ul>
     </div>

@@ -393,8 +393,9 @@ function renderPeople() {
   elements.participantCount.textContent = `${participants.size} người`;
   const mySeat = participants.get(session?.participantId)?.seatId;
   elements.seatLabel.textContent = mySeat ? `Bạn ngồi ghế ${mySeat}` : 'Chạm ghế có vòng sáng để ngồi';
-  const seated = [...participants.values()].filter((person) => person.seatId).length;
-  elements.onlineCount.textContent = `👥 ${participants.size} online · ${seated}/100 ghế`;
+  const online = [...participants.values()].filter((person) => person.connected !== false);
+  const seated = online.filter((person) => person.seatId).length;
+  elements.onlineCount.textContent = `👥 ${online.length} online · ${seated}/100 ghế`;
   elements.people.replaceChildren();
   if (!participants.size) {
     const empty = document.createElement('p');
@@ -567,9 +568,9 @@ function renderPlayback() {
   // Chữ "Vote bỏ qua" tách riêng để điện thoại ẩn đi (chỉ còn ⏭ và số phiếu) cho đủ chỗ nút nhanh bên phải.
   const label = Object.assign(document.createElement('span'), { className: 'skip-label', textContent: ' Vote bỏ qua' });
   elements.skipButton.replaceChildren('⏭', label, current ? ` ${votes}/${votesNeeded}` : '');
-  elements.skipButton.title = 'Vote bỏ qua';
+  elements.skipButton.title = 'Cần 70% tổng người online; bot được tính vào tổng nhưng không được vote';
   elements.skipBar.style.width = current ? `${Math.min(100, (votes / votesNeeded) * 100)}%` : '0';
-  elements.voteInfo.textContent = current ? `${votes}/${votesNeeded} người đồng ý thì chuyển bài` : '';
+  elements.voteInfo.textContent = current ? `${votes}/${votesNeeded} phiếu · cần 70% tổng người online` : '';
   elements.liveState.textContent = current ? '● Đang chiếu' : '● Chờ chiếu';
   elements.liveState.classList.toggle('on', Boolean(current));
   elements.queueCount.textContent = `${queue.length} video đang chờ`;

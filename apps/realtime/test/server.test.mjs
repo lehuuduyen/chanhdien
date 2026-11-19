@@ -549,18 +549,25 @@ test('máy realtime tải danh sách rạp bằng khóa nội bộ; lỗi API kh
   second.room.close();
 });
 
-test('vote bỏ qua theo 35% người đang kết nối; lỗi phát cũng tính như vậy', () => {
-  const room = seatedRoom(10);
+test('vote bỏ qua cần 70% toàn bộ khán giả kể cả bot; bot không được vote; báo lỗi chỉ tính người thật', () => {
+  const room = new Room('cinema-1', { botCount: 4 });
+  const socket = { readyState: WebSocket.CLOSED, close() {} };
+  for (let index = 1; index <= 10; index += 1) room.join(socket, { participantId: `u-${index}`, displayName: `Người ${index}` });
   room.addVideo('u-1', 'aaaaaaaaaaa', 'A');
   room.addVideo('u-1', 'bbbbbbbbbbb', 'B');
-  assert.equal(room.votesNeeded(), 4);
+  assert.equal(room.audienceCount, 14, 'HUD và mẫu số cùng thấy 10 người thật + 4 bot');
+  assert.equal(room.votesNeeded(), 10, 'ceil(14 × 70%) = 10');
+  assert.equal(room.errorsNeeded(), 7, 'báo video lỗi chỉ cần 70% của 10 máy người thật');
   const itemId = room.playback.current.itemId;
-  for (const id of ['u-1', 'u-2', 'u-2', 'u-3']) room.voteSkip(id, itemId);
+  const botId = [...room.participants.values()].find((participant) => participant.bot).id;
+  assert.equal(room.voteSkip(botId, itemId).error, 'BOT_NOT_ALLOWED');
+  for (const id of ['u-1', 'u-2', 'u-2', 'u-3', 'u-4', 'u-5', 'u-6', 'u-7', 'u-8', 'u-9']) room.voteSkip(id, itemId);
   assert.equal(room.playback.current.videoId, 'aaaaaaaaaaa', 'vote trùng không được tính hai lần');
-  room.voteSkip('u-4', itemId);
+  assert.equal(room.playbackState().votes, 9);
+  room.voteSkip('u-10', itemId);
   assert.equal(room.playback.current.videoId, 'bbbbbbbbbbb');
-  assert.equal(room.voteSkip('u-5', itemId).error, 'STALE_ITEM');
-  for (const id of ['u-1', 'u-2', 'u-3', 'u-4']) room.report(id, room.playback.current.itemId, 'error');
+  assert.equal(room.voteSkip('u-1', itemId).error, 'STALE_ITEM');
+  for (const id of ['u-1', 'u-2', 'u-3', 'u-4', 'u-5', 'u-6', 'u-7']) room.report(id, room.playback.current.itemId, 'error');
   assert.equal(room.playback.current, null, 'đủ người báo lỗi thì bỏ bài');
   room.close();
 });
@@ -663,7 +670,7 @@ test('client thêm video qua WebSocket: khách không mở phim được, video 
   assert.equal(state.current.videoId, 'dQw4w9WgXcQ');
   assert.equal(state.current.title, 'Video dQw4w9WgXcQ');
   assert.equal(state.current.addedBy, 'An');
-  assert.equal(state.votesNeeded, 2, '3 người trong rạp (An, Bình, Dũng) cần 2 phiếu bỏ qua');
+  assert.equal(state.votesNeeded, 3, '3 người trong rạp (An, Bình, Dũng) cần đủ 3 phiếu bỏ qua');
 
   const late = await connectClient(port, 'u-chi', 'Chi', { waitPlayback: true });
   sockets.push(late.socket);

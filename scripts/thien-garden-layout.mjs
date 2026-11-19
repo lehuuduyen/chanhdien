@@ -162,8 +162,15 @@ c.garden = {
   bed: THIEN_GARDEN.bed,
   entrance: { x: GARDEN_FENCE.x[0], z: GARDEN_GATE.z, ry: -1.5708, width: GARDEN_GATE.width },
   // Mô hình Meshy chỉ thay lớp cảnh tĩnh cổng + quầy; luống, cây động, vùng chạm và luật vườn vẫn do engine/API giữ.
-  // GLB có gốc ở tâm nên y nâng đáy mô hình về đúng mặt cỏ.
-  model: { src: '/models/garden/garden-entrance.glb', x: 12.35, y: 2.02, z: 68.35, ry: -1.5708, scale: 2.22, lazyDistance: 24 },
+  // GLB có gốc ở tâm nên y nâng đáy mô hình về đúng mặt cỏ. Tấm biển trên xà cửa của mô hình để trơn (Meshy không viết
+  // được chữ): `sign` (tọa độ thế giới, quay ra ngoài cổng) là chỗ engine gắn bảng chữ `garden.sign`, rộng hơn tấm biển
+  // để đứng ngoài đọc được. Đo bằng debugPick: mặt trước tấm biển ở x 11,15, cao 1,9–2,08 m, z 67,88–68,8; mép mái trước
+  // ở x ~10,4, cao ~2,06–2,13 m nên camera theo sau lưng (cao 2,7 m) chỉ thấy phần dưới ~2,0 m — bảng hạ thấp hơn tấm biển
+  // để cả dòng chữ có dấu nằm dưới mép mái.
+  model: {
+    src: '/models/garden/garden-entrance.glb', x: 12.35, y: 2.02, z: 68.35, ry: -1.5708, scale: 2.22, lazyDistance: 24,
+    sign: { x: 11.11, y: 1.91, z: 68.34, ry: -1.5708, width: 1.3 },
+  },
   // Vùng chạm nằm ở gian nhỏ bên phải mô hình, chừa trống điểm đi nhanh (10.8, 68) trước cửa.
   shop: { x: 10.85, z: 70.35, ry: -1.5708 },
   // Thùng nước gỗ cạnh cổng (trang trí, gợi ý chỗ tưới).
@@ -571,7 +578,9 @@ c.animals.push(
 c.guideBoards = [
   ...(c.guideBoards || []).filter((item) => !['garden', 'pets'].includes(item.id)),
   // Bảng hướng dẫn đứng riêng bên trái cổng; Store nằm trong gian bên phải, không còn chồng vùng bấm / vòng sáng.
-  { id: 'garden', x: 10.6, z: 64.65, ry: -1.5708, width: 2.2, height: 1.15, sign: 'HƯỚNG DẪN KHU VƯỜN' },
+  // Mặt chữ của bảng hướng dẫn quay theo ry + π (bảng chánh điện ry π quay chữ ra sân): ry π/2 cho chữ nhìn về phía tây,
+  // ra lối người từ sân đi tới (−π/2 trước đây quay chữ vào trong vườn, đứng ngoài chỉ thấy lưng gỗ).
+  { id: 'garden', x: 10.6, z: 64.65, ry: 1.5708, width: 2.2, height: 1.15, sign: 'HƯỚNG DẪN KHU VƯỜN' },
   { id: 'pets', x: 9.4, z: 83.3, ry: -1.5708, width: 2.2, height: 1.15, sign: 'HƯỚNG DẪN KHU THÚ CƯNG' },
 ];
 c.gate = { ...c.gate, z: GATE };

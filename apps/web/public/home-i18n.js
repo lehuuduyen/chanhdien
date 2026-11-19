@@ -28,6 +28,8 @@ const DICT = {
     'footer.stage': 'Không gian cộng đồng trực tuyến',
     'footer.donate': '💝 Góp duy trì server',
     'footer.support': '🛟 Góp ý / Báo lỗi',
+    'footer.terms': 'Điều khoản sử dụng',
+    'footer.privacy': 'Chính sách quyền riêng tư',
   },
   en: {
     'meta.title': 'LotusGather Online Temple · Meditation, Chanting & Dharma Talks',
@@ -58,6 +60,8 @@ const DICT = {
     'footer.stage': 'An online community space',
     'footer.donate': '💝 Help keep the server running',
     'footer.support': '🛟 Feedback / Report a bug',
+    'footer.terms': 'Terms of Use',
+    'footer.privacy': 'Privacy Policy',
   },
   zh: {
     'meta.title': 'LotusGather 線上寺院 · 禪修、誦經與佛法講座',
@@ -88,6 +92,8 @@ const DICT = {
     'footer.stage': '線上社群空間',
     'footer.donate': '💝 護持伺服器運作',
     'footer.support': '🛟 意見 / 回報錯誤',
+    'footer.terms': '使用條款',
+    'footer.privacy': '隱私權政策',
   },
   es: {
     'meta.title': 'Templo Online LotusGather · Meditación, Cánticos y Dharma',
@@ -118,6 +124,8 @@ const DICT = {
     'footer.stage': 'Un espacio comunitario en línea',
     'footer.donate': '💝 Ayuda a mantener el servidor',
     'footer.support': '🛟 Sugerencias / Reportar error',
+    'footer.terms': 'Términos de uso',
+    'footer.privacy': 'Política de privacidad',
   },
 };
 

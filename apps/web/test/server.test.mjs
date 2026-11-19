@@ -41,6 +41,17 @@ test('SEO công khai đúng trang chính, có canonical, sitemap và robots cho 
   for (const [, canonical] of indexed) assert.match(sitemap, new RegExp(`<loc>${canonical.replaceAll('.', '\\.')}</loc>`));
   assert.doesNotMatch(sitemap, /admin-thien|game\.html|shop\.html/);
 
+  // Điều khoản sử dụng + Chính sách quyền riêng tư: có trong sitemap, trang chủ / Shop / Ủng hộ / Hỗ trợ có link tới.
+  for (const page of ['dieu-khoan', 'quyen-rieng-tu']) {
+    const html = readFileSync(resolveWebFile(`/${page}.html`), 'utf8');
+    assert.match(html, new RegExp(`<link rel="canonical" href="https://lotusgather\\.online/${page}\\.html">`), page);
+    assert.match(html, /<article lang="vi" id="doc-vi"[\s\S]*<article lang="en" id="doc-en"/, `${page}: đủ bản tiếng Việt và tiếng Anh`);
+    assert.match(sitemap, new RegExp(`<loc>https://lotusgather\\.online/${page}\\.html</loc>`));
+    for (const from of ['/', '/shop.html', '/ung-ho.html', '/ho-tro.html']) assert.match(readFileSync(resolveWebFile(from), 'utf8'), new RegExp(`href="/${page}\\.html`), `${from} → ${page}`);
+  }
+  assert.match(readFileSync(resolveWebFile('/quyen-rieng-tu.html'), 'utf8'), /https:\/\/policies\.google\.com\/privacy/, 'YouTube API: chính sách phải dẫn tới chính sách của Google');
+  assert.match(readFileSync(resolveWebFile('/dieu-khoan.html'), 'utf8'), /https:\/\/www\.youtube\.com\/t\/terms/, 'YouTube API: điều khoản phải dẫn tới điều khoản YouTube');
+
   const web = createWebServer().listen(0, '127.0.0.1');
   await once(web, 'listening');
   t.after(() => new Promise((resolve) => web.close(resolve)));

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createAccountStore, dayOf, levelFor, streaksFrom, verifyPassword, hashPassword } from '../src/index.mjs';
+import { ageFrom, checkSignup, createAccountStore, dayOf, levelFor, streaksFrom, verifyPassword, hashPassword } from '../src/index.mjs';
 
 test('đăng ký, đăng nhập tên/mật khẩu; mật khẩu băm scrypt, sai mật khẩu bị từ chối', () => {
   const store = createAccountStore();
@@ -26,6 +26,24 @@ test('Google: tạo tài khoản lần đầu theo sub, lần sau cập nhật �
   assert.equal(again.displayName, 'An Nguyễn');
   assert.equal(again.avatarUrl, 'https://lh3.googleusercontent.com/b');
   assert.equal(again.provider, 'google');
+});
+
+test('tuổi theo tháng/năm sinh: trùng tháng sinh chưa tính sinh nhật; dưới 13 không tạo, 13–17 cần người giám hộ', () => {
+  const at = Date.parse('2026-11-18T12:00:00Z');
+  assert.equal(ageFrom(2013, 10, at), 13);
+  assert.equal(ageFrom(2013, 11, at), 12, 'cùng tháng sinh: chọn phía an toàn');
+  assert.equal(ageFrom(2013, 12, at), 12);
+  assert.deepEqual(checkSignup({ birthYear: 2013, birthMonth: 11, acceptTerms: true, guardianConsent: true }, at), { ok: false, error: 'UNDER_AGE' });
+  assert.deepEqual(checkSignup({ birthYear: '2000', birthMonth: 1, acceptTerms: true }, at).ok, true, 'số dạng chuỗi từ form vẫn nhận');
+  assert.equal(checkSignup({ birthYear: 2000.5, birthMonth: 1, acceptTerms: true }, at).error, 'BIRTH_REQUIRED');
+  assert.equal(checkSignup({ birthYear: 1890, birthMonth: 1, acceptTerms: true }, at).error, 'BIRTH_REQUIRED');
+  assert.equal(checkSignup({ birthYear: 2000, birthMonth: 1, acceptTerms: 'yes' }, at).error, 'TERMS_REQUIRED');
+  assert.equal(checkSignup({ birthYear: 2010, birthMonth: 1, acceptTerms: true }, at).error, 'GUARDIAN_REQUIRED');
+  assert.deepEqual(checkSignup({ birthYear: 2008, birthMonth: 10, acceptTerms: true }, at), { ok: true, birth: '2008-10', age: 18 });
+  const store = createAccountStore();
+  const { account } = store.register({ username: 'co.tuoi', password: 'matkhau123', birth: '2008-10' });
+  assert.equal(store.signupInfo(account.id).birth, '2008-10');
+  assert.equal(account.birth, undefined, 'hồ sơ công khai không có tháng/năm sinh');
 });
 
 test('điểm danh đăng nhập: mỗi ngày chỉ tính một lần và ngày bỏ lỡ không làm mất tiến độ', () => {

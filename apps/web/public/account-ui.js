@@ -19,10 +19,30 @@ async function api(path, options = {}) {
     const known = data.error && t(`apiErr.${data.error}`);
     const error = new Error(known && known !== `apiErr.${data.error}` ? known : data.message || t('acct.network'));
     error.status = response.status;
+    error.code = data.error;
     throw error;
   }
   return data;
 }
+
+// Hỏi tuổi khi tạo tài khoản (server kiểm tra lại bằng checkSignup). Tuổi tính như server: trùng tháng sinh chưa tính sinh
+// nhật. Bị từ chối vì chưa đủ tuổi thì khóa phần tạo tài khoản trên máy này một ngày, không cho chọn lại năm sinh khác.
+const ADULT_AGE = 18;
+const SIGNUP_BLOCK_KEY = 'signup-age-block';
+const SIGNUP_BLOCK_MS = 24 * 3_600_000;
+const ageOf = (year, month) => {
+  const now = new Date();
+  const age = now.getUTCFullYear() - year;
+  return now.getUTCMonth() + 1 > month ? age : age - 1;
+};
+function signupBlocked() {
+  try { return Date.now() - Number(localStorage.getItem(SIGNUP_BLOCK_KEY) || 0) < SIGNUP_BLOCK_MS; } catch { return false; }
+}
+function blockSignup() {
+  try { localStorage.setItem(SIGNUP_BLOCK_KEY, String(Date.now())); } catch {}
+}
+// Link tới trang pháp lý kèm ngôn ngữ đang dùng (trang có bản tiếng Việt và tiếng Anh).
+const legalHref = (page, hash = '') => `/${page}.html?lang=${lang()}${hash}`;
 
 function openDialog(dialog, focus) {
   for (const other of document.querySelectorAll('.ledger')) if (other !== dialog) other.hidden = true;
@@ -44,6 +64,15 @@ export function createAccountUI({ onChange, showToast }) {
     authTabs: $('authTabs'),
     authName: $('authName'),
     authNameRow: $('authNameRow'),
+    authCreds: $('authCreds'),
+    authSignup: $('authSignup'),
+    authGoogleNote: $('authGoogleNote'),
+    birthMonth: $('authBirthMonth'),
+    birthYear: $('authBirthYear'),
+    guardianRow: $('authGuardianRow'),
+    guardian: $('authGuardian'),
+    terms: $('authTerms'),
+    termsText: $('authTermsText'),
     authUser: $('authUser'),
     authPass: $('authPass'),
     authError: $('authError'),
@@ -70,6 +99,10 @@ export function createAccountUI({ onChange, showToast }) {
   let board = { metric: 'merit', period: 'all' };
   let historyBefore = null;
   let config = { accounts: false, googleClientId: null };
+  // Token Google của lần đăng nhập đầu, giữ lại trong lúc hỏi tuổi (còn hạn khoảng một giờ).
+  let pendingGoogle = null;
+  // Nút Google tải được (có GOOGLE_CLIENT_ID và script của Google không lỗi).
+  let googleReady = false;
 
   function showLoginReward(reward) {
     const unlocked = reward?.unlocked?.[0];
@@ -117,20 +150,77 @@ export function createAccountUI({ onChange, showToast }) {
   }
 
   // ---- Đăng nhập / đăng ký ----
+  // Tháng (tên tháng theo ngôn ngữ) và năm sinh (năm nay lùi 100 năm); ô đầu trống, không chọn sẵn tuổi nào.
+  function fillBirthOptions() {
+    const option = (value, text) => Object.assign(document.createElement('option'), { value, textContent: text });
+    const monthName = new Intl.DateTimeFormat(locale(), { month: 'long', timeZone: 'UTC' });
+    const month = ui.birthMonth.value;
+    ui.birthMonth.replaceChildren(option('', t('acct.month')), ...Array.from({ length: 12 }, (_, index) => {
+      const name = monthName.format(Date.UTC(2000, index, 15));
+      return option(String(index + 1), name.charAt(0).toUpperCase() + name.slice(1));
+    }));
+    ui.birthMonth.value = month;
+    if (ui.birthYear.options.length <= 1) {
+      const thisYear = new Date().getUTCFullYear();
+      ui.birthYear.replaceChildren(option('', t('acct.year')), ...Array.from({ length: 101 }, (_, index) => option(String(thisYear - index), String(thisYear - index))));
+    } else ui.birthYear.options[0].textContent = t('acct.year');
+  }
+
+  // "Tôi đồng ý với {terms} và {privacy}." dựng bằng DOM, hai link mở tab mới.
+  function renderTermsText() {
+    const links = { terms: ['dieu-khoan', t('acct.termsLink')], privacy: ['quyen-rieng-tu', t('acct.privacyLink')] };
+    ui.termsText.replaceChildren(...t('acct.terms').split(/(\{terms\}|\{privacy\})/).filter(Boolean).map((part) => {
+      const link = links[part.slice(1, -1)];
+      if (!link) return document.createTextNode(part);
+      return Object.assign(document.createElement('a'), { href: legalHref(link[0]), target: '_blank', rel: 'noopener', textContent: link[1] });
+    }));
+  }
+
+  function updateGuardian() {
+    const year = Number(ui.birthYear.value);
+    const month = Number(ui.birthMonth.value);
+    const age = year && month ? ageOf(year, month) : null;
+    // Chỉ hỏi người giám hộ khi tuổi đã chọn dưới 18; dưới 13 server từ chối (form không gợi ý trước).
+    const teen = age !== null && age < ADULT_AGE;
+    ui.guardianRow.hidden = !teen;
+    ui.guardian.required = teen;
+  }
+
+  // mode: login | register | google (Google lần đầu: chỉ hỏi tuổi + điều khoản rồi gửi lại token).
   function showAuth(next = 'login') {
     mode = next;
+    if (mode !== 'google') pendingGoogle = null;
+    const creating = mode !== 'login';
     for (const tab of ui.authTabs.querySelectorAll('button')) tab.setAttribute('aria-selected', String(tab.dataset.mode === mode));
-    ui.authTitle.textContent = mode === 'login' ? t('acct.signIn') : t('acct.createTitle');
+    ui.authTabs.hidden = mode === 'google';
+    ui.google.hidden = mode === 'google' || !googleReady;
+    ui.authGoogleNote.hidden = mode !== 'google';
+    ui.authTitle.textContent = mode === 'login' ? t('acct.signIn') : mode === 'google' ? t('acct.googleTitle') : t('acct.createTitle');
+    ui.authCreds.hidden = ui.authCreds.disabled = mode === 'google';
+    ui.authSignup.hidden = ui.authSignup.disabled = !creating;
     ui.authNameRow.hidden = mode !== 'register';
     ui.authPass.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-    ui.authSubmit.textContent = mode === 'login' ? t('acct.signIn') : t('acct.register');
-    ui.authError.textContent = '';
-    openDialog(ui.auth, ui.authUser);
+    ui.authSubmit.textContent = mode === 'login' ? t('acct.signIn') : mode === 'google' ? t('acct.continue') : t('acct.register');
+    ui.authError.textContent = creating && signupBlocked() ? t('apiErr.under_age') : '';
+    if (creating) {
+      fillBirthOptions();
+      renderTermsText();
+      updateGuardian();
+    }
+    openDialog(ui.auth, mode === 'google' ? ui.birthMonth : ui.authUser);
   }
+
+  const signupFields = () => ({
+    birthYear: Number(ui.birthYear.value),
+    birthMonth: Number(ui.birthMonth.value),
+    acceptTerms: ui.terms.checked,
+    ...(ui.guardianRow.hidden ? {} : { guardianConsent: ui.guardian.checked }),
+  });
 
   async function signedIn(data, message) {
     ui.auth.hidden = true;
     ui.authPass.value = '';
+    pendingGoogle = null;
     setAccount(data.account);
     if (!showLoginReward(data.loginReward)) showToast(message);
     await refresh();
@@ -140,16 +230,28 @@ export function createAccountUI({ onChange, showToast }) {
     const tab = event.target.closest('button[data-mode]');
     if (tab) showAuth(tab.dataset.mode);
   });
+  ui.birthYear.addEventListener('change', updateGuardian);
+  ui.birthMonth.addEventListener('change', updateGuardian);
   ui.authForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (mode !== 'login' && signupBlocked()) {
+      ui.authError.textContent = t('apiErr.under_age');
+      return;
+    }
     ui.authSubmit.disabled = true;
     ui.authError.textContent = '';
     try {
-      const body = { username: ui.authUser.value.trim(), password: ui.authPass.value };
-      if (mode === 'register') body.displayName = ui.authName.value.trim();
-      const data = await api(`/api/v1/auth/${mode}`, { method: 'POST', body });
+      let data;
+      if (mode === 'google') {
+        data = await api('/api/v1/auth/google', { method: 'POST', body: { credential: pendingGoogle, ...signupFields() } });
+      } else {
+        const body = { username: ui.authUser.value.trim(), password: ui.authPass.value };
+        if (mode === 'register') Object.assign(body, { displayName: ui.authName.value.trim() }, signupFields());
+        data = await api(`/api/v1/auth/${mode}`, { method: 'POST', body });
+      }
       await signedIn(data, mode === 'login' ? t('acct.welcomeBack', { name: data.account.displayName }) : t('acct.created', { name: data.account.displayName }));
     } catch (error) {
+      if (error.code === 'under_age') blockSignup();
       ui.authError.textContent = error.message;
     } finally {
       ui.authSubmit.disabled = false;
@@ -159,6 +261,7 @@ export function createAccountUI({ onChange, showToast }) {
   // Nút Google chỉ hiện khi máy chủ có GOOGLE_CLIENT_ID; script của Google chỉ tải lúc đó.
   function setupGoogle(clientId) {
     ui.google.hidden = false;
+    googleReady = true;
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
@@ -171,13 +274,22 @@ export function createAccountUI({ onChange, showToast }) {
             const data = await api('/api/v1/auth/google', { method: 'POST', body: { credential } });
             await signedIn(data, t('acct.welcome', { name: data.account.displayName }));
           } catch (error) {
+            // Tài khoản Google mới: hỏi tháng/năm sinh + điều khoản rồi gửi lại cùng token.
+            if (error.code === 'signup_required') {
+              showAuth('google');
+              pendingGoogle = credential;
+              return;
+            }
             ui.authError.textContent = error.message;
           }
         },
       });
       window.google.accounts.id.renderButton(ui.googleButton, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', locale: lang(), width: 260 });
     });
-    script.addEventListener('error', () => { ui.google.hidden = true; });
+    script.addEventListener('error', () => {
+      googleReady = false;
+      ui.google.hidden = true;
+    });
     document.head.append(script);
   }
 
@@ -329,10 +441,14 @@ export function createAccountUI({ onChange, showToast }) {
     });
   }
 
-  // Đổi ngôn ngữ ở cổng vào: viết lại chữ của nút tài khoản và dòng cấp độ.
+  // Đổi ngôn ngữ ở cổng vào: viết lại chữ của nút tài khoản và dòng cấp độ (và form tạo tài khoản nếu đang mở).
   onLangChange(() => {
     setAccount(account, false);
     if (account) refresh();
+    if (!ui.authSignup.hidden) {
+      fillBirthOptions();
+      renderTermsText();
+    }
   });
 
   return {

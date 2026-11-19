@@ -7,6 +7,9 @@ import { internalKey } from '@chanh-dien/session-token';
 import { handleApiRequest } from '../server.mjs';
 import { openGardenStore } from '../garden.mjs';
 
+// Phần hỏi tuổi + đồng ý điều khoản bắt buộc khi đăng ký qua API.
+const SIGNUP = { birthYear: 1990, birthMonth: 5, acceptTerms: true };
+
 const SECRET = 'test-secret-with-at-least-thirty-two-characters';
 
 async function request(options, method, url, { body, headers = {} } = {}) {
@@ -30,7 +33,7 @@ function setup(extra = {}) {
 }
 
 async function signUp(options, username) {
-  const response = await request(options, 'POST', '/api/v1/auth/register', { body: { username, password: 'matkhau123', displayName: username } });
+  const response = await request(options, 'POST', '/api/v1/auth/register', { body: { username, password: 'matkhau123', ...SIGNUP, displayName: username } });
   return response.headers['set-cookie'].split(';')[0];
 }
 

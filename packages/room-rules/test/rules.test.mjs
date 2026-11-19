@@ -14,11 +14,11 @@ test('không cho phòng vượt quá 500 người', () => {
   assert.throws(() => defineRoomRules({ id: 'cinema', maxParticipants: 501 }), RangeError);
 });
 
-test('Cinema dùng YouTube, có 100 ghế và ngưỡng bỏ qua 35%', () => {
+test('Cinema dùng YouTube, có 100 ghế và ngưỡng bỏ qua 70%', () => {
   assert.equal(getRoomRules('cinema'), CINEMA_RULES);
   assert.equal(CINEMA_RULES.content.source, 'youtube');
   assert.equal(CINEMA_RULES.seats, 100);
-  assert.equal(CINEMA_RULES.interaction.skipVotePercent, 35);
+  assert.equal(CINEMA_RULES.interaction.skipVotePercent, 70);
   assert.equal(Object.isFrozen(CINEMA_RULES.interaction), true);
 });
 

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  beats, botChoice, capTransfers, classify, deal, instantWin, isChop, isFreeChop, leftoverPenalty, planHand, playOptions, RANKS, settleCoins,
-  smartSelect, SUITS, TienLenRound, tienLenCut, tienLenMinCoins,
+  beats, botChoice, botDecide, botFreeChop, capTransfers, classify, deal, instantWin, isChop, isFreeChop, leftoverPenalty, planHand, playOptions, RANKS, settleCoins,
+  smartSelect, SUITS, TIENLEN_SPADE_MULTIPLIER, TienLenRound, tienLenCut, tienLenMinCoins,
 } from '../src/index.mjs';
 
 // '3♠' → 0, '2♥' → 51.
@@ -77,7 +77,8 @@ test('tới trắng và thối', () => {
   assert.equal(instantWin(filler.concat(c('2♠'))), null);
   const penalty = leftoverPenalty(cs('2♠ 2♥ 9♠ 9♣ 9♦ 9♥ 4♠ 4♣ 5♦ 5♥ 6♠ 6♣ K♦'));
   assert.equal(penalty.units, 1 + 2 + 4 + 3, 'heo đen 1, heo đỏ 2, tứ quý 4, 3 đôi thông 3');
-  assert.equal(leftoverPenalty(cs('3♠ 7♥')).units, 0);
+  assert.equal(leftoverPenalty(cs('3♣ 7♥')).units, 0);
+  assert.deepEqual(leftoverPenalty(cs('3♠ 7♥')).items, [{ kind: 'three-spades', units: 1 }], 'giữ 3♠ tới cuối bị thối 1 phần');
 });
 
 test('vòng đánh: bỏ lượt, hết vòng, lá bắt buộc, đúng lượt', () => {
@@ -171,6 +172,61 @@ test('chặt heo, chặt chồng, 4 đôi thông chặt ngoài lượt kể cả
     { from: 0, to: 2, units: 2, reason: 'chop' },
     { from: 2, to: 3, units: 6, reason: 'chop' },
   ]);
+});
+
+test('tới 3 bích: nước cuối là lá 3♠ đánh lẻ thì tiền về nhân đôi; chặt, thối giữ nguyên', () => {
+  assert.equal(TIENLEN_SPADE_MULTIPLIER, 2);
+  // Kiểu A, 2 người: người 0 giành vòng bằng heo đen rồi mở vòng bằng 3♠ cuối cùng.
+  const rank = new TienLenRound({ mode: 'rank', leader: 1, hands: [cs('2♠ 3♠'), cs('4♣ 6♥ 2♥')] });
+  assert.ok(rank.play(1, [c('4♣')]).ok);
+  assert.ok(rank.play(0, [c('2♠')]).ok);
+  assert.ok(rank.pass(1).ok);
+  assert.ok(rank.play(0, [c('3♠')]).ok);
+  const ranked = rank.results();
+  assert.equal(ranked.spade, true);
+  assert.deepEqual(ranked.transfers, [
+    { from: 1, to: 0, units: 4, reason: 'last' },
+    { from: 1, to: 0, units: 2, reason: 'leftover' },
+  ], 'bét trả 2 × 2 phần; thối heo đỏ vẫn 2 phần');
+
+  // Kiểu B, 3 người: người 1 chưa đánh lá nào (cóng) trả 3 lá × 2 × 2, người 2 còn 2 lá trả 2 × 2.
+  const count = new TienLenRound({ mode: 'count', leader: 2, hands: [cs('2♠ 3♠'), cs('5♣ 6♥ 7♠'), cs('4♦ 8♦ 9♥')] });
+  assert.ok(count.play(2, [c('4♦')]).ok);
+  assert.ok(count.play(0, [c('2♠')]).ok);
+  assert.ok(count.pass(1).ok);
+  assert.ok(count.pass(2).ok);
+  assert.ok(count.play(0, [c('3♠')]).ok);
+  const counted = count.results();
+  assert.equal(counted.spade, true);
+  assert.deepEqual(counted.transfers, [
+    { from: 1, to: 0, units: 12, reason: 'cong' },
+    { from: 2, to: 0, units: 4, reason: 'cards' },
+  ]);
+
+  // 3♠ nằm trong một bộ (đôi 3) thì không tính.
+  const pair = new TienLenRound({ mode: 'rank', leader: 1, hands: [cs('2♠ 3♠ 3♣'), cs('4♣ 6♥')] });
+  assert.ok(pair.play(1, [c('4♣')]).ok);
+  assert.ok(pair.play(0, [c('2♠')]).ok);
+  assert.ok(pair.pass(1).ok);
+  assert.ok(pair.play(0, cs('3♠ 3♣')).ok);
+  assert.equal(pair.results().spade, false);
+  assert.deepEqual(pair.results().transfers, [{ from: 1, to: 0, units: 2, reason: 'last' }]);
+
+  // Kiểu A, 3 người: người về nhì bằng 3♠ không được gì thêm (chỉ tính người nhất).
+  const second = new TienLenRound({ mode: 'rank', leader: 1, hands: [cs('9♣ 10♣'), cs('2♠ 3♠ 4♣'), cs('5♦ 6♥ 7♦')] });
+  assert.ok(second.play(1, [c('4♣')]).ok);
+  assert.ok(second.play(2, [c('5♦')]).ok);
+  assert.ok(second.play(0, [c('9♣')]).ok);
+  assert.ok(second.pass(1).ok);
+  assert.ok(second.pass(2).ok);
+  assert.ok(second.play(0, [c('10♣')]).ok, 'người 0 về nhất bằng 10♣');
+  assert.ok(second.play(1, [c('2♠')]).ok);
+  assert.ok(second.pass(2).ok);
+  assert.ok(second.play(1, [c('3♠')]).ok, 'người 1 về nhì bằng 3♠');
+  assert.equal(second.over, true);
+  const late = second.results();
+  assert.equal(late.spade, false);
+  assert.deepEqual(late.transfers, [{ from: 2, to: 0, units: 2, reason: 'last' }]);
 });
 
 test('tới trắng: hai người cùng tới trắng thì người đi trước được; mỗi người thua trả theo kiểu', () => {
@@ -283,7 +339,7 @@ test('tự chọn bộ thử ngẫu nhiên: luôn trả bộ hợp lệ, gồm m
 
 test('bot chơi có chiến thuật: giữ tứ quý / heo, mở bằng rác thấp nhất, chặt heo bằng hàng, tàn cuộc ra bộ mạnh trước', () => {
   const name = (cards) => cards && cards.map((card) => `${RANKS[card >> 2]}${SUITS[card & 3]}`).join(' ');
-  // random 0,5: không rơi vào nhánh "thỉnh thoảng nhường vòng" (< 0,15), vẫn chặt heo (< 0,9).
+  // random 0,5 cho nước còn ngẫu nhiên duy nhất: phải phí heo / xé hàng mới đè được thì có giữ lại không.
   const move = (handText, topText = null, extra = {}) => name(botChoice({ hand: cs(handText), top: topText ? cs(topText) : null, random: () => 0.5, ...extra }));
   // Chia bài thành bộ: tứ quý, heo riêng; sảnh, đôi, rác.
   const units = planHand(cs('3♠ 3♣ 3♦ 3♥ 5♠ 6♣ 7♦ 9♠ 9♥ J♣ 2♠ 2♥ K♦'));
@@ -301,6 +357,15 @@ test('bot chơi có chiến thuật: giữ tứ quý / heo, mở bằng rác th�
   assert.equal(move('4♠ 6♦ 9♣ J♣ Q♥ 2♠ 7♦ 3♣ 5♥ 8♠', 'A♥'), '2♠');
   // Heo trên bàn: chặt bằng tứ quý.
   assert.equal(move('9♠ 9♣ 9♦ 9♥ 4♠ 6♦ J♣ Q♥ K♠ 3♦', '2♥'), '9♠ 9♣ 9♦ 9♥');
+  // Không cố ý đánh dở: chặt được là luôn chặt, nước rẻ thì không nhường vòng, với mọi giá trị ngẫu nhiên.
+  for (const value of [0, 0.5, 0.999]) {
+    assert.equal(move('9♠ 9♣ 9♦ 9♥ 4♠ 6♦ J♣ Q♥ K♠ 3♦', '2♥', { random: () => value }), '9♠ 9♣ 9♦ 9♥');
+    assert.equal(move('5♠ 5♣ 6♦ 6♥ 7♠ 7♣ 4♦ J♣ Q♥ K♠', '2♥', { random: () => value }), '5♠ 5♣ 6♦ 6♥ 7♠ 7♣');
+    assert.equal(move('4♠ 9♦ J♣ Q♥ K♠ 2♠ 2♥ 6♦ 7♠ 8♥', '5♠', { random: () => value }), '6♦');
+  }
+  // 4 đôi thông chặt ngoài lượt: luôn chặt bằng bộ nhỏ nhất.
+  assert.equal(name(botFreeChop({ hand: cs('5♠ 5♣ 6♦ 6♥ 7♠ 7♣ 8♦ 8♥ 9♠ 9♣ J♣'), top: cs('2♥') })), '5♠ 5♣ 6♦ 6♥ 7♠ 7♣ 8♦ 8♥');
+  assert.equal(botFreeChop({ hand: cs('5♠ 5♣ 6♦ 6♥ 7♠ 7♣ J♣'), top: cs('2♥') }), null, '3 đôi thông không chặt ngoài lượt');
   // Không xé đôi thông để đè đôi khi còn đôi khác đè được.
   assert.equal(move('5♠ 5♣ 6♦ 6♥ 7♠ 7♣ Q♦ Q♥ 3♠ 9♦', '4♠ 4♥'), 'Q♦ Q♥');
   // Tàn cuộc còn 2 bộ (tứ quý + 1 lá): ra tứ quý trước để giành vòng, lá cuối đánh sau.
@@ -308,6 +373,28 @@ test('bot chơi có chiến thuật: giữ tứ quý / heo, mở bằng rác th�
   // Chỉ còn heo và hàng (nhiều hơn 2 bộ): ra heo trước, giữ hàng.
   assert.equal(move('9♠ 9♣ 9♦ 9♥ 2♠ 5♦ 5♥ 5♣ 5♠'.replace(' 5♦ 5♥ 5♣ 5♠', ''), null, { opponentMin: 13 }), '9♠ 9♣ 9♦ 9♥');
   assert.equal(move('9♠ 9♣ 9♦ 9♥ 2♠ 4♠ 4♣ 4♦ 4♥'), '2♠');
+  // Đối thủ còn 1 lá: chặn rác bằng lá cao nhất (kể cả heo), không đè bằng lá nhỏ.
+  assert.equal(move('6♦ 9♣ J♥ K♠ 4♣ 4♦ 8♠', '5♠', { opponentMin: 1 }), 'K♠');
+  assert.equal(move('6♦ 9♣ J♥ K♠ 4♣ 4♦ 2♥', '5♠', { opponentMin: 1 }), '2♥');
+  assert.equal(move('6♦ 9♣ J♥ K♠ 4♣ 4♦ 8♠', '5♠', { opponentMin: 2 }), '6♦', 'còn 2 lá thì vẫn đè vừa đủ');
+  // Mở vòng: còn bộ nhiều lá thì mở bộ đó; chỉ còn rác thì ra lá cao nhất trên tay.
+  assert.equal(move('6♦ 9♣ J♥ K♠ 4♣ 4♦', null, { opponentMin: 1 }), '4♣ 4♦');
+  assert.equal(move('6♦ 9♣ J♥ K♠ 2♣', null, { opponentMin: 1 }), '2♣');
+});
+
+test('đối thủ còn 1 lá: nhìn trước cũng không đánh rác thấp (luật chặn tới)', () => {
+  // Ván 3 người, người 1 còn 1 lá (8♦); người 0 tới lượt chặn rác 5♠ của người 2.
+  const round = new TienLenRound({ mode: 'rank', leader: 2, hands: [cs('6♦ 9♣ J♥ K♠ 4♣'), cs('8♦'), cs('5♠ 7♣ 10♥')] });
+  round.played = [true, true, true];
+  assert.ok(round.play(2, cs('5♠')).ok);
+  assert.equal(round.turn, 0);
+  const seededRandom = () => 0.5;
+  const cards = botDecide(round, 0, { random: seededRandom, tuning: { budgetMs: Infinity } });
+  assert.deepEqual(cards, cs('K♠'));
+  // Mở vòng khi đối thủ còn 1 lá: không lẻ thấp.
+  const lead = new TienLenRound({ mode: 'rank', leader: 0, hands: [cs('6♦ 9♣ J♥ K♠ 2♣'), cs('8♦'), cs('5♠ 7♣ 10♥')] });
+  lead.played = [true, true, true];
+  assert.deepEqual(botDecide(lead, 0, { random: seededRandom, tuning: { budgetMs: Infinity } }), cs('2♣'));
 });
 
 test('bot mạnh hơn hẳn cách đánh ngây thơ (luôn đánh bộ nhỏ nhất, không bao giờ bỏ lượt)', () => {
@@ -344,6 +431,36 @@ test('bot mạnh hơn hẳn cách đánh ngây thơ (luôn đánh bộ nhỏ nh�
   }
   assert.ok(first / games > 0.6, `bot về nhất ${(first / games * 100).toFixed(1)}% số ván`);
   assert.ok(net > 0, `bot thắng tiền (${net} phần)`);
+});
+
+test('nhìn trước ở tàn cuộc (botDecide) thắng tiền hẳn bot chỉ đánh theo kinh nghiệm (botChoice)', () => {
+  let seed = 777;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) % 2 ** 31;
+    return seed / 2 ** 31;
+  };
+  const games = 100;
+  let first = 0;
+  let net = 0;
+  for (let game = 0; game < games; game += 1) {
+    const hands = deal(4, (n) => Math.floor(random() * n));
+    const smart = game % 2 ? [1, 3] : [0, 2];
+    const low = Math.min(...hands.flat());
+    const round = new TienLenRound({ hands, mode: game % 4 < 2 ? 'rank' : 'count', leader: hands.findIndex((hand) => hand.includes(low)), mustInclude: low });
+    while (!round.over) {
+      const seat = round.turn;
+      // budgetMs vô hạn: kết quả không phụ thuộc máy nhanh / chậm.
+      const cards = botDecide(round, seat, { random, tuning: smart.includes(seat) ? { budgetMs: Infinity } : { search: false } });
+      assert.ok((cards ? round.play(seat, cards) : round.pass(seat)).ok);
+    }
+    const outcome = round.results();
+    if (smart.includes(outcome.winner)) first += 1;
+    settleCoins(outcome.transfers, { players: 4, stake: 1 }).nets.forEach((value, seat) => { if (smart.includes(seat)) net += value; });
+  }
+  // Đo lớn (6 bộ bài, mỗi bộ 200–600 ván, cả hai bot không cố ý đánh dở): bàn 2 người +0,4, 3 người +0,2 phần mỗi ghế
+  // mỗi ván; bàn 4 người tiền gần ngang nhưng về nhất 52–54%. Ở đây chỉ chạy một bộ bài cố định làm mốc chống thụt lùi.
+  assert.ok(first / games > 0.5, `bot nhìn trước về nhất ${(first / games * 100).toFixed(1)}% số ván`);
+  assert.ok(net > 0, `bot nhìn trước được ${(net / games / 2).toFixed(2)} phần mỗi ghế mỗi ván`);
 });
 
 test('bot tự đánh hàng trăm ván ngẫu nhiên: mọi nước hợp lệ, ván luôn xong, tổng tiền bằng 0', () => {

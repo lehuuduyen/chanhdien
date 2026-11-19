@@ -11,7 +11,7 @@ const TURN_MS = 20_000;
 const AVATARS = { man: '👨', woman: '👩', granny: '👵', nun: '🧕', monk: '🧘', child: '🧒', pilgrim: '🧑', lotusgirl: '👧', chibigirl: '👧', swordsman: '🥷' };
 const MODE_NAMES = { rank: 'A · Xếp hạng', count: 'B · Đếm lá' };
 const WHITE_NAMES = { 'four-twos': 'Tứ quý 2', dragon: 'Sảnh rồng', 'six-pairs': '6 đôi', 'five-pairs': '5 đôi thông' };
-const REASONS = { chop: 'bị chặt', last: 'về bét', third: 'về ba', cong: 'cóng', cards: 'lá còn lại', leftover: 'thối heo / hàng', white: 'tới trắng' };
+const REASONS = { chop: 'bị chặt', last: 'về bét', third: 'về ba', cong: 'cóng', cards: 'lá còn lại', leftover: 'thối heo / hàng / 3♠', white: 'tới trắng' };
 const RANK_NAMES = ['', '🥇 Nhất', '🥈 Nhì', '🥉 Ba', 'Bét'];
 const PHASE_NAMES = { waiting: 'Đang chờ', starting: 'Sắp chia bài', playing: 'Đang chơi', result: 'Xem kết quả' };
 const ERROR_TEXT = {
@@ -41,6 +41,10 @@ let lastMoveKey = '';
 let autoPick = true;
 // Đã ẩn màn kết quả của ván này (bấm "Ở lại") — ván mới thì hiện lại.
 let resultHiddenFor = 0;
+// Hết ván: giữ nước đánh cuối trên bàn một lúc rồi mới mở bảng kết quả (bảng che mất bài vừa đánh).
+const FINAL_MOVE_MS = 2_500;
+let resultShowAt = 0;
+let resultTimer = null;
 // Trạng thái mạng: 'down' đang mất kết nối, 'back' vừa nối lại (hiện 2,5 giây).
 let netState = '';
 let netTimer = null;
@@ -252,12 +256,17 @@ function statusText() {
   return `Lượt của ${nameOf(table.turn)} · ${left}s`;
 }
 
+// Nước đánh kết thúc ván (pha result): server không gửi top nữa, lấy từ last.
+const finalMove = () => (table?.phase === 'result' && table.last?.cards?.length && table.last.action !== 'pass' ? table.last : null);
+
 function renderCenter() {
-  const top = table.phase === 'playing' ? table.top : null;
+  const final = finalMove();
+  const top = table.phase === 'playing' ? table.top : final;
   el.pile.replaceChildren(...(top ? top.cards.map(cardNode) : []));
   const last = table.last;
   let who = '';
-  if (top) who = top.seat === table.seat ? 'Bạn vừa đánh' : `${nameOf(top.seat)} đánh`;
+  if (final) who = `${final.seat === table.seat ? 'Bạn' : nameOf(final.seat)} đánh nước cuối · hết ván`;
+  else if (top) who = top.seat === table.seat ? 'Bạn vừa đánh' : `${nameOf(top.seat)} đánh`;
   else if (table.phase === 'playing' && last?.action === 'pass') who = `${last.seat === table.seat ? 'Bạn' : nameOf(last.seat)} bỏ lượt · hết vòng`;
   el.whoPlayed.textContent = who;
   el.status.replaceChildren(statusText());
@@ -275,15 +284,17 @@ function lineText(line) {
     third: `${who(line.from)} về ba → trả ${who(line.to)} (nhì)`,
     cong: `${who(line.from)} cóng → trả ${who(line.to)}`,
     cards: `${who(line.from)} còn ${line.units} lá → trả ${who(line.to)}`,
-    leftover: `${who(line.from)} thối heo / hàng → trả ${who(line.to)}`,
+    leftover: `${who(line.from)} thối heo / hàng / 3♠ → trả ${who(line.to)}`,
     white: `${who(line.from)} thua trắng → trả ${who(line.to)}`,
   }[line.reason];
-  return [text.charAt(0).toUpperCase() + text.slice(1), mine];
+  // Tới 3 bích: tiền về (bét, cóng, lá còn lại) đã nhân đôi.
+  const doubled = table.result?.spade && ['last', 'cong', 'cards'].includes(line.reason) ? ' ×2' : '';
+  return [text.charAt(0).toUpperCase() + text.slice(1) + doubled, mine];
 }
 
 function renderResult() {
   const result = table?.phase === 'result' ? table.result : null;
-  el.result.hidden = !result || resultHiddenFor === table.game;
+  el.result.hidden = !result || resultHiddenFor === table.game || Date.now() < resultShowAt;
   if (!result) return;
   const rows = [];
   for (let seat = 0; seat < SEATS; seat += 1) if (result.ranks[seat]) rows.push(seat);
@@ -300,8 +311,15 @@ function renderResult() {
     if (result.hands?.[seat]) item.append(miniHand(result.hands[seat], 'Hết bài'));
     list.append(item);
   }
-  const title = result.white ? `Tới trắng · ${WHITE_NAMES[result.white]}` : `Kết quả ván ${table.game}`;
+  const title = result.white ? `Tới trắng · ${WHITE_NAMES[result.white]}`
+    : result.spade ? `Tới 3 bích ×2 · ván ${table.game}` : `Kết quả ván ${table.game}`;
   const parts = [node('h3', '', title)];
+  const final = finalMove();
+  if (final) {
+    const row = node('div', 'final-move');
+    row.append(node('span', '', `Nước cuối · ${final.seat === table.seat ? 'bạn' : nameOf(final.seat)}`), miniHand(final.cards));
+    parts.push(row);
+  }
   // Sau ván không còn đủ 10 lần mức cược: báo ngay dưới tiêu đề (thấy liền, không phải cuộn), hết đếm ngược sẽ rời bàn.
   const broke = result.after !== undefined && result.after < table.minCoins;
   if (broke) {
@@ -467,6 +485,12 @@ function onTable(message) {
   table = message;
   if (message.coins !== undefined) coins = message.coins;
   if (previous?.phase !== 'result' && message.phase === 'result' && message.result?.net > 0) navigator.vibrate?.([60, 40, 60]);
+  // Vừa hết ván (đang xem bàn, không phải vào lại giữa màn kết quả): để mọi người thấy nước cuối rồi mới mở bảng kết quả.
+  if (previous?.phase === 'playing' && message.phase === 'result' && previous.game === message.game && finalMove()) {
+    resultShowAt = Date.now() + FINAL_MOVE_MS;
+    clearTimeout(resultTimer);
+    resultTimer = setTimeout(() => { if (table) renderResult(); }, FINAL_MOVE_MS);
+  }
   if (previous?.phase !== message.phase) boardSay('');
   noticeMove(previous);
   renderBoard();

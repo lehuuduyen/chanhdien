@@ -4,7 +4,7 @@
 //   đủ xu thì đứng dậy) → chia bài → playing (lượt turnMs; hết giờ tự bỏ / tự đánh lá nhỏ nhất) → result (API trừ / cộng
 //   theo các khoản, ai thiếu xu thì trả hết số có, phế phần thắng) → ván mới (người bấm rời / mất kết nối thì đứng dậy) …
 // - Bài trên tay chỉ gửi cho chủ bài; người khác chỉ thấy số lá. Hết ván (result) mới lật bài còn lại của mọi người
-//   (result.hands; tới trắng thì đủ 13 lá của người thắng). Bot chỉ được đọc bài của chính nó (botChoice).
+//   (result.hands; tới trắng thì đủ 13 lá của người thắng). Bot chỉ được đọc bài của chính nó + phần công khai của ván (botDecide).
 // - Bot vào bàn như người thật (trang không nhắc gì tới bot, tin gửi trình duyệt không có cờ bot): mỗi ván chọn lại ngẫu
 //   nhiên tổng 2–4 người và luôn chừa ít nhất một ghế bot. Người thật ngồi xuống xong chờ botFill.firstDelayMs mới có bot
 //   đầu tiên, rồi lần lượt cách nhau botFill.delayMs tới mục tiêu. Trường bots:false từ client cũ vẫn nhận nhưng bị bỏ qua.
@@ -17,7 +17,7 @@
 // - Rút máy (deploy) / phòng đóng: ván đang chơi bị hủy (chưa ai bị trừ xu vì chỉ trừ lúc chốt).
 import { createHash, randomInt } from 'node:crypto';
 import { PROTOCOL_VERSION } from '@chanh-dien/protocol';
-import { botChoice, deal, settleCoins, TienLenRound, tienLenMinCoins } from '@chanh-dien/tien-len';
+import { botDecide, botFreeChop, deal, settleCoins, TienLenRound, tienLenMinCoins } from '@chanh-dien/tien-len';
 
 const SEATS = 4;
 const TICK_MS = 250;
@@ -491,6 +491,7 @@ export class TienLenTable {
     }
     table.players = players;
     table.round = new TienLenRound({ hands, mode: table.mode, leader, mustInclude });
+    table.freeChop = null;
     table.game += 1;
     table.phase = 'playing';
     table.result = null;
@@ -510,6 +511,15 @@ export class TienLenTable {
 
   tickPlaying(table, now) {
     const { round } = table;
+    // Bot cầm 4 đôi thông chặt ngoài lượt (bộ trên bàn vẫn là bộ lúc bot định chặt).
+    const chop = table.freeChop;
+    if (chop && now >= chop.at) {
+      table.freeChop = null;
+      if (round.top === chop.top && round.play(chop.player, chop.cards).ok) {
+        this.afterMove(table);
+        return;
+      }
+    }
     const turnSeat = table.seats[table.players[round.turn]];
     if (turnSeat.bot && now >= table.botActAt) {
       this.botMove(table);
@@ -523,22 +533,40 @@ export class TienLenTable {
     this.afterMove(table);
   }
 
+  // Bot chỉ thấy bài của nó + phần công khai của ván (botDecide tự lọc); tàn cuộc thì nhìn trước vài nước.
   botMove(table) {
     const { round } = table;
     const seat = round.turn;
-    const opponentMin = Math.min(...round.seats().filter((other) => other !== seat && round.active(other)).map((other) => round.hands[other].length));
-    const cards = botChoice({
-      hand: round.hands[seat], top: round.top?.cards || null, mustInclude: round.mustInclude,
-      opponentMin, random: () => this.random(1_000_000) / 1_000_000,
-    });
+    const cards = botDecide(round, seat, { random: () => this.random(1_000_000) / 1_000_000 });
     const result = cards ? round.play(seat, cards) : round.pass(seat);
     if (!result.ok) round.auto(seat);
     this.afterMove(table);
   }
 
   afterMove(table) {
-    if (table.round.over) this.finishGame(table);
-    else this.startTurn(table);
+    if (table.round.over) {
+      table.freeChop = null;
+      this.finishGame(table);
+      return;
+    }
+    this.startTurn(table);
+    this.planFreeChop(table);
+  }
+
+  // Heo / hàng vừa lên bàn: bot (không tới lượt, kể cả đã bỏ lượt) cầm 4 đôi thông chặt được thì hẹn chặt sau một nhịp
+  // suy nghĩ như người.
+  planFreeChop(table) {
+    table.freeChop = null;
+    const { round } = table;
+    if (!round.top) return;
+    for (const player of round.seats()) {
+      if (player === round.turn || player === round.top.seat || !round.active(player) || !table.seats[table.players[player]]?.bot) continue;
+      const cards = botFreeChop({ hand: round.hands[player], top: round.top.cards });
+      if (cards) {
+        table.freeChop = { player, cards, top: round.top, at: this.now() + between(this.random, this.rules.botActMs) };
+        return;
+      }
+    }
   }
 
   // Hết ván: tính tiền theo luật, gửi API chốt (cọc ± thắng thua), hiện kết quả resultMs rồi sang ván mới.
@@ -555,6 +583,8 @@ export class TienLenTable {
     };
     table.result = {
       ...(outcome.white ? { white: outcome.white } : {}),
+      // Người nhất tới 3 bích: tiền về đã nhân đôi trong lines.
+      ...(outcome.spade ? { spade: true } : {}),
       ranks: bySeat(outcome.ranks),
       nets: bySeat(nets),
       lines: transfers.slice(0, 48).map((item) => ({ from: players[item.from], to: players[item.to], units: item.units, coins: item.coins, reason: item.reason })),
@@ -736,8 +766,8 @@ export class TienLenTable {
       };
     }
     if (table.result) {
-      const { ranks, nets, lines, white, hands } = table.result;
-      message.result = { ranks, nets, lines, hands, ...(white ? { white } : {}) };
+      const { ranks, nets, lines, white, spade, hands } = table.result;
+      message.result = { ranks, nets, lines, hands, ...(white ? { white } : {}), ...(spade ? { spade } : {}) };
       if (seat.paid) Object.assign(message.result, { net: seat.paid.net, cut: seat.paid.cut });
       if (seat.paid && Number.isSafeInteger(seat.before) && Number.isSafeInteger(seat.coins)) Object.assign(message.result, { before: seat.before, after: seat.coins });
     }

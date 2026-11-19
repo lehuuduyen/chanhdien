@@ -331,7 +331,7 @@ export class Room {
     // Danh sách YouTube do admin đặt. Đây là nguồn dự phòng vòng lặp, không chiếm hàng chờ và không trừ kim cương.
     this.fallbackPlaylist = [];
     this.fallbackIndex = 0;
-    this.skipVotePercent = options.skipVotePercent || this.rules.interaction?.skipVotePercent || CINEMA.interaction.skipVotePercent;
+    this.skipVotePercent = options.skipVotePercent ?? this.rules.interaction?.skipVotePercent ?? CINEMA.interaction.skipVotePercent;
     this.revision = 0;
     this.savedRevision = -1;
     this.closed = false;
@@ -911,7 +911,7 @@ export class Room {
     }
   }
 
-  // Nhà chùa đã nhận sớ: cả phòng thấy thầy nhận sớ của ai (tên trong phòng), không có tên người được cầu nguyện.
+  // Sớ đã lưu: cả phòng thấy ai vừa dâng sớ (tên trong phòng), không có tên người được cầu nguyện.
   announcePrayer(participantId, kind) {
     const participant = this.participants.get(participantId);
     if (!participant) return { ok: false, error: 'NOT_IN_ROOM' };
@@ -1611,11 +1611,28 @@ export class Room {
   }
 
   votesNeeded() {
+    // Rạp tính cả bot trong mẫu số để con số trên HUD (người + bot online) khớp đúng ngưỡng bỏ qua.
+    // Phòng khác chưa có vote video nên giữ cách đếm người thật cũ cho tương thích.
+    const audience = isCinemaType(this.type) ? this.audienceCount : this.connectedCount;
+    return Math.max(1, Math.ceil((audience * this.skipVotePercent) / 100));
+  }
+
+  errorsNeeded() {
+    // Bot không có trình phát YouTube để báo video hỏng; ngưỡng lỗi chỉ dựa trên máy người thật đang kết nối.
     return Math.max(1, Math.ceil((this.connectedCount * this.skipVotePercent) / 100));
   }
 
+  skipVoteCount() {
+    let count = 0;
+    for (const participantId of this.playback.votes) {
+      const participant = this.participants.get(participantId);
+      if (participant?.connected && !participant.bot) count += 1;
+    }
+    return count;
+  }
+
   playbackState() {
-    const { current, queue, votes } = this.playback;
+    const { current, queue } = this.playback;
     return {
       v: PROTOCOL_VERSION,
       type: 'playback.state',
@@ -1629,7 +1646,7 @@ export class Room {
         itemId, videoId, title, addedBy,
         ...(paid ? { paid: { currency: paid.currency, amount: paid.amount } } : {}),
       })),
-      votes: votes.size,
+      votes: this.skipVoteCount(),
       votesNeeded: this.votesNeeded(),
     };
   }
@@ -1819,9 +1836,12 @@ export class Room {
 
   voteSkip(participantId, itemId) {
     const playback = this.playback;
+    const participant = this.participants.get(participantId);
+    if (!participant?.connected) return { ok: false, error: 'NOT_IN_ROOM' };
+    if (participant.bot) return { ok: false, error: 'BOT_NOT_ALLOWED' };
     if (!playback.current || playback.current.itemId !== itemId) return { ok: false, error: 'STALE_ITEM' };
     playback.votes.add(participantId);
-    if (playback.votes.size >= this.votesNeeded()) this.advance();
+    if (this.skipVoteCount() >= this.votesNeeded()) this.advance();
     else this.broadcastPlayback();
     return { ok: true };
   }
@@ -1830,6 +1850,8 @@ export class Room {
   report(participantId, itemId, event, value) {
     const playback = this.playback;
     const current = playback.current;
+    const participant = this.participants.get(participantId);
+    if (!participant?.connected || participant.bot) return;
     if (!current || current.itemId !== itemId) return;
     if (event === 'duration') {
       // Dưới 3 giây thường là livestream hoặc trình phát chưa nạp xong: bỏ qua để không cắt bài.
@@ -1847,7 +1869,7 @@ export class Room {
       if (current.duration && Date.now() >= current.startedAt + current.duration * 1_000 - 5_000) this.advance();
     } else if (event === 'error') {
       playback.errors.add(participantId);
-      if (playback.errors.size >= this.votesNeeded()) {
+      if (playback.errors.size >= this.errorsNeeded()) {
         // Video đã trả tiền mà không phát được ngay từ đầu (bị chặn nhúng, bị xóa…): hoàn tiền người mở.
         if (current.paid && Date.now() - current.startedAt < VIDEO_ERROR_REFUND_MS) this.refundPayment(current.paid);
         this.advance();
@@ -1865,10 +1887,17 @@ export class Room {
     return true;
   }
 
-  // Người thật đang kết nối (không tính bot): dùng cho vote, số người ở sảnh, ngưỡng lỗi phát.
+  // Người thật đang kết nối (không tính bot): dùng cho số người thật ở sảnh và ngưỡng lỗi phát.
   get connectedCount() {
     let count = 0;
     for (const participant of this.participants.values()) if (participant.connected && !participant.bot) count += 1;
+    return count;
+  }
+
+  // Toàn bộ người đang online trong phòng, gồm cả bot. Rạp dùng đúng số này làm mẫu số vote bỏ qua.
+  get audienceCount() {
+    let count = 0;
+    for (const participant of this.participants.values()) if (participant.connected) count += 1;
     return count;
   }
 
@@ -4084,7 +4113,8 @@ function handleRoomMessage(socket, context, raw) {
       return;
     }
     const result = room.voteSkip(context.participantId, message.itemId);
-    if (!result.ok) protocolError(socket, room.epoch, result.error, 'Video đã đổi, vote lại cho video mới nhé', message.requestId);
+    if (!result.ok) protocolError(socket, room.epoch, result.error,
+      result.error === 'BOT_NOT_ALLOWED' ? 'Bot không được vote bỏ qua phim' : 'Video đã đổi, vote lại cho video mới nhé', message.requestId);
     return;
   }
   if (message.type === 'playback.report') {
