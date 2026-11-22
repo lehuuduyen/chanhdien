@@ -1,9 +1,11 @@
 // Nút cấu hình ⚙ trên thanh trên cùng: gom Đăng nhập, Sao chép mã phòng, 2D/3D, âm nhạc, tắt tiếng, Rời vào một
 // menu xổ xuống cho thanh trên gọn. Các nút cũ được chuyển vào menu nguyên vẹn (giữ sự kiện đã gắn), mỗi dòng ẩn
 // theo nút gốc hoặc theo khối chứa cũ (vd: Rời chỉ hiện khi đang ở trong phòng).
+// host: đặt các dòng thẳng vào khối này (app Cài đặt của điện thoại, phone-ui.js), không có nút ⚙; bấm một mục
+// (trừ keepOpen) thì gọi onPick để nơi chứa tự đóng.
 import { onLangChange, t } from '/thien-i18n.js';
 
-export function createSettingsMenu({ topBar, rows }) {
+export function createSettingsMenu({ topBar, host = null, rows, onPick = () => {} }) {
   const wrap = document.createElement('div');
   wrap.className = 'settings';
   const toggle = document.createElement('button');
@@ -13,9 +15,9 @@ export function createSettingsMenu({ topBar, rows }) {
   toggle.setAttribute('aria-haspopup', 'menu');
   toggle.setAttribute('aria-expanded', 'false');
   const panel = document.createElement('div');
-  panel.className = 'settings-panel';
+  panel.className = host ? 'settings-panel in-phone' : 'settings-panel';
   panel.setAttribute('role', 'menu');
-  panel.hidden = true;
+  panel.hidden = !host;
   wrap.append(toggle, panel);
 
   const built = rows.filter((row) => row.element).map((row) => {
@@ -37,6 +39,17 @@ export function createSettingsMenu({ topBar, rows }) {
     }
     toggle.title = t('menu.settings');
     toggle.setAttribute('aria-label', t('menu.settings'));
+  }
+
+  if (host) {
+    panel.addEventListener('click', (event) => {
+      const row = built.find((item) => item.line.contains(event.target));
+      if (row && !row.keepOpen && event.target.closest('button, a')) onPick();
+    });
+    onLangChange(refresh);
+    host.append(panel);
+    refresh();
+    return { refresh, close: () => {} };
   }
 
   function open(next) {

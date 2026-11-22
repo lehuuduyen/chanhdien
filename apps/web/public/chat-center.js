@@ -39,7 +39,8 @@ function button(className, text, onClick) {
 
 // sendRoom(text) → true nếu đã gửi; isBlocked(participantId): người mình đã chặn thì không hiện tin của họ.
 // botHere(name): bạn bot tên đó đang ở phòng này (participant) hay không → hiện "Đang online".
-export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId, botHere = () => null }) {
+// onUnread(n): số tin chưa xem (phòng + bạn bè + bạn bot) mỗi lần đổi — điện thoại hiện trên app Tin nhắn và nút 📱.
+export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId, botHere = () => null, onUnread = () => {} }) {
   const openButton = el('button', 'chip chat-open');
   openButton.type = 'button';
   const sheet = el('section', 'social-friends chat-center');
@@ -75,6 +76,7 @@ export function createChatCenter({ stage, sendRoom, isBlocked, showToast, selfId
     openButton.textContent = `💬${unread ? ` ${unread > 99 ? '99+' : unread}` : ''}`;
     openButton.setAttribute('aria-label', t('chat.center'));
     openButton.classList.toggle('has-unread', Boolean(unread));
+    onUnread(unread);
   };
   label();
 

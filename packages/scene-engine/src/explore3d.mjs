@@ -11,6 +11,8 @@ import { createMemorialView } from './memorial3d.mjs';
 import { playPose, updateSwings } from './park3d.mjs';
 import { buildChibiWalker, DANCE_STYLES, danceStyleOf } from './chibi3d.mjs';
 import { createSpirit } from './spirit3d.mjs';
+import { placeExtras, placeOf as areaOf } from './places.mjs';
+import { createRouteView, projectOnRoute, routeLength } from './route3d.mjs';
 
 // Linh thú cách camera xa hơn ngần này (m) thì ẩn.
 const SPIRIT_VIEW_DISTANCE = 30;
@@ -72,11 +74,13 @@ function actIndex(at = 0) {
   return (hash ^ (hash >>> 13)) >>> 0;
 }
 
-export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onFarmTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPilgrimageTap, onPetTap, onSpiritTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, gardenLabel, hintText } = {}) {
+export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerTap, onBenchTap, onGardenTap, onFarmTap, onMemorialTap, onGuideTap, onMeritBoardTap, onPilgrimageTap, onPetTap, onSpiritTap, onNearbyChange, onNearbyChoreChange, onNearbyPetChange, onPlaceChange, onNavigation, gardenLabel, hintText } = {}) {
   return (ctx) => {
     const { THREE, canvas, root, camera, controls, world, courtyard, makeLabel, makeBubble, disposeSprite, reduceMotion } = ctx;
     const walk = world.walk;
     if (!walk) return null;
+    const placeContext = placeExtras(world);
+    const routeView = createRouteView({ THREE, root });
 
     // ---- Nhân vật đứng: thân trên của người ngồi + vạt áo dài + hai bàn chân lộ dưới vạt ----
     const shadowMaterial = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false });
@@ -433,6 +437,11 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     let joystickRunning = false;
     let path = [];
     let arrive = null;
+    let navigation = null;
+    let navigationHidden = false;
+    let preview = null;
+    let lastNavigationCheck = 0;
+    let lastNavigationReport = 0;
     let lastSentAt = 0;
     // Nắm tay: người đi theo tự đứng cách người dẫn HAND_GAP m về một bên (handSide ±1 theo trục ngang của người dẫn).
     const HAND_GAP = 0.55;
@@ -967,11 +976,6 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       seatTargets.push({ kind: 'market', id: 'farm-market', x: fieldsData.market.x, z: fieldsData.market.z, sx: 1.8, sz: 1.0, ry: 0 });
       if (fieldsData.basket) seatTargets.push({ kind: 'basket', id: 'farm-basket', x: fieldsData.basket.x, z: fieldsData.basket.z, sx: 0.9, sz: 0.6, ry: 0 });
     }
-    const gardenPoints = (gardenData?.fence || []).flatMap(([x0, z0, x1, z1]) => [[x0, z0], [x1, z1]]);
-    const gardenBounds = gardenPoints.length ? {
-      x: [Math.min(...gardenPoints.map(([x]) => x)) - 2.8, Math.max(...gardenPoints.map(([x]) => x)) + 0.5],
-      z: [Math.min(...gardenPoints.map(([, z]) => z)) - 0.5, Math.max(...gardenPoints.map(([, z]) => z)) + 0.5],
-    } : null;
     // Xích đu / cầu tuột (ghế có kind): dáng người tính theo thời gian ở park3d; playOccupied = chỗ đang có người.
     const playItems = new Map((world.courtyard?.benches || []).filter((bench) => bench.kind).map((bench) => [bench.id, bench]));
     const playOccupied = new Set();
@@ -1000,48 +1004,86 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       seatTargets.push({ kind: 'merit', id: 'merit', x: board.x, z: board.z, sx: 1.25, sz: 0.55, ry: 0, near: 4 });
     }
     const memorialView = memorialData ? createMemorialView({ THREE, root, memorial: memorialData }) : null;
-    const memorialPoints = (memorialData?.fence || []).flatMap(([x0, z0, x1, z1]) => [[x0, z0], [x1, z1]]);
-    const memorialBounds = memorialPoints.length ? {
-      x: [Math.min(...memorialPoints.map(([x]) => x)) - 0.5, Math.max(...memorialPoints.map(([x]) => x)) + 2.8],
-      z: [Math.min(...memorialPoints.map(([, z]) => z)) - 0.5, Math.max(...memorialPoints.map(([, z]) => z)) + 0.5],
-    } : null;
     let currentPlace = null;
-    function placeOf(self) {
-      if (!self) return null;
-      const hall = world.hall;
-      if (hall && self.x >= -hall.halfWidth && self.x <= hall.halfWidth && self.z >= hall.back && self.z <= hall.front) return 'hall';
-      const pets = world.courtyard?.petZone?.area;
-      if (pets && self.x >= pets.x[0] && self.x <= pets.x[1] && self.z >= pets.z[0] && self.z <= pets.z[1]) return 'pets';
-      const farm = world.courtyard?.farmZone?.area;
-      if (farm && self.x >= farm.x[0] && self.x <= farm.x[1] && self.z >= farm.z[0] && self.z <= farm.z[1]) return 'farm';
-      const park = world.courtyard?.park?.area;
-      if (park && self.x >= park.x[0] - 2 && self.x <= park.x[1] && self.z >= park.z[0] && self.z <= park.z[1]) return 'park';
-      // Vườn Hoa hình chữ L: xét từng khối (areas), thiếu thì dùng khung bao (area); nới 2 m ra phía cổng đông.
-      const garden = world.courtyard?.flowerGarden;
-      const flowerAreas = garden?.areas || (garden?.area ? [garden.area] : []);
-      if (flowerAreas.some((item) => self.x >= item.x[0] && self.x <= item.x[1] + 2 && self.z >= item.z[0] && self.z <= item.z[1])) return 'flowers';
-      if (gardenBounds && self.x >= gardenBounds.x[0] && self.x <= gardenBounds.x[1]
-        && self.z >= gardenBounds.z[0] && self.z <= gardenBounds.z[1]) return 'garden';
-      if (memorialBounds && self.x >= memorialBounds.x[0] && self.x <= memorialBounds.x[1]
-        && self.z >= memorialBounds.z[0] && self.z <= memorialBounds.z[1]) return 'memorial';
-      const wishes = world.courtyard?.wishGarden?.area;
-      if (wishes && self.x >= wishes.x[0] && self.x <= wishes.x[1] && self.z >= wishes.z[0] && self.z <= wishes.z[1]) return 'wishes';
-      // Ra khỏi cổng: lối đá và Đài ngắm cảnh.
-      const overlook = world.courtyard?.overlook;
-      if (overlook && self.z >= overlook.path.z[0]) return 'overlook';
-      // Ra khỏi cổng hông phía tây: Rừng thiền.
-      const grove = world.courtyard?.grove;
-      // Ra khỏi cổng tây phía nam: Phước Điền (nông trại riêng), nam Rừng thiền.
-      const fields = fieldsData?.area;
-      if (fields && self.x <= fields.x[1] + 0.5 && self.z >= fields.z[0]) return 'myfarm';
-      if (grove && self.x <= grove.area.x[1]) return 'grove';
-      return 'courtyard';
-    }
     function reportPlace(self) {
-      const next = placeOf(self);
+      const next = areaOf(world, self, placeContext);
       if (next === currentPlace) return;
       currentPlace = next;
       onPlaceChange?.(next);
+    }
+
+    function navigationMessage(status, extra = {}) {
+      onNavigation?.({
+        state: status,
+        status,
+        id: navigation?.id || extra.id || null,
+        remaining: navigation?.remaining ?? extra.remaining ?? 0,
+        length: navigation?.length ?? extra.length ?? 0,
+      });
+    }
+
+    function clearNavigation(status = null, extra = {}) {
+      if (status) navigationMessage(status, extra);
+      navigation = null;
+      preview = null;
+      routeView.setRoute([]);
+    }
+
+    function routeFrom(self, goal, id) {
+      if (!self || spectator) return null;
+      const cacheHit = preview && preview.id === id
+        && Math.hypot(preview.from.x - self.x, preview.from.z - self.z) < 0.5
+        && Math.hypot(preview.goal.x - goal.x, preview.goal.z - goal.z) < 0.1;
+      if (cacheHit) return preview;
+      // Tuyến GPS ưu tiên lưới 0,8 m: cả 121 cặp điểm chính vẫn qua ba cửa hẹp, nhưng trên CPU chậm 4×
+      // nhanh hơn đủ để không bỏ khung hình. Chạm-để-đi vẫn giữ mặc định 0,25 m, không đổi độ chính xác cũ.
+      const pathToGoal = findPath(walk, self, goal, { cell: 0.8 });
+      if (!pathToGoal.length) return null;
+      const points = [{ x: self.x, z: self.z }, ...pathToGoal.map((point) => ({ x: point.x, z: point.z }))];
+      const result = { id, from: { x: self.x, z: self.z }, goal: { x: goal.x, z: goal.z }, points, length: routeLength(points), at: performance.now() };
+      preview = result;
+      return result;
+    }
+
+    function updateNavigation(self, time) {
+      routeView.tick(time / 1_000);
+      if (!navigation || !self) return;
+      if (navigation.arrivedAt) {
+        if (time - navigation.arrivedAt >= 1_000) clearNavigation();
+        return;
+      }
+      if (Math.hypot(self.x - navigation.goal.x, self.z - navigation.goal.z) <= 2.5) {
+        navigation.remaining = 0;
+        navigation.arrivedAt = time;
+        routeView.setProgress(navigation.length);
+        navigationMessage('arrived');
+        return;
+      }
+      // Chiếu nhân vật lên tuyến chỉ cần cho GPS / kiểm lệch, không cần chạy 60 lần/giây. Ngoài việc nhẹ CPU,
+      // nhịp 200 ms còn đảm bảo renderer vạch mỗi khung chỉ đổi uniform thời gian, không tạo object rác.
+      if (time - lastNavigationCheck < 200) return;
+      lastNavigationCheck = time;
+      let projection = projectOnRoute(navigation.points, self);
+      if (projection.distance > 3 && time - navigation.lastReplan >= 1_500) {
+        navigation.lastReplan = time;
+        preview = null;
+        const next = routeFrom(self, navigation.goal, navigation.id);
+        if (!next) {
+          clearNavigation('failed');
+          return;
+        }
+        navigation.points = next.points;
+        navigation.length = next.length;
+        routeView.setRoute(next.points);
+        routeView.setHidden(navigationHidden);
+        projection = projectOnRoute(navigation.points, self);
+      }
+      navigation.remaining = projection.remaining;
+      routeView.setProgress(projection.progress);
+      if (time - lastNavigationReport >= 250) {
+        lastNavigationReport = time;
+        navigationMessage('active');
+      }
     }
     let occupancy = { seats: new Set(), benches: new Map() };
     let nearbySit = null;
@@ -1114,6 +1156,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       const self = walkers.get(selfId);
       if (self) stepSelf(self, dt, time);
       reportPlace(self);
+      updateNavigation(self, time);
       updateRings(self, time);
       updateNearbyChore(self);
       updateNearbyPet(self);
@@ -1529,6 +1572,64 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         if (!path.length && then) then();
         return path.length > 0;
       },
+      previewNavigation(goal, { id = null } = {}) {
+        const self = walkers.get(selfId);
+        const route = routeFrom(self, goal, id);
+        if (route && !navigation) routeView.prepare(route.points);
+        return route ? { ok: true, length: route.length } : { ok: false, length: 0 };
+      },
+      navigateTo(goal, { id = null } = {}) {
+        const self = walkers.get(selfId);
+        if (!self || spectator) return { ok: false, length: 0 };
+        if (Math.hypot(self.x - goal.x, self.z - goal.z) <= 2.5) {
+          clearNavigation();
+          onNavigation?.({ state: 'arrived', status: 'arrived', id, remaining: 0, length: 0 });
+          return { ok: true, length: 0 };
+        }
+        const route = routeFrom(self, goal, id);
+        if (!route) {
+          clearNavigation();
+          onNavigation?.({ state: 'failed', status: 'failed', id, remaining: 0, length: 0 });
+          return { ok: false, length: 0 };
+        }
+        navigation = {
+          id, goal: { x: goal.x, z: goal.z }, points: route.points, length: route.length,
+          remaining: route.length, lastReplan: performance.now(), arrivedAt: 0,
+        };
+        lastNavigationCheck = 0;
+        routeView.setRoute(route.points);
+        routeView.setHidden(navigationHidden);
+        navigationMessage('active');
+        return { ok: true, length: route.length };
+      },
+      stopNavigation(reason = 'stopped') {
+        if (!navigation) return false;
+        clearNavigation(reason);
+        return true;
+      },
+      quickTravel(destination) {
+        if (!navigation) return;
+        if (destination === navigation.id) {
+          navigation.remaining = 0;
+          navigation.arrivedAt = performance.now();
+          routeView.setProgress(navigation.length);
+          navigationMessage('arrived');
+        } else clearNavigation('stopped');
+      },
+      setRouteHidden(on) {
+        navigationHidden = Boolean(on);
+        routeView.setHidden(navigationHidden);
+      },
+      mapState() {
+        const self = walkers.get(selfId);
+        return self ? {
+          self: { x: self.x, z: self.z, ry: self.ry }, place: currentPlace, navigating: navigation?.id || null,
+          route: navigation?.points || null,
+        } : { self: null, place: currentPlace, navigating: null, route: null };
+      },
+      debugNavigation() {
+        return navigation ? { ...navigation, points: navigation.points.map((point) => ({ ...point })), route: routeView.stats() } : null;
+      },
       setJoystick(x, y) {
         joystick = { x, y };
         const magnitude = Math.hypot(x, y);
@@ -1558,6 +1659,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       },
       setSpectator(on) {
         spectator = Boolean(on);
+        if (spectator) clearNavigation('stopped');
       },
       position() {
         const self = walkers.get(selfId);
@@ -1630,6 +1732,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
     function warmup() {
       const group = new THREE.Group();
       const sprites = [];
+      const routeWarmup = routeView.warmup();
       ['man', 'woman', 'child', 'granny', 'nun', 'monk'].forEach((skin, index) => {
         const parts = buildWalker(skin);
         parts.woodfish.visible = true;
@@ -1639,12 +1742,13 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         group.add(parts.figure, parts.shadow);
       });
       sprites.push(makeLabel('·', true), makeLabel('·', false), makeBubble('·', true), makeBubble('·', false));
-      group.add(...sprites, new THREE.Mesh(ringGeometry, ringMaterial), ...(gardenView?.warmupObjects() || []));
+      group.add(...sprites, new THREE.Mesh(ringGeometry, ringMaterial), ...routeWarmup.objects, ...(gardenView?.warmupObjects() || []));
       return {
         group,
         // Chỉ bỏ ảnh chữ; giữ material để three không xóa chương trình shader vừa biên dịch (hết người dùng là xóa).
         done() {
           group.removeFromParent();
+          routeWarmup.done();
           for (const sprite of sprites) sprite.material.map?.dispose();
         },
       };
@@ -1657,6 +1761,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
       warmup,
       api,
       dispose() {
+        if (navigation) clearNavigation('stopped');
         onNearbyChange?.(null);
         onNearbyChoreChange?.(null);
         onNearbyPetChange?.(null);
@@ -1668,6 +1773,7 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         for (const id of [...walkers.keys()]) removeWalker(id);
         shadowGeometry.dispose();
         shadowMaterial.dispose();
+        routeView.dispose();
       },
     };
   };

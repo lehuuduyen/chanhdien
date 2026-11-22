@@ -177,3 +177,19 @@ test('Rừng thiền: bot có điểm ngắm quanh hồ và trên bến trước
   assert.deepEqual(benches.map((spot) => spot.bench), ['B-16', 'B-17', 'B-18']);
   for (const spot of benches) assert.ok(nav.route({ x: 0, z: 33 }, spot)?.length, `đi tới được ${spot.bench}`);
 });
+
+test('Tàng Kinh Các: bot đứng đọc bảng vàng / ngắm mặt tiền và tới được bốn ghế đá quanh hai bàn', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { createBotNav } = await import('../bot-nav.mjs');
+  const scene = JSON.parse(readFileSync(new URL('../../../scenes/thien-default/scene.json', import.meta.url), 'utf8'));
+  const nav = createBotNav(scene.world);
+  const views = nav.spots.filter((spot) => spot.kind === 'library');
+  assert.equal(views.length, 4, 'hai điểm trước bảng vàng + hai điểm trên sân đá');
+  for (const spot of views) {
+    assert.ok(spot.face, 'đứng ngắm quay mặt vào bảng / tòa nhà');
+    assert.ok(nav.route({ x: 0, z: 33 }, spot)?.length, `đi tới được (${spot.x}, ${spot.z})`);
+  }
+  const benches = nav.spots.filter((spot) => /^B-(19|2[0-2])$/.test(spot.bench || ''));
+  assert.deepEqual(benches.map((spot) => spot.bench), ['B-19', 'B-20', 'B-21', 'B-22']);
+  for (const spot of benches) assert.ok(nav.route(nav.entry, spot)?.length, `từ cổng đi tới được ${spot.bench}`);
+});

@@ -1,4 +1,4 @@
-// Linh thú (đợt 1): bảng trượt mở từ menu ⚙. Nhận nuôi bằng kim cương, cho ăn (xu) mỗi ngày một bữa, nhận xu trong
+// Linh thú (đợt 1): bảng trượt mở từ app Linh thú trong điện thoại 📱 (phone-ui.js). Nhận nuôi bằng kim cương, cho ăn (xu) mỗi ngày một bữa, nhận xu trong
 // rương, đổi tên. Server (API /api/v1/pets) quyết định mọi con số; trang chỉ hiện và gửi thao tác kèm Idempotency-Key.
 // Văn bản từ người dùng (tên linh thú) chỉ đưa ra màn hình bằng textContent.
 import { onLangChange, t } from '/thien-i18n.js';
@@ -273,7 +273,7 @@ export function createPetUI({
     sheet.hidden = true;
   }
 
-  // Nút trong menu ⚙.
+  // Nút kiểu menu (trang khác có thể đặt vào menu của mình; chánh điện mở bằng app trong điện thoại).
   const menuButton = el('button', 'chip');
   menuButton.type = 'button';
   const label = () => { menuButton.textContent = t('spirit.menu'); };

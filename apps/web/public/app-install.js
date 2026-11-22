@@ -1,6 +1,6 @@
 // Cài như ứng dụng (PWA) và toàn màn hình cho chánh điện. Mở từ màn hình chính là toàn màn hình nhờ
 // manifest.webmanifest; trong trình duyệt thì:
-// - Android / máy tính / iPad: nút ⛶ (cột góc nhìn khi màn rộng, mục "Màn hình" trong menu ⚙) gọi requestFullscreen.
+// - Android / máy tính / iPad: nút ⛶ (cột góc nhìn khi màn rộng, mục "Màn hình" trong 📱 → Cài đặt) gọi requestFullscreen.
 // - iPhone: Safari không cho trang tự toàn màn hình, nên hướng dẫn "Thêm vào MH chính" (hộp thoại ba bước).
 // - Chrome báo cài được (beforeinstallprompt) thì nút "Thêm vào màn hình chính" mở hộp cài của trình duyệt.
 // Điện thoại xoay ngang (Android): lần chạm đầu tiên sau khi xoay tự vào toàn màn hình (trình duyệt chỉ cho mở toàn màn
@@ -45,7 +45,7 @@ export function createAppInstall({ stage, viewTools, toast = () => {}, ready = (
     button.className = `chip ${className}`;
     return button;
   };
-  // Mục trong menu ⚙ và nút ⛶ ở cột góc nhìn (CSS chỉ hiện ở màn rộng).
+  // Mục trong 📱 → Cài đặt (menu ⚙ cũ) và nút ⛶ ở cột góc nhìn (CSS chỉ hiện ở màn rộng).
   const fullscreenButton = chip('app-fullscreen');
   const viewButton = chip('fs-toggle');
   viewButton.textContent = '⛶';

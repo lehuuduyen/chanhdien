@@ -473,6 +473,242 @@ button.chip { cursor: pointer; }
 .settings-row .in-menu { flex: 1; justify-content: center; max-width: 100%; min-height: 34px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; cursor: pointer; }
 .settings-row .in-menu[hidden] { display: none; }
 .settings-row:not(:has(.settings-label:not([hidden]))) .in-menu { flex: 1 1 100%; }
+
+/* Điện thoại 📱 (phone-ui.js): nút cạnh ô chat (thay nút 💬), mở màn có biểu tượng app. Màn dọc: trồi lên từ đáy, giữa
+   màn; màn rộng khi 3D: đứng ở cột phải như các bảng khác (khối "Màn rộng"). Trang của app (Cài đặt, Đi nhanh, Ví, Nông
+   trại) cuộn bên trong khung. */
+.chat .phone-open { justify-content: center; gap: 1.4cqmin; min-width: clamp(34px, 10cqmin, 42px); padding: 0 2.6cqmin; color: var(--gold); background: rgba(12, 6, 3, .88); border: 1px solid var(--gold); font-size: clamp(14px, 4cqmin, 17px); font-weight: 600; }
+.chat .phone-open.has-unread { color: #241a08; background: var(--gold); border-color: var(--gold); }
+.phone-glyph { width: clamp(11px, 3.4cqmin, 14px); height: auto; flex: none; }
+.phone-open-count[hidden] { display: none; }
+.phone-parked[hidden] { display: none; }
+.phone { position: absolute; z-index: 13; left: 50%; bottom: max(2.5cqmin, env(safe-area-inset-bottom, 0px)); display: flex; width: min(94%, 400px); max-height: calc(100% - 15cqmin); transform: translateX(-50%); }
+.phone[hidden] { display: none; }
+.phone-frame { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 12px 6px; color: var(--fg); background: radial-gradient(120% 70% at 15% 0%, rgba(217, 164, 65, .3), transparent 60%), radial-gradient(90% 60% at 100% 100%, rgba(150, 36, 24, .4), transparent 62%), linear-gradient(180deg, #20120a, #0d0603); border: 1px solid rgba(217, 164, 65, .55); border-radius: 30px; box-shadow: 0 0 0 5px #0b0603, 0 0 0 6px rgba(217, 164, 65, .3), 0 24px 60px rgba(0, 0, 0, .7); animation: phone-up .2s ease-out; }
+@keyframes phone-up { from { opacity: 0; transform: translateY(18px); } }
+@media (prefers-reduced-motion: reduce) { .phone-frame { animation: none; } }
+.phone-status { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 2px 6px; }
+.phone-clock { padding-left: 6px; font-size: 14px; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.phone-balances { flex: 1; display: flex; justify-content: flex-end; gap: 5px; min-width: 0; }
+.phone-balances .chip { min-height: 26px; padding: 0 9px; font-size: 12px; }
+.phone-x { flex: none; width: 30px; height: 30px; color: var(--fg); background: rgba(255, 255, 255, .07); border: 1px solid var(--line); border-radius: 50%; font-size: 13px; cursor: pointer; }
+.phone-home { min-height: 0; padding: 10px 0 6px; overflow-y: auto; }
+.phone-home[hidden], .phone-page[hidden], .phone-page-body[hidden] { display: none; }
+.phone-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 4px; }
+.phone-app { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; padding: 2px 0; color: var(--fg); background: none; border: 0; font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.phone-app-icon { position: relative; display: grid; place-items: center; width: clamp(48px, 13cqmin, 58px); aspect-ratio: 1; font-size: clamp(24px, 7cqmin, 30px); line-height: 1; background: linear-gradient(160deg, var(--app-hi, #5a4030), var(--app, #2a1a10)); border: 1px solid rgba(255, 255, 255, .16); border-radius: 30%; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 4px 10px rgba(0, 0, 0, .45); transition: transform .12s; }
+.phone-app:active .phone-app-icon { transform: scale(.92); }
+.phone-app:focus-visible .phone-app-icon { outline: 2px solid var(--gold); outline-offset: 2px; }
+.phone-app-name { max-width: 100%; overflow: hidden; font-size: clamp(10px, 2.9cqmin, 12px); text-overflow: ellipsis; white-space: nowrap; }
+.phone-soon { margin-top: -4px; color: #cdbb9b; font-size: 9px; }
+.phone-soon[hidden] { display: none; }
+.phone-app.is-soon .phone-app-icon { filter: grayscale(.75) brightness(.75); }
+.phone-badge { position: absolute; top: -6px; right: -6px; min-width: 19px; height: 19px; padding: 0 5px; color: #fff; background: #e5483b; border: 2px solid #1a0e08; border-radius: 999px; font-size: 10px; line-height: 15px; text-align: center; }
+.phone-badge[hidden] { display: none; }
+.phone-app[data-app="messages"] { --app: #1f7a4a; --app-hi: #48bd7e; }
+.phone-app[data-app="friends"] { --app: #1f4f8a; --app-hi: #4f8ed8; }
+.phone-app[data-app="travel"] { --app: #8f2a1c; --app-hi: #e2633f; }
+.phone-app[data-app="map"] { --app: #16676b; --app-hi: #42b4b1; }
+.phone-app[data-app="wallet"] { --app: #7a5512; --app-hi: #e2b24c; }
+.phone-app[data-app="pets"] { --app: #8a4a12; --app-hi: #f0963c; }
+.phone-app[data-app="farm"] { --app: #3d6618; --app-hi: #8cc14c; }
+.phone-app[data-app="stopwatch"] { --app: #3a2f80; --app-hi: #7c6ce2; }
+.phone-app[data-app="camera"] { --app: #2c3846; --app-hi: #708498; }
+.phone-app[data-app="album"] { --app: #7a2252; --app-hi: #e06ca8; }
+.phone-app[data-app="shop"] { --app: #5b2580; --app-hi: #b26ce2; }
+.phone-app[data-app="settings"] { --app: #3a3530; --app-hi: #8d847b; }
+.phone-page { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.phone-page-head { display: flex; align-items: center; gap: 10px; padding: 2px 2px 8px; border-bottom: 1px solid rgba(217, 164, 65, .22); }
+.phone-back { flex: none; width: 34px; height: 34px; padding: 0 0 3px; color: var(--gold); background: rgba(255, 255, 255, .07); border: 1px solid var(--line); border-radius: 50%; font-size: 24px; line-height: 1; cursor: pointer; }
+.phone-page-title { margin: 0; overflow: hidden; font-family: var(--display); font-size: 20px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.phone-page-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding: 10px 2px 4px; overflow-y: auto; overscroll-behavior: contain; }
+.phone-home-bar { align-self: center; display: grid; place-items: center; width: 46%; height: 22px; margin-top: 2px; padding: 0; background: none; border: 0; cursor: pointer; }
+.phone-home-bar i { width: 100%; height: 5px; background: rgba(241, 227, 200, .55); border-radius: 999px; }
+.phone-note { margin: 0; color: #cdbb9b; font-size: 12.5px; line-height: 1.45; }
+.phone-note[hidden] { display: none; }
+.phone-card { display: flex; align-items: center; gap: 12px; padding: 12px; color: var(--fg); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 16px; font: inherit; text-align: left; cursor: pointer; }
+.phone-card-icon { font-size: 30px; line-height: 1; }
+.phone-card-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.phone-card-text b { color: var(--gold); font-size: 22px; font-variant-numeric: tabular-nums; }
+.phone-card-text small { color: #cdbb9b; font-size: 12px; }
+.phone-card-go { color: var(--gold); font-size: 24px; }
+.phone-row { min-height: 42px; padding: 0 14px; color: var(--fg); background: rgba(80, 30, 18, .82); border: 1px solid rgba(217, 164, 65, .3); border-radius: 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.phone-row.primary { color: #241a08; background: var(--gold); border-color: var(--gold); font-weight: 600; }
+.phone-farm { display: flex; flex-direction: column; gap: 10px; }
+.phone-farm-level { margin: 0; color: var(--gold); font-size: 16px; font-weight: 600; }
+.phone-farm-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.phone-farm-list li { padding: 8px 10px; background: rgba(255, 255, 255, .06); border-radius: 10px; font-size: 13.5px; }
+
+/* Bản đồ / GPS (Đợt 1 KE_HOACH_BAN_DO.md). Màn dọc gần kín sân; màn ngang chuyển thành ngăn phải ở khối dưới. */
+.map-sheet { position: absolute; z-index: 13; inset: max(2.5cqmin, env(safe-area-inset-top, 0px)) 2.5cqmin max(2.5cqmin, env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; min-width: 0; overflow: hidden; color: var(--fg); background: linear-gradient(180deg, rgba(31, 20, 12, .98), rgba(10, 15, 11, .98)); border: 1px solid rgba(217, 164, 65, .55); border-radius: 22px; box-shadow: 0 24px 70px rgba(0, 0, 0, .72); }
+.map-sheet[hidden] { display: none; }
+.map-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid rgba(217, 164, 65, .25); }
+.map-head h2 { flex: 1; margin: 0; font-family: var(--display); font-size: clamp(18px, 5cqmin, 24px); font-weight: 600; }
+.map-tools { display: flex; gap: 5px; }
+.map-tools button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; color: var(--fg); background: rgba(255, 255, 255, .07); border: 1px solid var(--line); border-radius: 50%; font: 600 18px/1 system-ui; cursor: pointer; }
+.map-tools .map-close { color: var(--gold); font-size: 13px; }
+.map-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; background: radial-gradient(circle at 50% 45%, #244934, #0b1711 76%); }
+.map-canvas { display: block; width: 100%; height: 100%; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.map-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #f7e4b8; background: rgba(9, 14, 10, .84); font-size: 14px; }
+.map-loading[hidden] { display: none; }
+.map-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 12px; background: rgba(30, 17, 9, .98); border-top: 1px solid rgba(217, 164, 65, .3); }
+.map-card[hidden] { display: none; }
+.map-card h3 { margin: 0; overflow: hidden; color: var(--gold); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.map-card p { grid-column: 1; margin: 0; color: #d8c6a6; font-size: 12px; }
+.map-card-actions { grid-area: 1 / 2 / 3 / 3; display: flex; gap: 6px; align-items: center; }
+.map-card-actions button { min-height: 36px; padding: 0 10px; color: var(--fg); background: rgba(80, 30, 18, .86); border: 1px solid rgba(217, 164, 65, .34); border-radius: 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.map-card-actions button.primary { color: #241608; background: var(--gold); border-color: var(--gold); font-weight: 700; }
+.map-card-actions button:disabled { opacity: .38; cursor: default; }
+.map-gps { position: absolute; z-index: 8; top: calc(var(--room-bar-bottom, 112px) + 8px); left: 50%; display: flex; align-items: center; gap: 8px; width: min(82%, 330px); padding: 8px 10px; color: var(--fg); background: rgba(20, 12, 7, .91); border: 1px solid rgba(217, 164, 65, .64); border-radius: 14px; box-shadow: 0 7px 24px rgba(0, 0, 0, .45); transform: translateX(-50%); }
+.map-gps[hidden] { display: none; }
+.map-gps-icon { font-size: 23px; }
+.map-gps > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.map-gps b { overflow: hidden; color: #ffe19a; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.map-gps small { color: #d8c6a6; font-size: 11px; }
+.map-gps button { width: 30px; height: 30px; padding: 0; color: var(--fg); background: rgba(255, 255, 255, .08); border: 1px solid var(--line); border-radius: 50%; cursor: pointer; }
+#stage:has(> :is(.phone, .map-sheet, .brain-sheet, .garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .garden-card, .social-card, .sw-card):not([hidden])) > .map-gps { display: none; }
+#stage.eyes-closed > :is(.map-sheet, .map-gps),
+#stage.hs-clean > :is(.map-sheet, .map-gps),
+#stage.hs-blinded > :is(.map-sheet, .map-gps) { visibility: hidden; }
+/* Khu Trí tuệ (brain-ui.js, app 🧠): bảng trượt như các bảng khác, tông tím than; màn rộng là ngăn phải (khối
+   "Màn rộng"). Trò chơi: đồng hồ dạng thanh, câu hỏi giữa, phương án to dễ chạm. */
+.brain-sheet { position: absolute; z-index: 12; inset: 0; top: 6cqmin; display: flex; flex-direction: column; gap: 10px; padding: 16px 16px max(16px, env(safe-area-inset-bottom, 0px)); overflow-y: auto; overscroll-behavior: contain; color: var(--fg); background: radial-gradient(circle at 50% 16%, #30244a, #120c1a 72%); border-top: 1px solid rgba(178, 150, 255, .38); border-radius: 22px 22px 0 0; box-shadow: 0 -20px 50px rgba(0, 0, 0, .6); }
+.brain-sheet[hidden] { display: none; }
+.brain-head { display: flex; align-items: center; gap: 8px; }
+.brain-head h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-family: var(--display); font-size: clamp(22px, 7cqmin, 30px); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.brain-head .chip { flex: none; cursor: pointer; }
+.brain-head.sub h2 { font-size: clamp(17px, 5.2cqmin, 23px); }
+/* Ảnh kết quả xem trước (phủ cả khung, nền tối), nút Lưu ảnh / Chia sẻ / Đóng. */
+.brain-card { position: absolute; z-index: 16; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: max(14px, env(safe-area-inset-top, 0px)) 16px max(14px, env(safe-area-inset-bottom, 0px)); background: rgba(8, 5, 12, .94); }
+.brain-card img { max-width: 100%; max-height: calc(100% - 120px); border-radius: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, .6); -webkit-touch-callout: default; user-select: auto; }
+.brain-card .brain-actions { justify-content: center; width: min(100%, 420px); }
+.brain-card a.brain-share { display: grid; place-items: center; text-decoration: none; }
+.brain-sheet h3 { margin: 6px 0 0; color: #c9b6ff; font-size: 14px; font-weight: 600; }
+.brain-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; background: rgba(255, 255, 255, .07); border-radius: 999px; }
+.brain-tabs button { min-width: 0; min-height: 34px; padding: 0 4px; overflow: hidden; color: var(--fg); background: none; border: 0; border-radius: 999px; font: inherit; font-size: clamp(11px, 3.1cqmin, 13px); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.brain-tabs button[aria-selected="true"] { color: #241a08; background: var(--gold); font-weight: 600; }
+.brain-note { margin: 0; color: #dccdb2; font-size: 14px; line-height: 1.5; }
+.brain-small { color: #b8a98f; font-size: 12.5px; }
+.brain-done { color: #ffd877; font-weight: 600; }
+.brain-percent { color: #ffd877; font-size: 15px; font-weight: 600; text-align: center; }
+.brain-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 12px; background: rgba(255, 255, 255, .06); border: 1px solid rgba(178, 150, 255, .25); border-radius: 14px; }
+.brain-summary b { color: var(--gold); }
+.brain-streak { color: #ffcf8a; font-size: 13px; }
+.brain-guest { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.4; background: rgba(217, 164, 65, .1); border: 1px solid var(--line); border-radius: 12px; }
+.brain-guest .chip { flex: none; cursor: pointer; }
+.brain-guest .chip.primary { color: #1b140c; background: var(--gold); border-color: var(--gold); font-weight: 600; }
+.brain-games { display: grid; gap: 8px; }
+.brain-game { display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 10px 12px; color: var(--fg); background: rgba(255, 255, 255, .06); border: 1px solid rgba(178, 150, 255, .25); border-radius: 16px; font: inherit; text-align: left; cursor: pointer; }
+.brain-game-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; font-size: 26px; background: rgba(0, 0, 0, .28); border-radius: 12px; }
+.brain-game-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.brain-game-text b { font-size: 15px; }
+.brain-game-text small { color: #b8a98f; font-size: 12px; }
+.brain-game-play { color: var(--gold); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.brain-game-done { padding: 3px 10px; color: #0e2b18; background: #8fd18b; border-radius: 999px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.brain-start, .brain-share { min-height: 48px; padding: 0 18px; color: #241a08; background: var(--gold); border: 0; border-radius: 14px; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
+.brain-share { background: linear-gradient(90deg, #ecbc4c, #f6d885); }
+.brain-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.brain-actions > :is(.brain-start, .brain-share) { flex: 1; }
+.brain-actions > .chip { min-height: 40px; cursor: pointer; }
+.brain-hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0; text-align: center; }
+.brain-hero-icon { font-size: 52px; line-height: 1.1; }
+.brain-hero b { font-size: 20px; }
+.brain-hero small { color: #b8a98f; }
+.brain-hero .brain-big { color: #ffd877; font-family: var(--display); font-size: 40px; }
+.brain-hero .brain-iq { color: #ffd877; font-family: var(--display); font-size: clamp(72px, 24cqmin, 110px); line-height: 1; text-shadow: 0 0 30px rgba(236, 188, 76, .4); }
+.brain-best { margin: 0; color: #ffcf8a; font-weight: 600; }
+.brain-history, .brain-board { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.brain-history li, .brain-board li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; background: rgba(255, 255, 255, .05); border-radius: 10px; }
+.brain-history li b { min-width: 44px; color: #ffd877; font-size: 18px; }
+.brain-history li span { flex: 1; }
+.brain-history small { color: #b8a98f; }
+.brain-rank { width: 30px; text-align: center; }
+.brain-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brain-board b { color: #ffd877; font-variant-numeric: tabular-nums; }
+.brain-play { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.brain-play-top { display: flex; align-items: center; gap: 12px; }
+.brain-counter { min-width: 72px; color: #dccdb2; font-size: 14px; font-variant-numeric: tabular-nums; }
+.brain-timer { position: relative; flex: 1; height: 26px; overflow: hidden; background: rgba(255, 255, 255, .08); border-radius: 999px; }
+.brain-timer i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #7c6ce2, #b08cff); border-radius: 999px; }
+.brain-timer.low i { background: linear-gradient(90deg, #e5553f, #f08a5d); }
+.brain-timer b { position: relative; display: block; font-size: 13px; line-height: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+.brain-ask { margin: 0; color: #dccdb2; font-size: 15px; text-align: center; }
+.brain-question { display: flex; justify-content: center; }
+.brain-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: min(100%, 290px); padding: 8px; background: rgba(0, 0, 0, .28); border-radius: 14px; }
+.brain-cell { aspect-ratio: 1; background: rgba(255, 255, 255, .07); border-radius: 10px; }
+.brain-cell.missing { background: rgba(236, 188, 76, .12); outline: 2px dashed rgba(236, 188, 76, .65); outline-offset: -4px; }
+.brain-tile { display: block; width: 100%; height: 100%; }
+.brain-tile-q { fill: #ecbc4c; font: 700 46px var(--display); }
+.brain-options { display: grid; gap: 8px; }
+.brain-options.matrix { grid-template-columns: repeat(3, minmax(0, 1fr)); align-self: center; width: min(100%, 320px); }
+.brain-options:is(.series, .math, .stroop) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.brain-option { min-height: 54px; padding: 6px; color: var(--fg); background: rgba(255, 255, 255, .08); border: 1px solid rgba(178, 150, 255, .3); border-radius: 14px; font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.brain-option:active, .brain-option.picked { background: rgba(236, 188, 76, .3); border-color: var(--gold); }
+.brain-option.number { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.brain-options.matrix .brain-option { aspect-ratio: 1; min-height: 0; }
+.brain-option.color { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 600; }
+.brain-option.color i { width: 20px; height: 20px; border-radius: 50%; }
+.brain-rotate { display: grid; place-items: center; width: min(55%, 170px); aspect-ratio: 1; padding: 12px; background: rgba(0, 0, 0, .28); border: 1px solid rgba(236, 188, 76, .35); border-radius: 14px; }
+.brain-blocks { display: block; width: 100%; height: 100%; }
+.brain-options.rotation { grid-template-columns: repeat(2, minmax(0, 1fr)); align-self: center; width: min(100%, 300px); }
+.brain-options.rotation .brain-option { aspect-ratio: 1.25; min-height: 0; padding: 12px; }
+.brain-options.numgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.brain-numgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: min(100%, 280px); padding: 8px; background: rgba(0, 0, 0, .28); border-radius: 14px; }
+.brain-numgrid span { display: grid; place-items: center; aspect-ratio: 1.3; font-size: clamp(20px, 6.5cqmin, 28px); font-weight: 700; background: rgba(255, 255, 255, .07); border-radius: 10px; font-variant-numeric: tabular-nums; }
+.brain-numgrid .missing { color: #ecbc4c; background: rgba(236, 188, 76, .12); outline: 2px dashed rgba(236, 188, 76, .65); outline-offset: -4px; }
+/* Đố vui: người chơi / người chờ (mình viền vàng), đáp án đúng xanh, chọn sai đỏ. */
+.brain-quiz-people { display: flex; flex-wrap: wrap; gap: 6px; }
+.brain-quiz-people span { padding: 4px 10px; font-size: 12.5px; background: rgba(255, 255, 255, .07); border: 1px solid rgba(178, 150, 255, .25); border-radius: 999px; }
+.brain-quiz-people span.me { color: #ffd877; border-color: var(--gold); }
+.brain-option.correct { background: rgba(63, 192, 138, .32); border-color: #3fc08a; box-shadow: 0 0 0 2px rgba(63, 192, 138, .45); }
+.brain-option.wrong { background: rgba(229, 85, 63, .3); border-color: #e5553f; }
+.brain-option:disabled { cursor: default; }
+/* Đấu trí: dòng trạng thái đối thủ, bảng kết quả hai bên (bên thắng viền vàng). */
+.brain-duel-line { margin: 0; padding: 6px 10px; color: #dccdb2; font-size: 13px; text-align: center; background: rgba(255, 255, 255, .06); border-radius: 999px; }
+.brain-duel-line.done { color: #8fd18b; }
+.brain-duel-table { display: grid; gap: 8px; }
+.brain-duel-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255, 255, 255, .06); border: 1px solid rgba(178, 150, 255, .25); border-radius: 14px; }
+.brain-duel-row b { color: #ffd877; font-size: 18px; font-variant-numeric: tabular-nums; }
+.brain-duel-row small { min-width: 3.2em; color: #b8a98f; text-align: right; font-variant-numeric: tabular-nums; }
+.brain-duel-row.winner { background: rgba(236, 188, 76, .14); border-color: var(--gold); }
+.brain-duel-row.winner .brain-name::after { content: " 🏆"; }
+.brain-hero.duel.lose .brain-big { color: #dccdb2; }
+/* Nhắc luật đổi (Màu mực: chọn theo chữ; Nhớ tiếng chuông: gõ ngược) đổi màu cho dễ nhận ra. */
+.brain-ask.brain-cue-word { color: #7fd7ff; font-weight: 700; }
+.brain-terms { margin: 6px 0; font-size: clamp(24px, 8cqmin, 34px); font-weight: 600; text-align: center; letter-spacing: .02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.brain-prompt { display: grid; place-items: center; min-height: 120px; padding: 10px; color: #f3e6cc; font-size: clamp(40px, 13cqmin, 64px); font-weight: 700; background: rgba(0, 0, 0, .3); border-radius: 18px; font-variant-numeric: tabular-nums; }
+.brain-prompt.good { animation: brain-good .35s; }
+.brain-prompt.bad { animation: brain-bad .35s; }
+@keyframes brain-good { from { box-shadow: inset 0 0 0 4px #3fc08a; } }
+@keyframes brain-bad { from { box-shadow: inset 0 0 0 4px #e5553f; transform: translateX(-4px); } }
+.brain-skip, .brain-submit { align-self: center; cursor: pointer; }
+.brain-pads { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-self: center; width: min(100%, 340px); }
+.brain-pads.locked { pointer-events: none; }
+.brain-pad { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1.15; color: var(--fg); border: 2px solid rgba(255, 255, 255, .14); border-radius: 22px; font: inherit; cursor: pointer; touch-action: manipulation; transition: transform .08s, filter .08s, box-shadow .08s; -webkit-tap-highlight-color: transparent; }
+.brain-pad[data-pad="0"] { background: linear-gradient(160deg, #8a6418, #4d360b); }
+.brain-pad[data-pad="1"] { background: linear-gradient(160deg, #7a3f1d, #3f1f0d); }
+.brain-pad[data-pad="2"] { background: linear-gradient(160deg, #1d6a6f, #0f3a3d); }
+.brain-pad[data-pad="3"] { background: linear-gradient(160deg, #8f2a1c, #4a140c); }
+.brain-pad-icon { font-size: 44px; line-height: 1; }
+.brain-pad small { font-size: 13px; opacity: .85; }
+.brain-pad.lit { filter: brightness(1.8) saturate(1.2); transform: scale(1.05); box-shadow: 0 0 30px rgba(255, 220, 140, .6); }
+.brain-pad.miss { border-color: #e5553f; animation: brain-bad .35s; }
+.brain-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+.brain-dots i { display: grid; place-items: center; width: 26px; height: 26px; font-size: 13px; font-style: normal; font-weight: 700; border-radius: 50%; }
+.brain-dots .good { color: #0e2b18; background: #5fd08d; }
+.brain-dots .bad { color: #fff; background: #e5553f; }
+.brain-dots .skip { color: #dccdb2; background: rgba(255, 255, 255, .12); }
+.brain-bars { display: grid; gap: 10px; padding: 12px; background: rgba(255, 255, 255, .05); border-radius: 14px; }
+.brain-bar { display: grid; grid-template-columns: 7.5em minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
+.brain-bar-track { height: 10px; overflow: hidden; background: rgba(255, 255, 255, .1); border-radius: 999px; }
+.brain-bar-track i { display: block; height: 100%; background: linear-gradient(90deg, #ecbc4c, #ffd877); border-radius: 999px; }
+.brain-bar b { color: #ffd877; font-variant-numeric: tabular-nums; }
+.brain-wait { padding: 40px 0; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .brain-prompt.good, .brain-prompt.bad, .brain-pad.miss { animation: none; } }
+/* Menu ⚙ cũ và bảng Đi nhanh khi nằm trong điện thoại: bỏ khung nổi, dàn theo trang. */
+.settings-panel.in-phone { position: static; width: auto; padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none; }
+.quick-travel-panel.in-phone { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0; background: none; border: 0; box-shadow: none; }
+.quick-travel-panel.in-phone button:disabled { opacity: .4; cursor: default; }
 #leave.in-menu { color: #f0a08a; }
 .legal-links.in-menu { display: flex; gap: 6px; min-width: 0; cursor: default; }
 .legal-links a { flex: 1; min-width: 0; min-height: 34px; justify-content: center; color: var(--fg); font-size: 12px; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -981,7 +1217,7 @@ button.chip { cursor: pointer; }
   /* Bảng (vườn, nông trại, linh thú, tin nhắn, bạn bè, trò hai người, chuỗi hạt, công trình chung): ngăn phải cao kín màn,
      cuộn bên trong; thanh trên co lại chừa chỗ. Thẻ (luống, ô ruộng, mộ, người chơi, Bấm giờ): thẻ nổi ở cột phải, đáy
      màn, không lên quá thanh trên. */
-  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet):not([hidden])) { --dock-sheet: var(--sheet); --dock-top: var(--sheet); }
+  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .phone, .map-sheet, .brain-sheet):not([hidden])) { --dock-sheet: var(--sheet); --dock-top: var(--sheet); }
   #stage.view-3d:has(> :is(.garden-card, .social-card, .sw-card):not([hidden])) { --dock-sheet: var(--sheet); }
   #stage.view-3d .hud.top { right: calc(2.5cqmin + var(--dock-top)); }
   /* iPhone xoay ngang: #wrap chừa vùng tai thỏ hai bên nên nút bấm luôn nằm trong vùng an toàn; riêng cảnh 3D và các lớp
@@ -990,20 +1226,29 @@ button.chip { cursor: pointer; }
   #stage.view-3d { --bleed-l: env(safe-area-inset-left, 0px); --bleed-r: env(safe-area-inset-right, 0px); overflow: visible; }
   #stage.view-3d > #scene3d { left: calc(-1 * var(--bleed-l)); width: calc(100% + var(--bleed-l) + var(--bleed-r)); }
   #stage.view-3d > :is(.ledger, .zone-guide, .hs-blind, .gate, .room-switch, .boot) { left: calc(-1 * var(--bleed-l)); right: calc(-1 * var(--bleed-r)); }
-  #stage.view-3d > :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet) {
+  #stage.view-3d > :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .brain-sheet) {
     inset: 0 calc(-1 * var(--bleed-r)) 0 auto; width: calc(var(--sheet) + var(--bleed-r));
     padding-top: max(14px, env(safe-area-inset-top, 0)); padding-right: max(18px, env(safe-area-inset-right, 0));
     border: 0; border-left: 1px solid var(--line); border-radius: 22px 0 0 22px; box-shadow: -20px 0 50px rgba(0, 0, 0, .6);
   }
   #stage.view-3d > .garden-sheet { border-left-color: rgba(143, 196, 104, .35); }
+  /* Điện thoại: khung máy đứng ở góc phải dưới trong cột phải, cao vừa nội dung (tối đa kín màn, chừa vùng an toàn), rộng
+     tối đa 400 px; trang app dài thì cuộn bên trong. */
+  #stage.view-3d > .phone {
+    inset: 0 0 0 auto; width: var(--sheet); max-height: none; transform: none; align-items: flex-end; justify-content: flex-end;
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) 0;
+  }
+  #stage.view-3d > .phone .phone-frame { flex: 0 1 400px; max-height: 100%; border-radius: 26px; }
+  #stage.view-3d > .map-sheet { inset: 0 0 0 auto; width: var(--sheet); padding-top: max(8px, env(safe-area-inset-top, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)); border: 0; border-left: 1px solid rgba(217, 164, 65, .45); border-radius: 22px 0 0 22px; }
   #stage.view-3d > .spirit-sheet { border-left-color: rgba(255, 210, 122, .35); }
+  #stage.view-3d > .brain-sheet { border-left-color: rgba(178, 150, 255, .38); }
   #stage.view-3d > :is(.garden-card, .social-card, .sw-card) {
     top: auto; left: auto; right: max(2.5cqmin, env(safe-area-inset-right, 0)); bottom: max(2.5cqmin, env(safe-area-inset-bottom, 0));
     width: calc(var(--sheet) - 2.5cqmin); max-height: calc(100% - var(--wide-row-top) - 2.5cqmin); margin: 0; overflow-y: auto;
   }
   #stage.view-3d .dock-probe { width: var(--dock); }
   /* Đang mở bảng / thẻ: bảng Tấm lòng thành, dòng tin, thanh nông trại nhường chỗ (hiện lại khi đóng). */
-  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .garden-card, .social-card, .sw-card):not([hidden])) :is(.board, .board-toggle, .feed, .farm-hud) { display: none; }
+  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .phone, .map-sheet, .brain-sheet, .garden-card, .social-card, .sw-card):not([hidden])) :is(.board, .board-toggle, .feed, .farm-hud) { display: none; }
   /* Hướng dẫn khu vực vẫn là hộp thoại (nền tối, chạm ra ngoài để đóng) nhưng thẻ đứng ở cột phải. */
   #stage.view-3d > .zone-guide { justify-items: end; padding: 2.5cqmin max(2.5cqmin, env(safe-area-inset-right, 0)) max(2.5cqmin, env(safe-area-inset-bottom, 0)); background: linear-gradient(90deg, rgba(8, 5, 3, .15), rgba(8, 5, 3, .8)); }
   #stage.view-3d .zone-guide-card { width: calc(var(--sheet) - 2.5cqmin); max-height: 100%; }
@@ -1015,13 +1260,14 @@ button.chip { cursor: pointer; }
   #stage.view-3d .view-tools .fs-toggle:not([hidden]) { display: inline-flex; }
   /* Gợi ý toàn màn hình: dưới hàng nút phòng (hàng đó xuống dòng khi hẹp), thông báo lùi xuống dưới gợi ý. */
   #stage.view-3d .app-hint { top: var(--wide-row2); left: var(--wide-side); right: var(--wide-right); max-width: 460px; margin-inline: auto; transform: none; }
+  #stage.view-3d > .map-gps { top: var(--wide-row2); left: calc((100% - var(--dock)) / 2); width: min(360px, calc(100% - var(--wide-side) - var(--wide-right))); }
   #stage.view-3d:has(> .app-hint:not([hidden])) .toast { top: calc(var(--wide-row2) + var(--wide-chip) + 3cqmin); }
   #stage.view-3d :is(.hand-chip, .hs-watch) { left: calc((100% - var(--dock)) / 2); }
   #stage.view-3d .hand-chip { top: var(--wide-row2); bottom: auto; }
   #stage.view-3d .room-bar { left: calc(2.5cqmin + clamp(30px, 9cqmin, 40px) + 3cqmin); right: calc(2.5cqmin + var(--dock)); flex-direction: row; flex-wrap: wrap; justify-content: flex-end; align-items: center; pointer-events: none; }
   #stage.view-3d .room-bar > * { pointer-events: auto; }
   #stage.view-3d .room-bar #eventChip { max-width: min(100%, 15em); white-space: nowrap; }
-  #stage.view-3d .quick-travel-panel { top: var(--wide-row2); right: calc(2.5cqmin + var(--dock)); bottom: auto; left: auto; width: min(560px, 100% - 5cqmin - var(--dock)); max-height: calc(100% - var(--wide-row2) - 2.5cqmin); overflow-y: auto; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #stage.view-3d .quick-travel-panel:not(.in-phone) { top: var(--wide-row2); right: calc(2.5cqmin + var(--dock)); bottom: auto; left: auto; width: min(560px, 100% - 5cqmin - var(--dock)); max-height: calc(100% - var(--wide-row2) - 2.5cqmin); overflow-y: auto; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   #stage.view-3d .board { top: var(--wide-row2); right: calc(2.5cqmin + var(--dock)); max-height: calc(100% - var(--wide-row2) - var(--controls-gap, 120px) - 48px); overflow-y: auto; }
   #stage.view-3d .board-toggle { top: calc(var(--wide-row2) - 10px); right: calc(2.5cqmin - 6px + var(--dock)); }
   #stage.view-3d .board-toggle.collapsed { top: var(--wide-row2); right: calc(2.5cqmin + var(--dock)); }
@@ -1047,15 +1293,37 @@ button.chip { cursor: pointer; }
 @media (min-aspect-ratio: 1/1) and (min-width: 1300px) {
   #stage.view-3d { --dock: calc(var(--dock-lecture) + var(--dock-sheet)); }
   #stage.view-3d .lecture { right: calc(2.5cqmin + var(--dock-sheet)); }
-  #stage.view-3d.in-hall:has(> .lecture:not([hidden])):has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .garden-card, .social-card, .sw-card):not([hidden])) { --dock-lecture: calc(216px + 2.5cqmin); }
-  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .garden-card, .social-card, .sw-card):not([hidden])) .lecture { width: 216px; }
-  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .garden-card, .social-card, .sw-card):not([hidden])) #lecturePlayer,
-  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .garden-card, .social-card, .sw-card):not([hidden])) #lecturePlayer iframe { width: 200px; height: 200px; }
+  #stage.view-3d.in-hall:has(> .lecture:not([hidden])):has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .phone, .map-sheet, .brain-sheet, .garden-card, .social-card, .sw-card):not([hidden])) { --dock-lecture: calc(216px + 2.5cqmin); }
+  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .phone, .map-sheet, .brain-sheet, .garden-card, .social-card, .sw-card):not([hidden])) .lecture { width: 216px; }
+  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .phone, .map-sheet, .brain-sheet, .garden-card, .social-card, .sw-card):not([hidden])) #lecturePlayer,
+  #stage.view-3d:has(> :is(.garden-sheet, .social-friends, .rps, .mala, .community-project-sheet, .phone, .map-sheet, .brain-sheet, .garden-card, .social-card, .sw-card):not([hidden])) #lecturePlayer iframe { width: 200px; height: 200px; }
 }
 /* Điện thoại ngang: đang gõ chat (bàn phím chiếm gần hết màn) thì chỉ giữ ô chat, lễ vật và tin nhắn; đang có bài giảng
    thì không đủ chỗ cho bảng Tấm lòng thành và dòng tin (vẫn có bong bóng trên đầu và số tin ở nút 💬); hộp thoại cao hết
    màn. */
 @media (min-aspect-ratio: 1/1) and (max-height: 520px) {
+  /* Điện thoại ngang thấp: 13 app dàn 5 cột cho vừa 3 hàng. */
+  #stage.view-3d .phone-apps { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px 2px; }
+  #stage.view-3d .phone-app-icon { width: 44px; font-size: 22px; }
+  #stage.view-3d .phone-home { padding-top: 4px; }
+  /* Khu Trí tuệ ở màn ngang thấp: bảng ma trận, phương án, bàn chuông co theo chiều cao để chơi không phải cuộn. */
+  #stage.view-3d .brain-sheet { gap: 6px; padding-top: max(10px, env(safe-area-inset-top, 0px)); }
+  #stage.view-3d .brain-head h2 { font-size: 19px; }
+  #stage.view-3d .brain-play { gap: 6px; }
+  #stage.view-3d .brain-grid { width: min(100%, 34cqh); gap: 3px; padding: 4px; }
+  #stage.view-3d .brain-options.matrix { width: min(100%, 52cqh); gap: 5px; }
+  #stage.view-3d .brain-option { min-height: 40px; }
+  #stage.view-3d .brain-option.number { font-size: 18px; }
+  #stage.view-3d .brain-pads { width: min(100%, 64cqh); gap: 8px; }
+  #stage.view-3d .brain-pad { aspect-ratio: 1.6; border-radius: 16px; }
+  #stage.view-3d .brain-pad-icon { font-size: 28px; }
+  #stage.view-3d .brain-prompt { min-height: 72px; font-size: 40px; }
+  #stage.view-3d .brain-terms { margin: 0; font-size: 24px; }
+  #stage.view-3d .brain-rotate { width: min(45%, 26cqh); padding: 6px; }
+  #stage.view-3d .brain-options.rotation { width: min(100%, 56cqh); gap: 5px; }
+  #stage.view-3d .brain-options.rotation .brain-option { aspect-ratio: 1.6; padding: 5px; }
+  #stage.view-3d .brain-numgrid { width: min(100%, 44cqh); gap: 3px; padding: 4px; }
+  #stage.view-3d .brain-numgrid span { aspect-ratio: 2; font-size: 17px; }
   #stage.view-3d.typing :is(.view-tools, .room-bar, .quest-dock, .joystick, .emote-bar, .board, .board-toggle, .near-sit, .temple-chore, .pet-actions) { visibility: hidden; }
   #stage.view-3d.in-hall:has(> .lecture:not([hidden])) :is(.board, .board-toggle, .feed) { display: none; }
   .ledger-card { max-height: 100%; }

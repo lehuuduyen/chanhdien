@@ -29,7 +29,8 @@ function button(className, text, onClick) {
   return node;
 }
 
-export function createPlayerSocial({ stage, session, showToast, participant, everyone, nameOf, audio, onGameActive, onMessageBot, onGoGame, onGoRoom, currentRoomId }) {
+// onBrainDuel(state, { rival, rivalId, side }): trận Đấu trí (game 'brain') đang chơi / đã xong do khu Trí tuệ vẽ (brain-ui.js).
+export function createPlayerSocial({ stage, session, showToast, participant, everyone, nameOf, audio, onGameActive, onMessageBot, onGoGame, onGoRoom, currentRoomId, onBrainDuel }) {
   const requestId = () => `social-${crypto.randomUUID()}`;
   const send = (message) => session.send({ requestId: requestId(), ...message });
   // Bạn trong phiên này (id người trong phòng) và lời mời đang chờ mình trả lời.
@@ -122,6 +123,11 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
       send({ type: 'challenge.send', targetId: person.id, game: 'guess-you' });
       closeCard();
     });
+    // Đấu trí: chỉ có ở trang có khu Trí tuệ (onBrainDuel).
+    const brainDuel = onBrainDuel ? button('chip social-btn primary', `🧩 ${t('social.brainDuel')}`, () => {
+      send({ type: 'challenge.send', targetId: person.id, game: 'brain' });
+      closeCard();
+    }) : null;
     duel.disabled = Boolean(game);
     // Nắm tay: đang nắm người này thì nút thành Buông tay; người kia đang nắm tay ai khác thì khóa.
     const holding = handWith() === person.id;
@@ -130,7 +136,7 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
       closeCard();
     });
     hand.disabled = !holding && (blocked.has(person.id) || Boolean(person.handWith) || Boolean(handWith()));
-    actions.append(friend, hand, duel, compatibility, sameChoice, guessYou);
+    actions.append(friend, hand, duel, compatibility, sameChoice, guessYou, ...(brainDuel ? [brainDuel] : []));
     // Nhắn bot: điền "@Tên bot " vào ô chat; quản trị đọc qua Telegram và trả lời thay bot.
     if (person.bot && onMessageBot) {
       actions.append(button('chip social-btn', `💬 ${t('social.messageBot')}`, () => {
@@ -306,9 +312,10 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
   const other = (state) => (side(state) === 'from' ? 'to' : 'from');
   const opponentId = (state) => (side(state) === 'from' ? state.toId : state.fromId);
   const score = (state, who) => (who === 'from' ? state.fromScore : state.toScore);
-  const questionGame = (name) => ['compatibility', 'same-choice', 'guess-you'].includes(name);
-  const questionKey = (name) => name === 'same-choice' ? 'sameChoice' : name === 'guess-you' ? 'guessYou' : 'compat';
-  const questionIcon = (name) => name === 'same-choice' ? '🎯' : name === 'guess-you' ? '🔮' : '🧠';
+  // Đấu trí (brain) dùng chung phần lời mời / chờ nhận lời với các trò câu hỏi; lúc chơi do khu Trí tuệ vẽ.
+  const questionGame = (name) => ['compatibility', 'same-choice', 'guess-you', 'brain'].includes(name);
+  const questionKey = (name) => name === 'same-choice' ? 'sameChoice' : name === 'guess-you' ? 'guessYou' : name === 'brain' ? 'brainDuel' : 'compat';
+  const questionIcon = (name) => name === 'same-choice' ? '🎯' : name === 'guess-you' ? '🔮' : name === 'brain' ? '🧩' : '🧠';
 
   function seconds(state) {
     return state.deadline ? Math.max(0, Math.ceil((state.deadline - session.serverNow()) / 1_000)) : 0;
@@ -596,6 +603,15 @@ export function createPlayerSocial({ stage, session, showToast, participant, eve
     if (!mine) return;
     const rival = nameOf(opponentId(state));
     const key = `game-${state.challengeId}`;
+    // Đấu trí đã bắt đầu / xong / dừng: khu Trí tuệ vẽ; bảng chờ ở đây đóng lại.
+    if (state.game === 'brain' && state.status !== 'pending') {
+      onBrainDuel?.(state, { rival, rivalId: opponentId(state), side: side(state) });
+      if (['playing', 'finished'].includes(state.status)) {
+        dropInvite(key);
+        if (game?.challengeId === state.challengeId) closeGame();
+        return;
+      }
+    }
     if (game && game.challengeId !== state.challengeId && ['pending', 'playing'].includes(game.status)) return;
     if (['declined', 'cancelled', 'expired'].includes(state.status)) {
       dropInvite(key);

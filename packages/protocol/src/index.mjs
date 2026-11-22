@@ -53,7 +53,12 @@ export const PRAYER_KINDS = Object.freeze(['peace', 'memorial']);
 // compatibility: hai bên đoán lựa chọn của người được nêu; same-choice: hai bên chọn đồng thời;
 // guess-you: người gửi lời mời trả lời trước, người nhận chỉ bắt đầu đoán sau đó.
 export const QUESTION_GAMES = Object.freeze(['compatibility', 'same-choice', 'guess-you']);
-export const GAMES = Object.freeze(['rps', ...QUESTION_GAMES]);
+// brain: Đấu trí 1–1 — hai bên cùng một đề 10 câu của khu Trí tuệ, lấy đề và nộp bài qua API (mã đề chỉ gửi riêng từng
+// người trong challenge.state `duel`), báo đã nộp bằng challenge.check; ai đúng nhiều hơn thắng, bằng thì ai nhanh hơn.
+// Thêm vào cuối danh sách là thay đổi cộng thêm (trang cũ không gửi), không tăng PROTOCOL_VERSION.
+export const GAMES = Object.freeze(['rps', ...QUESTION_GAMES, 'brain']);
+export const BRAIN_DUEL_ITEMS = 10;
+const BRAIN_ROUND_ID = /^[0-9a-f]{32}$/;
 export const RPS_CHOICES = Object.freeze(['rock', 'paper', 'scissors']);
 export const COMPATIBILITY_BANK_SIZE = 600;
 // v5: 500 câu id 101–600 là từng tình huống riêng và đã rà lại nghĩa; hai client khác phiên bản chỉ dùng 100 câu gốc.
@@ -90,7 +95,7 @@ export const COMMUNITY_PROJECT_KINDS = Object.freeze(['bodhi', 'lotus']);
 // Đi nhanh chỉ nhận tên điểm cố định; client không bao giờ được tự gửi tọa độ dịch chuyển.
 // Thêm đích mới là thay đổi cộng thêm (client cũ không gửi), không tăng PROTOCOL_VERSION. 'overlook': Đài ngắm cảnh
 // ngoài cổng chánh điện; 'grove': Rừng thiền ngoài cổng tây; 'myfarm': Phước Điền (nông trại riêng) ngoài cổng tây phía nam.
-export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers', 'farm', 'overlook', 'grove', 'myfarm']);
+export const TRAVEL_DESTINATIONS = Object.freeze(['hall', 'courtyard', 'garden', 'pets', 'memorial', 'park', 'flowers', 'farm', 'overlook', 'grove', 'myfarm', 'library']);
 // Thả cảm xúc (rạp phim): biểu tượng bay lên trên đầu nhân vật, không lưu vào trạng thái phòng.
 export const REACTIONS = Object.freeze(['clap', 'laugh', 'heart', 'wow', 'cry', 'fire']);
 // Bầu Cua chơi chung (phòng game): 6 linh vật, ba pha của một ván.
@@ -119,6 +124,35 @@ export const RPS_STAKES = Object.freeze([10, 20, 50, 100, 200]);
 export const HIDESEEK_PHASES = Object.freeze(['idle', 'lobby', 'hiding', 'seeking', 'result']);
 export const HIDESEEK_ROLES = Object.freeze(['seeker', 'hider']);
 const HIDESEEK_MAX = 60;
+// Đố vui nhiều người trong phòng chánh điện (apps/realtime/quiz.mjs): bấm tham gia → đếm ngược → từng câu (question) →
+// mở đáp án (reveal, ai sai bị loại) → … → kết quả (result). Đề là câu đố hình / đố số của khu Trí tuệ; đáp án chỉ có trong
+// state ở pha reveal / result.
+export const QUIZ_PHASES = Object.freeze(['idle', 'lobby', 'question', 'reveal', 'result']);
+export const QUIZ_KINDS = Object.freeze(['matrix', 'rotation', 'series', 'numgrid']);
+const QUIZ_MAX = 40;
+const QUIZ_QUESTIONS_MAX = 20;
+// Một câu đố (khu Trí tuệ, không có đáp án): matrix 8 ô + 6 phương án; rotation hình ô vuông + 4 hình; series 5 số + 4 số;
+// numgrid 8 số + 4 số.
+function brainProblem(item) {
+  if (!isRecord(item) || !QUIZ_KINDS.includes(item.kind) || !isInteger(item.level) || item.level < 1 || item.level > 5) return false;
+  const int = (value, min, max) => isInteger(value) && value >= min && value <= max;
+  const numbers = (list, length) => Array.isArray(list) && list.length === length && list.every((value) => int(value, 0, 10_000_000));
+  const cell = (value) => isRecord(value) && exactKeys(value, ['s', 'c', 'n', 'z', 'f'])
+    && int(value.s, 0, 3) && int(value.c, 0, 3) && int(value.n, 1, 3) && int(value.z, 0, 2) && int(value.f, 0, 1);
+  const shape = (value) => Array.isArray(value) && value.length >= 1 && value.length <= 9
+    && value.every((point) => Array.isArray(point) && point.length === 2 && int(point[0], 0, 8) && int(point[1], 0, 8));
+  if (item.kind === 'matrix') {
+    return exactKeys(item, ['kind', 'level', 'cells', 'options'])
+      && Array.isArray(item.cells) && item.cells.length === 8 && item.cells.every(cell)
+      && Array.isArray(item.options) && item.options.length === 6 && item.options.every(cell);
+  }
+  if (item.kind === 'rotation') {
+    return exactKeys(item, ['kind', 'level', 'shape', 'options']) && shape(item.shape)
+      && Array.isArray(item.options) && item.options.length === 4 && item.options.every(shape);
+  }
+  if (item.kind === 'series') return exactKeys(item, ['kind', 'level', 'terms', 'options']) && numbers(item.terms, 5) && numbers(item.options, 4);
+  return exactKeys(item, ['kind', 'level', 'cells', 'options']) && numbers(item.cells, 8) && numbers(item.options, 4);
+}
 export const RPS_PHASES = Object.freeze(['waiting', 'ready', 'pick', 'reveal', 'done', 'closed']);
 export const RPS_RESULTS = Object.freeze(['win', 'lose', 'draw', 'void']);
 const RPS_MATCH_ID = /^rp-[a-z0-9-]{4,76}$/;
@@ -171,6 +205,9 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'hideseek.join': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
   'hideseek.leave': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
   'hideseek.catch': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/10 giây, chỉ người đi kiếm trong pha đi kiếm' },
+  'quiz.join': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
+  'quiz.leave': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
+  'quiz.answer': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/10 giây, một lần mỗi câu, chỉ người còn trong cuộc' },
   'rps.open': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây, mỗi người một bàn / trận một lúc' },
   'rps.find': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
   'rps.join': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
@@ -192,6 +229,7 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'challenge.move': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/10 giây' },
   'challenge.answer': { roles: ['guest', 'member', 'moderator', 'host'], rate: '2/60 giây, nộp đúng một bộ 10 đáp án mỗi trận' },
   'challenge.cancel': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
+  'challenge.check': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây, Đấu trí: đã nộp bài qua API' },
   'player.block': { roles: ['guest', 'member', 'moderator', 'host'], rate: '20/60 giây' },
   'player.report': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'hand.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây, hai người đang đứng cách nhau ≤ 6 m' },
@@ -374,6 +412,19 @@ const clientSchemas = {
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && isString(message.targetId, LIMITS.participantId, ID_PATTERN);
   },
+  // Đố vui (phòng chánh điện): xin vào ván kế tiếp, rời (đang chơi thì coi như bị loại), trả lời câu `index`.
+  'quiz.join'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId']) && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'quiz.leave'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId']) && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'quiz.answer'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'index', 'choice'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isInteger(message.index) && message.index >= 0 && message.index < QUIZ_QUESTIONS_MAX
+      && isInteger(message.choice) && message.choice >= 0 && message.choice <= 5;
+  },
   'rps.open'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'stake'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
@@ -501,6 +552,12 @@ const clientSchemas = {
       && new Set(message.answers.map((answer) => answer.questionId)).size === COMPATIBILITY_QUESTION_COUNT;
   },
   'challenge.cancel'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId', 'challengeId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && isString(message.challengeId, LIMITS.itemId, ID_PATTERN);
+  },
+  // Đấu trí: đã nộp bài lên API; server hỏi API kết quả (không tin số liệu trang gửi).
+  'challenge.check'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'challengeId'])
       && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
       && isString(message.challengeId, LIMITS.itemId, ID_PATTERN);
@@ -775,6 +832,34 @@ const serverSchemas = {
         && isString(message.lastCatch.seekerId, LIMITS.participantId, ID_PATTERN) && isString(message.lastCatch.hiderId, LIMITS.participantId, ID_PATTERN)
         && isInteger(message.lastCatch.at)));
   },
+  // Đố vui (cả phòng): pha, người chờ ván sau, người trong ván (còn trong cuộc, đã trả lời câu này chưa — không mang lựa
+  // chọn), câu đang hỏi (đề không có đáp án). Pha reveal mới có `answer` + `eliminated` (+ `allWrong`: cả nhà cùng sai, không
+  // ai bị loại); pha result có `winners`.
+  'quiz.state'(message) {
+    const id = (value) => isString(value, LIMITS.participantId, ID_PATTERN);
+    const person = (value) => isRecord(value) && exactKeys(value, ['id', 'displayName']) && id(value.id) && isString(value.displayName, LIMITS.displayName);
+    const player = (value) => isRecord(value) && exactKeys(value, ['id', 'displayName', 'alive', 'answered'])
+      && id(value.id) && isString(value.displayName, LIMITS.displayName) && typeof value.alive === 'boolean' && typeof value.answered === 'boolean';
+    const ids = (value) => Array.isArray(value) && value.length <= QUIZ_MAX && value.every(id);
+    const asking = ['question', 'reveal'].includes(message.phase);
+    return exactKeys(message, ['v', 'type', 'epoch', 'phase', 'round', 'lobby', 'players', 'minPlayers'],
+      ['endsAt', 'index', 'total', 'question', 'answer', 'eliminated', 'allWrong', 'winners'])
+      && QUIZ_PHASES.includes(message.phase)
+      && isInteger(message.round) && message.round >= 0
+      && Array.isArray(message.lobby) && message.lobby.length <= QUIZ_MAX && message.lobby.every(person)
+      && Array.isArray(message.players) && message.players.length <= QUIZ_MAX && message.players.every(player)
+      && isInteger(message.minPlayers) && message.minPlayers >= 2
+      && (message.endsAt === undefined || (isInteger(message.endsAt) && message.endsAt >= 0))
+      && (asking
+        ? isInteger(message.index) && message.index >= 0 && message.index < QUIZ_QUESTIONS_MAX
+          && isInteger(message.total) && message.total >= 1 && message.total <= QUIZ_QUESTIONS_MAX && message.index < message.total
+          && brainProblem(message.question)
+        : message.index === undefined && message.question === undefined)
+      && (message.phase === 'reveal'
+        ? isInteger(message.answer) && message.answer >= 0 && message.answer <= 5 && ids(message.eliminated) && typeof message.allWrong === 'boolean'
+        : message.answer === undefined && message.eliminated === undefined && message.allWrong === undefined)
+      && (message.phase === 'result' ? ids(message.winners) : message.winners === undefined);
+  },
   // Thưởng thắng trốn tìm (chỉ gửi người thắng có tài khoản): reward 0 khi đã đủ lần trong ngày.
   'hideseek.reward'(message) {
     return exactKeys(message, ['v', 'type', 'epoch', 'reward', 'coins', 'count', 'limit'])
@@ -974,7 +1059,7 @@ const serverSchemas = {
   'challenge.state'(message) {
     const choice = (value) => value === null || RPS_CHOICES.includes(value);
     const common = exactKeys(message, ['v', 'type', 'epoch', 'challengeId', 'game', 'fromId', 'toId', 'status'],
-      ['deadline', 'round', 'fromScore', 'toScore', 'target', 'moved', 'last', 'winner', 'questions', 'answered', 'result', 'phase'])
+      ['deadline', 'round', 'fromScore', 'toScore', 'target', 'moved', 'last', 'winner', 'questions', 'answered', 'result', 'phase', 'duel'])
       && isString(message.challengeId, LIMITS.itemId, ID_PATTERN)
       && GAMES.includes(message.game)
       && isString(message.fromId, LIMITS.participantId, ID_PATTERN)
@@ -982,6 +1067,24 @@ const serverSchemas = {
       && CHALLENGE_STATUSES.includes(message.status)
       && (message.deadline === undefined || (isInteger(message.deadline) && message.deadline >= 0));
     if (!common) return false;
+    if (message.game === 'brain') {
+      // duel: mã đề riêng của người nhận (bên bot không có), chỉ khi đang chơi. result: số câu đúng / thời gian từng bên.
+      const sideResult = (item) => isRecord(item) && exactKeys(item, ['correct', 'ms'])
+        && isInteger(item.correct) && item.correct >= 0 && item.correct <= BRAIN_DUEL_ITEMS
+        && isInteger(item.ms) && item.ms >= 0 && item.ms <= 3_600_000;
+      const playing = message.status === 'playing';
+      const finished = message.status === 'finished';
+      return exactKeys(message, ['v', 'type', 'epoch', 'challengeId', 'game', 'fromId', 'toId', 'status'], ['deadline', 'duel', 'answered', 'result', 'winner'])
+        && (message.duel === undefined || (playing && isRecord(message.duel) && exactKeys(message.duel, ['roundId', 'limitMs', 'total'])
+          && typeof message.duel.roundId === 'string' && BRAIN_ROUND_ID.test(message.duel.roundId)
+          && isInteger(message.duel.limitMs) && message.duel.limitMs > 0 && message.duel.limitMs <= 3_600_000
+          && message.duel.total === BRAIN_DUEL_ITEMS))
+        && ((playing || finished) ? isRecord(message.answered) && exactKeys(message.answered, ['from', 'to'])
+          && typeof message.answered.from === 'boolean' && typeof message.answered.to === 'boolean' : message.answered === undefined)
+        && (finished ? isRecord(message.result) && exactKeys(message.result, ['from', 'to', 'total'])
+          && sideResult(message.result.from) && sideResult(message.result.to) && message.result.total === BRAIN_DUEL_ITEMS
+          && RESULT_SIDES.includes(message.winner) : message.result === undefined && message.winner === undefined);
+    }
     if (message.game === 'rps') {
       return exactKeys(message, ['v', 'type', 'epoch', 'challengeId', 'game', 'fromId', 'toId', 'status', 'round', 'fromScore', 'toScore', 'target'],
         ['deadline', 'moved', 'last', 'winner'])

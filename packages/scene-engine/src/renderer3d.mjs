@@ -856,6 +856,10 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     },
     setParticipants,
     setCeremony,
+    // Bảng vàng Tàng Kinh Các (khu Trí tuệ): xem setBrainBoard trong courtyard3d.mjs.
+    setBrainBoard(board) {
+      courtyard?.setBrainBoard?.(board);
+    },
     setCommunityProject(project) {
       courtyard?.setCommunityProject(project);
     },

@@ -1000,6 +1000,19 @@ export function createFarmUI({ stage, showToast, explore, account, openSignIn, o
       renderOpen();
     },
     refresh: load,
+    // App Nông trại trong điện thoại: tóm tắt ruộng của mình (null khi chưa đăng nhập / chưa tải).
+    summary() {
+      if (!farm) return null;
+      const stored = (kind) => farm.animals.filter((item) => item.kind === kind).reduce((sum, item) => sum + item.stored, 0);
+      return {
+        level: farm.level,
+        ripe: farm.plots.filter((plot) => stageOf(plot) === 'ripe').length,
+        dry: farm.plots.filter((plot) => plot.crop && stageOf(plot) !== 'ripe' && (plot.dry || (plot.dryAt && now() >= plot.dryAt))).length,
+        eggs: stored('chicken'),
+        milk: stored('cow'),
+        visitors: (farm.visitors || []).filter((row) => row.at > seenAt()).length,
+      };
+    },
     // Chỉ để kiểm tra / quay video: dữ liệu đang vẽ.
     debug: () => ({ farm, place, open, visiting, neighbors }),
     // Chỉ để kiểm tra: mở bảng Hàng xóm / thăm một hàng xóm trong danh sách.

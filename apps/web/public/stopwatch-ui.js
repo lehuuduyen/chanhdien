@@ -365,6 +365,8 @@ export function createStopwatchUI({ stage, host, controls, t, onLangChange, loca
 
   return {
     get open() { return open; },
+    // App Bấm giờ trong điện thoại (nút trên thanh phòng được cất vào điện thoại).
+    show: () => setOpen(true),
     close: () => setOpen(false),
   };
 }
