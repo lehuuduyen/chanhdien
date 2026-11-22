@@ -171,7 +171,8 @@ export const THIEN_RULES = defineRoomRules({
   // Scene dùng mã B-1…B-15 (B-1…B-6 ghế đá, B-7…B-9 xích đu / cầu tuột ở khu vui chơi, B-10…B-13 ghế Vườn Hoa,
   // B-14 / B-15 ghế trên Đài ngắm cảnh ngoài cổng, B-16…B-18 ghế ven hồ Rừng thiền ngoài cổng tây); mỗi món tối đa hai
   // người.
-  benches: { count: 18, seatsPerBench: 2 },
+  // B-19…B-22: bàn ghế đá trước Tàng Kinh Các (mỗi bàn hai "ghế", mỗi "ghế" là hai ghế đá cùng một bên bàn).
+  benches: { count: 22, seatsPerBench: 2 },
   lang: 'vi',
   moderation: 'strict',
   content: { source: 'none' },
@@ -207,6 +208,8 @@ export const THIEN_RULES = defineRoomRules({
       grove: { x: -59, z: 31.5, ry: 1.5708 },
       // Phước Điền (nông trại riêng) ngoài cổng tây phía nam, ngay trong cổng, quay mặt vào ruộng.
       myfarm: { x: -56, z: 96.4, ry: 1.5708 },
+      // Tàng Kinh Các (khu Trí tuệ) góc đông bắc sân: trên lối đá trước sân, quay mặt vào tòa nhà (thấy cả mặt tiền).
+      library: { x: 40.75, z: 33.5, ry: 0 },
     },
     // Mã thú cố định dùng để realtime từ chối id giả; hình dáng, tên và vị trí vẫn là dữ liệu của scene.
     pets: ['pet-dog-moc', 'pet-dog-nau', 'pet-dog-sua', 'pet-cat-miu', 'pet-cat-may', 'pet-cat-bong', 'pet-dog-milo', 'pet-dog-fox', 'pet-cat-meomeo',
@@ -247,6 +250,23 @@ export const THIEN_RULES = defineRoomRules({
     // kiếm). Thưởng xu chỉ khi ván có ít nhất rewardMinHumans người thật (giá + giới hạn ngày ở @chanh-dien/garden).
     botFill: 4,
     rewardMinHumans: 2,
+  },
+  // Đố vui nhiều người (apps/realtime/quiz.mjs, giao diện trong app 🧠 Trí tuệ): ai muốn chơi bấm Tham gia; đủ
+  // minPlayers (bot rảnh vào cho đủ botFill người) thì đếm lobbyMs rồi bắt đầu. Máy realtime xin API một bộ đề (câu đố hình
+  // / đố số, 80 % câu khó; đáp án chỉ ở server) rồi phát từng câu: câu dễ easyMs, câu khó hardMs để trả lời; sai hoặc không
+  // trả lời là bị loại, cả nhà cùng sai thì không ai bị loại. Mở đáp án revealMs rồi sang câu sau. Còn một người là người đó
+  // thắng; hết câu mà còn nhiều người thì cùng thắng; không còn người thật nào thì dừng. Không thưởng xu.
+  // botAccuracy: tỉ lệ bot trả lời đúng theo độ khó 1–5.
+  quiz: {
+    minPlayers: 2,
+    maxPlayers: 40,
+    lobbyMs: 20_000,
+    easyMs: 15_000,
+    hardMs: 25_000,
+    revealMs: 4_000,
+    resultMs: 12_000,
+    botFill: 6,
+    botAccuracy: [0.95, 0.88, 0.75, 0.62, 0.5],
   },
   // Bot ngồi sẵn cho chánh điện không vắng. Số người hiện trong phòng có tính bot; server vẫn giữ số bot riêng để
   // vận hành nhưng giao diện gộp vào tổng theo yêu cầu. Vote, sức chứa và sảnh chỉ đếm người thật. Bot không chào hỏi

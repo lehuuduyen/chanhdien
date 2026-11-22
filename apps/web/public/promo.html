@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#000000">
-  <title>Video giới thiệu · Chánh Điện Online</title>
+  <title>Video giới thiệu · LotusGather</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@500;700;800;900&family=Noto+Serif:wght@600;700&display=swap">
   <link rel="stylesheet" href="/promo.css">
@@ -22,7 +22,7 @@
         <div class="flash" id="flash"></div>
       </div>
       <div class="overlay" id="overlay">
-        <div class="brand" id="brand"><span class="lotus">蓮</span><span>Chánh Điện Online</span></div>
+        <div class="brand" id="brand"><span class="lotus">蓮</span><span>LotusGather</span></div>
         <div class="caption" id="caption"></div>
         <div class="games" id="games" hidden></div>
         <div class="notes" id="notes"></div>
@@ -30,8 +30,8 @@
         <div class="pop" id="pop" hidden></div>
         <div class="credit" id="credit" hidden>Phim: Big Buck Bunny © Blender Foundation · CC BY 3.0</div>
         <div class="endcard" id="endcard" hidden>
-          <div class="end-logo">蓮</div>
-          <h2 class="end-title">Chánh Điện Online</h2>
+          <div class="end-logo"><img src="/promo-logo.webp" alt=""></div>
+          <h2 class="end-title">LotusGather</h2>
           <p class="end-tags" id="endTags"></p>
           <div class="end-cta">Vào chơi miễn phí</div>
           <p class="end-url" id="endUrl"></p>
@@ -45,7 +45,7 @@
 
     <aside class="panel" id="panel">
       <h1>Video giới thiệu</h1>
-      <p class="lead">Khung bên trái chạy các cảnh thật của web theo kịch bản (9:16). Quay màn hình đúng khung đó, hoặc chạy <code>node scripts/promo-video.mjs</code> (thêm <code>--film garden</code> cho clip vườn, <code>--film farm</code> cho clip Phước Điền, <code>--film stopwatch</code> cho clip Bấm Giờ, <code>--film hieu-y</code> cho clip trò hai người) để tự ra file MP4.</p>
+      <p class="lead">Khung bên trái chạy các cảnh thật của web theo kịch bản (9:16). Quay màn hình đúng khung đó, hoặc chạy <code>node scripts/promo-video.mjs</code> (thêm <code>--film garden</code> cho clip vườn, <code>--film farm</code> cho clip Phước Điền, <code>--film stopwatch</code> cho clip Bấm Giờ, <code>--film hieu-y</code> cho clip trò hai người, <code>--film chanh-dien</code> cho clip chánh điện, <code>--film canh</code> cho clip phong cảnh) để tự ra file MP4.</p>
       <label>Kịch bản
         <select id="filmSelect">
           <option value="tour">Tổng quan: nông trại, rạp phim, game, bạn bè (~58 giây)</option>
@@ -53,6 +53,9 @@
           <option value="farm">Phước Điền: gieo, thu hoạch, gà, bò, chợ, hàng xóm (~47 giây)</option>
           <option value="stopwatch">Bấm Giờ: suýt trúng, trúng đúng 1/100 giây, Bảng vàng (~28 giây)</option>
           <option value="hieu-y">Trò hai người: Oẳn tù tì, Đo độ hiểu ý, Đoán ý bạn (~39 giây)</option>
+          <option value="chanh-dien">Chánh điện: ngồi thiền, dâng hoa, thỉnh chuông, dâng hương, Vườn Đèn (~33 giây)</option>
+          <option value="canh">Phong cảnh: Vườn Hoa, Rừng thiền, đường La Hán, khu vui chơi, mỗi bang, đêm trăng (~32 giây)</option>
+          <option value="tri-tue">Trí tuệ: Tàng Kinh Các, Đố hình, Đố số, Màu mực, Test IQ, Đố vui (~40 giây)</option>
         </select>
       </label>
       <label>Khu vực chánh điện
@@ -66,7 +69,7 @@
         </select>
       </label>
       <label>Địa chỉ web trên màn cuối
-        <input id="urlInput" maxlength="60" placeholder="vd. chanhdien.online">
+        <input id="urlInput" maxlength="60" placeholder="lotusgather.online">
       </label>
       <label class="check"><input type="checkbox" id="soundToggle"> Giữ âm thanh của trang (chuông, phim)</label>
       <ul class="checks" id="checks"></ul>

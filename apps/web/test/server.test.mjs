@@ -113,7 +113,10 @@ test('HUD ưu tiên trạng thái và thao tác thường dùng, gom chức năn
   const templeStyles = readFileSync(resolveWebFile('/chanh-dien.css'), 'utf8');
   assert.doesNotMatch(temple, /id="shopChip"/);
   assert.match(temple, /id="presence"[\s\S]*id="coinChip"[\s\S]*id="gemChip"/);
-  assert.match(templeClient, /\{ element: shopButton, label: 'menu\.shop' \}/);
+  // Chánh điện: ⚙, 💬, Đi nhanh, Bấm giờ, ô xu / kim cương gom vào điện thoại 📱 (phone-ui.js).
+  assert.match(templeClient, /createPhoneUI\(\{[\s\S]*status: \[\$\('coinChip'\), \$\('gemChip'\)\][\s\S]*id: 'messages'[\s\S]*id: 'travel'[\s\S]*id: 'wallet'[\s\S]*id: 'shop', icon: '[^']+', label: 'menu\.shop', run: openShop[\s\S]*id: 'settings'/);
+  assert.match(templeClient, /travelHost: null/);
+  assert.match(templeClient, /elements\.chatForm\.prepend\(phone\.openButton\)/);
   assert.match(cinema, /class="hud-actions"[\s\S]*id="coinChip"[\s\S]*id="gemChip"[\s\S]*id="fullscreen"[\s\S]*class="hud-more"/);
   assert.match(cinema, /id="hudTools"[\s\S]*data-tool="send"[\s\S]*data-tool="queue"[\s\S]*data-tool="chat"[\s\S]*data-tool="react"[\s\S]*class="tool-more"/);
   for (const tool of ['seat', 'people', 'private', 'donate']) assert.match(cinema, new RegExp(`class="tool-more-panel"[\\s\\S]*data-tool="${tool}"`));

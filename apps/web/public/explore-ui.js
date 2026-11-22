@@ -20,6 +20,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   // Khóa đi lại: phòng đủ người đi lại (xem như khán giả) hoặc đang chơi trốn tìm (đứng yên theo pha).
   let walkersFull = false;
   let gameLock = false;
+  let navigationListener = null;
   let hiddenDecor = [];
   let roleMarks = {};
   // Hành trình bảy trạm là tiến độ cá nhân theo ngày, không tạo state phòng và không tốn dung lượng server.
@@ -61,6 +62,11 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     const bench = renderer?.scene?.world?.courtyard?.benches?.find((item) => item.id === person.benchId);
     if (!bench) return null;
     const side = person.benchSpot === 1 ? -1 : 1;
+    // Bàn ghế đá Tàng Kinh Các: chỗ 1 / 2 là hai ghế đá riêng (vị trí, hướng ngồi quay vào bàn), cao seatY.
+    if (Array.isArray(bench.stools)) {
+      const stool = bench.stools[(person.benchSpot || 1) - 1] || bench.stools[0];
+      return { x: stool.x, z: stool.z, ry: stool.ry, benchY: bench.seatY ?? 0.5 };
+    }
     // Xích đu / cầu tuột: engine tự tính dáng theo thời gian; đây chỉ là gốc (ghế xích đu bên trái/phải, tâm cầu tuột).
     if (bench.kind) {
       return {
@@ -316,6 +322,9 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
 
   // Đi nhanh tới trước các khu chính. Server giữ tọa độ thật; trình duyệt chỉ gửi tên đích để không thể sửa lệnh
   // thành dịch chuyển xuyên vật thể. Nút nằm cùng thanh tên phòng nên luôn dễ thấy mà không che cảnh.
+  // travelHost = null: không có nút ▾ trên thanh phòng; bảng nút đích (travelPanel) do trang tự đặt, luôn mở (app Đi
+  // nhanh trong điện thoại, phone-ui.js). canTravel cho biết đang đi lại được (3D đã vào phòng) hay chưa.
+  const docked = travelHost === null;
   const travel = document.createElement('div');
   travel.className = 'quick-travel';
   travel.hidden = true;
@@ -324,12 +333,12 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelToggle.className = 'chip quick-travel-toggle';
   travelToggle.setAttribute('aria-haspopup', 'menu');
   const travelPanel = document.createElement('div');
-  travelPanel.className = 'quick-travel-panel';
+  travelPanel.className = docked ? 'quick-travel-panel in-phone' : 'quick-travel-panel';
   travelPanel.setAttribute('role', 'menu');
-  travelPanel.hidden = true;
+  travelPanel.hidden = !docked;
   // exits: map khác (vd: rạp phim) — { id, icon, go() }; bấm vào thì trang tự chuyển, không gửi travel.go.
-  const travelIcons = { hall: '🛕', courtyard: '🌳', overlook: '🌄', grove: '🌲', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', farm: '🐐', myfarm: '🌾', memorial: '🪦', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
-  const travelButtons = ['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'myfarm', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
+  const travelIcons = { hall: '🛕', courtyard: '🌳', overlook: '🌄', grove: '🌲', park: '🛝', flowers: '🌸', garden: '🌱', pets: '🐾', farm: '🐐', myfarm: '🌾', memorial: '🪦', library: '📚', ...Object.fromEntries(exits.map((exit) => [exit.id, exit.icon])) };
+  const travelButtons = ['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'library', 'garden', 'pets', 'farm', 'myfarm', 'memorial', ...exits.map((exit) => exit.id)].map((destination) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.destination = destination;
@@ -339,6 +348,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   });
   let currentPlace = null;
   function openTravel(next) {
+    if (docked) return;
     travelPanel.hidden = !next;
     travelToggle.setAttribute('aria-expanded', String(next));
   }
@@ -361,6 +371,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
   travelToggle.addEventListener('click', () => openTravel(travelPanel.hidden));
   function goTo(destination) {
     if (!travelButtons.some((button) => button.dataset.destination === destination)) return false;
+    api?.quickTravel?.(destination);
     if (destination === currentPlace) {
       openTravel(false);
       return true;
@@ -386,15 +397,17 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     }
     goTo(button.dataset.destination);
   });
-  document.addEventListener('pointerdown', (event) => {
-    if (!travel.contains(event.target) && !travelPanel.contains(event.target)) openTravel(false);
-  });
-  travel.append(travelToggle);
-  // Đặt trước đồng hồ bài giảng: khi YouTube đang mở, iframe ở dưới không được phép bị HUD phủ lên và cũng
-  // không được che mất nút đi nhanh.
-  const lectureChip = travelHost.querySelector?.('#eventChip');
-  travelHost.insertBefore(travel, lectureChip || null);
-  stage.append(travelPanel);
+  if (!docked) {
+    document.addEventListener('pointerdown', (event) => {
+      if (!travel.contains(event.target) && !travelPanel.contains(event.target)) openTravel(false);
+    });
+    travel.append(travelToggle);
+    // Đặt trước đồng hồ bài giảng: khi YouTube đang mở, iframe ở dưới không được phép bị HUD phủ lên và cũng
+    // không được che mất nút đi nhanh.
+    const lectureChip = travelHost.querySelector?.('#eventChip');
+    travelHost.insertBefore(travel, lectureChip || null);
+    stage.append(travelPanel);
+  }
 
   stage.append(bar, pad, sitNearby, choreButton, petActions);
 
@@ -527,6 +540,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
         if (target) requestAnimationFrame(place);
       },
       onPlaceChange: setPlace,
+      onNavigation: (state) => navigationListener?.(state),
     }),
     attach(next) {
       renderer = next;
@@ -558,13 +572,44 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     previewSpawn() {
       api?.previewSpawn?.(resumePose || api.spawn);
     },
+    // Bảng nút đích của Đi nhanh khi travelHost = null (trang đặt vào app Đi nhanh của điện thoại).
+    travelPanel,
+    // Đang đi lại được trong cảnh 3D (Đi nhanh tới các khu); chế độ 2D / chưa vào phòng thì chỉ sang map khác được.
+    canTravel: () => !travel.hidden,
+    isExit: (destination) => exits.some((item) => item.id === destination),
+    // Đi nhanh như bấm một nút đích (app Nông trại: tới Phước Điền).
+    goTo: (destination) => goTo(destination),
+    get place() {
+      return currentPlace;
+    },
     // Vào phòng xong thì đi thẳng tới khu này, dùng khi quay về từ map khác.
     arriveAt(destination) {
-      if (['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'garden', 'pets', 'farm', 'myfarm', 'memorial'].includes(destination)) arrival = destination;
+      if (['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'library', 'garden', 'pets', 'farm', 'myfarm', 'memorial'].includes(destination)) arrival = destination;
     },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {
       return api?.walkTo?.(point, then) || false;
+    },
+    mapState() {
+      return api?.mapState?.() || { self: null, place: currentPlace, navigating: null };
+    },
+    previewNavigation(goal, options) {
+      return api?.previewNavigation?.(goal, options) || { ok: false, length: 0 };
+    },
+    navigateTo(goal, options) {
+      return api?.navigateTo?.(goal, options) || { ok: false, length: 0 };
+    },
+    stopNavigation(reason) {
+      return api?.stopNavigation?.(reason) || false;
+    },
+    setRouteHidden(on) {
+      api?.setRouteHidden?.(on);
+    },
+    onNavigation(listener) {
+      navigationListener = listener;
+    },
+    mapBlocked() {
+      return !api || walkersFull || gameLock;
     },
     // Gọi trước khi rời phòng để vào lại ngay (đổi tài khoản): nhớ chỗ đang đứng.
     keepPosition() {
@@ -659,6 +704,7 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     // ---- Trốn tìm (hide-seek-ui.js) ----
     setGameLock(on) {
       gameLock = Boolean(on);
+      if (gameLock) api?.stopNavigation?.('stopped');
       api?.setSpectator(walkersFull || gameLock);
     },
     // Camera xem người id (null = về mình); trả false nếu người đó không có trong cảnh.

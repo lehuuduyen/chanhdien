@@ -227,18 +227,19 @@ function pathWalkable(walk, maxRadius) {
 }
 
 // Tìm đường A* trên lưới 25 cm: trả danh sách điểm (đã rút gọn đoạn thẳng), hoặc [] nếu không tới được.
-export function findPath(walk, from, to) {
+export function findPath(walk, from, to, { cell = CELL } = {}) {
+  if (!Number.isFinite(cell) || cell < CELL || cell > 1) throw new RangeError('findPath cell must be between 0.25 and 1 metre');
   const { bounds } = walk;
-  const columns = Math.ceil((bounds.x[1] - bounds.x[0]) / CELL) + 1;
-  const rows = Math.ceil((bounds.z[1] - bounds.z[0]) / CELL) + 1;
+  const columns = Math.ceil((bounds.x[1] - bounds.x[0]) / cell) + 1;
+  const rows = Math.ceil((bounds.z[1] - bounds.z[0]) / cell) + 1;
   const cellOf = (point) => [
-    Math.min(columns - 1, Math.max(0, Math.round((point.x - bounds.x[0]) / CELL))),
-    Math.min(rows - 1, Math.max(0, Math.round((point.z - bounds.z[0]) / CELL))),
+    Math.min(columns - 1, Math.max(0, Math.round((point.x - bounds.x[0]) / cell))),
+    Math.min(rows - 1, Math.max(0, Math.round((point.z - bounds.z[0]) / cell))),
   ];
   // Làm tròn tới micromet: mép vùng đi như -93.4 cộng dồn sai số dấu phẩy động (-1.4000000000000057) làm đoạn rút gọn
   // lướt sát mép cửa bị lệch ra ngoài vài phần tỷ mét.
   const snap = (value) => Math.round(value * 1e6) / 1e6;
-  const pointOf = (column, row) => ({ x: snap(bounds.x[0] + column * CELL), z: snap(bounds.z[0] + row * CELL) });
+  const pointOf = (column, row) => ({ x: snap(bounds.x[0] + column * cell), z: snap(bounds.z[0] + row * cell) });
   // A* hỏi lại cùng một ô nhiều lần (từ các ô kề và khi cấm cắt góc). Với cảnh rộng có nhiều
   // vật cản, quét toàn bộ danh sách vật cản cho mỗi lần hỏi chiếm phần lớn thời gian tìm đường.
   // Cache chỉ sống trong một lần tìm đường nên luôn khớp với dữ liệu walk hiện tại.
@@ -333,7 +334,7 @@ export function findPath(walk, from, to) {
   // Kiểm tra với thân người nới thêm 2 cm: đoạn thẳng lướt sát mép vật cản giữa hai điểm lấy mẫu vẫn bị loại.
   const clear = (a, b) => {
     const length = Math.hypot(b.x - a.x, b.z - a.z);
-    for (let t = 0; t <= length; t += CELL / 2) {
+    for (let t = 0; t <= length; t += cell / 2) {
       const k = length ? t / length : 0;
       if (!fastWalkable(a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k, marginRadius)) return false;
     }

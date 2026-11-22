@@ -511,7 +511,8 @@ c.paths.push(
 );
 c.trees = [{ x: 8.6, z: 21, size: 1.3 }, { x: 33.5, z: 54.5, size: 1.0 }, { x: 13, z: 93, size: 1.0 }];
 // Dải sân mới hai bên: tùng dọc tường, cây lớn và bụi cây trên bãi cỏ phía đông.
-c.trees.push({ x: 44, z: 34, size: 1.15 }, { x: 43, z: 66, size: 1.1 }, { x: 44, z: 90, size: 1.2 });
+// Cây lớn góc đông nam sân Tàng Kinh Các (trước ở (44, 34) che mặt tiền khi đứng ở sân đá nhìn vào).
+c.trees.push({ x: 46.5, z: 39.5, size: 1.15 }, { x: 43, z: 66, size: 1.1 }, { x: 44, z: 90, size: 1.2 });
 c.pines = [[-8.6, 20], [-9, 27], [9, 28.5], [31, 22], [-31, 59.5], [31, 40], [-15, 95], [21, 95], [-32, 94],
   [49, 22], [49, 50], [49, 78], [38, 97]];
 c.bushes = [[-13.2, 22.5], [-10.6, 23.5], [10.6, 25], [-10.6, 30], [10.6, 31.5], [13.4, 22], [33, 30], [16, 79], [33, 79], [-6.5, 92], [9, 60],
@@ -795,7 +796,7 @@ const obstacles = [
   { x: c.pond.x, z: c.pond.z, rx: c.pond.radiusX + 0.45, rz: c.pond.radiusZ + 0.45 },
   ...c.pond.lanterns.map((item) => circle(item.x, item.z, 0.45)),
   // Ghế dài 2,2 m: elip đúng chiều ghế, không để lọt qua hai đầu. Bụi cây cũng là vật thể đặc thay vì chỉ trang trí.
-  ...c.benches.filter((item) => !item.kind && !/^B-1\d$/.test(item.id)).map(benchObstacle),
+  ...c.benches.filter((item) => !item.kind && !item.stools && !/^B-1\d$/.test(item.id)).map(benchObstacle),
   // Khu vui chơi: vật cản lấy theo mô hình (xích đu / cầu tuột nằm trong các khối này).
   ...PARK_RECTS.map(([x0, x1, z0, z1]) => {
     const center = parkPoint((x0 + x1) / 2, (z0 + z1) / 2);
@@ -964,6 +965,84 @@ obstacles.push(
     })(),
     circle(scarecrow.x, scarecrow.z, 0.35),
     ...c.fields.decor.map((item) => (item.rz ? { x: item.x, z: item.z, rx: item.r, rz: item.rz } : circle(item.x, item.z, item.r))),
+  );
+}
+// ---- Tàng Kinh Các (khu Trí tuệ, app 🧠) ở góc đông bắc sân, đông chánh điện, mặt tiền quay về phía nam như chánh điện.
+// Mô hình Meshy (nhanvat/library/library.glb → apps/web/public/models/library/library.glb, đã Remesh) phóng theo bề ngang
+// LIBRARY.width; khung bao chuẩn hóa của mô hình: rộng 1,896 · cao 1,627 · sâu 1,741 (đo từ file đã nén); tấm biển chữ Hán
+// trên cửa của mô hình ở giữa, đáy biển cao 0,764 · đỉnh 0,834 tính từ đáy, mặt biển nghiêng ra trước (z 0,493 → 0,507) — biển
+// tên đè đúng chỗ đó, nghiêng theo. Sân đá trước cửa,
+// cây lớn (46,5, 39,5) ở góc sân, hai bộ bàn ghế đá Meshy (stonetable.glb: bàn tròn + 4 ghế trống ở 4 góc chéo; số đo
+// trong mô hình chuẩn hóa: cao 0,816, mặt ghế 0,577 tính từ đáy, tâm ghế bên dưới) và bảng vàng (chữ vẽ canvas theo dữ liệu
+// khu Trí tuệ). Mỗi bàn là hai "ghế" (B-19…B-22) hai chỗ: chỗ 1 / 2 là hai ghế đá cùng một bên bàn (stools), nên máy
+// chủ không phải đổi gì (mọi ghế 2 chỗ).
+const LIBRARY = { x: 41.5, z: 22.6, ry: 0, width: 9.4, src: '/models/library/library.glb' };
+const LIBRARY_SIZE = { x: 1.896, y: 1.627, z: 1.741 };
+const LIBRARY_PLAQUE = { y: 0.799, z: 0.512, tilt: 0.2, width: 0.31, height: 0.084 };
+const libraryScale = LIBRARY.width / LIBRARY_SIZE.x;
+const libraryDepth = round3(LIBRARY_SIZE.z * libraryScale);
+const TABLE = { src: '/models/library/stonetable.glb', height: 0.74, modelHeight: 0.816, seat: 0.577 };
+const tableScale = TABLE.height / TABLE.modelHeight;
+// Tâm 4 ghế trong mô hình bàn (x, z), theo cặp: bên tây (x < 0), bên đông (x > 0).
+const STOOLS = { west: [[-0.755, 0.396], [-0.565, -0.507]], east: [[0.75, 0.47], [0.591, -0.568]] };
+const libraryTables = [{ x: 37.2, z: 32.8, ry: 0 }, { x: 47, z: 31, ry: 0 }];
+const libraryBenches = [];
+libraryTables.forEach((table, tableIndex) => {
+  for (const [sideIndex, side] of ['west', 'east'].entries()) {
+    const stools = STOOLS[side].map(([mx, mz]) => {
+      const point = localPoint(table, mx * tableScale, mz * tableScale);
+      // Người ngồi quay mặt vào tâm bàn (ry của dáng người: hướng nhìn (−sin ry, −cos ry)).
+      return { x: round3(point.x), z: round3(point.z), ry: round3(Math.atan2(-(table.x - point.x), -(table.z - point.z))) };
+    });
+    const center = { x: round3((stools[0].x + stools[1].x) / 2), z: round3((stools[0].z + stools[1].z) / 2) };
+    const outward = sideIndex === 0 ? -1 : 1;
+    libraryBenches.push({
+      id: `B-${19 + tableIndex * 2 + sideIndex}`, ...center, ry: 0, scale: 1, seats: 2,
+      // Điểm đứng chờ: ra ngoài phía bên đó của bàn 0,85 m (sau lưng hai ghế).
+      approach: [outward * 0.85, 0], stools, seatY: round3(TABLE.seat * tableScale), table: tableIndex,
+    });
+  }
+});
+c.benches = c.benches.filter((item) => !item.stools);
+c.benches.push(...libraryBenches);
+c.library = {
+  sign: 'TÀNG KINH CÁC',
+  area: { x: [33, HALF - 0.6], z: [16.5, 42] },
+  model: { src: LIBRARY.src, x: LIBRARY.x, z: LIBRARY.z, ry: LIBRARY.ry, width: LIBRARY.width, lazyDistance: 60 },
+  size: { width: LIBRARY.width, depth: libraryDepth, height: round3(LIBRARY_SIZE.y * libraryScale) },
+  // Biển tên (tọa độ trong hệ của nhà: y từ mặt đất, z từ tâm nhà; tilt: đỉnh biển ngả ra trước, rad), trước biển mô hình ~5 cm.
+  plaque: {
+    y: round3(LIBRARY_PLAQUE.y * libraryScale), z: round3(LIBRARY_PLAQUE.z * libraryScale), tilt: LIBRARY_PLAQUE.tilt,
+    width: round3(LIBRARY_PLAQUE.width * libraryScale), height: round3(LIBRARY_PLAQUE.height * libraryScale),
+  },
+  // Sân đá trước cửa và hai lối nối: lối phía bắc khu vui chơi từ sân đá chánh điện, lối từ Quan Âm.
+  plaza: { x: [34.4, 48.6], z: [round3(LIBRARY.z + libraryDepth / 2 - 0.2), 30.4] },
+  tables: libraryTables.map((table) => ({ ...table })),
+  tableModel: { src: TABLE.src, height: TABLE.height },
+  // Bảng vàng: chữ quay về phía nam (người đi từ lối Quan Âm / điểm đi nhanh nhìn thấy).
+  board: { x: 38.6, z: 29.4, ry: 0, width: 2.6, height: 1.6 },
+};
+c.paths = c.paths.filter((item) => !item.library);
+c.paths.push(
+  { x: [12, 36.4], z: [18.8, 20.8], library: true },
+  { x: [34.4, 36.4], z: [18.8, c.library.plaza.z[0]], library: true },
+  { x: [27.6, 41.9], z: [48.8, 51.2], library: true },
+  { x: [39.6, 41.9], z: [c.library.plaza.z[1], 48.8], library: true },
+);
+// Vật cản: nền + nhà (khung bao mô hình, kể cả bậc trước cửa) — viền là chuỗi vòng tròn, trong lòng một elip; bàn đá
+// (mặt bàn) và từng ghế đá; bảng vàng.
+{
+  const halfX = LIBRARY.width / 2;
+  const halfZ = libraryDepth / 2;
+  const edge = [];
+  for (let x = -halfX + 0.5; x <= halfX - 0.5 + 1e-6; x += 0.9) edge.push([x, -halfZ + 0.5], [x, halfZ - 0.5]);
+  for (let z = -halfZ + 1.4; z <= halfZ - 1.4 + 1e-6; z += 0.9) edge.push([-halfX + 0.5, z], [halfX - 0.5, z]);
+  obstacles.push(
+    ...edge.map(([lx, lz]) => circle(round3(LIBRARY.x + lx), round3(LIBRARY.z + lz), 0.62)),
+    { x: LIBRARY.x, z: LIBRARY.z, rx: round3(halfX - 0.6), rz: round3(halfZ - 0.6) },
+    ...libraryTables.map((table) => circle(table.x, table.z, round3(0.713 * tableScale + 0.08))),
+    ...libraryBenches.flatMap((bench) => bench.stools.map((stool) => circle(stool.x, stool.z, 0.27))),
+    circle(c.library.board.x - 1.15, c.library.board.z, 0.25), circle(c.library.board.x + 1.15, c.library.board.z, 0.25),
   );
 }
 walk.obstacles = obstacles;

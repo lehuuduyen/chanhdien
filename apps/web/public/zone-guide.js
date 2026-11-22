@@ -10,6 +10,8 @@ const GUIDES = {
   pets: { icon: '🐾', steps: 4 },
   wishes: { icon: '🏮', steps: 4 },
   myfarm: { icon: '🌾', steps: 5 },
+  // action: nút chính làm thêm một việc (onAction) thay vì chỉ đóng — Tàng Kinh Các mở app 🧠 Trí tuệ.
+  library: { icon: '📚', steps: 4, action: true },
 };
 
 function node(tag, className) {
@@ -27,7 +29,7 @@ function readSeen() {
   }
 }
 
-export function createZoneGuide({ stage }) {
+export function createZoneGuide({ stage, onAction = () => {} }) {
   const seen = readSeen();
   let current = null;
 
@@ -73,7 +75,7 @@ export function createZoneGuide({ stage }) {
       return item;
     }));
     skip.textContent = t('guide.skip');
-    done.textContent = t('guide.done');
+    done.textContent = guide.action ? t(`guide.${current}.action`) : t('guide.done');
   }
 
   function close() {
@@ -96,7 +98,11 @@ export function createZoneGuide({ stage }) {
   }
 
   skip.addEventListener('click', close);
-  done.addEventListener('click', close);
+  done.addEventListener('click', () => {
+    const place = current;
+    close();
+    if (GUIDES[place]?.action) onAction(place);
+  });
   backdrop.addEventListener('click', (event) => { if (event.target === backdrop) close(); });
   stage.addEventListener('keydown', (event) => {
     if (!backdrop.hidden && event.key === 'Escape') close();

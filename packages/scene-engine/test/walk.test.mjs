@@ -35,7 +35,7 @@ test('ghế đá ngoài sân có đúng mã realtime, nhỏ vừa nhân vật v�
   assert.equal(benches.length, THIEN_RULES.benches.count);
   assert.deepEqual(benches.map((item) => item.id), Array.from({ length: benches.length }, (_, index) => `B-${index + 1}`));
   for (const bench of benches) {
-    if (!bench.kind) assert.ok(bench.scale >= 0.65 && bench.scale <= 0.8, 'ghế đá không lớn hơn nhân vật chibi');
+    if (!bench.kind && !bench.stools) assert.ok(bench.scale >= 0.65 && bench.scale <= 0.8, 'ghế đá không lớn hơn nhân vật chibi');
     assert.equal(bench.seats, THIEN_RULES.benches.seatsPerBench);
   }
   // Khu vui chơi: hai xích đu + hai cầu tuột, đứng được ở điểm chờ, chỗ ngồi nằm trong vật cản (không ai đi xuyên).
@@ -48,6 +48,28 @@ test('ghế đá ngoài sân có đúng mã realtime, nhỏ vừa nhân vật v�
     assert.equal(isWalkable(walk, x, z), true, `điểm chờ ${item.id} phải đứng được`);
     assert.equal(isWalkable(walk, item.x, item.z), false, `${item.id} là vật cản`);
   }
+});
+
+test('Tàng Kinh Các: từ điểm đi nhanh và từ sân giữa đi tới mọi ghế đá quanh bàn, không ai đi xuyên nhà / bàn / ghế', () => {
+  const library = scene.world.courtyard.library;
+  const benches = scene.world.courtyard.benches.filter((item) => item.stools);
+  assert.deepEqual(benches.map((item) => item.id), ['B-19', 'B-20', 'B-21', 'B-22']);
+  const start = THIEN_RULES.world.travel.library;
+  const inside = (area, point) => point.x >= area.x[0] && point.x <= area.x[1] && point.z >= area.z[0] && point.z <= area.z[1];
+  assert.ok(inside(library.area, start), 'điểm đi nhanh nằm trong khu');
+  for (const bench of benches) {
+    assert.equal(bench.stools.length, 2, `${bench.id}: hai ghế đá (chỗ 1 / 2)`);
+    for (const stool of bench.stools) assert.equal(isWalkable(walk, stool.x, stool.z), false, `${bench.id}: ghế đá là vật cản`);
+    const [lx, lz] = bench.approach;
+    const approach = { x: bench.x + lx * Math.cos(bench.ry) + lz * Math.sin(bench.ry), z: bench.z - lx * Math.sin(bench.ry) + lz * Math.cos(bench.ry) };
+    for (const [label, from] of [['điểm đi nhanh', start], ['sân giữa', { x: 0, z: 33 }]]) {
+      assert.ok(findPath(walk, from, approach).length > 0, `${bench.id}: từ ${label} tới điểm chờ được`);
+    }
+  }
+  for (const table of library.tables) assert.equal(isWalkable(walk, table.x, table.z), false, 'bàn đá là vật cản');
+  assert.equal(isWalkable(walk, library.model.x, library.model.z), false, 'không vào trong nhà');
+  assert.equal(isWalkable(walk, library.model.x, library.model.z + library.size.depth / 2 - 0.3), false, 'bậc thềm là vật cản');
+  assert.ok(findPath(walk, THIEN_RULES.world.travel.courtyard, start).length > 0, 'từ sân giữa tới Tàng Kinh Các được');
 });
 
 test('Vườn Hoa: vào được qua ba cổng, đi tới ghế và điểm ngắm, không giẫm lên luống', () => {

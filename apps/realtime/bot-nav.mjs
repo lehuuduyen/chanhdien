@@ -274,6 +274,12 @@ export function createBotNav(world) {
     for (const px of [x0 + 4, (x0 + x1) / 2, x1 - 4]) add('overlook', { x: px, z: z1 - 1.6 }, { x: px * 1.4, z: z1 + 60 });
     for (const px of [x0 + 1.6, x1 - 1.6]) add('overlook', { x: px, z: z1 - 8 }, { x: px * 6, z: z1 + 20 });
   }
+  // Tàng Kinh Các: đứng đọc bảng vàng (trước mặt bảng) và đứng ngắm mặt tiền trên sân đá.
+  if (yard.library) {
+    const { board, model, size } = yard.library;
+    for (const side of [-0.8, 0.8]) add('library', local(board, side, 1.8), { x: board.x + side, z: board.z });
+    for (const side of [-0.5, 2.5]) add('library', local(model, side, size.depth / 2 + 3), { x: model.x + side * 0.4, z: model.z });
+  }
   if (yard.fountain) ring('fountain', yard.fountain, yard.fountain.radius + 1.6, yard.fountain.radius + 1.6, 10);
   if (yard.pond) ring('pond', yard.pond, yard.pond.radiusX + 1.3, yard.pond.radiusZ + 1.3, 16);
   if (yard.bodhi) ring('bodhi', yard.bodhi, 4.4, 4.4, 8);

@@ -1468,6 +1468,85 @@ test('khiêu chiến kéo búa bao: giữ kín lựa chọn tới khi cả hai r
   room.close();
 });
 
+// Đấu trí: API giả — tạo trận (mỗi bên người một mã đề), trả kết quả theo `results`.
+function fakeBrainApi({ fail = false } = {}) {
+  const calls = [];
+  const results = { from: { done: false }, to: { done: false } };
+  return {
+    calls,
+    results,
+    start: async (body) => {
+      calls.push(body);
+      if (fail) return null;
+      return { ok: true, rounds: { ...(body.from.bot ? {} : { from: 'a'.repeat(32) }), ...(body.to.bot ? {} : { to: 'b'.repeat(32) }) }, limitMs: 180_000, total: 10 };
+    },
+    status: async () => ({ ok: true, from: results.from, to: results.to }),
+  };
+}
+
+test('đấu trí: mã đề gửi riêng từng người, kết quả chỉ lấy từ API, bằng điểm thì ai nhanh hơn thắng', async () => {
+  const api = fakeBrainApi();
+  const { room, inbox, last } = socialRoom({ brainDuel: api });
+  const sent = room.challengeSend('u-1', 'u-2', 'brain');
+  assert.equal(sent.ok, true);
+  assert.equal(last('u-2', 'challenge.state').status, 'pending');
+  room.challengeRespond('u-2', sent.challengeId, true);
+  await waitForCondition(() => last('u-1', 'challenge.state')?.duel);
+  assert.deepEqual(api.calls, [{ challengeId: sent.challengeId, from: { accountId: 'a-11111111' }, to: { accountId: 'a-22222222' } }]);
+  const mine = last('u-1', 'challenge.state');
+  assert.deepEqual([mine.status, mine.duel, mine.answered], ['playing', { roundId: 'a'.repeat(32), limitMs: 180_000, total: 10 }, { from: false, to: false }]);
+  assert.equal(last('u-2', 'challenge.state').duel.roundId, 'b'.repeat(32));
+  assert.equal(JSON.stringify(inbox['u-1']).includes('b'.repeat(32)), false, 'không thấy mã đề của đối thủ');
+  assert.equal(JSON.stringify(inbox['u-2']).includes('a'.repeat(32)), false);
+
+  // Báo đã nộp nhưng API chưa có bài: không đổi gì. API có bài: đánh dấu đã nộp, chưa lộ điểm.
+  assert.deepEqual(room.challengeCheck('u-1', sent.challengeId), { ok: true });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(last('u-2', 'challenge.state').answered, { from: false, to: false });
+  api.results.from = { done: true, correct: 7, ms: 90_000 };
+  room.challengeCheck('u-1', sent.challengeId);
+  await waitForCondition(() => last('u-2', 'challenge.state').answered.from);
+  assert.equal(Object.hasOwn(last('u-2', 'challenge.state'), 'result'), false, 'chưa lộ kết quả khi đối thủ còn làm');
+  assert.equal(room.challengeCheck('u-3', sent.challengeId).error, 'NO_CHALLENGE', 'người ngoài không hỏi được');
+
+  api.results.to = { done: true, correct: 7, ms: 80_000 };
+  room.challengeCheck('u-2', sent.challengeId);
+  await waitForCondition(() => last('u-1', 'challenge.state').status === 'finished');
+  const done = last('u-1', 'challenge.state');
+  assert.deepEqual([done.result, done.winner], [{ from: { correct: 7, ms: 90_000 }, to: { correct: 7, ms: 80_000 }, total: 10 }, 'to']);
+  assert.equal(Object.hasOwn(done, 'duel'), false);
+  for (const id of ['u-1', 'u-2']) {
+    for (const message of inbox[id].filter((item) => item.type === 'challenge.state')) assert.equal(parseServerMessage(message).ok, true, JSON.stringify(message));
+  }
+  assert.equal(inbox['u-3'].some((message) => message.challengeId === sent.challengeId), false, 'người ngoài không thấy trận');
+  room.close();
+});
+
+test('đấu trí: hết giờ thì chốt theo bài đã nộp (bên chưa nộp 0 câu), bot không có đề, API lỗi thì hủy trận', async () => {
+  const api = fakeBrainApi();
+  const { room, last } = socialRoom({ brainDuel: api });
+  room.participants.get('u-2').bot = true;
+  const sent = room.challengeSend('u-1', 'u-2', 'brain');
+  room.challengeRespond('u-2', sent.challengeId, true);
+  await waitForCondition(() => last('u-1', 'challenge.state')?.duel);
+  assert.deepEqual(api.calls.at(-1).to, { bot: true }, 'bot không có đề ở API');
+  const challenge = room.challenges.get(sent.challengeId);
+  assert.equal(challenge.botTimers.length, 1, 'bot tự làm bài theo hẹn giờ');
+  api.results = undefined;
+  api.status = async () => ({ ok: true, from: { done: true, correct: 4, ms: 170_000 }, to: null });
+  room.finishBrainDuel(challenge, true);
+  await waitForCondition(() => last('u-1', 'challenge.state').status === 'finished');
+  const done = last('u-1', 'challenge.state');
+  assert.deepEqual([done.result.from, done.result.to, done.winner], [{ correct: 4, ms: 170_000 }, { correct: 0, ms: 180_000 }, 'from']);
+  room.close();
+
+  const broken = socialRoom({ brainDuel: fakeBrainApi({ fail: true }) });
+  const again = broken.room.challengeSend('u-1', 'u-2', 'brain');
+  broken.room.challengeRespond('u-2', again.challengeId, true);
+  await waitForCondition(() => broken.last('u-1', 'challenge.state').status === 'cancelled');
+  broken.room.close();
+});
+
 test('đo độ hiểu ý: 10 câu không trùng, giữ kín đáp án và chỉ hai người nhận phần trăm', () => {
   const { room, inbox, last } = socialRoom();
   const sent = room.challengeSend('u-1', 'u-2', 'compatibility');

@@ -11,6 +11,9 @@ import { applyDom, guessLang, lang, locale, onLangChange, setLang, t } from '/th
 import { createLecture } from '/lecture.js';
 import { createExploreUI } from '/explore-ui.js';
 import { createSettingsMenu } from '/settings-menu.js';
+import { createPhoneUI } from '/phone-ui.js';
+import { createBrainUI } from '/brain-ui.js';
+import { createMapUI } from '/map-ui.js';
 import { buildRecitation } from '/prayer-recite.js';
 import { sutraById, sutraLines } from '/sutras.js';
 import { createMala } from '/mala.js';
@@ -173,7 +176,8 @@ const labelMala = () => { malaButton.textContent = `📿 ${t('emote.mala')}`; };
 labelMala();
 onLangChange(labelMala);
 // Viết sớ cũng chuyển vào menu ▾ của thanh động tác (giữ nguyên nút và sự kiện).
-const zoneGuide = createZoneGuide({ stage: elements.stage });
+// Hướng dẫn khu Tàng Kinh Các có nút "Mở Trí tuệ" (mở app 🧠).
+const zoneGuide = createZoneGuide({ stage: elements.stage, onAction: (place) => { if (place === 'library') brain?.open(); } });
 // Trốn tìm trong sân (tạo sau explore; các hàm gọi tới nó chỉ chạy khi người dùng bấm / có tin từ server).
 let hideSeek = null;
 const explore = createExploreUI({
@@ -188,13 +192,19 @@ const explore = createExploreUI({
   onGardenTap: (target) => garden?.onTap(target), onFarmTap: (target) => farmUI?.onTap(target), onMemorialTap: (target) => memorial?.onTap(target), gardenLabel: (plot) => garden?.labelFor(plot) || '',
   onGuideTap: (place) => zoneGuide.open(place),
   onMeritBoardTap: openMeritLedger,
-  onPlaceChange: (place) => setCurrentPlace(place), travelHost: elements.roomBar,
+  // Đi nhanh là một app trong điện thoại 📱 (bảng nút đích đặt vào app, không còn nút trên thanh phòng).
+  onPlaceChange: (place) => setCurrentPlace(place), travelHost: null,
   exits: [{ id: 'cinema', icon: '🎬', go: goToCinema }, { id: 'games', icon: '🎲', go: goToGames }],
 });
 hideSeek = createHideSeekUI({ stage: elements.stage, host: elements.roomBar, session, explore, showToast, t, onLangChange, onCoins: () => garden?.refreshCoins() });
-// Game Bấm Giờ: nút ngay dưới Trốn tìm, chơi trong điện hay ngoài sân đều được (thẻ nổi trên thanh chat).
-createStopwatchUI({
-  stage: elements.stage, host: elements.roomBar, controls: elements.controls, t, onLangChange, locale, showToast,
+// Nút cất trong điện thoại: còn trong trang (sự kiện, video giới thiệu bấm thẳng vào) nhưng không hiện trên cảnh.
+const phoneParked = document.createElement('div');
+phoneParked.className = 'phone-parked';
+phoneParked.hidden = true;
+elements.stage.append(phoneParked);
+// Game Bấm Giờ: app trong điện thoại, chơi trong điện hay ngoài sân đều được (thẻ nổi trên thanh chat).
+const stopwatch = createStopwatchUI({
+  stage: elements.stage, host: phoneParked, controls: elements.controls, t, onLangChange, locale, showToast,
   account: () => accountUI?.account, openSignIn: () => $('meChip').click(),
 });
 // Quay về từ map khác (rạp phim gửi ?go=courtyard…): vào phòng xong thì tới thẳng khu đã chọn.
@@ -226,6 +236,11 @@ let communityProject = null;
 // Bấm vào người khác: thẻ thông tin, kết bạn, khiêu chiến kéo búa bao. Tạo sau khi có âm thanh (bên dưới).
 let social = null;
 let chatCenter = null;
+// Điện thoại 📱 (tạo sau cùng, khi mọi bảng đã có): app Tin nhắn, Đi nhanh, Ví, Linh thú, Cài đặt…
+let phone = null;
+let chatUnread = 0;
+// Khu Trí tuệ (app 🧠): Đề hôm nay, Test IQ vui, Bảng vàng (brain-ui.js).
+let brain = null;
 
 let voiceName = null;
 let mala = null;
@@ -274,10 +289,32 @@ let currentPlace = null;
 // và trong 💬 Tin nhắn; lễ vẫn hiện trong cảnh.
 const outsideHall = () => Boolean(currentPlace) && currentPlace !== 'hall';
 const quietNotice = (participantId) => participantId !== session.participantId && outsideHall();
+// Bảng vàng Tàng Kinh Các: lấy Bảng vàng khu Trí tuệ khi đứng trong khu, 2 phút cập nhật một lần.
+let libraryBoard = null;
+let libraryBoardAt = 0;
+async function refreshLibraryBoard() {
+  if (Date.now() - libraryBoardAt < 120_000) return;
+  libraryBoardAt = Date.now();
+  const data = await fetch('/api/v1/brain', { cache: 'no-store', credentials: 'same-origin' }).then((response) => (response.ok ? response.json() : null)).catch(() => null);
+  if (!data?.board) return;
+  libraryBoard = {
+    title: t('library.boardTitle'),
+    empty: t('library.empty'),
+    sections: [
+      { title: t('library.today'), rows: (data.board.today || []).map((row) => [row.name, t('library.points', { n: row.points })]) },
+      { title: t('library.iq'), rows: (data.board.iq || []).map((row) => [row.name, String(row.index)]) },
+      { title: t('library.quiz'), rows: (data.board.quiz || []).map((row) => [row.name, t('library.wins', { n: row.wins })]) },
+    ],
+  };
+  renderer?.setBrainBoard?.(libraryBoard);
+}
+setInterval(() => { if (currentPlace === 'library') refreshLibraryBoard(); }, 30_000);
+
 function setCurrentPlace(place) {
   currentPlace = place;
   if (!place) return;
   farmUI?.setPlace(place);
+  if (place === 'library') refreshLibraryBoard();
   const inHall = place === 'hall';
   elements.stage.classList.toggle('in-hall', inHall);
   lecture.setVisible(inHall);
@@ -552,6 +589,7 @@ function accountChanged(account) {
   refreshOwnedSkins();
   garden?.accountChanged();
   farmUI?.accountChanged();
+  brain?.accountChanged();
   memorial?.accountChanged();
   communityProject?.accountChanged();
   if (!session.participantId) return;
@@ -705,6 +743,7 @@ async function setViewMode(mode) {
   }
   renderer.setParticipants(sceneParticipants());
   for (const project of communityProject?.states?.() || []) renderer.setCommunityProject?.(project);
+  if (libraryBoard) renderer.setBrainBoard?.(libraryBoard);
   renderer.setCeremony?.(ceremonySettings());
   renderer.setCeremonyActive?.(!lecture.active);
   updateInsets();
@@ -1000,6 +1039,8 @@ function handleMessage(message) {
       say(nameOf(message.participantId, message.displayName), message.text, false, badgesOf(message.participantId));
     }
     if (!renderer?.say(message.participantId, message.text)) explore.say(message.participantId, message.text);
+  } else if (message.type === 'quiz.state') {
+    brain?.onQuiz(message);
   } else if (message.type === 'hideseek.state') {
     hideSeek?.onState(message);
   } else if (message.type === 'hideseek.reward') {
@@ -1617,6 +1658,8 @@ social = createPlayerSocial({
   onGoGame: (game) => goToGames(game),
   currentRoomId: () => URL_ROOM,
   onGoRoom: goToFriendRoom,
+  // Đấu trí (khiêu chiến game 'brain'): lúc chơi do khu Trí tuệ vẽ.
+  onBrainDuel: (state, info) => brain?.duel(state, info),
 });
 // 💬 Tin nhắn: xem lại chat của phòng (khung trên cảnh chỉ giữ 3 tin) và nhắn riêng với bạn bè; nút nằm cạnh ô chat.
 chatCenter = createChatCenter({
@@ -1626,8 +1669,12 @@ chatCenter = createChatCenter({
   selfId: () => session.participantId,
   sendRoom: (text) => session.send({ type: 'chat.send', requestId: `chat-${crypto.randomUUID()}`, text }),
   botHere: (name) => [...participants.values()].find((person) => person.bot && person.displayName === name) || null,
+  // Số tin chưa xem hiện trên app Tin nhắn và nút 📱 (nút 💬 cũ nay là app trong điện thoại).
+  onUnread: (count) => {
+    chatUnread = count;
+    phone?.setBadge('messages', count);
+  },
 });
-elements.chatForm.prepend(chatCenter.openButton);
 
 // "Tới chỗ bạn" / "Tới ngay" (lời mời của bạn): cùng phòng thì đi bộ tới cạnh bạn; chánh điện khác thì đổi phòng rồi
 // đi tới bạn khi đã vào; rạp phim / phòng game thì sang trang đó.
@@ -1855,27 +1902,213 @@ const labelLegal = () => {
 labelLegal();
 onLangChange(labelLegal);
 
-createSettingsMenu({
-  topBar: elements.topBar,
-  rows: [
-    { element: $('meChip'), label: 'menu.account' },
-    { element: social.friendsButton },
-    { element: social.quietButton, keepOpen: true },
-    { element: elements.copyRoom, container: elements.roomBar },
-    { element: elements.viewMode, label: 'menu.view' },
-    { element: elements.nextTrack, container: elements.tools, label: 'menu.music', keepOpen: true },
-    { element: elements.mute, container: elements.tools, label: 'menu.sound', keepOpen: true },
-    { element: voiceTest, label: 'menu.voice', keepOpen: true },
-    { element: appInstall.fullscreenButton, label: 'menu.screen' },
-    { element: appInstall.installButton },
-    { element: pets.menuButton },
-    { element: shopButton, label: 'menu.shop' },
-    { element: donateButton, label: 'menu.donate' },
-    { element: supportButton, label: 'menu.support' },
-    { element: legalLinks, label: 'menu.legal' },
-    { element: elements.leave, container: elements.tools },
+// ---- Điện thoại 📱: thay nút ⚙, 💬, Đi nhanh, Bấm giờ, ô xu / kim cương trên cảnh bằng một màn có biểu tượng app ----
+// (phone-ui.js). Các nút cũ chuyển vào điện thoại nguyên vẹn (giữ sự kiện): Cài đặt là menu ⚙ cũ, Đi nhanh là bảng
+// nút đích của explore-ui, ô xu / kim cương nằm trên thanh trạng thái. Bản đồ, Máy ảnh, Album làm sau (phone.setApp).
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+const phoneButton = (className, text, onClick) => {
+  const node = el('button', className, text);
+  node.type = 'button';
+  node.addEventListener('click', onClick);
+  return node;
+};
+
+// App Cài đặt: menu ⚙ cũ (Tài khoản, mã phòng, 2D / 3D, âm thanh, giọng đọc, màn hình, ủng hộ, hỗ trợ, pháp lý, Rời).
+let settings = null;
+const settingsPage = {
+  build(body) {
+    settings = createSettingsMenu({
+      host: body,
+      onPick: () => phone?.close(),
+      rows: [
+        { element: $('meChip'), label: 'menu.account' },
+        { element: social.quietButton, keepOpen: true },
+        { element: elements.copyRoom, container: elements.roomBar },
+        { element: elements.viewMode, label: 'menu.view' },
+        { element: elements.nextTrack, container: elements.tools, label: 'menu.music', keepOpen: true },
+        { element: elements.mute, container: elements.tools, label: 'menu.sound', keepOpen: true },
+        { element: voiceTest, label: 'menu.voice', keepOpen: true },
+        { element: appInstall.fullscreenButton, label: 'menu.screen' },
+        { element: appInstall.installButton },
+        { element: donateButton, label: 'menu.donate' },
+        { element: supportButton, label: 'menu.support' },
+        { element: legalLinks, label: 'menu.legal' },
+        { element: elements.leave, container: elements.tools },
+      ],
+    });
+  },
+  show: () => settings?.refresh(),
+};
+
+// App Đi nhanh: bảng nút đích của explore-ui. Chưa đi lại được (2D, chưa vào phòng) thì chỉ sang rạp phim / phòng game.
+const travelNote = el('p', 'phone-note');
+const travelPage = {
+  build(body) {
+    body.append(travelNote, explore.travelPanel);
+    explore.travelPanel.addEventListener('click', (event) => {
+      if (event.target.closest('[data-destination]:not(:disabled)')) phone?.close();
+    });
+  },
+  show() {
+    const ready = explore.canTravel();
+    travelNote.textContent = t('phone.only3d');
+    travelNote.hidden = ready;
+    for (const item of explore.travelPanel.querySelectorAll('[data-destination]')) item.disabled = !ready && !explore.isExit(item.dataset.destination);
+  },
+};
+
+// App Ví: xu (ví Vườn Công Đức) và kim cương; số lấy từ chính ô xu / kim cương trên thanh trạng thái.
+const walletCoins = el('b');
+const walletGems = el('b');
+const walletCard = (icon, value, key, onClick) => {
+  const card = phoneButton('phone-card', undefined, () => {
+    phone?.close();
+    onClick();
+  });
+  const text = el('span', 'phone-card-text');
+  const name = el('small');
+  name.dataset.key = key;
+  text.append(value, name);
+  card.append(el('span', 'phone-card-icon', icon), text, el('span', 'phone-card-go', '›'));
+  return card;
+};
+const walletParts = {
+  coins: walletCard('🪙', walletCoins, 'phone.wallet.coins', () => $('coinChip').click()),
+  coinsNote: el('p', 'phone-note'),
+  gems: walletCard('💎', walletGems, 'phone.wallet.gems', () => gems.open()),
+  gemsNote: el('p', 'phone-note'),
+  shop: phoneButton('phone-row', '', () => {
+    phone?.close();
+    openShop();
+  }),
+};
+const walletPage = {
+  build(body) {
+    body.append(walletParts.coins, walletParts.coinsNote, walletParts.gems, walletParts.gemsNote, walletParts.shop);
+  },
+  show() {
+    walletCoins.textContent = $('coinCount').textContent;
+    walletGems.textContent = $('gemCount').textContent;
+    for (const name of document.querySelectorAll('.phone-card small[data-key]')) name.textContent = t(name.dataset.key);
+    walletParts.coinsNote.textContent = t(accountUI.account ? 'phone.wallet.coinsNote' : 'coins.signIn');
+    walletParts.gemsNote.textContent = t('phone.wallet.gemsNote');
+    walletParts.shop.textContent = `🛍 ${t('shop.open')}`;
+  },
+};
+// Số xu / kim cương đổi lúc đang xem ví: vẽ lại.
+const balanceWatch = new MutationObserver(() => phone?.refresh());
+for (const id of ['coinCount', 'gemCount']) balanceWatch.observe($(id), { childList: true, characterData: true, subtree: true });
+
+// App Nông trại: tóm tắt Phước Điền của mình, nút tới nơi; đang ở Phước Điền thì mở Hàng xóm.
+const farmInfo = el('div', 'phone-farm');
+let farmTriedAt = 0;
+const farmPage = {
+  build(body) {
+    body.append(farmInfo);
+  },
+  show() {
+    const parts = [];
+    const close = (run) => () => {
+      phone?.close();
+      run();
+    };
+    const go = () => {
+      if (explore.canTravel()) close(() => explore.goTo('myfarm'))();
+      else showToast(t('phone.only3d'));
+    };
+    if (!accountUI.account) {
+      parts.push(el('p', 'phone-note', t('phone.farm.signIn')));
+      parts.push(phoneButton('phone-row primary', t('phone.farm.signInButton'), close(() => $('meChip').click())));
+      parts.push(phoneButton('phone-row', `🌾 ${t('phone.farm.sample')}`, go));
+    } else {
+      const summary = farmUI.summary();
+      if (!summary) {
+        parts.push(el('p', 'phone-note', t('phone.farm.loading')));
+        // Tải lại tối đa 10 giây một lần (tải lỗi thì không gọi lại liên tục; mở lại trang sau đó thì thử lại).
+        if (Date.now() - farmTriedAt > 10_000) {
+          farmTriedAt = Date.now();
+          farmUI.refresh().finally(() => phone?.refresh());
+        }
+      } else {
+        parts.push(el('h3', 'phone-farm-level', `🌾 ${t('phone.farm.level', { n: summary.level })}`));
+        const lines = [
+          summary.ripe && `🧺 ${t('phone.farm.ripe', { n: summary.ripe })}`,
+          summary.dry && `💧 ${t('phone.farm.dry', { n: summary.dry })}`,
+          summary.eggs && `🥚 ${t('phone.farm.eggs', { n: summary.eggs })}`,
+          summary.milk && `🥛 ${t('phone.farm.milk', { n: summary.milk })}`,
+          summary.visitors && `📬 ${t('phone.farm.visitors', { n: summary.visitors })}`,
+        ].filter(Boolean);
+        const list = el('ul', 'phone-farm-list');
+        for (const line of lines.length ? lines : [`🌿 ${t('phone.farm.calm')}`]) list.append(el('li', '', line));
+        parts.push(list);
+      }
+      if (explore.place === 'myfarm') parts.push(phoneButton('phone-row primary', `🏡 ${t('phone.farm.neighbors')}`, close(() => farmUI.openNeighbors())));
+      else parts.push(phoneButton('phone-row primary', `🌾 ${t('phone.farm.go')}`, go));
+    }
+    farmInfo.replaceChildren(...parts);
+  },
+};
+
+brain = createBrainUI({
+  stage: elements.stage,
+  showToast,
+  locale,
+  account: () => accountUI.account,
+  openSignIn: () => $('meChip').click(),
+  displayName: () => me()?.displayName || accountUI.account?.displayName || session.displayName || '',
+  muted: () => elements.mute.getAttribute('aria-pressed') === 'true',
+  sendRoom: (message) => session.send({ requestId: `brain-${crypto.randomUUID()}`, ...message }),
+  selfId: () => session.participantId,
+  serverNow: () => session.serverNow(),
+});
+try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienBrain = brain; } catch {}
+
+phone = createPhoneUI({
+  stage: elements.stage,
+  parked: phoneParked,
+  showToast,
+  locale,
+  status: [$('coinChip'), $('gemChip')],
+  apps: [
+    { id: 'messages', icon: '💬', label: 'chat.center', run: () => chatCenter.openButton.click() },
+    { id: 'friends', icon: '👥', label: 'friends.title', run: () => social.friendsButton.click() },
+    { id: 'travel', icon: '📍', label: 'travel.quick', page: travelPage },
+    { id: 'map', icon: '🗺️', label: 'phone.app.map', soon: true },
+    { id: 'wallet', icon: '👛', label: 'phone.app.wallet', page: walletPage },
+    { id: 'pets', icon: '🐾', label: 'phone.app.pets', run: () => pets.open() },
+    { id: 'farm', icon: '🌾', label: 'phone.app.farm', page: farmPage },
+    { id: 'stopwatch', icon: '⏱️', label: 'sw.chip', run: () => stopwatch.show() },
+    { id: 'brain', icon: '🧠', label: 'phone.app.brain', run: () => brain.open() },
+    { id: 'camera', icon: '📷', label: 'phone.app.camera', soon: true },
+    { id: 'album', icon: '🖼️', label: 'phone.app.album', soon: true },
+    { id: 'shop', icon: '🛍️', label: 'menu.shop', run: openShop },
+    { id: 'settings', icon: '⚙️', label: 'phone.app.settings', page: settingsPage },
   ],
 });
+elements.chatForm.prepend(phone.openButton);
+phone.setBadge('messages', chatUnread);
+// Bản đồ chỉ chạy trong cảnh 3D, dùng world.walk của scene và tuyến cục bộ; không gửi vị trí hay đường đi lên server.
+const mapUI = createMapUI({
+  stage: elements.stage,
+  explore,
+  getWorld: () => renderer?.scene?.world || null,
+  travel: THIEN_RULES.world.travel,
+  showToast,
+});
+phone.setApp('map', {
+  run: () => mapUI.open(),
+  soon: false,
+  blocked: () => (!explore.active ? 'phone.only3d' : (explore.mapBlocked() ? 'map.busyHideSeek' : null)),
+});
+// Kiểm tra khi phát triển: localStorage 'debug-explore' = '1' thì window.chanhDienPhone là điện thoại.
+try {
+  if (localStorage.getItem('debug-explore') === '1') Object.assign(window, { chanhDienPhone: phone, chanhDienMap: mapUI });
+} catch {}
 
 // Bảng "Tấm lòng thành" thu gọn / mở ra; nhớ lựa chọn trên máy.
 const boardToggle = document.createElement('button');

@@ -1,11 +1,11 @@
 import http from 'node:http';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   AVATAR_FRAMES, AVATAR_URL, CHAT_HISTORY_MAX, COMPATIBILITY_BANK_SIZE, COMPATIBILITY_BANK_VERSION,
-  COMPATIBILITY_QUESTION_COUNT, GAMES, GAME_ROOMS,
+  BRAIN_DUEL_ITEMS, COMPATIBILITY_QUESTION_COUNT, GAMES, GAME_ROOMS,
   parseClientMessage, parseServerMessage, PET_ACTIONS, PLAYER_TITLES, PROTOCOL_VERSION, RPS_CHOICES,
   QUESTION_GAMES, SPIRIT_LEVEL_MAX, SPIRIT_SPECIES,
 } from '@chanh-dien/protocol';
@@ -32,6 +32,7 @@ import { bauCuaBank, BauCuaTable, DICE_TABLE_GAMES } from './bau-cua.mjs';
 import { rpsBank, RpsTable } from './rps.mjs';
 import { tienLenBank, TienLenTable } from './tien-len.mjs';
 import { HideSeekGame } from './hide-seek.mjs';
+import { QuizGame } from './quiz.mjs';
 import { BOT_AI_MODEL, createBotAi, guessLang } from './bot-ai.mjs';
 import { botNavFor } from './bot-nav.mjs';
 import { LottoTable, lottoBank } from './loto.mjs';
@@ -78,6 +79,10 @@ const COMPATIBILITY_ANSWER_MS = 180_000;
 const CHALLENGE_TARGET = 2;
 const CHALLENGE_MAX_ROUNDS = 9;
 const CHALLENGE_LINGER_MS = 5_000;
+// Đấu trí: chờ API tạo đề tối đa BRAIN_DUEL_START_MS; hết giờ làm bài (API báo limitMs) còn chờ thêm BRAIN_DUEL_GRACE_MS
+// cho bài nộp sát giờ rồi mới chốt (API nhận bài tới limitMs + 15 giây).
+const BRAIN_DUEL_START_MS = 15_000;
+const BRAIN_DUEL_GRACE_MS = 20_000;
 const LEGACY_COMPATIBILITY_BANK_SIZE = 100;
 const BEATS = { rock: 'scissors', paper: 'rock', scissors: 'paper' };
 
@@ -365,6 +370,8 @@ export class Room {
     this.onChoreReward = options.onChoreReward || null;
     // Trả xu thưởng trốn tìm qua API ({ accountId, key } → { ok, reward, coins, count, limit }).
     this.onHideSeekReward = options.onHideSeekReward || null;
+    // Đấu trí: tạo trận / hỏi kết quả qua API ({ start(body), status(challengeId) }); không có thì không chơi được.
+    this.brainDuel = options.brainDuel || null;
     // Hỏi / ghi bạn bè giữa hai thành viên (API); không có thì kết bạn chỉ trong phiên.
     this.onFriend = options.onFriend || null;
     // Chuyển báo cáo người chơi tới API để lưu.
@@ -392,6 +399,10 @@ export class Room {
           : game === 'tienlen' ? new TienLenTable({ room: this, rules: this.rules.interaction, ...(options.tienlen || {}) }) : null;
     // Trốn tìm trong sân (rules.hideSeek, phòng có thế giới 3D): ván do máy giữ phòng điều khiển.
     this.hideSeek = this.rules.hideSeek && this.rules.world ? new HideSeekGame({ room: this, rules: this.rules.hideSeek }) : null;
+    // Đố vui nhiều người (rules.quiz): đề xin API (options.brainQuiz), máy này giữ đáp án và điều khiển ván; hết ván báo
+    // kết quả thành viên cho Bảng vàng (options.onQuizResult).
+    this.onQuizResult = options.onQuizResult || null;
+    this.quiz = this.rules.quiz ? new QuizGame({ room: this, rules: this.rules.quiz, source: options.brainQuiz || null }) : null;
     // Phòng game công cộng cấu hình alwaysOn tự tạo đủ bot ngay khi room actor mở, giữ bàn chạy khi chưa có người
     // thật và dùng cùng cơ chế dao động của addbot. Giá trị botCount truyền vào (env / Telegram) vẫn được ưu tiên.
     if (this.rules.bots?.alwaysOn && this.botCount > 0) {
@@ -1134,6 +1145,10 @@ export class Room {
   }
 
   challengeState(challenge) {
+    if (challenge.game === 'brain') {
+      this.brainDuelState(challenge);
+      return;
+    }
     const message = {
       v: PROTOCOL_VERSION,
       type: 'challenge.state',
@@ -1187,6 +1202,7 @@ export class Room {
   // Kết thúc trận (từ chối, huỷ, hết hạn, xong): báo hai bên rồi xoá sau một lúc.
   endChallenge(challenge, status) {
     clearTimeout(challenge.timer);
+    for (const timer of challenge.botTimers || []) clearTimeout(timer);
     challenge.status = status;
     this.challengeState(challenge);
     if (status === 'finished' && QUESTION_GAMES.includes(challenge.game)
@@ -1244,9 +1260,148 @@ export class Room {
       return { ok: true };
     }
     challenge.status = 'playing';
-    if (QUESTION_GAMES.includes(challenge.game)) this.startQuestionGame(challenge);
+    if (challenge.game === 'brain') this.startBrainDuel(challenge);
+    else if (QUESTION_GAMES.includes(challenge.game)) this.startQuestionGame(challenge);
     else this.startRound(challenge);
     return { ok: true };
+  }
+
+  // ---- Đấu trí 1–1 ----
+  // API tạo cho mỗi bên người một đề (cùng seed) và giữ đáp án; mã đề chỉ gửi riêng cho người đó. Bên bot không có đề:
+  // máy này tự định kết quả bot. Hai bên lấy đề / nộp bài qua API rồi gửi challenge.check; máy này hỏi API kết quả.
+  brainDuelState(challenge) {
+    const active = ['playing', 'finished'].includes(challenge.status);
+    const base = {
+      v: PROTOCOL_VERSION,
+      type: 'challenge.state',
+      epoch: this.epoch,
+      challengeId: challenge.id,
+      game: 'brain',
+      fromId: challenge.fromId,
+      toId: challenge.toId,
+      status: challenge.status,
+      ...(['pending', 'playing'].includes(challenge.status) ? { deadline: challenge.deadline } : {}),
+      ...(active ? { answered: { from: Boolean(challenge.answers.from), to: Boolean(challenge.answers.to) } } : {}),
+      ...(challenge.status === 'finished' && challenge.result ? { result: challenge.result, winner: challenge.winner } : {}),
+    };
+    for (const side of ['from', 'to']) {
+      const roundId = challenge.status === 'playing' ? challenge.duel?.rounds?.[side] : null;
+      this.sendTo(side === 'from' ? challenge.fromId : challenge.toId, roundId
+        ? { ...base, duel: { roundId, limitMs: challenge.duel.limitMs, total: challenge.duel.total } }
+        : base);
+    }
+  }
+
+  startBrainDuel(challenge) {
+    challenge.answers = { from: null, to: null };
+    challenge.duel = null;
+    challenge.botTimers = [];
+    challenge.deadline = Date.now() + BRAIN_DUEL_START_MS;
+    challenge.timer = setTimeout(() => this.endChallenge(challenge, 'cancelled'), BRAIN_DUEL_START_MS);
+    challenge.timer.unref?.();
+    this.challengeState(challenge);
+    if (!this.brainDuel) {
+      this.endChallenge(challenge, 'cancelled');
+      return;
+    }
+    const sideOf = (id) => {
+      const participant = this.participants.get(id);
+      return participant?.bot ? { bot: true } : { accountId: participant?.accountId || null };
+    };
+    Promise.resolve(this.brainDuel.start({ challengeId: challenge.id, from: sideOf(challenge.fromId), to: sideOf(challenge.toId) }))
+      .catch(() => null)
+      .then((created) => {
+        if (challenge.status !== 'playing') return;
+        if (!created?.ok) {
+          this.endChallenge(challenge, 'cancelled');
+          return;
+        }
+        challenge.duel = { rounds: created.rounds || {}, limitMs: created.limitMs, total: created.total };
+        clearTimeout(challenge.timer);
+        challenge.deadline = Date.now() + created.limitMs + BRAIN_DUEL_GRACE_MS;
+        challenge.timer = setTimeout(() => this.finishBrainDuel(challenge, true), created.limitMs + BRAIN_DUEL_GRACE_MS);
+        challenge.timer.unref?.();
+        for (const side of ['from', 'to']) this.scheduleBrainBot(challenge, side);
+        this.challengeState(challenge);
+      });
+  }
+
+  // Bot "làm bài": mỗi trận một trình độ (đúng 40–85 % mỗi câu, bằng crypto.randomInt), nộp sau 45–120 giây.
+  scheduleBrainBot(challenge, side) {
+    const participant = this.participants.get(side === 'from' ? challenge.fromId : challenge.toId);
+    if (!participant?.bot) return;
+    const skill = randomInt(40, 86);
+    let correct = 0;
+    for (let index = 0; index < challenge.duel.total; index += 1) if (randomInt(0, 100) < skill) correct += 1;
+    const ms = Math.min(challenge.duel.limitMs - 5_000, randomInt(45_000, 120_001));
+    const timer = setTimeout(() => {
+      if (challenge.status !== 'playing' || challenge.answers[side]) return;
+      challenge.answers[side] = { correct, ms };
+      this.challengeState(challenge);
+      this.maybeFinishBrainDuel(challenge);
+    }, ms);
+    timer.unref?.();
+    challenge.botTimers.push(timer);
+  }
+
+  challengeCheck(participantId, challengeId) {
+    const challenge = this.challenges.get(challengeId);
+    if (!challenge || challenge.game !== 'brain' || ![challenge.fromId, challenge.toId].includes(participantId) || challenge.status !== 'playing') {
+      return { ok: false, error: 'NO_CHALLENGE' };
+    }
+    if (!this.allow(`${participantId}:brain-check`, 10, 60_000)) return { ok: false, error: 'RATE_LIMITED' };
+    this.refreshBrainDuel(challenge);
+    return { ok: true };
+  }
+
+  // Hỏi API kết quả hai bên. Đang hỏi dở mà có yêu cầu mới thì hỏi lại ngay sau đó (bài vừa nộp không bị bỏ sót).
+  refreshBrainDuel(challenge) {
+    if (!challenge.duel || !this.brainDuel) return Promise.resolve();
+    if (challenge.checking) {
+      challenge.recheck = true;
+      return challenge.checking;
+    }
+    challenge.checking = Promise.resolve(this.brainDuel.status(challenge.id)).catch(() => null).then((status) => {
+      challenge.checking = null;
+      if (status?.ok && challenge.status === 'playing') {
+        let changed = false;
+        for (const side of ['from', 'to']) {
+          const item = status[side];
+          if (item?.done && !challenge.answers[side]) {
+            challenge.answers[side] = { correct: item.correct, ms: item.ms };
+            changed = true;
+          }
+        }
+        if (changed) this.challengeState(challenge);
+        this.maybeFinishBrainDuel(challenge);
+      }
+      if (challenge.recheck && challenge.status === 'playing') {
+        challenge.recheck = false;
+        return this.refreshBrainDuel(challenge);
+      }
+      return undefined;
+    });
+    return challenge.checking;
+  }
+
+  maybeFinishBrainDuel(challenge) {
+    if (challenge.status === 'playing' && challenge.answers.from && challenge.answers.to) this.finishBrainDuel(challenge, false);
+  }
+
+  // Chốt: ai đúng nhiều hơn thắng, bằng thì ai nhanh hơn, bằng nữa là hòa. Hết giờ mà một bên chưa nộp: 0 câu, trọn giờ.
+  finishBrainDuel(challenge, timedOut) {
+    if (challenge.status !== 'playing') return;
+    const settle = () => {
+      if (challenge.status !== 'playing') return;
+      const limit = challenge.duel?.limitMs || 0;
+      const [from, to] = ['from', 'to'].map((side) => challenge.answers[side] || { correct: 0, ms: limit });
+      challenge.result = { from, to, total: challenge.duel?.total || BRAIN_DUEL_ITEMS };
+      challenge.winner = from.correct !== to.correct ? (from.correct > to.correct ? 'from' : 'to')
+        : from.ms !== to.ms ? (from.ms < to.ms ? 'from' : 'to') : 'draw';
+      this.endChallenge(challenge, 'finished');
+    };
+    if (timedOut) this.refreshBrainDuel(challenge).then(settle, settle);
+    else settle();
   }
 
   questionBankSize(challenge) {
@@ -1442,6 +1597,7 @@ export class Room {
     this.stopChore(participantId);
     this.table?.participantAway?.(participantId);
     this.hideSeek?.participantAway(participantId);
+    this.quiz?.participantAway(participantId);
     for (const key of this.friendRequests.keys()) if (key.split('>').includes(participantId)) this.friendRequests.delete(key);
     for (const key of this.handRequests.keys()) if (key.split('>').includes(participantId)) this.handRequests.delete(key);
     // Người rời phòng (đã xóa khỏi danh sách): người còn lại thôi nắm tay.
@@ -2139,6 +2295,17 @@ export class Room {
   }
 
   // Bot rảnh có thể kéo vào làm người trốn: đang đi dạo ngoài sân, không ngồi, không làm vườn / nắm tay / đấu / nói.
+  reportQuiz(event) {
+    if (!this.onQuizResult) return;
+    Promise.resolve(this.onQuizResult(event)).catch(() => {});
+  }
+
+  // Bot rảnh chơi Đố vui: không ngồi thiền, không đang đấu / trốn tìm / nắm tay (trả lời "trên điện thoại", vẫn đi dạo).
+  availableQuizBots() {
+    return [...this.participants.values()].filter((participant) => participant.bot && !participant.seatId && !participant.handWith
+      && !this.activeChallengeOf(participant.id) && !this.hideSeek?.players.has(participant.id) && !this.quiz?.players.has(participant.id));
+  }
+
   availableGameBots(now = Date.now()) {
     const bots = [];
     for (const participant of this.participants.values()) {
@@ -2615,13 +2782,14 @@ export class Room {
   botTick(now = Date.now(), random = Math.random) {
     if ((!this.connectedCount && !this.keepBotsAlive) || !this.botState) return;
     this.hideSeek?.recheckLobby();
+    this.quiz?.recheckLobby();
     const config = this.rules.bots;
     const state = this.botState;
     const bots = [...this.participants.values()].filter((participant) => participant.bot);
     this.driftBotCount(now, random);
     const target = this.botTargetCount;
     let changed = false;
-    const busyBot = (bot) => this.hideSeek?.inRound(bot.id) || this.activeChallengeOf(bot.id) || this.activeChoreOf(bot.id)
+    const busyBot = (bot) => this.hideSeek?.inRound(bot.id) || this.quiz?.inRound(bot.id) || this.activeChallengeOf(bot.id) || this.activeChoreOf(bot.id)
       || this.table?.hasBotBet?.(bot.id) || this.table?.hasBotTicket?.(bot.id)
       || bot.handWith || (bot.talkUntil || 0) > now;
     const idle = bots.length > target ? [...bots].reverse().find((bot) => !busyBot(bot)) : null;
@@ -3271,6 +3439,7 @@ export class Room {
     this.closed = true;
     this.table?.stop();
     this.hideSeek?.stop();
+    this.quiz?.stop();
     clearTimeout(this.playback.timer);
     clearTimeout(this.moveTimer);
     clearInterval(this.botTimer);
@@ -3367,6 +3536,9 @@ export class RoomRegistry {
     this.onOffering = options.onOffering;
     this.onChoreReward = options.onChoreReward;
     this.onHideSeekReward = options.onHideSeekReward;
+    this.brainDuel = options.brainDuel;
+    this.brainQuiz = options.brainQuiz;
+    this.onQuizResult = options.onQuizResult;
     this.onFriend = options.onFriend;
     this.onReport = options.onReport;
     this.onBotChat = options.onBotChat;
@@ -3546,6 +3718,9 @@ export class RoomRegistry {
       onOffering: this.onOffering,
       onChoreReward: this.onChoreReward,
       onHideSeekReward: this.onHideSeekReward,
+      brainDuel: this.brainDuel,
+      brainQuiz: this.brainQuiz,
+      onQuizResult: this.onQuizResult,
       onFriend: this.onFriend,
       onReport: this.onReport,
       onBotChat: this.onBotChat,
@@ -3804,6 +3979,8 @@ function handleRoomMessage(socket, context, raw) {
     if (room.chores.size) room.broadcastChores(socket);
     // Trốn tìm đang có người chờ / đang chơi: người mới vào (hoặc nối lại) thấy ngay.
     if (room.hideSeek && room.hideSeek.phase !== 'idle') send(socket, room.hideSeek.stateMessage());
+    // Đố vui đang chờ / đang chơi: người mới vào (hoặc nối lại) thấy ngay.
+    if (room.quiz && !['idle', 'stopped'].includes(room.quiz.phase)) send(socket, room.quiz.stateMessage());
     // Phòng game: trạng thái bàn Bầu Cua và cược của mình trong ván đang chạy (vào lại giữa ván).
     if (room.table) {
       const state = room.table.stateMessage();
@@ -3866,6 +4043,25 @@ function handleRoomMessage(socket, context, raw) {
         : room.hideSeek.catch(context.participantId, message.targetId);
     if (!result.ok) {
       const text = { GAME_FULL: 'Ván trốn tìm đã đủ người', TOO_FAR: 'Lại gần hơn để bắt (trong 3 m)', NOT_SEEKING: 'Chưa tới lúc đi kiếm', NOT_SEEKER: 'Bạn không phải người đi kiếm', NOT_HIDER: 'Người này không phải người trốn' }[result.error];
+      protocolError(socket, room.epoch, result.error, text || 'Chưa làm được, thử lại sau', message.requestId);
+    }
+    return;
+  }
+  if (message.type.startsWith('quiz.')) {
+    if (!room.quiz) {
+      protocolError(socket, room.epoch, 'NOT_ALLOWED', 'Phòng này không có Đố vui', message.requestId);
+      return;
+    }
+    const answering = message.type === 'quiz.answer';
+    if (!room.allow(`${context.participantId}:${answering ? 'quiz-answer' : 'quiz'}`, answering ? 10 : 5, 10_000)) {
+      protocolError(socket, room.epoch, 'RATE_LIMITED', 'Bạn bấm quá nhanh', message.requestId);
+      return;
+    }
+    const result = message.type === 'quiz.join' ? room.quiz.join(context.participantId)
+      : message.type === 'quiz.leave' ? room.quiz.leave(context.participantId)
+        : room.quiz.answer(context.participantId, message.index, message.choice);
+    if (!result.ok) {
+      const text = { GAME_FULL: 'Ván đố vui đã đủ người', NOT_ASKING: 'Câu này đã hết giờ', NOT_PLAYING: 'Bạn không còn trong cuộc', ALREADY_ANSWERED: 'Bạn đã trả lời câu này', NOT_ALLOWED: 'Đố vui đang tạm nghỉ' }[result.error];
       protocolError(socket, room.epoch, result.error, text || 'Chưa làm được, thử lại sau', message.requestId);
     }
     return;
@@ -4049,7 +4245,8 @@ function handleRoomMessage(socket, context, raw) {
           : message.type === 'challenge.respond' ? room.challengeRespond(id, message.challengeId, message.accept)
             : message.type === 'challenge.move' ? room.challengeMove(id, message.challengeId, message.choice)
               : message.type === 'challenge.answer' ? room.challengeAnswer(id, message.challengeId, message.answers)
-                : room.challengeCancel(id, message.challengeId);
+                : message.type === 'challenge.check' ? room.challengeCheck(id, message.challengeId)
+                  : room.challengeCancel(id, message.challengeId);
     if (!result.ok) protocolError(socket, room.epoch, result.error, SOCIAL_ERRORS[result.error] || 'Không thực hiện được', message.requestId);
     return;
   }
@@ -4535,6 +4732,59 @@ export function choreRewardRecorder(apiInternalUrl, secret) {
   });
 }
 
+// Đố vui: xin API một bộ đề kèm đáp án ([{ problem, answer }]); lỗi trả null (ván lùi lại, thử sau).
+export function brainQuizSource(apiInternalUrl, secret) {
+  const key = internalKey(secret);
+  const url = new URL('/internal/brain/quiz', apiInternalUrl);
+  return () => fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: '{}',
+    signal: AbortSignal.timeout(5_000),
+  }).then((response) => (response.ok ? response.json() : null)).then((data) => data?.items || null).catch((error) => {
+    console.warn(`Đố vui: không xin được đề (${error.message})`);
+    return null;
+  });
+}
+
+// Bảng vàng Đố vui: kết quả một ván ({ key, players }); key giúp gửi lại không bị tính hai lần.
+export function quizResultRecorder(apiInternalUrl, secret) {
+  const key = internalKey(secret);
+  const url = new URL('/internal/brain/quiz/result', apiInternalUrl);
+  return (event) => fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    body: JSON.stringify(event),
+    signal: AbortSignal.timeout(5_000),
+  }).then((response) => (response.ok ? response.json() : null)).catch((error) => {
+    console.warn(`Đố vui: không ghi được kết quả (${error.message})`);
+    return null;
+  });
+}
+
+// Đấu trí: tạo trận (mỗi bên người một đề) và hỏi kết quả hai bên ở API. Lỗi mạng trả null (trận bị hủy / chốt theo
+// những gì đã biết).
+export function brainDuelClient(apiInternalUrl, secret) {
+  const key = internalKey(secret);
+  const url = new URL('/internal/brain/duel', apiInternalUrl);
+  const call = (target, init) => fetch(target, {
+    ...init,
+    headers: { 'content-type': 'application/json', 'x-internal-key': key },
+    signal: AbortSignal.timeout(5_000),
+  }).then((response) => (response.ok ? response.json() : null)).catch((error) => {
+    console.warn(`Đấu trí: không gọi được API (${error.message})`);
+    return null;
+  });
+  return {
+    start: (body) => call(url, { method: 'POST', body: JSON.stringify(body) }),
+    status: (challengeId) => {
+      const target = new URL(url);
+      target.searchParams.set('challengeId', challengeId);
+      return call(target, { method: 'GET' });
+    },
+  };
+}
+
 export function hideSeekRewardRecorder(apiInternalUrl, secret) {
   const key = internalKey(secret);
   const url = new URL('/internal/hideseek/reward', apiInternalUrl);
@@ -4725,6 +4975,9 @@ export function createRealtimeServer(options = {}) {
     onOffering: options.recordOffering || (options.apiInternalUrl ? offeringRecorder(options.apiInternalUrl, secret) : undefined),
     onChoreReward: options.recordChoreReward || (options.apiInternalUrl ? choreRewardRecorder(options.apiInternalUrl, secret) : undefined),
     onHideSeekReward: options.recordHideSeekReward || (options.apiInternalUrl ? hideSeekRewardRecorder(options.apiInternalUrl, secret) : undefined),
+    brainDuel: options.brainDuel || (options.apiInternalUrl ? brainDuelClient(options.apiInternalUrl, secret) : undefined),
+    brainQuiz: options.brainQuiz || (options.apiInternalUrl ? brainQuizSource(options.apiInternalUrl, secret) : undefined),
+    onQuizResult: options.recordQuizResult || (options.apiInternalUrl ? quizResultRecorder(options.apiInternalUrl, secret) : undefined),
     onFriend: options.recordFriend || (options.apiInternalUrl ? friendRecorder(options.apiInternalUrl, secret) : undefined),
     onReport: options.recordReport || (options.apiInternalUrl ? reportRecorder(options.apiInternalUrl, secret) : undefined),
     onBotChat: options.recordBotChat || (options.apiInternalUrl ? botChatRecorder(options.apiInternalUrl, secret) : undefined),

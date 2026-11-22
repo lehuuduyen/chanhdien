@@ -856,7 +856,7 @@ function bakedCourtyardShadows(data) {
     for (const item of data.arhats || []) pole(item.x, item.z, 1.7 * (item.scale || 1), 0.55 * (item.scale || 1), 0.26);
     for (const item of data.planters || []) pole(item.x, item.z, 1.25, 0.42, 0.22);
     // Xích đu / cầu tuột nằm trong mô hình khu vui chơi (bóng thật của mesh), không nướng bóng ghế.
-    for (const item of data.benches || []) if (!item.kind) pole(item.x, item.z, 1.25 * (item.scale || 1), 1.05 * (item.scale || 1), 0.2);
+    for (const item of data.benches || []) if (!item.kind && !item.stools) pole(item.x, item.z, 1.25 * (item.scale || 1), 1.05 * (item.scale || 1), 0.2);
     // Cây công trình đổi kích thước theo tiến độ nên dùng bóng thật của mesh, không nướng bóng cây hoàn chỉnh từ đầu.
     if (data.bodhi && !data.bodhi.projectId) pole(data.bodhi.x, data.bodhi.z, 7.5 * (data.bodhi.size || 1), 2.2 * (data.bodhi.size || 1), 0.42);
     if (data.guanyin) pole(data.guanyin.x, data.guanyin.z, 4.1 * (data.guanyin.scale || 1), 1.2 * (data.guanyin.scale || 1), 0.38);
@@ -1407,6 +1407,153 @@ function addGuideBoard(batch, m, item, pickables, root, signs) {
   proxy.userData.zoneGuide = item.id;
   root.add(proxy);
   pickables.push(proxy);
+}
+
+// Tàng Kinh Các (khu Trí tuệ; bố cục ở scripts/thien-garden-layout.mjs, world.courtyard.library): mô hình Meshy tải khi
+// camera tới gần (lazyDistance), trong lúc đó / tải lỗi là hình khối dự phòng; hai bộ bàn ghế đá Meshy (instanceProp);
+// biển tên phủ lên tấm biển chữ Hán Meshy tự vẽ trên cửa; bảng vàng chữ vẽ canvas, cập nhật bằng setBoard. Chạm nhà hoặc
+// bảng vàng mở hướng dẫn khu 'library' (userData.zoneGuide, như bảng hướng dẫn các khu khác).
+function buildLibrary(root, batch, m, library, pickables, lazyAssets) {
+  const { model, size } = library;
+  const at = (x, y, z) => localTransform({ x: model.x, z: model.z, ry: model.ry || 0, scale: 1 }, [x, y, z]);
+  // Hình khối dự phòng: nền đá, thân nhà, hai tầng mái.
+  const fallback = new THREE.Group();
+  const block = (geometry, material, position, scale) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(...position);
+    mesh.rotation.y = model.ry || 0;
+    if (scale) mesh.scale.set(...scale);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    fallback.add(mesh);
+  };
+  const body = size.height * 0.62;
+  block(new THREE.BoxGeometry(size.width, 0.6, size.depth), m.stone, at(0, 0.3, 0));
+  block(new THREE.BoxGeometry(size.width * 0.7, body * 0.5, size.depth * 0.6), m.wall, at(0, 0.6 + body * 0.25, 0));
+  block(new THREE.BoxGeometry(size.width * 0.5, body * 0.32, size.depth * 0.42), m.wall, at(0, 0.6 + body * 0.66, 0));
+  const roof = new THREE.ConeGeometry(0.71, 1, 4);
+  roof.rotateY(Math.PI / 4);
+  block(roof, m.roof, at(0, 0.6 + body * 0.58, 0), [size.width * 1.05, size.height * 0.16, size.depth * 0.98]);
+  block(roof, m.roof, at(0, 0.6 + body * 0.95, 0), [size.width * 0.78, size.height * 0.2, size.depth * 0.7]);
+  root.add(fallback);
+  // Bàn ghế đá dự phòng: mặt bàn tròn + 4 ghế trống.
+  const tableFallback = new THREE.Group();
+  const height = library.tableModel?.height || 0.74;
+  for (const table of library.tables || []) {
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.08, 20), m.stone);
+    top.position.set(table.x, height - 0.04, table.z);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, height - 0.08, 10), m.stone);
+    leg.position.set(table.x, (height - 0.08) / 2, table.z);
+    tableFallback.add(top, leg);
+  }
+  root.add(tableFallback);
+
+  // Biển tên trên cửa (che tấm biển chữ Hán của mô hình): đỏ chữ vàng như các biển khác của chùa.
+  const plaque = library.plaque;
+  if (plaque) {
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(plaque.width, plaque.height), new THREE.MeshStandardMaterial({ map: textBoard(library.sign || '', { width: 1024, height: 256 }), roughness: 0.6 }));
+    sign.position.set(...at(0, plaque.y, plaque.z));
+    sign.rotation.set(plaque.tilt || 0, model.ry || 0, 0, 'YXZ');
+    root.add(sign);
+  }
+
+  // Bảng vàng: hai cột gỗ, khung, mái nhỏ; mặt chữ là canvas vẽ lại khi có dữ liệu.
+  const board = library.board;
+  const boardAt = (x, y, z) => localTransform({ ...board, scale: 1 }, [x, y, z]);
+  for (const side of [-1, 1]) {
+    batch.add(new THREE.CylinderGeometry(0.08, 0.11, 2.5, 8), m.wood, { position: boardAt(side * (board.width / 2 + 0.05), 1.25, 0), rotation: [0, board.ry || 0, 0] });
+  }
+  batch.add(new THREE.BoxGeometry(board.width + 0.2, board.height + 0.2, 0.1), m.wood, { position: boardAt(0, 1.55, 0), rotation: [0, board.ry || 0, 0] });
+  batch.add(new THREE.BoxGeometry(board.width + 0.6, 0.12, 0.5), m.roof, { position: boardAt(0, 2.48, 0), rotation: [0, board.ry || 0, 0] });
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 640;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(board.width, board.height), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.7 }));
+  face.position.set(...boardAt(0, 1.55, 0.056));
+  face.rotation.y = board.ry || 0;
+  root.add(face);
+  const draw = (data = {}) => {
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.fillStyle = '#5a1010';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#d9a441';
+    ctx.lineWidth = 12;
+    ctx.strokeRect(10, 10, w - 20, h - 20);
+    ctx.fillStyle = '#f3c969';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 64px "Noto Serif", Georgia, serif';
+    ctx.fillText(data.title || 'BẢNG VÀNG TRÍ TUỆ', w / 2, 70, w - 60);
+    const sections = (data.sections || []).slice(0, 3);
+    const column = (w - 60) / Math.max(1, sections.length);
+    sections.forEach((section, index) => {
+      const x = 30 + column * index + column / 2;
+      ctx.fillStyle = '#ffd877';
+      ctx.font = '700 36px "Be Vietnam Pro", system-ui, sans-serif';
+      ctx.fillText(section.title, x, 160, column - 20);
+      const rows = (section.rows || []).slice(0, 5);
+      if (!rows.length) {
+        ctx.fillStyle = 'rgba(243, 230, 204, .7)';
+        ctx.font = '400 28px "Be Vietnam Pro", system-ui, sans-serif';
+        ctx.fillText(data.empty || '—', x, 240, column - 20);
+      }
+      rows.forEach(([name, value], row) => {
+        const y = 225 + row * 78;
+        ctx.fillStyle = row === 0 ? '#ffe9a8' : '#f3e6cc';
+        ctx.font = `${row === 0 ? 700 : 500} 32px "Be Vietnam Pro", system-ui, sans-serif`;
+        ctx.fillText(`${['🥇', '🥈', '🥉'][row] || `${row + 1}.`} ${String(name).slice(0, 18)}`, x, y, column - 24);
+        ctx.fillStyle = '#d9a441';
+        ctx.font = '500 26px "Be Vietnam Pro", system-ui, sans-serif';
+        ctx.fillText(String(value), x, y + 32, column - 24);
+      });
+    });
+    texture.needsUpdate = true;
+  };
+  draw();
+
+  // Vùng chạm: thân nhà, bảng vàng → hướng dẫn khu.
+  const proxyMaterial = new THREE.MeshBasicMaterial({ visible: false });
+  const house = new THREE.Mesh(new THREE.BoxGeometry(size.width, size.height, size.depth), proxyMaterial);
+  house.position.set(...at(0, size.height / 2, 0));
+  house.rotation.y = model.ry || 0;
+  const boardProxy = new THREE.Mesh(new THREE.BoxGeometry(board.width + 0.4, 2.6, 0.5), proxyMaterial);
+  boardProxy.position.set(...boardAt(0, 1.3, 0));
+  boardProxy.rotation.y = board.ry || 0;
+  for (const proxy of [house, boardProxy]) {
+    proxy.userData.zoneGuide = 'library';
+    root.add(proxy);
+    pickables.push(proxy);
+  }
+
+  // Tải mô hình khi camera tới gần (cả nhà lẫn bàn ghế).
+  let started = false;
+  lazyAssets.push({
+    update(point) {
+      if (started || !point || Math.hypot(point.x - model.x, point.z - model.z) > (model.lazyDistance || 60)) return;
+      started = true;
+      placeProp(root, model.src, { x: model.x, z: model.z, ry: model.ry || 0, width: model.width }, { receiveShadow: false }).then((group) => {
+        if (!group) return;
+        // Công trình: mặt nhám (ảnh Meshy có độ bóng giả làm mái / cột lóa).
+        group.traverse((object) => {
+          if (!object.material) return;
+          object.material.roughness = 1;
+          object.material.metalness = 0;
+        });
+        fallback.visible = false;
+      });
+      if (library.tableModel?.src && library.tables?.length) {
+        instanceProp(root, library.tableModel.src, library.tables, { height }).then((group) => {
+          if (group) tableFallback.visible = false;
+        });
+      }
+    },
+  });
+  return { setBoard: draw };
 }
 
 // Mặt tượng Quan Âm: mắt khép nhìn xuống, chân mày cong dài, bạch hào, môi mỉm (vẽ canvas, nét xám nhạt trên đá trắng).
@@ -2287,6 +2434,15 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
       benchPickables.push(proxy);
       continue;
     }
+    // Bàn ghế đá Tàng Kinh Các: mô hình bàn vẽ ở buildLibrary; vùng chạm phủ hai ghế đá cùng một bên bàn.
+    if (Array.isArray(item.stools)) {
+      const proxy = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.95, 1.45), benchProxyMaterial);
+      proxy.position.set(item.x, 0.48, item.z);
+      proxy.userData.benchId = item.id;
+      root.add(proxy);
+      benchPickables.push(proxy);
+      continue;
+    }
     addBench(batch, m, item);
     // Mesh đơn giản chỉ dùng raycast: ghế thật đã gộp vào StaticBatch nên không còn nhận diện được từng ghế.
     const proxy = new THREE.Mesh(benchProxyGeometry, benchProxyMaterial);
@@ -2312,6 +2468,7 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     board.rotation.y = sign.ry;
     root.add(board);
   }
+  const library = data.library ? buildLibrary(root, batch, m, data.library, guidePickables, lazyAssets) : null;
   // Vườn Công Đức: phần tĩnh; biển tên là mesh riêng (texture chữ). Biển đọc được cả hai mặt: hai tấm một mặt quay lưng
   // vào nhau (một tấm hai mặt thì nhìn từ phía sau thấy chữ ngược, như biển quầy hạt giống nhìn từ ngoài cổng).
   const gardenPickables = [];
@@ -2808,6 +2965,10 @@ export function buildCourtyard({ root, scene3d, renderer, camera, world, themeBa
     },
     setPilgrimage(ids) {
       wishGarden?.setProgress(ids);
+    },
+    // Bảng vàng Tàng Kinh Các: { title, sections: [{ title, rows: [[tên, giá trị]] }], empty } (chữ đã dịch sẵn).
+    setBrainBoard(board) {
+      library?.setBoard(board);
     },
     // Bật bóng đổ (thử trên điện thoại), hoặc tắt khi máy yếu. Tắt không đổi số đèn đổ bóng (đổi là mọi vật liệu
     // biên dịch lại shader, đứng hình vài giây): thu khung chụp bóng về rỗng, vẽ một lần cho sạch bóng rồi thôi vẽ.

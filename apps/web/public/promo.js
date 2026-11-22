@@ -8,6 +8,11 @@
 // ?film=farm: clip ~47 giây ở Phước Điền (gieo, tưới, thu hoạch, gà, bò, chợ, thăm hàng xóm).
 // ?film=stopwatch: clip ~28 giây trò Bấm Giờ (suýt trúng, trúng đúng 1/100 giây, cấp 2 đồng hồ tắt, Bảng vàng).
 // ?film=hieu-y: clip ~39 giây trò hai người trên thẻ người chơi (Oẳn tù tì, Đo độ hiểu ý, Đoán ý bạn).
+// ?film=chanh-dien: clip ~33 giây trong chánh điện (ngồi thiền, dâng hoa, thỉnh chuông, dâng hương, Quan Âm, Vườn Đèn
+// Tâm Nguyện về đêm).
+// ?film=canh: clip ~32 giây phong cảnh (Vườn Hoa, Rừng thiền, đường La Hán, khu vui chơi, mỗi bang một cảnh, đêm trăng).
+// ?film=tri-tue: clip ~40 giây khu Trí tuệ (Tàng Kinh Các, Bảng vàng, Đố hình, Đố số, Màu mực, Test IQ, ảnh kết quả, Đố vui).
+// Màn cuối ghi LotusGather + địa chỉ web (?url=, mặc định lotusgather.online).
 import { thienThemeOf, US_STATES } from '/shared/room-rules.mjs';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -16,6 +21,7 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const NAME = 'Minh An';
 const CINEMA_ROOM = 'cinema-vn';
+const SITE = 'lotusgather.online';
 
 // ---- Toán nhỏ cho camera ----
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -126,7 +132,7 @@ function silence(page) {
 }
 
 const keepSound = () => $('soundToggle').checked || PARAMS.get('sound') === '1';
-const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y'];
+const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y', 'chanh-dien', 'canh', 'tri-tue'];
 const chosenFilm = () => {
   const name = PARAMS.get('film') || $('filmSelect').value;
   return FILMS.includes(name) ? name : 'tour';
@@ -165,6 +171,13 @@ async function prepareTemple(page) {
   }
   page.r = renderer;
   page.x = explore;
+  // Người đang ngồi bồ đoàn trong điện (renderer vẽ riêng, không nằm trong danh sách người đi lại): nhớ lại để kịch bản
+  // dâng lễ / nói câu cho đúng người đang ngồi.
+  const setParticipants = renderer.setParticipants.bind(renderer);
+  renderer.setParticipants = (list) => {
+    page.seated = list.filter((item) => !item.me && item.seatId);
+    return setParticipants(list);
+  };
   if (chosenFilm() === 'garden') {
     await prepareGarden(page);
     return;
@@ -179,6 +192,18 @@ async function prepareTemple(page) {
   }
   if (chosenFilm() === 'hieu-y') {
     await prepareHieuY(page);
+    return;
+  }
+  if (chosenFilm() === 'chanh-dien') {
+    await prepareHall(page);
+    return;
+  }
+  if (chosenFilm() === 'canh') {
+    for (const [code] of regions()) await setRegionTheme(code);
+    return;
+  }
+  if (chosenFilm() === 'tri-tue') {
+    await prepareBrain(page);
     return;
   }
   // Đưa nhân vật của mình tới cổng nông trại sẵn cho cảnh linh thú.
@@ -1128,6 +1153,352 @@ async function prepareHieuY(page) {
   await sleep(1_500);
 }
 
+// ---- Trí tuệ (kịch bản ?film=tri-tue) ----
+// Tàng Kinh Các + khu Trí tuệ thật của trang chánh điện (window.chanhDienBrain khi debug-explore). Chuẩn bị: đi nhanh tới
+// Tàng Kinh Các, ngồi ghế đá quanh bàn; xin sẵn đề thật (Đố hình, Đố số, Màu mực, Test IQ) để lúc quay mở ra ngay. Đáp án
+// do server giữ: chỉ khi quay bằng scripts/promo-video.mjs trên máy dev, script đọc seed của đề trong SQLite rồi trả
+// đáp án cho trang (window.promoSolved) để kịch bản tô ô đúng và làm Test IQ ra kết quả thật. Đố hình / Đố số / Màu mực
+// không nộp (chỉ quay vài câu) nên được xếp lại thứ tự câu trên máy quay cho câu khó lên trước; Test IQ nộp thật (đề xin
+// từ lúc chuẩn bị nên không bị TOO_FAST). Đố vui: xin vào ván ~20 giây trước cảnh Đố vui, bot trong sân vào cùng.
+const brainShot = { live: false, rounds: {}, order: {}, solved: {}, iqIndex: null };
+const brainDoc = () => temple().doc;
+const brainUI = () => temple().win.chanhDienBrain;
+const brainOptions = () => [...brainDoc().querySelectorAll('.brain-sheet .brain-options .brain-option')];
+// Script quay trả đáp án của một đề (mảng chỉ số phương án theo thứ tự câu của server).
+window.promoSolved = (roundId, answers) => { brainShot.solved[roundId] = answers; };
+// Đáp án của câu đang hiện thứ `index` (theo thứ tự đã xếp lại trên máy quay).
+function brainSolution(game, index) {
+  const round = brainShot.rounds[game];
+  const answers = round && brainShot.solved[round.roundId];
+  if (!answers) return null;
+  const original = brainShot.order[game]?.[index] ?? index;
+  return Number.isInteger(answers[original]) ? answers[original] : null;
+}
+// Tô ô đúng (lớp .correct có sẵn của Đố vui) rồi chạm vào; chưa có đáp án thì chạm ô đầu.
+function brainReveal(game, index = 0, { press = true } = {}) {
+  const options = brainOptions();
+  const answer = brainSolution(game, index);
+  const target = answer === null ? options[0] : options[answer];
+  if (answer !== null) target?.classList.add('correct');
+  if (press) tap(target, 260);
+  return target;
+}
+// Màu mực: chạm liền tay theo đúng luật của câu (trang tự biết đáp án vì phải vẽ màu ra).
+function brainStroop(count, step = 420) {
+  const round = brainShot.rounds.stroop;
+  let index = 0;
+  const next = () => {
+    const options = brainOptions();
+    const item = round?.problem.items[index];
+    if (!options.length || !item) return;
+    tap(options[item.mode === 'word' ? item.word : item.ink], 60);
+    index += 1;
+    if (index < count) setTimeout(next, step);
+  };
+  next();
+}
+// Test IQ tua nhanh: trả lời đủ 20 câu (sai vài câu cho thật), câu kế hiện thì mới chạm (trang chờ 160 ms giữa hai câu).
+function brainIqRun({ step = 190, wrong = [3, 9, 14, 18] } = {}) {
+  const round = brainShot.rounds.iq;
+  if (!round) return;
+  const total = round.problem.items.length;
+  let index = 0;
+  let shown = '';
+  const next = () => {
+    const counter = brainDoc().querySelector('.brain-sheet .brain-counter')?.textContent || '';
+    const options = brainOptions();
+    if (!options.length || index >= total) return;
+    if (counter === shown) {
+      setTimeout(next, 30);
+      return;
+    }
+    shown = counter;
+    const answer = brainSolution('iq', index) ?? 0;
+    const choice = wrong.includes(index) ? (answer + 1) % options.length : answer;
+    options[choice]?.click();
+    tapRing(options[choice]);
+    index += 1;
+    if (index < total) setTimeout(next, step);
+  };
+  next();
+}
+// Đổi màn khu Trí tuệ: đóng (dừng bài đang làm, đóng ảnh kết quả) rồi mở thẻ.
+function brainOpen(tab) {
+  const ui = brainUI();
+  ui?.close();
+  ui?.open(tab);
+}
+// Mở một trò của Đề hôm nay: chạm thẻ trò → hướng dẫn → Bắt đầu (đề đã xin sẵn nên hiện ngay).
+function brainPlay(game) {
+  brainOpen('daily');
+  tap(brainDoc().querySelector(`.brain-sheet .brain-game[data-game="${game}"]`), 120);
+  setTimeout(() => tap(brainDoc().querySelector('.brain-sheet .brain-start'), 120), 520);
+}
+
+async function prepareBrain(page) {
+  const { win, doc } = page;
+  await waitFor(() => win.chanhDienBrain, 20_000, 'khu Trí tuệ');
+  brainShot.live = state.signedIn;
+  if (!state.signedIn) state.warnings.push('Chưa đăng nhập: Test IQ của khách vẫn chạy nhưng không có đáp án để tô (chạy scripts/promo-video.mjs --film tri-tue).');
+  // Khu Trí tuệ (ngăn trò chơi, ảnh kết quả) hiện như giao diện điện thoại ở nửa dưới, chừa chữ phía trên và cột nút
+  // TikTok bên phải; nền phía trên là Tàng Kinh Các.
+  injectStyle(page, `
+    .brain-sheet, .brain-sheet *, .brain-card, .brain-card * { visibility: visible !important; }
+    .brain-sheet { inset: auto !important; top: 27.5% !important; bottom: 15.5% !important; left: 3.5% !important; right: 15.5% !important; gap: 8px !important; padding: 12px 14px !important; border: 1px solid rgba(178, 150, 255, .5) !important; border-radius: 22px !important; overflow: hidden !important; }
+    .brain-sheet .brain-play { gap: 7px !important; }
+    .brain-sheet .brain-grid { width: min(100%, 214px) !important; gap: 4px !important; padding: 5px !important; }
+    .brain-sheet .brain-options.matrix { width: min(100%, 290px) !important; gap: 6px !important; }
+    .brain-sheet .brain-options.matrix .brain-option { aspect-ratio: 1.3 !important; }
+    .brain-sheet .brain-rotate { width: min(42%, 132px) !important; padding: 6px !important; }
+    .brain-sheet .brain-options.rotation { width: min(100%, 270px) !important; gap: 6px !important; }
+    .brain-sheet .brain-options.rotation .brain-option { aspect-ratio: 1.7 !important; padding: 5px !important; }
+    .brain-sheet .brain-numgrid { width: min(100%, 230px) !important; }
+    .brain-sheet .brain-option { min-height: 44px !important; }
+    .brain-sheet .brain-skip, .brain-sheet .brain-submit { display: none !important; }
+    /* Test IQ làm tua nhanh trên máy quay: ẩn dòng thời gian làm bài (vài chục giây, không giống người làm thật). */
+    .brain-sheet .brain-bars .brain-bar:last-child { display: none !important; }
+    .brain-card { inset: auto !important; top: 26% !important; bottom: 13% !important; left: 5% !important; right: 17% !important; border-radius: 22px !important; padding: 10px !important; }
+    .brain-card .brain-small { display: none !important; }
+  `);
+  // Đi nhanh tới Tàng Kinh Các (bỏ qua hướng dẫn khu), rồi tới ngồi ghế đá B-19 (bên tây bàn thứ nhất).
+  click(page, '.quick-travel-panel button[data-destination="library"]');
+  await sleep(2_500);
+  doc.querySelector('.zone-guide-skip')?.click();
+  const scene = await fetch('/scenes/thien-default/scene.json').then((response) => response.json()).catch(() => null);
+  const bench = scene?.world.courtyard.benches.find((item) => item.id === 'B-19');
+  if (bench) {
+    const [ax, az] = bench.approach;
+    const spot = { x: bench.x + ax * Math.cos(bench.ry) + az * Math.sin(bench.ry), z: bench.z - ax * Math.sin(bench.ry) + az * Math.cos(bench.ry) };
+    page.x.walkTo(spot, () => page.x.activateNearby());
+    await waitFor(() => page.x.debugState().walkers.find((item) => item.id === page.x.debugState().selfId)?.benchId === 'B-19', 15_000, 'ngồi ghế đá').catch(() => {
+      state.warnings.push('Chưa ngồi được ghế đá Tàng Kinh Các (có người ngồi rồi?).');
+    });
+  }
+  // Xin sẵn đề thật; trang xin đề trò nào thì đưa đề đã xin (một lần).
+  const fetchReal = win.fetch.bind(win);
+  for (const game of ['matrix', 'series', 'stroop', 'iq']) {
+    const response = await fetchReal('/api/v1/brain/round', {
+      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ game }),
+    }).catch(() => null);
+    const round = response?.ok ? await response.json() : null;
+    if (!round) {
+      state.warnings.push(`Không xin được đề ${game}.`);
+      continue;
+    }
+    brainShot.rounds[game] = round;
+    try { window.promoHost?.(JSON.stringify({ op: 'brain-solve', roundId: round.roundId })); } catch {}
+  }
+  // Xếp lại câu của các trò chỉ quay (không nộp): Đố hình câu khó nhất lên trước, Đố số câu khó mà số còn dễ đọc, Màu mực
+  // có câu đổi luật (🔤 chọn theo chữ) ở lượt thứ ba.
+  const reorder = (game, pick) => {
+    const round = brainShot.rounds[game];
+    if (!round) return;
+    const items = round.problem.items;
+    const order = pick(items).filter((index, position, list) => index >= 0 && list.indexOf(index) === position);
+    const full = [...order, ...items.map((_, index) => index).filter((index) => !order.includes(index))];
+    brainShot.order[game] = full;
+    round.problem = { ...round.problem, items: full.map((index) => items[index]) };
+  };
+  const hardest = (items, test = () => true) => items.map((item, index) => ({ item, index })).filter(({ item }) => test(item)).sort((a, b) => b.item.level - a.item.level)[0]?.index ?? 0;
+  reorder('matrix', (items) => [hardest(items, (item) => item.kind === 'matrix')]);
+  reorder('series', (items) => [hardest(items, (item) => Array.isArray(item.terms) && item.terms.length <= 6 && Math.max(...item.terms.map(Math.abs)) < 1000)]);
+  reorder('stroop', (items) => {
+    const ink = items.map((item, index) => (item.mode === 'ink' && item.level >= 3 ? index : -1)).filter((index) => index >= 0);
+    const word = items.map((item, index) => (item.mode === 'word' ? index : -1)).filter((index) => index >= 0);
+    return [ink[0], ink[1], word[0], ink[2], word[1], ink[3]].filter((index) => index !== undefined);
+  });
+  win.fetch = async (url, init) => {
+    if (String(url) === '/api/v1/brain/round' && init?.method === 'POST') {
+      const { game } = JSON.parse(init.body || '{}');
+      const ready = brainShot.rounds[game];
+      if (ready && !ready.served) {
+        ready.served = true;
+        return new win.Response(JSON.stringify(ready), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+    }
+    return fetchReal(url, init);
+  };
+  // Chờ đáp án từ script quay (có ngay sau vài chục ms).
+  if (window.promoHost) {
+    await waitFor(() => ['matrix', 'series', 'iq'].every((game) => !brainShot.rounds[game] || brainShot.solved[brainShot.rounds[game].roundId]), 8_000, 'đáp án đề')
+      .catch(() => state.warnings.push('Không có đáp án đề (script quay không đọc được SQLite máy dev?).'));
+  }
+}
+// Chữ kết quả Test IQ theo đúng chỉ số trên màn hình (kết quả thật).
+function brainIqCaption() {
+  whenReady(() => brainDoc().querySelector('.brain-sheet .brain-iq'), () => {
+    const index = brainDoc().querySelector('.brain-sheet .brain-iq').textContent;
+    brainShot.iqIndex = index;
+    caption({ cls: 'tight', kicker: '🧩 Test IQ vui', title: ['Mình', 'được', [index, 'green'], '\n', 'Còn', ['bạn?', 'pink'], '🤔'] });
+  }, 9_000);
+}
+
+// ---- Chánh điện (kịch bản ?film=chanh-dien) ----
+// Người ngồi bồ đoàn là bot của phòng (BOTS_THIEN). Dâng hoa, thỉnh chuông, dâng hương gọi renderer.offer trên máy quay
+// (người ngồi cúi lạy, cánh sen bay, nén hương bay ra lư), không gửi server. Bảy trạm Vườn Đèn thắp bằng
+// explore.setPilgrimage: chỉ đổi hình trên máy quay, không ghi tiến độ của ai.
+const HALL_SEAT = (item) => Number(String(item.seatId).replace(/\D/g, '')) || 99;
+// Người đang ngồi, hàng đầu trước (S-1… gần bàn thờ).
+const hallSeated = () => [...(temple().seated || [])].sort((a, b) => HALL_SEAT(a) - HALL_SEAT(b));
+function hallOffer(kind, count, gap = 280, from = 0) {
+  hallSeated().slice(from, from + count).forEach((item, index) => {
+    setTimeout(() => temple().r.offer(item.id, kind, { big: kind === 'bell' }), index * gap);
+  });
+}
+function hallSay(index, text) {
+  const item = hallSeated()[index];
+  if (item) temple().r.say(item.id, text);
+}
+// Thắp lần lượt các trạm đèn (mã trạm theo world.courtyard.wishGarden.stations), mỗi trạm sau gap giây.
+const WISH_STATIONS = ['wish-1', 'wish-2', 'wish-3', 'wish-4', 'wish-5', 'wish-6', 'wish-7'];
+function lightStations(count, gap) {
+  for (let index = 1; index <= count; index += 1) setTimeout(() => temple().x.setPilgrimage?.(WISH_STATIONS.slice(0, index)), index * gap * 1_000);
+}
+
+async function prepareHall(page) {
+  page.x.setPilgrimage?.([]);
+  await waitFor(() => (page.seated || []).length >= 6, 45_000, 'người ngồi thiền trong điện').catch(() => {
+    state.warnings.push('Trong điện ít người ngồi: chạy dev với bot (BOTS_THIEN=30 npm run dev) rồi quay lại.');
+  });
+}
+
+function buildHallFilm() {
+  return [
+    // 0. Mở đầu: chiều muộn, bay từ sân vào trước cửa chánh điện.
+    {
+      page: 'temple', dur: 3.6, transition: 'cut', sun: (u) => lerp(9, 6, u),
+      enter: () => temple().x.setPilgrimage?.([]),
+      cam: move({ pos: [10, 13, 70], at: [0, 4, 18], fov: 54 }, { pos: [2.6, 4.0, 37], at: [0, 3.2, 12], fov: 46 }),
+      caption: { cls: 'big', title: ['Đi', 'chùa', '\n', ['ngay trên', 'pink'], '\n', ['điện thoại', ''], '🙏'] },
+    },
+    // 1. Trong điện: lướt từ cửa vào giữa các hàng bồ đoàn, mọi người ngồi thiền.
+    {
+      page: 'temple', dur: 4.2, transition: 'flash', sun: 6,
+      cam: move({ pos: [0, 2.3, 15.4], at: [0, 1.9, -3], fov: 50 }, { pos: [0, 1.7, 12.0], at: [0, 1.6, 2], fov: 50 }, ease.out),
+      at: [[1.6, () => hallSay(2, 'Nam Mô A Di Đà Phật 🙏')]],
+      caption: { cls: 'tight', kicker: '🪷 Chánh điện 3D', title: ['Ngồi', 'thiền', ['cùng nhau', '']], sub: 'Mỗi người một bồ đoàn · từ khắp nơi' },
+    },
+    // 2. Dâng hoa rồi thỉnh chuông: người ngồi cúi lạy, cánh sen bay, chuông lớn làm hào quang sáng lên.
+    {
+      page: 'temple', dur: 4.8, transition: 'cut', sun: 6,
+      enter: () => hallOffer('petal', 4, 220),
+      at: [
+        [1.4, () => {
+          hallOffer('lotus', 3, 260, 4);
+          caption({ cls: 'tight', kicker: '🙏 Dâng lễ', title: ['Dâng', ['hoa sen', 'pink'], '🪷'] });
+        }],
+        [2.9, () => {
+          hallOffer('bell', 1, 0, 1);
+          flash(true);
+          caption({ cls: 'tight', kicker: '🙏 Dâng lễ', title: ['Thỉnh', ['chuông', ''], '🔔'], sub: 'Cả điện cùng nghe 🙏' });
+        }],
+      ],
+      cam: move({ pos: [2.4, 2.2, 9.4], at: [-0.3, 1.5, 1.6], fov: 48 }, { pos: [1.4, 2.6, 7.8], at: [0, 2.2, -0.5], fov: 48 }),
+      caption: { cls: 'tight', kicker: '🙏 Dâng lễ', title: ['Dâng', ['cánh sen', 'pink'], '🌸'] },
+    },
+    // 3. Dâng hương: lư hương trước điện (nén hương của người dâng cắm thêm vào lư), nhìn qua cửa vào điện.
+    {
+      page: 'temple', dur: 3.8, transition: 'flash', sun: 5,
+      enter: () => hallOffer('incense', 6, 380),
+      cam: move({ pos: [2.2, 3.5, 28.4], at: [0, 2.2, 18], fov: 46 }, { pos: [1.4, 3.1, 26.6], at: [0, 2.4, 17], fov: 44 }, ease.linear),
+      caption: { cls: 'tight', kicker: '🕯 Dâng hương', title: ['Thắp', 'nén', ['nhang', ''], 'nguyện', 'cầu'], sub: 'Bình an cho người thân 💛' },
+    },
+    // 4. Quan Âm lúc hoàng hôn.
+    {
+      page: 'temple', dur: 3.8, transition: 'flash', sun: (u) => lerp(3, 0.5, u),
+      cam: orbit({ center: [22, 0, 50], radius: 19, radius2: 16, height: 3.2, height2: 4.4, from: -2.05, to: -1.6, look: 3.0, fov: 46 }),
+      caption: { cls: 'tight', kicker: '🌅 Sân chùa', title: ['Tĩnh', 'tâm', ['mỗi ngày', 'blue']], sub: 'Quan Âm · Bồ Đề · La Hán · hồ sen' },
+    },
+    // 5. Vườn Đèn Tâm Nguyện về đêm: thắp lần lượt 7 trạm, cây nguyện ước giữa hồ sáng dần.
+    {
+      page: 'temple', dur: 5.4, transition: 'flash', sun: -13,
+      enter: () => { temple().x.setPilgrimage?.([]); lightStations(7, 0.55); },
+      cam: orbit({ center: [5, 0, 122], radius: 19, radius2: 16, height: 6.5, height2: 5.5, from: 3.6, to: 3.1, look: 4.2, fov: 52 }),
+      caption: { cls: 'tight', kicker: '🏮 Vườn Đèn Tâm Nguyện', title: ['Thắp', '7', 'trạm', '\n', ['đèn tâm nguyện', '']], sub: 'Cây nguyện ước giữa hồ sáng dần ✨' },
+    },
+    // 6. Đêm trăng trên mái chánh điện.
+    {
+      page: 'temple', dur: 3.2, transition: 'flash', sun: -15,
+      cam: move({ pos: [0, 2.6, 62], at: [0, 5.4, 20], fov: 50 }, { pos: [0, 3.2, 52], at: [0, 5.8, 18], fov: 46 }),
+      caption: { cls: 'tight', kicker: '🌙 Trời theo giờ thật', title: ['Đêm', 'về,', ['đèn lồng', 'blue'], 'sáng'] },
+    },
+    // 7. Màn cuối.
+    {
+      page: 'temple', dur: 4.2, transition: 'cut', end: true, sun: -15,
+      cam: move({ pos: [0, 3.2, 52], at: [0, 5.8, 18], fov: 46 }, { pos: [0, 4.2, 45], at: [0, 6.1, 17], fov: 44 }, ease.out),
+      caption: null,
+      enter: () => {
+        $('brand').classList.add('hidden');
+        $('endcard').hidden = false;
+      },
+    },
+  ];
+}
+
+// ---- Phong cảnh (kịch bản ?film=canh) ----
+// Chỉ bay camera + đổi giờ trời / phong cảnh bang trên máy quay; bot vẫn đi dạo, chơi xích đu như thường.
+function buildSceneryFilm() {
+  return [
+    // 0. Mở đầu: từ trên Vườn Hoa lướt về phía chánh điện.
+    {
+      page: 'temple', dur: 3.8, transition: 'cut', sun: 14,
+      cam: move({ pos: [-40, 24, 95], at: [-20, 2, 40], fov: 52 }, { pos: [-28, 16, 74], at: [-6, 3, 28], fov: 50 }),
+      caption: { cls: 'big', title: ['Cả', 'một', 'ngôi', 'chùa', '\n', ['để dạo chơi', 'green'], '🌿'] },
+    },
+    // 1. Vườn Hoa: lướt thấp qua luống hoa tới đình.
+    {
+      page: 'temple', dur: 4.2, transition: 'flash', sun: 14,
+      cam: move({ pos: [-19, 1.5, 21], at: [-33, 1.3, 31.5], fov: 50 }, { pos: [-21.6, 2.2, 23.2], at: [-33.5, 1.5, 32], fov: 50 }),
+      caption: { cls: 'tight', kicker: '🌸 Vườn Hoa', title: ['Vườn', 'hoa', ['ngàn bông', 'pink']], sub: 'Tulip · oải hương · hướng dương · anh đào' },
+    },
+    // 2. Rừng thiền: theo bến gỗ ra thủy đình giữa hồ sen.
+    {
+      page: 'temple', dur: 4.2, transition: 'flash', sun: 12,
+      cam: move({ pos: [-74.6, 2.6, 25.2], at: [-76, 1.5, 40], fov: 50 }, { pos: [-75.5, 2.1, 28.8], at: [-76, 1.7, 40], fov: 50 }),
+      caption: { cls: 'tight', kicker: '🌲 Rừng thiền', title: ['Thủy', 'đình', 'giữa', ['hồ sen', 'green']], sub: 'Thiền hành quanh hồ · ngồi ghế ngắm sen' },
+    },
+    // 3. Đường La Hán: bay vòng quanh tượng La Hán dát vàng bên lối vào chánh điện. (Không quay Hồ Sen lớn: sen / đá bờ chỉ
+    // hiện khi công trình chung đủ tiến độ, máy dev thường chưa có.)
+    {
+      page: 'temple', dur: 3.6, transition: 'flash', sun: 12,
+      cam: orbit({ center: [5.6, 0, 38.5], radius: 4.8, radius2: 4.2, height: 1.3, height2: 1.7, from: -1.4, to: -0.8, look: 1.3, fov: 50 }),
+      caption: { cls: 'tight', kicker: '🙏 Đường La Hán', title: ['Dạo', 'bước', 'giữa', ['La Hán', 'blue']], sub: 'Rồi vào chánh điện lễ Phật 🪷' },
+    },
+    // 4. Khu vui chơi: xích đu, cầu tuột, đu quay.
+    {
+      page: 'temple', dur: 3.6, transition: 'flash', sun: 12,
+      cam: orbit({ center: [23, 0, 30.9], radius: 13, radius2: 11, height: 4.6, height2: 3.6, from: -1.15, to: -0.55, look: 1.4, fov: 48 }),
+      caption: { cls: 'tight', kicker: '🎠 Khu vui chơi', title: ['Xích', 'đu,', ['cầu tuột', 'pink']], sub: 'Rủ bạn ra chơi cùng' },
+    },
+    // 5. Mỗi bang một cảnh: cùng một khung, phong cảnh đổi theo bang mỗi 0,8 giây.
+    {
+      page: 'temple', dur: 4.0, transition: 'flash', sun: 14,
+      enter: () => showRegion(0),
+      at: [0.8, 1.6, 2.4, 3.2].map((at, index) => [at, () => showRegion(index + 1)]),
+      cam: move({ pos: [0, 9.6, 127], at: [0, 3, 75], fov: 52 }, { pos: [0, 7.6, 113], at: [0, 3.4, 70], fov: 50 }, ease.linear),
+      caption: { cls: 'tight', kicker: '🗺️ Khu vực', title: ['Mỗi', 'bang', ['một cảnh', 'blue']] },
+    },
+    // 6. Hoàng hôn xuống rồi đêm trăng trên chánh điện.
+    {
+      page: 'temple', dur: 4.4, transition: 'flash',
+      enter: () => gameChips(null),
+      sun: (u) => lerp(4, -15, u),
+      cam: move({ pos: [0, 3.0, 70], at: [0, 5.2, 20], fov: 50 }, { pos: [0, 3.2, 54], at: [0, 5.8, 18], fov: 46 }),
+      caption: { cls: 'tight', kicker: '🌅 Trời theo giờ thật', title: ['Hoàng', 'hôn,', '\n', ['đêm lên đèn', ''], '🏮'], sub: 'Bầu trời theo giờ nơi bạn ở' },
+    },
+    // 7. Màn cuối.
+    {
+      page: 'temple', dur: 4.0, transition: 'cut', end: true, sun: -15,
+      cam: move({ pos: [0, 3.2, 54], at: [0, 5.8, 18], fov: 46 }, { pos: [0, 4.2, 46], at: [0, 6.1, 17], fov: 44 }, ease.out),
+      caption: null,
+      enter: () => {
+        $('brand').classList.add('hidden');
+        $('endcard').hidden = false;
+      },
+    },
+  ];
+}
+
 // ---- Kịch bản ----
 // Mỗi cảnh: page, dur (giây), transition, cam(u, now) cho chánh điện, sun (độ hoặc hàm u → độ), caption (undefined = giữ chữ
 // cũ, null = xóa), enter(), at: [[giây, hàm]] chạy giữa cảnh.
@@ -1622,6 +1993,116 @@ function buildHieuYFilm() {
   ];
 }
 
+// Trí tuệ (~40 giây): Tàng Kinh Các → Bảng vàng → Đề hôm nay → Đố hình (tô đáp án) → Đố số → Màu mực → Test IQ (làm
+// đủ 20 câu, chỉ số thật) → ảnh kết quả → Đố vui cả phòng → màn cuối. Khu Trí tuệ chiếm nửa dưới khung, mái Tàng Kinh Các
+// phía trên sau hàng chữ.
+function buildBrainFilm() {
+  const library = [41.5, 0, 22.6];
+  // Mái Tàng Kinh Các ở phần trên khung (sau hàng chữ), ngăn Trí tuệ che phần dưới.
+  const roof = (from, to, radius = 15) => orbit({ center: library, radius, radius2: radius - 1.2, height: 2.0, height2: 2.2, from, to, look: 1.2, fov: 50, curve: ease.linear });
+  return [
+    // 0. Mở đầu: bay tới Tàng Kinh Các, mình ngồi bàn đá trước sân.
+    {
+      page: 'temple', dur: 3.0, transition: 'cut', sun: 20,
+      cam: move({ pos: [35, 14, 64], at: [41.5, 3.5, 24], fov: 54 }, { pos: [38.2, 3.4, 44], at: [40.6, 3.2, 23], fov: 48 }),
+      caption: { cls: 'big', title: ['Luyện', 'não', '\n', ['trong chùa', 'green'], '🧠'] },
+    },
+    // 1. Bàn đá trước sân: mình ngồi ghế đá, Tàng Kinh Các phía sau.
+    {
+      page: 'temple', dur: 2.6, transition: 'flash', sun: 20,
+      cam: move({ pos: [33.2, 1.9, 38.4], at: [37.6, 1.6, 31.4], fov: 48 }, { pos: [33.9, 1.8, 37.4], at: [37.6, 1.7, 31.2], fov: 48 }, ease.out),
+      caption: { cls: 'tight', kicker: '📚 Tàng Kinh Các', title: ['Ngồi', 'bàn', 'đá,', ['giải đố', ''], 'cùng', 'nhau'], sub: 'Bảng vàng · Đố vui · Đấu trí 1–1' },
+    },
+    // 2. Mở 🧠 Trí tuệ: 5 trò mỗi ngày.
+    {
+      page: 'temple', dur: 1.8, transition: 'flash', sun: 20,
+      enter: () => brainOpen('daily'),
+      cam: roof(-0.5, -0.42),
+      caption: { cls: 'tight', kicker: '🧠 Đề hôm nay', title: ['5', 'trò', 'luyện', ['trí não', 'blue']], sub: '80% câu khó · ai cũng cùng một đề' },
+    },
+    // 3. Đố hình: câu ma trận khó nhất, 3 giây suy nghĩ rồi tô đáp án. Xin vào ván Đố vui ở đây (ván bắt đầu ~20 giây sau,
+    // đúng lúc cảnh Đố vui).
+    {
+      page: 'temple', dur: 5.6, transition: 'cut', sun: 20,
+      enter: () => brainPlay('matrix'),
+      at: [
+        [3.4, () => {
+          brainReveal('matrix', 0, { press: false });
+          caption({ cls: 'tight', kicker: '🪷 Đố hình', title: ['Đáp', 'án', 'đây!', ['✅', 'green']], sub: 'Bạn chọn đúng không? 👇' });
+        }],
+        [3.8, () => brainUI()?.joinQuiz()],
+        [4.9, () => brainReveal('matrix', 0)],
+      ],
+      cam: roof(-0.42, -0.3),
+      caption: { cls: 'tight', kicker: '🪷 Đố hình', title: ['Bạn', 'chọn', ['ô nào?', 'pink'], '🤔'], sub: '⏳ 3 giây suy nghĩ…' },
+    },
+    // 4. Đố số: dãy số khó, tô đáp án.
+    {
+      page: 'temple', dur: 4.4, transition: 'flash', sun: 20,
+      enter: () => brainPlay('series'),
+      at: [
+        [2.6, () => {
+          brainReveal('series', 0, { press: false });
+          caption({ cls: 'tight', kicker: '🔢 Đố số', title: ['Là', 'số', 'này', ['✅', 'green']], sub: 'Dãy số, bảng số · ~25 kiểu luật' });
+        }],
+        [3.8, () => brainReveal('series', 0)],
+      ],
+      cam: roof(-0.3, -0.2),
+      caption: { cls: 'tight', kicker: '🔢 Đố số', title: ['Số', 'tiếp', 'theo', ['là gì?', 'pink']] },
+    },
+    // 5. Màu mực: chạm liền tay, có câu đổi luật.
+    {
+      page: 'temple', dur: 3.8, transition: 'flash', sun: 20,
+      enter: () => brainPlay('stroop'),
+      at: [[0.9, () => brainStroop(6)]],
+      cam: roof(-0.2, -0.1),
+      caption: { cls: 'tight', kicker: '🎨 Màu mực', title: ['Màu', 'mực', 'hay', ['chữ?', 'pink'], '🎨'], sub: 'Luật đổi bất ngờ: 🖌 màu mực / 🔤 chữ ghi' },
+    },
+    // 6. Test IQ vui: 20 câu (tua nhanh), nộp thật → chỉ số.
+    {
+      page: 'temple', dur: 7.4, transition: 'flash', sun: 20,
+      enter: () => {
+        brainOpen('iq');
+        setTimeout(() => tap(brainDoc().querySelector('.brain-sheet .brain-start'), 120), 250);
+      },
+      at: [
+        [1.8, () => {
+          brainIqRun();
+          caption({ cls: 'tight', kicker: '🧩 Test IQ vui', title: ['⏩', 'Làm', 'đủ', ['20 câu', 'blue']], sub: 'Ma trận · xoay hình · dãy số · bảng số' });
+        }],
+        [2.0, brainIqCaption],
+      ],
+      cam: roof(-0.1, 0.05),
+      caption: { cls: 'tight', kicker: '🧩 Test IQ vui', title: ['Test', ['IQ vui', 'green'], '🧩'], sub: '20 câu · 15 phút · 80% câu khó' },
+    },
+    // 7. Ảnh kết quả 9:16 để khoe.
+    {
+      page: 'temple', dur: 3.0, transition: 'cut', sun: 20,
+      enter: () => tap(brainDoc().querySelector('.brain-sheet .brain-actions .brain-share'), 160),
+      cam: roof(0.05, 0.12),
+      caption: { cls: 'tight', kicker: '📸 Ảnh kết quả', title: ['Khoe', 'ngay', ['lên TikTok', 'pink']] },
+    },
+    // 8. Đố vui cả phòng: ván đang chạy, ai sai là bị loại.
+    {
+      page: 'temple', dur: 5.0, transition: 'flash', sun: 20,
+      enter: () => brainOpen('quiz'),
+      cam: roof(0.12, 0.25),
+      caption: { cls: 'tight', kicker: '🎯 Đố vui cả phòng', title: ['Sai', 'là', ['bị loại!', 'pink'], '😱'], sub: 'Ai trụ tới câu cuối thì thắng · có 🧩 Đấu trí 1–1' },
+    },
+    // 9. Màn cuối.
+    {
+      page: 'temple', dur: 3.6, transition: 'cut', end: true, sun: (u) => lerp(20, 8, u),
+      enter: () => {
+        brainUI()?.close();
+        $('brand').classList.add('hidden');
+        $('endcard').hidden = false;
+      },
+      cam: move({ pos: [39.6, 3.2, 42], at: [40.4, 3.0, 23], fov: 48 }, { pos: [41.5, 9, 52], at: [41.5, 3.5, 22], fov: 50 }, ease.out),
+      caption: null,
+    },
+  ];
+}
+
 // Việc làm trước một cảnh (giây trước lúc cảnh bắt đầu): vào bàn Tiến Lên để kịp chia bài, mua vé Lô Tô ở pha mua vé,
 // vào trận Oẳn Tù Tì để lúc quay đang tới lượt ra tay. Chỉ khi đã đăng nhập (khách không chơi được).
 const PREP = [
@@ -1689,7 +2170,7 @@ async function prepare() {
     setCheck('account', state.signedIn ? `Đăng nhập: ${me.account?.displayName || me.displayName}` : 'Khách (đăng nhập tài khoản có xu để quay cảnh đang đánh bài)', state.signedIn ? 'ok' : 'warn');
     const kind = chosenFilm();
     const jobs = [
-      ['temple', `/chanh-dien.html?state=${chosenState()}&sun=16`, prepareTemple, { garden: 'Chánh điện 3D · Vườn Công Đức', farm: 'Chánh điện 3D · Phước Điền', stopwatch: 'Chánh điện 3D · Bấm Giờ', 'hieu-y': 'Chánh điện 3D · Trò hai người' }[kind] || 'Chánh điện 3D'],
+      ['temple', `/chanh-dien.html?state=${chosenState()}&sun=16`, prepareTemple, { garden: 'Chánh điện 3D · Vườn Công Đức', farm: 'Chánh điện 3D · Phước Điền', stopwatch: 'Chánh điện 3D · Bấm Giờ', 'hieu-y': 'Chánh điện 3D · Trò hai người', 'chanh-dien': 'Chánh điện 3D · người ngồi thiền', canh: 'Chánh điện 3D · phong cảnh các bang', 'tri-tue': 'Chánh điện 3D · Tàng Kinh Các + Trí tuệ' }[kind] || 'Chánh điện 3D'],
       // Clip vườn / nông trại chỉ quay ở chánh điện.
       ...(kind !== 'tour' ? [] : [
         ['cinema', `/room.html?room=${CINEMA_ROOM}`, prepareCinema, 'Rạp phim'],
@@ -1714,13 +2195,16 @@ async function prepare() {
     }));
     if (!results[0]) throw new Error('Chánh điện 3D chưa sẵn sàng');
     // Kịch bản dựng sau khi chuẩn bị xong (góc máy clip vườn tính theo luống vừa chọn).
-    film = { garden: buildGardenFilm, farm: buildFarmFilm, stopwatch: buildStopwatchFilm, 'hieu-y': buildHieuYFilm }[kind]?.() || buildFilm();
+    film = { garden: buildGardenFilm, farm: buildFarmFilm, stopwatch: buildStopwatchFilm, 'hieu-y': buildHieuYFilm, 'chanh-dien': buildHallFilm, canh: buildSceneryFilm, 'tri-tue': buildBrainFilm }[kind]?.() || buildFilm();
     // Khoảng trắng trong từng mục không ngắt dòng (chỉ xuống dòng ở dấu ·).
     const tags = {
       garden: ['🌱 Trồng cây', '🧺 Thu hoạch', '💰 Bán lấy xu', '🐾 Linh thú', '🎬 Rạp phim'],
       farm: ['🌾 Nông trại riêng', '🐔 Nuôi gà, bò', '💰 Bán lấy xu', '🏡 Hàng xóm', '🎬 Rạp phim'],
       stopwatch: SW_BOARD_TAGS,
       'hieu-y': ['⚔️ Oẳn tù tì', '🧠 Hiểu ý', '🔮 Đoán ý', '🌾 Nông trại', '🎬 Rạp phim'],
+      'chanh-dien': ['🪷 Ngồi thiền', '🙏 Dâng lễ', '🏮 Vườn Đèn', '🌾 Nông trại', '🎬 Rạp phim'],
+      canh: ['🌸 Vườn Hoa', '🌲 Rừng thiền', '🎠 Khu vui chơi', '🌾 Nông trại', '🎬 Rạp phim'],
+      'tri-tue': ['🧠 Đề hôm nay', '🧩 Test IQ vui', '🎯 Đố vui', '🌾 Nông trại', '🎬 Rạp phim'],
     }[kind] || ['🐐 Nông trại', '🐾 Thú cưng', '🎬 Rạp phim', '🎲 Game', '💬 Bạn bè'];
     $('endTags').textContent = tags.map((tag) => tag.replaceAll(' ', '\u00a0')).join(' · ');
     for (const warning of state.warnings) status(warning);
@@ -1855,9 +2339,9 @@ async function findRps() {
 }
 
 // ---- Bảng điều khiển ----
-$('endUrl').textContent = PARAMS.get('url') || location.host;
-$('urlInput').value = PARAMS.get('url') || location.host;
-$('urlInput').addEventListener('input', () => { $('endUrl').textContent = $('urlInput').value.trim() || location.host; });
+$('endUrl').textContent = PARAMS.get('url') || SITE;
+$('urlInput').value = PARAMS.get('url') || SITE;
+$('urlInput').addEventListener('input', () => { $('endUrl').textContent = $('urlInput').value.trim() || SITE; });
 $('endTags').textContent = '🐐 Nông trại · 🐾 Thú cưng · 🎬 Rạp phim · 🎲 Game · 💬 Bạn bè';
 if (/^[a-z]{2}$/.test(PARAMS.get('state') || '')) $('stateSelect').value = PARAMS.get('state');
 if (FILMS.includes(PARAMS.get('film'))) $('filmSelect').value = PARAMS.get('film');

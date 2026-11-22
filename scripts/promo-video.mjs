@@ -1,4 +1,4 @@
-// `node scripts/promo-video.mjs [--film tour|garden|farm] [--base http://localhost:3000] [--out .data/promo/promo.mp4] [--state vn] [--url chanhdien.online]`
+// `node scripts/promo-video.mjs [--film tour|garden|farm|stopwatch|hieu-y|chanh-dien|canh|tri-tue] [--base http://localhost:3000] [--out .data/promo/promo.mp4] [--state vn] [--url lotusgather.online]`
 // `node scripts/promo-video.mjs --setup-only`: chỉ chuẩn bị dữ liệu máy dev rồi thôi (để tự quay màn hình /promo.html).
 // --film garden: clip ~33 giây ở Vườn Công Đức (gieo, tưới, hái, đem bán), mặc định ghi .data/promo/promo-garden.mp4.
 // --film farm: clip ~47 giây ở Phước Điền (gieo, tưới, thu hoạch, gà, bò, chợ, thăm hàng xóm), mặc định ghi
@@ -7,6 +7,13 @@
 // .data/promo/promo-stopwatch.mp4.
 // --film hieu-y: clip ~39 giây trò hai người trên thẻ người chơi (Oẳn tù tì, Đo độ hiểu ý, Đoán ý bạn), mặc định ghi
 // .data/promo/promo-hieu-y.mp4. Cần bot trong chánh điện (BOTS_THIEN) để có người nắm tay / mời chơi.
+// --film chanh-dien: clip ~33 giây trong chánh điện (ngồi thiền, dâng hoa, thỉnh chuông, dâng hương, Quan Âm, Vườn Đèn Tâm
+// Nguyện về đêm), mặc định ghi .data/promo/promo-chanh-dien.mp4. Cần bot ngồi bồ đoàn (BOTS_THIEN).
+// --film canh: clip ~32 giây phong cảnh (Vườn Hoa, Rừng thiền, đường La Hán, khu vui chơi, mỗi bang một cảnh, đêm trăng), mặc
+// định ghi .data/promo/promo-canh.mp4.
+// --film tri-tue: clip ~40 giây khu Trí tuệ (Tàng Kinh Các, Bảng vàng, Đố hình, Đố số, Màu mực, Test IQ, ảnh kết quả, Đố vui
+// cả phòng), mặc định ghi .data/promo/promo-tri-tue.mp4. Cần bot trong sân (BOTS_THIEN) để Đố vui có người chơi cùng.
+// --url: địa chỉ web trên màn cuối, mặc định lotusgather.online.
 //
 // Quay video giới thiệu 9:16 (1080×1920) từ apps/web/public/promo.html bằng Chrome chạy ngầm có GPU rồi ghép MP4 bằng
 // ffmpeg. Cần web/API/realtime đang chạy (`BOTS_THIEN=30 npm run dev` cho sân đông vui) và ffmpeg trong PATH.
@@ -25,6 +32,9 @@
 //   nông sản, 3 bạn hàng xóm, hai lượt hàng xóm ghé sáng nay). Lúc quay, trang gọi window.promoHost('farm-ripen'): dưa
 //   hấu vừa gieo ở ô 1 chín ngay (thay cho 12 giờ) để thu hoạch thật rồi đem ra chợ bán.
 // - Clip Bấm Giờ: xóa số lượt, lần trúng, đề của tài khoản thử để lần quay nào cũng bắt đầu từ cấp 1.
+// - Clip Trí tuệ: xóa điểm Đề hôm nay (hôm nay) và lịch sử Test IQ của tài khoản thử (màn kết quả không còn "kỷ lục"
+//   cũ). Lúc quay, trang gọi window.promoHost('brain-solve') với mã đề vừa xin: script đọc seed của đề trong SQLite máy
+//   dev, dựng lại đề bằng apps/api/brain-puzzles.mjs rồi trả đáp án cho trang (window.promoSolved) để tô ô đúng.
 //
 // Ghi ra <out> (MP4 H.264 30 khung/giây, không tiếng: thêm nhạc trên TikTok / CapCut), <out>-ghep.mp4 (cùng clip, bỏ màn
 // cuối, để ghép nối với clip khác) và <out>-sheet.jpg (ảnh ghép mỗi giây một khung để duyệt nhanh). Chrome: CHROME_PATH, mặc định bản cài sẵn trên macOS / google-chrome trên Linux;
@@ -49,11 +59,12 @@ const option = (name, fallback) => {
   return value;
 };
 const FILM = option('--film', 'tour');
-if (!['tour', 'garden', 'farm', 'stopwatch', 'hieu-y'].includes(FILM)) throw new Error('--film phải là tour, garden, farm, stopwatch hoặc hieu-y');
+const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y', 'chanh-dien', 'canh', 'tri-tue'];
+if (!FILMS.includes(FILM)) throw new Error(`--film phải là một trong: ${FILMS.join(', ')}`);
 const BASE = option('--base', 'http://localhost:3000').replace(/\/$/, '');
 const OUT = path.resolve(ROOT, option('--out', FILM === 'tour' ? '.data/promo/promo.mp4' : `.data/promo/promo-${FILM}.mp4`));
 const STATE = option('--state', 'vn');
-const URL_TEXT = option('--url', '');
+const URL_TEXT = option('--url', 'lotusgather.online');
 const FPS = Number(option('--fps', '30'));
 const SETUP_ONLY = flag('--setup-only');
 const NO_SETUP = flag('--no-setup');
@@ -137,6 +148,13 @@ async function setup() {
     for (const table of ['stopwatch_stats', 'stopwatch_hits', 'stopwatch_rounds']) db.prepare(`DELETE FROM ${table} WHERE account_id = ?`).run(info.id);
     console.log('✓ Bấm Giờ: tài khoản thử về cấp 1, chưa có lần trúng');
   }
+  if (FILM === 'tri-tue') {
+    const { gardenDay } = await import('@chanh-dien/garden');
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('brain_daily', 'brain_iq')").all().map((row) => row.name);
+    if (tables.includes('brain_daily')) db.prepare('DELETE FROM brain_daily WHERE account_id = ? AND day = ?').run(info.id, gardenDay(Date.now(), GARDEN_TIMEZONE));
+    if (tables.includes('brain_iq')) db.prepare('DELETE FROM brain_iq WHERE account_id = ?').run(info.id);
+    console.log('✓ Trí tuệ: tài khoản thử chưa làm Đề hôm nay, chưa có lịch sử Test IQ');
+  }
   db.close();
   console.log(`✓ Tài khoản thử ${account.username} / ${account.password} (Minh An) · ví ${Math.max(balance, 2_000)} xu`);
   return { ...account, id: info.id };
@@ -194,9 +212,24 @@ async function stageFarm(db, accountId) {
 
 // Trang gọi window.promoHost(JSON) (chỉ khi quay bằng script này, máy dev). 'ripen': cây đang lớn của tài khoản thử ở
 // luống đó ra quả ngay, như vừa tưới đủ 3 lần. 'farm-ripen': cây ở ô Phước Điền đó chín ngay (không cỏ / sâu).
-async function hostCall(account, payload) {
+// 'brain-solve': đáp án của một đề Trí tuệ (theo seed lưu trong brain_rounds), trả về trang bằng window.promoSolved.
+async function hostCall(account, payload, evaluate) {
   let message = null;
   try { message = JSON.parse(payload); } catch {}
+  if (message?.op === 'brain-solve' && typeof message.roundId === 'string' && /^[\w-]{1,80}$/.test(message.roundId)) {
+    const { buildPuzzle } = await import('../apps/api/brain-puzzles.mjs');
+    const db = await openDb();
+    const round = db.prepare('SELECT game, seed FROM brain_rounds WHERE id = ?').get(message.roundId);
+    db.close();
+    if (!round) {
+      console.log(`  ! đề ${message.roundId}: không thấy trong SQLite máy dev`);
+      return;
+    }
+    const { answers } = buildPuzzle(round.game, round.seed);
+    await evaluate(`window.promoSolved?.(${JSON.stringify(message.roundId)}, ${JSON.stringify(answers)})`);
+    console.log(`  ✓ đáp án đề ${round.game} (${answers.length} câu)`);
+    return;
+  }
   if (message?.op === 'farm-ripen' && account?.id && Number.isSafeInteger(message.slot)) {
     const { FARM_CROPS, FARM_MOIST_MS } = await import('@chanh-dien/garden');
     const db = await openDb();
@@ -295,7 +328,7 @@ async function main() {
   if (account && LOCAL) {
     await cmd('Runtime.addBinding', { name: 'promoHost' });
     browser.on('Runtime.bindingCalled', ({ name, payload }) => {
-      if (name === 'promoHost') hostCall(account, payload).catch((error) => console.warn('  ! promoHost:', error.message));
+      if (name === 'promoHost') hostCall(account, payload, evaluate).catch((error) => console.warn('  ! promoHost:', error.message));
     });
   }
   // 540×960 điểm CSS × 2 = khung 1080×1920.
@@ -309,7 +342,7 @@ async function main() {
   const query = new URLSearchParams({ record: '1', film: FILM, state: STATE, ...(URL_TEXT ? { url: URL_TEXT } : {}) });
   await cmd('Page.navigate', { url: `${BASE}/promo.html?${query}` });
   for (let index = 0; index < 60 && !(await evaluate('Boolean(window.promo)').catch(() => false)); index += 1) await sleep(500);
-  console.log({ garden: '… tải chánh điện 3D, chọn luống ở Vườn Công Đức', farm: '… tải chánh điện 3D, đi vào Phước Điền', stopwatch: '… tải chánh điện 3D, bốc đề Bấm Giờ', 'hieu-y': '… tải chánh điện 3D, nắm tay một người bạn' }[FILM] || '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
+  console.log({ garden: '… tải chánh điện 3D, chọn luống ở Vườn Công Đức', farm: '… tải chánh điện 3D, đi vào Phước Điền', stopwatch: '… tải chánh điện 3D, bốc đề Bấm Giờ', 'hieu-y': '… tải chánh điện 3D, nắm tay một người bạn', 'chanh-dien': '… tải chánh điện 3D, chờ người ngồi thiền', canh: '… tải chánh điện 3D, phong cảnh các bang', 'tri-tue': '… tải chánh điện 3D, ngồi bàn đá Tàng Kinh Các, xin đề Trí tuệ' }[FILM] || '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
   await evaluate('window.promo.prepare()');
   const endAt = await evaluate('window.promo.endAt');
   const checks = await evaluate("[...document.querySelectorAll('#checks li')].map((li) => `${li.className === 'ok' ? '✓' : '!'} ${li.textContent}`).join('\\n')");
