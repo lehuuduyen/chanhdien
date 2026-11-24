@@ -539,6 +539,92 @@ button.chip { cursor: pointer; }
 .phone-farm-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .phone-farm-list li { padding: 8px 10px; background: rgba(255, 255, 255, .06); border-radius: 10px; font-size: 13.5px; }
 
+/* Số "nhẹ" trên biểu tượng app (Trí tuệ còn mấy trò hôm nay): màu cam, không cộng vào số trên nút 📱; nút 📱 có chấm. */
+.phone-badge.quiet { background: #d9831f; }
+.chat .phone-open.has-dot { position: relative; }
+.chat .phone-open.has-dot::after { content: ''; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; background: #d9831f; border: 1.5px solid #1a0e08; border-radius: 50%; }
+.phone-app[data-app="brain"] { --app: #3c2a7a; --app-hi: #8a6ce6; }
+
+/* Thông báo kiểu điện thoại (phone.notify): thẻ trượt xuống đầu màn, chạm là mở (vd: Đề hôm nay), ✕ để cất. */
+.phone-notice { position: absolute; z-index: 15; top: calc(max(8px, env(safe-area-inset-top, 0px)) + 52px); left: 50%; display: flex; align-items: stretch; width: min(94%, 420px); transform: translateX(-50%); background: rgba(24, 14, 8, .96); border: 1px solid rgba(217, 164, 65, .55); border-radius: 18px; box-shadow: 0 14px 40px rgba(0, 0, 0, .6); }
+.phone-notice[hidden] { display: none; }
+.phone-notice.in { animation: phone-notice-in .28s ease-out; }
+@keyframes phone-notice-in { from { opacity: 0; transform: translate(-50%, -14px); } }
+@media (prefers-reduced-motion: reduce) { .phone-notice.in { animation: none; } }
+.phone-notice-main { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 6px 10px 12px; color: var(--fg); background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.phone-notice-icon { flex: none; display: grid; place-items: center; width: 38px; height: 38px; font-size: 22px; background: linear-gradient(160deg, #8a6ce6, #3c2a7a); border-radius: 30%; }
+.phone-notice-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.phone-notice-text b { color: var(--gold); font-size: 14px; }
+.phone-notice-text small { color: #e6d6b8; font-size: 12.5px; line-height: 1.35; }
+.phone-notice-text small[hidden], .phone-notice-go[hidden] { display: none; }
+.phone-notice-go { flex: none; align-self: center; padding: 6px 10px; color: #241a08; background: var(--gold); border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.phone-notice-x { flex: none; width: 38px; color: #cdbb9b; background: none; border: 0; border-left: 1px solid rgba(217, 164, 65, .2); font-size: 13px; cursor: pointer; }
+
+/* Máy ảnh 📷 (photo-ui.js): ẩn mọi lớp trên cảnh trừ cần điều khiển, khung ngắm (9:16 màn dọc, 16:9 màn ngang; ngoài
+   khung tối đi) và nút máy ảnh. Khung bài giảng YouTube giữ nguyên (không vẽ đè, không ẩn player); ảnh chỉ lấy cảnh 3D. */
+#stage.photo-mode > :not(canvas, .joystick, .photo-finder, .photo-flash, .photo-count, .photo-controls, .lecture, [role="dialog"]) { visibility: hidden; }
+.photo-finder { position: absolute; z-index: 7; pointer-events: none; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .42); }
+.photo-finder[hidden], .photo-controls[hidden], .photo-flash[hidden], .photo-count[hidden] { display: none; }
+.photo-thirds { position: absolute; inset: 0; background-image: linear-gradient(90deg, rgba(255, 255, 255, .2) 1px, transparent 1px), linear-gradient(180deg, rgba(255, 255, 255, .2) 1px, transparent 1px); background-size: 33.333% 33.333%; background-position: -1px -1px; }
+.photo-corner { position: absolute; width: 22px; height: 22px; border: 0 solid rgba(255, 255, 255, .92); }
+.photo-corner.tl { top: 8px; left: 8px; border-top-width: 3px; border-left-width: 3px; border-top-left-radius: 6px; }
+.photo-corner.tr { top: 8px; right: 8px; border-top-width: 3px; border-right-width: 3px; border-top-right-radius: 6px; }
+.photo-corner.bl { bottom: 8px; left: 8px; border-bottom-width: 3px; border-left-width: 3px; border-bottom-left-radius: 6px; }
+.photo-corner.br { bottom: 8px; right: 8px; border-bottom-width: 3px; border-right-width: 3px; border-bottom-right-radius: 6px; }
+.photo-flash { position: absolute; z-index: 9; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.photo-flash.go { animation: photo-flash .4s ease-out; }
+@keyframes photo-flash { from { opacity: .85; } to { opacity: 0; } }
+.photo-count { position: absolute; z-index: 9; left: 50%; top: 50%; color: #fff; font-size: clamp(72px, 32cqmin, 150px); font-weight: 800; line-height: 1; text-shadow: 0 4px 24px rgba(0, 0, 0, .6); transform: translate(-50%, -50%); pointer-events: none; }
+.photo-controls { position: absolute; z-index: 8; inset: 0; pointer-events: none; }
+.photo-round { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; color: #fff; background: rgba(0, 0, 0, .45); border: 1px solid rgba(255, 255, 255, .35); border-radius: 50%; font-size: 19px; line-height: 1; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.photo-round[aria-pressed="true"] { color: #241a08; background: var(--gold); border-color: var(--gold); }
+.photo-exit { position: absolute; top: max(12px, env(safe-area-inset-top, 0px)); left: max(12px, env(safe-area-inset-left, 0px)); pointer-events: auto; }
+.photo-status { position: absolute; top: calc(max(12px, env(safe-area-inset-top, 0px)) + 58px); left: 50%; width: max-content; max-width: min(86%, 420px); margin: 0; padding: 8px 14px; color: #fff; background: rgba(0, 0, 0, .6); border-radius: 999px; font-size: 13px; line-height: 1.35; text-align: center; transform: translateX(-50%); pointer-events: none; }
+.photo-status[hidden] { display: none; }
+.photo-side { position: absolute; top: calc(max(12px, env(safe-area-inset-top, 0px)) + 4px); right: max(12px, env(safe-area-inset-right, 0px)); display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; max-width: calc(100% - 82px); pointer-events: auto; }
+.photo-pill { min-height: 38px; padding: 0 11px; color: #fff; background: rgba(0, 0, 0, .45); border: 1px solid rgba(255, 255, 255, .35); border-radius: 999px; font: inherit; font-size: 13px; white-space: nowrap; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.photo-pill[aria-pressed="true"] { color: #241a08; background: var(--gold); border-color: var(--gold); font-weight: 600; }
+.photo-bar { position: absolute; left: 0; right: 0; bottom: max(18px, calc(env(safe-area-inset-bottom, 0px) + 10px)); display: flex; align-items: center; justify-content: center; gap: clamp(28px, 10cqmin, 56px); pointer-events: none; }
+.photo-bar > * { pointer-events: auto; }
+.photo-shutter { display: grid; place-items: center; width: 76px; height: 76px; padding: 0; background: rgba(255, 255, 255, .22); border: 4px solid #fff; border-radius: 50%; cursor: pointer; }
+.photo-shutter i { width: 56px; height: 56px; background: #fff; border-radius: 50%; transition: transform .1s, width .15s, height .15s, border-radius .15s; }
+.photo-shutter:active i { transform: scale(.88); }
+.photo-shutter.counting i { width: 28px; height: 28px; background: #e5483b; border-radius: 8px; }
+.photo-thumb { width: 52px; height: 52px; padding: 0; overflow: hidden; background: rgba(0, 0, 0, .45); border: 2px solid #fff; border-radius: 12px; cursor: pointer; }
+.photo-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.photo-thumb img[hidden] { display: none; }
+.photo-thumb.pop { animation: photo-pop .35s ease-out; }
+@keyframes photo-pop { 40% { transform: scale(1.18); } }
+.photo-selfie { width: 52px; height: 52px; font-size: 22px; }
+@media (prefers-reduced-motion: reduce) { .photo-flash.go, .photo-thumb.pop { animation: none; } }
+/* Màn ngang: khung 16:9, nút chụp thành cột bên phải; hàng nút bật / tắt chừa chỗ cho cột đó. */
+#stage.photo-wide .photo-bar { top: 0; bottom: 0; left: auto; right: max(16px, env(safe-area-inset-right, 0px)); flex-direction: column-reverse; gap: clamp(18px, 6cqmin, 40px); }
+#stage.photo-wide .photo-side { right: calc(max(16px, env(safe-area-inset-right, 0px)) + 92px); }
+/* Xem ảnh (Album, hoặc chạm ảnh nhỏ cạnh nút chụp): phủ cả màn, trên cả điện thoại. */
+.photo-viewer { position: absolute; z-index: 18; inset: 0; display: flex; flex-direction: column; gap: 10px; padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(14px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); color: var(--fg); background: rgba(6, 4, 3, .95); }
+.photo-viewer[hidden] { display: none; }
+.photo-viewer-head { display: flex; align-items: center; gap: 10px; }
+.photo-viewer-title { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.photo-viewer-title b { overflow: hidden; color: var(--gold); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.photo-viewer-title small { color: #cdbb9b; font-size: 12px; }
+.photo-viewer-figure { position: relative; flex: 1; min-height: 0; }
+.photo-viewer-figure img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.photo-nav { position: absolute; top: 50%; font-size: 28px; transform: translateY(-50%); }
+.photo-nav.prev { left: 4px; }
+.photo-nav.next { right: 4px; }
+.photo-nav[hidden] { display: none; }
+.photo-viewer-note { margin: 0; color: #cdbb9b; font-size: 12.5px; text-align: center; }
+.photo-viewer-note[hidden] { display: none; }
+.photo-viewer-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.photo-action { min-height: 42px; padding: 0 16px; color: var(--fg); background: rgba(80, 30, 18, .82); border: 1px solid rgba(217, 164, 65, .3); border-radius: 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.photo-action.primary { color: #241a08; background: var(--gold); border-color: var(--gold); font-weight: 600; }
+.photo-action.danger { background: rgba(110, 24, 18, .85); }
+.photo-action[hidden] { display: none; }
+/* Trang Album trong điện thoại: lưới ảnh nhỏ, mới nhất trước. */
+.photo-album-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.photo-album-tile { aspect-ratio: 3 / 4; padding: 0; overflow: hidden; background: rgba(255, 255, 255, .06); border: 0; border-radius: 8px; cursor: pointer; }
+.photo-album-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
 /* Bản đồ / GPS (Đợt 1 KE_HOACH_BAN_DO.md). Màn dọc gần kín sân; màn ngang chuyển thành ngăn phải ở khối dưới. */
 .map-sheet { position: absolute; z-index: 13; inset: max(2.5cqmin, env(safe-area-inset-top, 0px)) 2.5cqmin max(2.5cqmin, env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; min-width: 0; overflow: hidden; color: var(--fg); background: linear-gradient(180deg, rgba(31, 20, 12, .98), rgba(10, 15, 11, .98)); border: 1px solid rgba(217, 164, 65, .55); border-radius: 22px; box-shadow: 0 24px 70px rgba(0, 0, 0, .72); }
 .map-sheet[hidden] { display: none; }
@@ -641,7 +727,7 @@ button.chip { cursor: pointer; }
 .brain-tile-q { fill: #ecbc4c; font: 700 46px var(--display); }
 .brain-options { display: grid; gap: 8px; }
 .brain-options.matrix { grid-template-columns: repeat(3, minmax(0, 1fr)); align-self: center; width: min(100%, 320px); }
-.brain-options:is(.series, .math, .stroop) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.brain-options:is(.series, .math, .stroop, .balance) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .brain-option { min-height: 54px; padding: 6px; color: var(--fg); background: rgba(255, 255, 255, .08); border: 1px solid rgba(178, 150, 255, .3); border-radius: 14px; font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .brain-option:active, .brain-option.picked { background: rgba(236, 188, 76, .3); border-color: var(--gold); }
 .brain-option.number { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -656,6 +742,19 @@ button.chip { cursor: pointer; }
 .brain-numgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: min(100%, 280px); padding: 8px; background: rgba(0, 0, 0, .28); border-radius: 14px; }
 .brain-numgrid span { display: grid; place-items: center; aspect-ratio: 1.3; font-size: clamp(20px, 6.5cqmin, 28px); font-weight: 700; background: rgba(255, 255, 255, .07); border-radius: 10px; font-variant-numeric: tabular-nums; }
 .brain-numgrid .missing { color: #ecbc4c; background: rgba(236, 188, 76, .12); outline: 2px dashed rgba(236, 188, 76, .65); outline-offset: -4px; }
+.brain-analogy { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px 10px; width: min(100%, 280px); }
+.brain-analogy > b { color: #ecbc4c; font-size: 24px; }
+.brain-analogy-card { display: block; aspect-ratio: 1; background: rgba(255, 255, 255, .07); border: 1px solid rgba(178, 150, 255, .25); border-radius: 12px; }
+.brain-analogy-card.missing { background: rgba(236, 188, 76, .12); outline: 2px dashed rgba(236, 188, 76, .65); outline-offset: -4px; }
+.brain-options.analogy { grid-template-columns: repeat(2, minmax(0, 1fr)); align-self: center; width: min(100%, 280px); }
+.brain-options.analogy .brain-option { aspect-ratio: 1.7; min-height: 0; padding: 5px; }
+.brain-balance { display: grid; gap: 5px; width: min(100%, 300px); padding: 8px; background: rgba(0, 0, 0, .28); border-radius: 14px; }
+.brain-balance-row { display: grid; grid-template-columns: 1fr auto 38px; align-items: center; gap: 8px; min-height: 43px; padding: 3px 8px; background: rgba(255, 255, 255, .055); border-radius: 9px; }
+.brain-balance-row.target { background: rgba(236, 188, 76, .12); outline: 1px dashed rgba(236, 188, 76, .65); }
+.brain-balance-row > b, .brain-balance-row > strong { color: #ecbc4c; font-size: 20px; text-align: center; }
+.brain-balance-icons { display: flex; align-items: center; justify-content: center; gap: 3px; min-width: 0; }
+.brain-balance-icons > i { color: #b8a98f; font-style: normal; font-weight: 700; }
+.brain-balance-symbol { display: block; flex: 0 0 32px; width: 32px; height: 32px; }
 /* Đố vui: người chơi / người chờ (mình viền vàng), đáp án đúng xanh, chọn sai đỏ. */
 .brain-quiz-people { display: flex; flex-wrap: wrap; gap: 6px; }
 .brain-quiz-people span { padding: 4px 10px; font-size: 12.5px; background: rgba(255, 255, 255, .07); border: 1px solid rgba(178, 150, 255, .25); border-radius: 999px; }
@@ -1324,6 +1423,11 @@ button.chip { cursor: pointer; }
   #stage.view-3d .brain-options.rotation .brain-option { aspect-ratio: 1.6; padding: 5px; }
   #stage.view-3d .brain-numgrid { width: min(100%, 44cqh); gap: 3px; padding: 4px; }
   #stage.view-3d .brain-numgrid span { aspect-ratio: 2; font-size: 17px; }
+  #stage.view-3d .brain-analogy { width: min(100%, 54cqh); gap: 3px 7px; }
+  #stage.view-3d .brain-options.analogy { width: min(100%, 56cqh); gap: 5px; }
+  #stage.view-3d .brain-balance { width: min(100%, 64cqh); gap: 2px; padding: 4px; }
+  #stage.view-3d .brain-balance-row { min-height: 31px; padding: 1px 6px; }
+  #stage.view-3d .brain-balance-symbol { flex-basis: 25px; width: 25px; height: 25px; }
   #stage.view-3d.typing :is(.view-tools, .room-bar, .quest-dock, .joystick, .emote-bar, .board, .board-toggle, .near-sit, .temple-chore, .pet-actions) { visibility: hidden; }
   #stage.view-3d.in-hall:has(> .lecture:not([hidden])) :is(.board, .board-toggle, .feed) { display: none; }
   .ledger-card { max-height: 100%; }

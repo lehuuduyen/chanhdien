@@ -12,6 +12,7 @@
 // Tâm Nguyện về đêm).
 // ?film=canh: clip ~32 giây phong cảnh (Vườn Hoa, Rừng thiền, đường La Hán, khu vui chơi, mỗi bang một cảnh, đêm trăng).
 // ?film=tri-tue: clip ~40 giây khu Trí tuệ (Tàng Kinh Các, Bảng vàng, Đố hình, Đố số, Màu mực, Test IQ, ảnh kết quả, Đố vui).
+// ?film=dua-xe: clip ~41 giây phòng Đua xe (bay trên khán đài, chạy thử, xếp lưới, 5 đèn, xuất phát, vào cua 1); chỉ mở trang đua.
 // Màn cuối ghi LotusGather + địa chỉ web (?url=, mặc định lotusgather.online).
 import { thienThemeOf, US_STATES } from '/shared/room-rules.mjs';
 
@@ -132,7 +133,7 @@ function silence(page) {
 }
 
 const keepSound = () => $('soundToggle').checked || PARAMS.get('sound') === '1';
-const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y', 'chanh-dien', 'canh', 'tri-tue'];
+const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y', 'chanh-dien', 'canh', 'tri-tue', 'dua-xe'];
 const chosenFilm = () => {
   const name = PARAMS.get('film') || $('filmSelect').value;
   return FILMS.includes(name) ? name : 'tour';
@@ -1197,7 +1198,7 @@ function brainStroop(count, step = 420) {
   };
   next();
 }
-// Test IQ tua nhanh: trả lời đủ 20 câu (sai vài câu cho thật), câu kế hiện thì mới chạm (trang chờ 160 ms giữa hai câu).
+// Test IQ tua nhanh: trả lời đủ 30 câu (sai vài câu cho thật), câu kế hiện thì mới chạm (trang chờ 160 ms giữa hai câu).
 function brainIqRun({ step = 190, wrong = [3, 9, 14, 18] } = {}) {
   const round = brainShot.rounds.iq;
   if (!round) return;
@@ -1281,10 +1282,8 @@ async function prepareBrain(page) {
       method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ game }),
     }).catch(() => null);
     const round = response?.ok ? await response.json() : null;
-    if (!round) {
-      state.warnings.push(`Không xin được đề ${game}.`);
-      continue;
-    }
+    // Không có đề thì mọi cảnh trò chơi đứng ở màn hướng dẫn: dừng hẳn thay vì quay ra clip sai.
+    if (!round) throw new Error(`không xin được đề ${game} (${response?.status || 'lỗi mạng'}) — API chạy bản cũ? Tắt npm run dev rồi chạy lại`);
     brainShot.rounds[game] = round;
     try { window.promoHost?.(JSON.stringify({ op: 'brain-solve', roundId: round.roundId })); } catch {}
   }
@@ -1331,6 +1330,183 @@ function brainIqCaption() {
     brainShot.iqIndex = index;
     caption({ cls: 'tight', kicker: '🧩 Test IQ vui', title: ['Mình', 'được', [index, 'green'], '\n', 'Còn', ['bạn?', 'pink'], '🤔'] });
   }, 9_000);
+}
+
+// ---- Đua xe (kịch bản ?film=dua-xe) ----
+// Trang /dua-xe.html thật (tài khoản thử hoặc khách "Minh An"). Lúc bắt đầu quay mới bấm Vào đua: phòng đếm 15 giây (xe
+// mình chạy thử trong lúc chờ, tự lái bằng autopilot của trang — chỉ có khi debug-race), xếp lưới, 5 đèn đỏ, xuất phát.
+// Xe khác là bot thật của phòng (lấp lưới như mọi cuộc đua). Góc máy đặt bằng view.debugView; cảnh bám xe để camera bám
+// của trang (debugView(null)), có cảnh bám một xe giữa đoàn cho thấy chen nhau vào cua. Mốc thời gian theo luật phòng:
+// lobbyMs 15 giây + gridMs 3 giây + 5 đèn × 1 giây + tắt đèn ngẫu nhiên 0,3–1,5 giây → xuất phát ở giây ~23,3–24,5.
+const raceApi = () => pages.get('race')?.win?.chanhDienRace;
+const racePose = (id) => (id ? raceApi()?.view.carPose(id) : null);
+const raceShot = { focus: null, side: null };
+// Camera đứng yên ở pos (mảng hoặc hàm), nhìn theo một xe (vị trí nhìn làm mượt để không giật theo từng gói).
+function watchCar({ pos, id, fov = 45, lift = 0.9, smooth = 5 }) {
+  let look = null;
+  let last = 0;
+  return (u, now) => {
+    const dt = last ? Math.min(0.1, (now - last) / 1_000) : 1;
+    last = now;
+    const pose = racePose(id());
+    if (pose) {
+      const target = [pose.x, lift, pose.z];
+      look = look ? mix(look, target, 1 - Math.exp(-dt * smooth)) : target;
+    }
+    const where = typeof pos === 'function' ? pos(u) : pos;
+    return look && where ? { pos: where, at: look, fov } : null;
+  };
+}
+// Bám một xe từ trên cao phía sau (đuôi camera kéo dài dần theo u).
+function riseFrom({ id, back = [10, 34], up = [4, 30], fov = 52 }) {
+  let anchor = null;
+  return (u) => {
+    const pose = racePose(id());
+    if (pose) anchor = pose;
+    if (!anchor) return null;
+    const k = ease.inOut(clamp01(u));
+    const fx = Math.sin(anchor.h);
+    const fz = Math.cos(anchor.h);
+    const b = lerp(back[0], back[1], k);
+    return { pos: [anchor.x - fx * b, lerp(up[0], up[1], k), anchor.z - fz * b], at: [anchor.x + fx * 6, 0.8, anchor.z + fz * 6], fov };
+  };
+}
+
+async function prepareRace(page) {
+  await page.loaded;
+  silence(page);
+  const { win } = page;
+  await waitFor(() => win.chanhDienRace?.state && win.chanhDienRace.myId, 60_000, 'vào phòng đua xe');
+  const race = win.chanhDienRace;
+  // Lần quay trước còn trong hàng chờ / đang chạy thử: rời ra rồi chờ đường trống (cuộc đua cũ kết thúc).
+  if (race.me?.mode === 'queued') click(page, '#join');
+  if (race.me?.mode === 'practice') click(page, '#stopDrive');
+  await waitFor(() => race.state.phase === 'idle', 240_000, 'đường đua trống (cuộc đua trước kết thúc)');
+  click(page, '#colors button[data-color="0"]');
+  // Chỉ để cảnh 3D + bảng thứ hạng (giữa bên trái, dưới chữ của clip); nút, bảng, đồng hồ của trang ẩn hết.
+  injectStyle(page, `
+    .top, .hud, .status-pill, .minimap, .lights, .banner, .toast, .feed, .speed, .tools, .controls, .panel, .sheet { display: none !important; }
+    .tower { top: 46% !important; font-size: 13px !important; width: 150px !important; }
+    body:not(.promo-tower) .tower { display: none !important; }
+  `);
+  await sleep(1_500);
+}
+
+function buildRaceFilm() {
+  const race = raceApi();
+  const track = race.track;
+  const length = track.length;
+  const spot = (s, d = 0, y = 0) => {
+    const point = track.pointAt(s, d);
+    return [point.x, y, point.z];
+  };
+  // Chỗ đứng bên đường trước mặt một xe (xe tới sau ~seconds giây), phía ngoài cua để tầm nhìn tới xe nằm trên mặt đường
+  // (phía trong cua bị rào / cây che).
+  const aheadOf = (pose, seconds, height) => {
+    const s = track.project(pose.x, pose.z).s + Math.max(28, Math.abs(pose.speed) * seconds);
+    const index = Math.floor((((s % length) + length) % length) / track.step) % track.samples;
+    const outside = track.curvature[index] > 0 ? -1 : 1;
+    const wall = outside > 0 ? track.wallLeft[index] : track.wallRight[index];
+    return spot(s, outside * Math.min(track.half + 4, wall - 1.5), height);
+  };
+  const mine = () => race.myId;
+  const view = () => race.view;
+  const body = () => pages.get('race').doc.body.classList;
+  const turnOne = 0.2 * length;
+  const turnIndex = Math.floor(turnOne / track.step) % track.samples;
+  return [
+    // 0. Trên cao: cả trường đua. Bấm Vào đua (phòng bắt đầu đếm 15 giây) + chạy thử, xe tự lái.
+    {
+      page: 'race', dur: 3.6, transition: 'cut',
+      enter: () => {
+        const page = pages.get('race');
+        click(page, '#join');
+        setTimeout(() => {
+          click(page, '#practice');
+          race.autopilot = true;
+        }, 250);
+      },
+      // Bay trên khán đài chính dọc đường thẳng: giàn đèn, dãy pit, khán đài.
+      cam: move({ pos: spot(-150, 45, 80), at: spot(40, -10, 0), fov: 52 }, { pos: spot(-70, 30, 42), at: spot(130, -10, 0), fov: 54 }, ease.inOut),
+      caption: { kicker: '🏎️ Phòng mới', title: ['Trường', 'đua', ['Hoa Sen', '']], sub: 'Đua cùng người chơi khác, ngay trên điện thoại' },
+    },
+    // 1. Bám sau xe mình đang chạy thử.
+    {
+      page: 'race', dur: 4.8, transition: 'flash',
+      enter: () => { view().setFocus(mine()); view().setCameraMode('chase'); },
+      caption: { kicker: '🕹 Một ngón tay', title: ['Kéo', 'để', 'lái,', ['ga tự động', 'blue']], sub: 'Xe tự giảm tốc trước mỗi khúc cua' },
+    },
+    // 2. Đứng bên đường đón xe lao tới.
+    {
+      page: 'race', dur: 3.6, transition: 'cut',
+      enter: () => {
+        const pose = racePose(mine());
+        if (!pose) return;
+        raceShot.side = aheadOf(pose, 2.3, 1.5);
+      },
+      cam: watchCar({ pos: () => raceShot.side, id: mine, fov: 40, lift: 0.7, smooth: 7 }),
+      caption: { kicker: '🎨 8 màu xe', title: ['Xe', 'đua', ['3D', ''], 'như', 'thật'] },
+    },
+    // 3. Lại sau xe: phòng sắp xếp lưới.
+    {
+      page: 'race', dur: 3.3, transition: 'cut',
+      enter: () => { view().setFocus(mine()); view().setCameraMode('chase'); },
+      caption: { kicker: '⏱ Chạy thử lấy giờ', title: ['Đua', 'cùng', ['bạn bè', 'blue']], sub: 'Đủ người là xếp lưới, xe khác vào lấp chỗ' },
+    },
+    // 4. Trước vạch xuất phát nhìn về lưới: các xe xếp hàng dưới giàn đèn.
+    {
+      page: 'race', dur: 2.9, transition: 'flash',
+      enter: () => { view().debugLabels(false); body().add('promo-tower'); },
+      cam: move({ pos: spot(16, 0, 3.6), at: spot(-42, 0, 0.6), fov: 46 }, { pos: spot(11, 1.5, 2.7), at: spot(-40, 0, 0.8), fov: 44 }, ease.out),
+      caption: { kicker: '🏁 Xếp lưới', title: ['Xếp', 'theo', ['vòng nhanh nhất', '']], sub: 'Chạy thử trước để giành ô đầu' },
+    },
+    // 5. Sau đoàn xe nhìn lên giàn đèn: 5 đèn đỏ sáng dần rồi tắt.
+    {
+      page: 'race', dur: 6.4, transition: 'cut',
+      enter: () => body().remove('promo-tower'),
+      cam: move({ pos: spot(-80, 0, 2.9), at: spot(2, 0, 5.4), fov: 30 }, { pos: spot(-76, 0, 2.5), at: spot(2, 0, 5.6), fov: 28 }, ease.linear),
+      caption: { kicker: '🔴 5 đèn đỏ', title: ['Đèn', 'tắt', 'là', ['xuất phát!', 'red']] },
+    },
+    // 6. Bám một xe giữa đoàn từ trên cao: cả đoàn lao xuống đường thẳng.
+    {
+      page: 'race', dur: 3.8, transition: 'cut',
+      enter: () => {
+        const order = [...(race.state?.drivers || [])].filter((item) => item.mode === 'race').sort((a, b) => (a.pos || 99) - (b.pos || 99));
+        raceShot.focus = (order[Math.min(3, order.length - 1)] || order[0])?.id || mine();
+        view().setFocus(raceShot.focus);
+        view().setCameraMode('far');
+        view().debugLabels(true);
+        body().add('promo-tower');
+      },
+      caption: { kicker: '💥 Va chạm thật', title: ['Chen', 'nhau', 'từng', ['khúc cua', 'blue']] },
+    },
+    // 7. Bên đường trước đoàn xe (phía ngoài cua): cả đoàn lao tới rồi vụt qua.
+    {
+      page: 'race', dur: 4.2, transition: 'cut',
+      enter: () => {
+        const pose = racePose(raceShot.focus || mine());
+        raceShot.side = pose ? aheadOf(pose, 2.6, 2.6) : spot(turnOne, track.wallLeft[turnIndex] - 1.5, 3.4);
+      },
+      cam: watchCar({ pos: () => raceShot.side, id: () => raceShot.focus || mine(), fov: 44, lift: 0.6, smooth: 4 }),
+      caption: { kicker: '💨 Sát nút', title: ['Phanh', 'muộn,', ['vượt lên', '']] },
+    },
+    // 8. Lại xe mình, bảng thứ hạng bên trái.
+    {
+      page: 'race', dur: 4.0, transition: 'cut',
+      enter: () => { view().setFocus(mine()); view().setCameraMode('chase'); },
+      caption: { kicker: '🏆 Bảng vàng', title: ['Vòng', 'nhanh', 'nhất', ['mỗi ngày', '']], sub: 'Không tốn xu · chỉ cần tay lái' },
+    },
+    // 9. Màn cuối: camera rút lên cao sau xe mình.
+    {
+      page: 'race', dur: 4.2, transition: 'cut', end: true,
+      cam: riseFrom({ id: mine }),
+      caption: null,
+      enter: () => {
+        $('brand').classList.add('hidden');
+        $('endcard').hidden = false;
+      },
+    },
+  ];
 }
 
 // ---- Chánh điện (kịch bản ?film=chanh-dien) ----
@@ -1994,7 +2170,7 @@ function buildHieuYFilm() {
 }
 
 // Trí tuệ (~40 giây): Tàng Kinh Các → Bảng vàng → Đề hôm nay → Đố hình (tô đáp án) → Đố số → Màu mực → Test IQ (làm
-// đủ 20 câu, chỉ số thật) → ảnh kết quả → Đố vui cả phòng → màn cuối. Khu Trí tuệ chiếm nửa dưới khung, mái Tàng Kinh Các
+// đủ 30 câu, chỉ số thật) → ảnh kết quả → Đố vui cả phòng → màn cuối. Khu Trí tuệ chiếm nửa dưới khung, mái Tàng Kinh Các
 // phía trên sau hàng chữ.
 function buildBrainFilm() {
   const library = [41.5, 0, 22.6];
@@ -2058,7 +2234,7 @@ function buildBrainFilm() {
       cam: roof(-0.2, -0.1),
       caption: { cls: 'tight', kicker: '🎨 Màu mực', title: ['Màu', 'mực', 'hay', ['chữ?', 'pink'], '🎨'], sub: 'Luật đổi bất ngờ: 🖌 màu mực / 🔤 chữ ghi' },
     },
-    // 6. Test IQ vui: 20 câu (tua nhanh), nộp thật → chỉ số.
+    // 6. Test IQ vui: 30 câu (tua nhanh), nộp thật → chỉ số.
     {
       page: 'temple', dur: 7.4, transition: 'flash', sun: 20,
       enter: () => {
@@ -2068,12 +2244,12 @@ function buildBrainFilm() {
       at: [
         [1.8, () => {
           brainIqRun();
-          caption({ cls: 'tight', kicker: '🧩 Test IQ vui', title: ['⏩', 'Làm', 'đủ', ['20 câu', 'blue']], sub: 'Ma trận · xoay hình · dãy số · bảng số' });
+          caption({ cls: 'tight', kicker: '🧩 Test IQ vui', title: ['⏩', 'Làm', 'đủ', ['30 câu', 'blue']], sub: '6 dạng: ma trận · xoay · tương quan · cân hình' });
         }],
         [2.0, brainIqCaption],
       ],
       cam: roof(-0.1, 0.05),
-      caption: { cls: 'tight', kicker: '🧩 Test IQ vui', title: ['Test', ['IQ vui', 'green'], '🧩'], sub: '20 câu · 15 phút · 80% câu khó' },
+      caption: { cls: 'tight', kicker: '🧩 Test IQ vui', title: ['Test', ['IQ vui', 'green'], '🧩'], sub: '30 câu · 20 phút · 80% câu khó' },
     },
     // 7. Ảnh kết quả 9:16 để khoe.
     {
@@ -2158,7 +2334,8 @@ async function prepare() {
     $('prepare').disabled = true;
     status('Đang tải các cảnh…');
     try {
-      Object.entries({ 'thien-view': '3d', 'debug-explore': '1', 'debug-cinema': '1', 'thien-lang': 'vi', 'tienlen-stake': '20' }).forEach(([key, value]) => localStorage.setItem(key, value));
+      Object.entries({ 'thien-view': '3d', 'debug-explore': '1', 'debug-cinema': '1', 'debug-race': '1', 'thien-lang': 'vi', 'tienlen-stake': '20' }).forEach(([key, value]) => localStorage.setItem(key, value));
+      if (!keepSound()) localStorage.setItem('race-mute', '1');
       // Clip trò hai người: tắt bot tự rủ chơi (lời mời đến làm mình bận, không gửi được khiêu chiến của kịch bản).
       if (chosenFilm() === 'hieu-y') localStorage.setItem('bot-quiet', '1');
     } catch {}
@@ -2169,7 +2346,7 @@ async function prepare() {
     }
     setCheck('account', state.signedIn ? `Đăng nhập: ${me.account?.displayName || me.displayName}` : 'Khách (đăng nhập tài khoản có xu để quay cảnh đang đánh bài)', state.signedIn ? 'ok' : 'warn');
     const kind = chosenFilm();
-    const jobs = [
+    const jobs = kind === 'dua-xe' ? [['race', '/dua-xe.html', prepareRace, 'Đua xe']] : [
       ['temple', `/chanh-dien.html?state=${chosenState()}&sun=16`, prepareTemple, { garden: 'Chánh điện 3D · Vườn Công Đức', farm: 'Chánh điện 3D · Phước Điền', stopwatch: 'Chánh điện 3D · Bấm Giờ', 'hieu-y': 'Chánh điện 3D · Trò hai người', 'chanh-dien': 'Chánh điện 3D · người ngồi thiền', canh: 'Chánh điện 3D · phong cảnh các bang', 'tri-tue': 'Chánh điện 3D · Tàng Kinh Các + Trí tuệ' }[kind] || 'Chánh điện 3D'],
       // Clip vườn / nông trại chỉ quay ở chánh điện.
       ...(kind !== 'tour' ? [] : [
@@ -2193,9 +2370,9 @@ async function prepare() {
         return false;
       }
     }));
-    if (!results[0]) throw new Error('Chánh điện 3D chưa sẵn sàng');
+    if (!results[0]) throw new Error(`${jobs[0][3]} chưa sẵn sàng`);
     // Kịch bản dựng sau khi chuẩn bị xong (góc máy clip vườn tính theo luống vừa chọn).
-    film = { garden: buildGardenFilm, farm: buildFarmFilm, stopwatch: buildStopwatchFilm, 'hieu-y': buildHieuYFilm, 'chanh-dien': buildHallFilm, canh: buildSceneryFilm, 'tri-tue': buildBrainFilm }[kind]?.() || buildFilm();
+    film = { garden: buildGardenFilm, farm: buildFarmFilm, stopwatch: buildStopwatchFilm, 'hieu-y': buildHieuYFilm, 'chanh-dien': buildHallFilm, canh: buildSceneryFilm, 'tri-tue': buildBrainFilm, 'dua-xe': buildRaceFilm }[kind]?.() || buildFilm();
     // Khoảng trắng trong từng mục không ngắt dòng (chỉ xuống dòng ở dấu ·).
     const tags = {
       garden: ['🌱 Trồng cây', '🧺 Thu hoạch', '💰 Bán lấy xu', '🐾 Linh thú', '🎬 Rạp phim'],
@@ -2205,11 +2382,12 @@ async function prepare() {
       'chanh-dien': ['🪷 Ngồi thiền', '🙏 Dâng lễ', '🏮 Vườn Đèn', '🌾 Nông trại', '🎬 Rạp phim'],
       canh: ['🌸 Vườn Hoa', '🌲 Rừng thiền', '🎠 Khu vui chơi', '🌾 Nông trại', '🎬 Rạp phim'],
       'tri-tue': ['🧠 Đề hôm nay', '🧩 Test IQ vui', '🎯 Đố vui', '🌾 Nông trại', '🎬 Rạp phim'],
+      'dua-xe': ['🏎️ Đua xe', '🏆 Bảng vàng', '🌾 Nông trại', '🎬 Rạp phim', '🎲 Game'],
     }[kind] || ['🐐 Nông trại', '🐾 Thú cưng', '🎬 Rạp phim', '🎲 Game', '💬 Bạn bè'];
     $('endTags').textContent = tags.map((tag) => tag.replaceAll(' ', '\u00a0')).join(' · ');
     for (const warning of state.warnings) status(warning);
     // Đứng yên ở góc đầu tiên trong lúc chờ bấm Bắt đầu.
-    show('temple', 'cut');
+    show(jobs[0][0], 'cut');
     applyShot(film[0], 0);
     for (const name of ['cinema', 'tienlen', 'baucua', 'loto', 'rps']) pages.get(name)?.frame.classList.remove('live');
     $('cover').hidden = true;
@@ -2232,6 +2410,12 @@ let shotStart = 0;
 function applyShot(shot, u, now = performance.now()) {
   // Lớp tối chỉ của video (đoạn tua ngày → đêm): đêm trong sân vẫn sáng ở gần đèn khu vườn, lớp này cho đêm đọc rõ.
   $('night').style.opacity = shot.night ? shot.night(clamp01(u)).toFixed(3) : '0';
+  if (shot.page === 'race') {
+    // Không có cam: để camera bám xe của trang đua.
+    const view = shot.cam?.(u, now) || null;
+    raceApi()?.view.debugView(view?.pos || null, view?.at, view?.fov);
+    return;
+  }
   if (shot.page !== 'temple') return;
   const renderer = temple()?.r;
   if (!renderer) return;

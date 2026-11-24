@@ -12,6 +12,7 @@ const SEAT_EDITOR_DIR = path.resolve(import.meta.dirname, '../../tools/seat-edit
 const ROOM_RULES_FILE = path.resolve(import.meta.dirname, '../../packages/room-rules/src/index.mjs');
 const PRAYER_SLIP_FILE = path.resolve(import.meta.dirname, '../../packages/prayer-slip/src/index.mjs');
 const TIENLEN_FILE = path.resolve(import.meta.dirname, '../../packages/tien-len/src/index.mjs');
+const RACE_FILE = path.resolve(import.meta.dirname, '../../packages/race/src/index.mjs');
 const THREE_DIR = path.resolve(import.meta.dirname, '../../node_modules/three');
 
 const CONTENT_TYPES = Object.freeze({
@@ -74,6 +75,7 @@ export function resolveWebFile(pathname) {
   if (pathname === '/shared/room-rules.mjs') return ROOM_RULES_FILE;
   if (pathname === '/shared/prayer-slip.mjs') return PRAYER_SLIP_FILE;
   if (pathname === '/shared/tien-len.mjs') return TIENLEN_FILE;
+  if (pathname === '/shared/race.mjs') return RACE_FILE;
   // Three.js (ghim 0.160.0 trong package.json) phục vụ từ chính server: chỉ bản build và addons.
   if (pathname.startsWith('/vendor/three/build/') || pathname.startsWith('/vendor/three/examples/jsm/')) {
     return resolveFile(THREE_DIR, pathname.slice('/vendor/three/'.length));
@@ -133,6 +135,7 @@ export function moduleImportMap(now = Date.now()) {
     '/shared/room-rules.mjs',
     '/shared/prayer-slip.mjs',
     '/shared/tien-len.mjs',
+    '/shared/race.mjs',
   ];
   const imports = {};
   for (const pathname of paths) {

@@ -557,6 +557,60 @@ export const TIENLEN_RULES = defineRoomRules({
   },
 });
 
+// Đua xe (phòng duaxe, trang /dua-xe.html): đường đua riêng (scenes/<track>/track.json), một kiểu xe, không xu — chỉ Bảng
+// vàng vòng nhanh nhất. Máy người lái tự tính xe của mình (vật lý @chanh-dien/race) và gửi race.car ≤ sendHz lần/giây; máy
+// realtime kiểm tra thô (tốc độ, nhảy cóc, ra ngoài rào), đếm vòng, lái xe bot rồi gom broadcastMs phát race.cars.
+// Bấm "Vào đua": đếm lobbyMs (đủ gridSize người thật thì fullLobbyMs), bot lấp chỗ cho đủ botFill.cars xe, xếp lưới
+// gridMs, 5 đèn đỏ sáng mỗi giây rồi tắt sau lightsOutMs (ngẫu nhiên) là xuất phát. Lưới xếp theo vòng nhanh nhất của
+// từng người trong qualifyMs gần đây ở phòng này (chạy thử hay đua đều tính; bot có giờ ước theo trình độ), người chưa có
+// vòng bốc thăm chỗ. Người về nhất xong `laps` vòng thì
+// những xe còn lại có finishMs để về đích; quá raceMs thì dừng. Ngoài lúc xếp lưới / đang đua thì ai cũng chạy thử
+// được (tối đa maxCars xe trên đường); có người xem mà đường vắng thì practiceBots bot chạy thử cho có không khí.
+export const RACE_RULES = defineRoomRules({
+  id: 'race',
+  activity: 'play-together',
+  maxParticipants: 80,
+  lang: 'vi',
+  moderation: 'standard',
+  bots: {
+    count: 12,
+    alwaysOn: true,
+    max: 40,
+    initial: 8,
+    arrivalMs: [3_000, 9_000],
+    actionMs: [2_000, 6_000],
+    churnMs: [240_000, 600_000],
+    play: 'race',
+    skins: ['man', 'woman', 'child', 'pilgrim', 'lotusgirl', 'granny', 'monk', 'nun'],
+    names: uniqueNames(['Tốc Độ', 'Gió Lốc', 'Minh Tuấn', 'Hải Nam', 'Bảo Long', 'Thu Hà', 'Quang Huy', 'Ngọc Trâm', 'Đức Thắng',
+      'Khánh Ngân', 'Việt Hoàng', 'Thanh Trúc', 'Anh Khoa', 'Mỹ Linh', 'Trung Kiên', 'Bích Phương', 'Hoàng Phúc', 'Diễm My'],
+    familyFirstNames(['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Đinh', 'Lý', 'Mai', 'Tạ'], ['Lâm', 'Vy', 'Phong', 'Nhung', 'Tín', 'Hân', 'Duy', 'Trang'])),
+  },
+  interaction: {
+    game: 'race',
+    track: 'race-circuit',
+    laps: 3,
+    gridSize: 8,
+    maxCars: 12,
+    lobbyMs: 15_000,
+    fullLobbyMs: 5_000,
+    gridMs: 3_000,
+    lightMs: 1_000,
+    lightsOutMs: [300, 1_500],
+    finishMs: 25_000,
+    raceMs: 300_000,
+    resultMs: 12_000,
+    sendHz: 20,
+    broadcastMs: 50,
+    // Xe không gửi gì quá lâu (mất mạng): chạy thử thì cất xe, đang đua thì tính bỏ cuộc.
+    idleCarMs: 6_000,
+    // Bot mỗi cuộc đua: tổng số xe chọn ngẫu nhiên trong khoảng (không ít hơn số người thật), trình độ ngẫu nhiên.
+    botFill: { cars: [6, 8], skill: [0.78, 0.93] },
+    practiceBots: [1, 2],
+    qualifyMs: 30 * 60_000,
+  },
+});
+
 // Shop nhân vật: mua bằng kim cương (💎, chỉ có khi nạp tiền qua Stripe). Người thật không bao giờ được chia ngẫu
 // nhiên hình trong PREMIUM_SKINS; máy realtime chỉ nhận avatar.set khi vé vào phòng ghi đã sở hữu. Bot được phép lấy
 // danh mục shop đang bật từ API để cảnh có nhiều nhân vật hơn, nhưng không mang quyền sở hữu của tài khoản.
@@ -673,7 +727,7 @@ export const CINEMA_PRIVATE_RULES = defineRoomRules({
   private: { game: 'cinema', ...PRIVATE_CINEMA, botSkins: CINEMA_RULES.bots.skins },
 });
 
-export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES, 'loto-private': LOTO_PRIVATE_RULES, 'cinema-private': CINEMA_PRIVATE_RULES, rps: RPS_RULES, tienlen: TIENLEN_RULES });
+export const ROOM_TYPES = Object.freeze({ cinema: CINEMA_RULES, thien: THIEN_RULES, game: GAME_RULES, taixiu: TAI_XIU_RULES, loto: LOTO_RULES, 'loto-private': LOTO_PRIVATE_RULES, 'cinema-private': CINEMA_PRIVATE_RULES, rps: RPS_RULES, tienlen: TIENLEN_RULES, race: RACE_RULES });
 
 // Danh mục phòng công khai. API và máy realtime cùng đọc để biết phòng nào thuộc loại nào.
 export const ROOM_CATALOG = deepFreeze([
@@ -684,6 +738,7 @@ export const ROOM_CATALOG = deepFreeze([
   { id: 'loto-1', type: 'loto', name: 'Lô Tô #1' },
   { id: 'oantuti-1', type: 'rps', name: 'Oẳn Tù Tì #1' },
   { id: 'tienlen-1', type: 'tienlen', name: 'Tiến Lên #1' },
+  { id: 'duaxe-1', type: 'race', name: 'Đua xe #1' },
 ]);
 
 export function getRoomRules(type) {

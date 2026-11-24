@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="robots" content="noindex, follow">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chánh Điện">
+  <title>Phòng game · Đua xe · Chánh Điện Online</title>
+  <style>
+    /* Đua xe nhiều người: trường đua 3D (race3d.mjs), xe của mình tự tính vật lý (/shared/race.mjs), máy realtime làm trọng
+       tài + lái xe bot. Không có xu, chỉ Bảng vàng vòng nhanh nhất. */
+    :root {
+      color-scheme: dark;
+      --bg: #0d1117;
+      --panel: rgba(13, 17, 23, .84);
+      --panel-solid: #121821;
+      --line: rgba(255, 255, 255, .14);
+      --fg: #f3f6fa;
+      --muted: #a4afbd;
+      --gold: #ffcc4d;
+      --red: #ff4d3d;
+      --green: #4ade80;
+      --purple: #c084fc;
+      font-family: Inter, "Be Vietnam Pro", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--fg); }
+    html { touch-action: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+    button:disabled { cursor: default; opacity: .45; }
+    [hidden] { display: none !important; }
+    #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+    .top { position: fixed; z-index: 20; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 6px; align-items: center; pointer-events: none; }
+    .top > * { pointer-events: auto; }
+    .chip { height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 13px; white-space: nowrap; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    .chip.icon { width: 34px; padding: 0; justify-content: center; }
+    .room i { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+    .room.online i { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .spacer { flex: 1; }
+    .travel { position: relative; }
+    .travel-panel { position: absolute; left: 0; top: calc(100% + 6px); width: 190px; display: grid; gap: 5px; padding: 6px; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 34px rgba(0, 0, 0, .6); }
+    .travel-panel button { min-height: 40px; padding: 0 10px; text-align: left; background: rgba(255, 255, 255, .05); border: 1px solid var(--line); border-radius: 9px; font-size: 13px; }
+
+    /* Đồng hồ / vòng / hạng (giữa trên) */
+    .hud { position: fixed; z-index: 15; top: calc(max(8px, env(safe-area-inset-top)) + 42px); left: 50%; transform: translateX(-50%); display: flex; gap: 6px; align-items: stretch; pointer-events: none; }
+    .hud > div { padding: 5px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+    .hud small { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+    .hud b { font-size: 17px; }
+    .hud .time b { font-size: 17px; min-width: 84px; display: inline-block; }
+    .hud .time b.wait { font-size: 12px; font-weight: 600; color: var(--muted); }
+    .hud .best b { color: var(--purple); font-size: 14px; }
+
+    /* Bảng thứ hạng (trái) */
+    .tower { position: fixed; z-index: 14; top: calc(max(8px, env(safe-area-inset-top)) + 100px); left: max(8px, env(safe-area-inset-left)); margin: 0; padding: 4px; list-style: none; width: 132px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
+    .tower li { display: grid; grid-template-columns: 18px 6px 1fr auto; gap: 5px; align-items: center; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+    .tower li.me { background: rgba(255, 255, 255, .12); font-weight: 700; }
+    .tower li.watch { outline: 1px solid var(--gold); }
+    .tower .p { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+    .tower .c { width: 6px; height: 14px; border-radius: 2px; }
+    .tower .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tower .l { color: var(--muted); font-size: 10px; }
+
+    .minimap { position: fixed; z-index: 14; top: calc(max(8px, env(safe-area-inset-top)) + 100px); right: max(8px, env(safe-area-inset-right)); width: 104px; height: 104px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+
+    .lights { position: fixed; z-index: 25; top: 40%; left: 50%; transform: translate(-50%, -50%); display: flex; gap: 10px; padding: 12px 16px; background: rgba(8, 8, 10, .82); border-radius: 14px; }
+    .lights i { width: 30px; height: 30px; border-radius: 50%; background: #3a0b0b; box-shadow: inset 0 0 6px rgba(0, 0, 0, .7); }
+    .lights i.on { background: radial-gradient(circle at 40% 35%, #ff8a80, #ff1a0a 60%); box-shadow: 0 0 18px #ff2a1a; }
+    .banner { position: fixed; z-index: 25; top: 40%; left: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100vw - 32px); padding: 10px 22px; font-size: 30px; font-weight: 900; letter-spacing: .04em; background: rgba(8, 8, 10, .8); border-radius: 14px; text-align: center; pointer-events: none; }
+    .banner small { display: block; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+    .toast { position: fixed; z-index: 26; top: calc(max(8px, env(safe-area-inset-top)) + 132px); left: 50%; transform: translateX(-50%); padding: 8px 14px; background: rgba(8, 8, 10, .86); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; font-weight: 700; white-space: nowrap; pointer-events: none; }
+    .toast.best { color: var(--green); }
+    .toast.record { color: var(--purple); }
+    .feed { position: fixed; z-index: 14; left: max(8px, env(safe-area-inset-left)); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 196px); margin: 0; padding: 0; list-style: none; font-size: 12px; display: grid; gap: 3px; pointer-events: none; }
+    .feed li { padding: 3px 8px; background: var(--panel); border-radius: 8px; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Điều khiển */
+    .controls { position: fixed; z-index: 16; left: 0; right: 0; bottom: 0; height: calc(190px + env(safe-area-inset-bottom)); padding: 0 max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; touch-action: none; }
+    .steer { position: relative; height: 150px; border-radius: 18px; background: linear-gradient(90deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .03) 50%, rgba(255, 255, 255, .1)); border: 1px solid var(--line); touch-action: none; display: grid; place-items: center; }
+    .steer .wheel { width: 76px; height: 76px; border-radius: 50%; border: 8px solid rgba(255, 255, 255, .8); display: grid; place-items: center; font-size: 22px; transition: transform .05s linear; }
+    .steer .wheel::before { content: ""; width: 54px; height: 6px; background: rgba(255, 255, 255, .8); border-radius: 3px; position: absolute; }
+    .steer .hint { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--muted); }
+    .pedals { display: grid; gap: 8px; }
+    .pedal { width: 92px; height: 72px; border-radius: 16px; border: 1px solid var(--line); font-weight: 900; font-size: 15px; touch-action: none; }
+    .pedal.brake { background: rgba(220, 38, 38, .55); }
+    .pedal.gas { background: rgba(22, 163, 74, .55); }
+    .pedal.on { filter: brightness(1.6); transform: scale(.97); }
+    .tools { position: fixed; z-index: 16; right: max(10px, env(safe-area-inset-right)); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 200px); display: grid; gap: 6px; }
+    .tools button { height: 34px; padding: 0 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
+    .speed { position: fixed; z-index: 15; left: 50%; bottom: calc(max(10px, env(safe-area-inset-bottom)) + 196px); transform: translateX(-50%); text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; text-shadow: 0 2px 8px rgba(0, 0, 0, .8); }
+    .speed b { font-size: 34px; font-weight: 900; }
+    .speed small { display: block; font-size: 11px; color: var(--muted); }
+    .status-pill { position: fixed; z-index: 15; left: 50%; transform: translateX(-50%); top: calc(max(8px, env(safe-area-inset-top)) + 96px); padding: 6px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; white-space: nowrap; }
+
+    /* Bảng điều khiển khi chưa lái */
+    .panel, .sheet > div { touch-action: pan-y; }
+    .panel { position: fixed; z-index: 18; left: 0; right: 0; bottom: 0; max-width: 560px; margin: 0 auto; padding: 14px 14px max(14px, env(safe-area-inset-bottom)); background: var(--panel-solid); border: 1px solid var(--line); border-bottom: 0; border-radius: 20px 20px 0 0; box-shadow: 0 -20px 40px rgba(0, 0, 0, .45); display: grid; gap: 10px; max-height: 62vh; overflow-y: auto; }
+    .panel h1 { margin: 0; font-size: 18px; }
+    .panel .status { color: var(--muted); font-size: 13px; min-height: 18px; }
+    .panel .status b { color: var(--fg); }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .actions button, .row button { min-height: 46px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, .06); font-weight: 700; }
+    .actions .primary { background: linear-gradient(180deg, #ff5a3d, #d9341f); border-color: transparent; }
+    .actions .queued { background: #2b3645; }
+    .colors { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+    .colors button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; padding: 0; }
+    .colors button[aria-pressed="true"] { border-color: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, .35); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .row button { min-height: 40px; font-weight: 600; font-size: 13px; }
+    .toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+    .message { margin: 0; font-size: 13px; color: var(--gold); min-height: 0; }
+    .message:empty { display: none; }
+
+    .sheet { position: fixed; z-index: 30; inset: 0; display: grid; place-items: end center; background: rgba(0, 0, 0, .45); }
+    .sheet > div { width: 100%; max-width: 560px; max-height: 84vh; overflow-y: auto; padding: 16px 16px max(16px, env(safe-area-inset-bottom)); background: var(--panel-solid); border: 1px solid var(--line); border-radius: 20px 20px 0 0; }
+    .sheet h2 { margin: 0 0 10px; font-size: 18px; display: flex; justify-content: space-between; align-items: center; }
+    .sheet h2 button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: transparent; }
+    .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 3px; background: rgba(255, 255, 255, .05); border-radius: 999px; margin-bottom: 10px; }
+    .tabs button { height: 32px; border: 0; border-radius: 999px; background: transparent; font-size: 12px; font-weight: 700; color: var(--muted); }
+    .tabs button[aria-pressed="true"] { background: var(--gold); color: #2a1404; }
+    .board { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+    .board li { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 8px 10px; background: rgba(255, 255, 255, .04); border-radius: 10px; font-size: 14px; }
+    .board li b { font-variant-numeric: tabular-nums; }
+    .board .rank { color: var(--gold); font-weight: 900; }
+    .board .empty { grid-template-columns: 1fr; color: var(--muted); text-align: center; }
+    .mine { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+    .results { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+    .results td { padding: 7px 6px; border-bottom: 1px solid var(--line); }
+    .results tr.me td { background: rgba(255, 255, 255, .08); font-weight: 700; }
+    .results .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .help { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.55; color: #d7dde6; }
+    .note { font-size: 12px; color: var(--muted); }
+
+    /* Màn ngang: bảng điều khiển thành ngăn phải, điều khiển gọn hơn. */
+    @media (orientation: landscape) and (min-width: 700px) {
+      .panel { left: auto; right: max(10px, env(safe-area-inset-right)); bottom: 10px; width: 360px; margin: 0; border-radius: 18px; border-bottom: 1px solid var(--line); max-height: calc(100vh - 70px); }
+      .sheet { place-items: center; }
+      .sheet > div { border-radius: 18px; }
+      .controls { height: 170px; }
+      .steer { height: 140px; max-width: 46vw; }
+      .tools { bottom: 180px; }
+      .feed { bottom: 180px; }
+      /* Màn ngang camera thấp: số km/h sang cạnh nút phanh để không che xe của mình. */
+      .speed { left: auto; right: calc(max(10px, env(safe-area-inset-right)) + 110px); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 8px); transform: none; }
+    }
+    @media (max-height: 520px) and (orientation: landscape) {
+      .panel { width: 300px; padding: 10px; gap: 7px; top: auto; max-height: calc(100vh - 56px); }
+      .panel h1 { display: none; }
+      .panel .status { font-size: 12px; }
+      .actions button { min-height: 38px; font-size: 13px; }
+      .row button { min-height: 34px; font-size: 12px; }
+      .colors { gap: 5px; flex-wrap: nowrap; }
+      .colors span { display: none; }
+      .colors button { width: 24px; height: 24px; flex: none; }
+      .toggle { font-size: 12px; }
+      .controls { height: 130px; }
+      .steer { height: 112px; }
+      .pedal { height: 54px; width: 84px; }
+      .tools, .feed { bottom: 136px; }
+      .speed { left: auto; right: calc(max(10px, env(safe-area-inset-right)) + 100px); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 4px); transform: none; }
+      .tower { top: 50px; font-size: 11px; }
+      .minimap { top: 50px; width: 88px; height: 88px; }
+      .hud { top: 48px; }
+      .speed b { font-size: 26px; }
+    }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <canvas id="scene" aria-label="Trường đua"></canvas>
+
+  <header class="top">
+    <div class="travel">
+      <button type="button" class="chip" id="travelToggle" aria-haspopup="menu" aria-expanded="false">📍 ▾</button>
+      <div class="travel-panel" id="travelPanel" role="menu" hidden>
+        <button type="button" role="menuitem" data-destination="hall">🛕 Chánh điện</button>
+        <button type="button" role="menuitem" data-destination="courtyard">🌳 Ngoài sân</button>
+        <button type="button" role="menuitem" data-destination="cinema">🎬 Rạp phim</button>
+        <button type="button" role="menuitem" data-destination="games">🎲 Phòng game</button>
+      </div>
+    </div>
+    <span class="chip room" id="roomChip"><i></i>🏎️ Đua xe</span>
+    <span class="chip" id="people" title="Người trong phòng">👥 0</span>
+    <span class="spacer"></span>
+    <button type="button" class="chip icon" id="camera" title="Đổi góc camera" aria-label="Đổi góc camera">🎥</button>
+    <button type="button" class="chip icon" id="mute" title="Tắt / bật tiếng" aria-label="Tắt / bật tiếng">🔊</button>
+  </header>
+
+  <div class="hud" id="hud" hidden>
+    <div id="hudPosBox"><small>Hạng</small><b id="hudPos">–</b></div>
+    <div><small>Vòng</small><b id="hudLap">–</b></div>
+    <div class="time"><small>Giờ vòng</small><b id="hudTime">0:00,000</b></div>
+    <div class="best"><small>Tốt nhất</small><b id="hudBest">–</b></div>
+  </div>
+  <div class="status-pill" id="statusPill" hidden></div>
+  <ol class="tower" id="tower" hidden aria-label="Thứ hạng"></ol>
+  <canvas class="minimap" id="minimap" width="208" height="208" aria-hidden="true"></canvas>
+  <div class="lights" id="lights" hidden aria-live="polite"><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="banner" id="banner" hidden></div>
+  <div class="toast" id="toast" hidden></div>
+  <ul class="feed" id="feed"></ul>
+  <div class="speed" id="speed" hidden><b id="speedValue">0</b><small>km/h</small></div>
+
+  <div class="tools" id="tools" hidden>
+    <button type="button" id="rescue">↺ Đặt lại xe</button>
+    <button type="button" id="stopDrive">⏏ Thôi lái</button>
+  </div>
+  <div class="controls" id="controls" hidden>
+    <div class="steer" id="steer"><div class="wheel" id="wheel"></div><span class="hint">Giữ và kéo trái / phải để lái</span></div>
+    <div class="pedals">
+      <button type="button" class="pedal gas" id="gas" hidden>GA</button>
+      <button type="button" class="pedal brake" id="brake">PHANH</button>
+    </div>
+  </div>
+
+  <section class="panel" id="panel" aria-label="Đua xe">
+    <h1>🏎️ Trường đua Hoa Sen</h1>
+    <div class="status" id="status">Đang kết nối…</div>
+    <div class="actions">
+      <button type="button" class="primary" id="join">🏁 Vào đua</button>
+      <button type="button" id="practice">🚗 Chạy thử</button>
+    </div>
+    <div class="colors" id="colors"><span>Màu xe</span></div>
+    <label class="toggle"><input type="checkbox" id="autoGas"> Ga tự động: xe tự tăng tốc, tự giảm tốc trước cua</label>
+    <div class="row">
+      <button type="button" id="boardOpen">🏆 Bảng vàng</button>
+      <button type="button" id="helpOpen">❔ Cách chơi</button>
+    </div>
+    <p class="message" id="message" role="status"></p>
+  </section>
+
+  <div class="sheet" id="board" hidden>
+    <div role="dialog" aria-modal="true" aria-labelledby="boardTitle">
+      <h2 id="boardTitle">🏆 Bảng vàng <button type="button" id="boardClose" aria-label="Đóng">✕</button></h2>
+      <div class="tabs" id="boardTabs">
+        <button type="button" data-tab="today" aria-pressed="true">Hôm nay</button>
+        <button type="button" data-tab="week" aria-pressed="false">7 ngày</button>
+        <button type="button" data-tab="all" aria-pressed="false">Mọi lúc</button>
+        <button type="button" data-tab="wins" aria-pressed="false">Về nhất</button>
+      </div>
+      <ol class="board" id="boardList"></ol>
+      <p class="mine" id="boardMine"></p>
+    </div>
+  </div>
+
+  <div class="sheet" id="help" hidden>
+    <div role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <h2 id="helpTitle">❔ Cách chơi <button type="button" id="helpClose" aria-label="Đóng">✕</button></h2>
+      <ul class="help">
+        <li><b>Vào đua</b>: chờ người khác vài giây, xe khác vào lấp chỗ rồi xếp lưới. 5 đèn đỏ sáng dần, <b>đèn tắt là xuất phát</b>. Đua 3 vòng, ai về trước thắng.</li>
+        <li><b>Chạy thử</b>: chạy tự do lúc không có cuộc đua, lấy vòng nhanh nhất lên Bảng vàng.</li>
+        <li><b>Xếp lưới</b>: theo vòng nhanh nhất của bạn trong 30 phút gần đây (chạy thử hay đua đều tính), nhanh hơn thì đứng trên. Chưa có vòng thì bốc thăm chỗ. Bấm Vào đua rồi chạy thử trong lúc chờ để giành ô đầu.</li>
+        <li>Điện thoại: giữ và kéo ô bên trái để lái, giữ <b>PHANH</b> để giảm tốc (dừng hẳn mà còn giữ thì lùi). Bật <b>Ga tự động</b> thì xe tự tăng tốc và tự giảm tốc trước cua, bạn chỉ cần lái; tắt đi thì có nút GA, tự canh ga phanh để chạy nhanh hơn.</li>
+        <li>Máy tính: ← → hoặc A D để lái, ↑ / W ga, ↓ / S / Space phanh, R đặt lại xe.</li>
+        <li>Vào cua quá nhanh xe sẽ trượt thẳng; ra cỏ / sỏi bị chậm; đâm rào hay va xe khác đều mất tốc độ. Kẹt thì bấm <b>↺ Đặt lại xe</b> (vòng đó không tính kỷ lục).</li>
+        <li>Không dùng xu. Thành viên đăng nhập được lưu vòng nhanh nhất và số lần về nhất lên Bảng vàng.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="sheet" id="results" hidden>
+    <div role="dialog" aria-modal="true" aria-labelledby="resultsTitle">
+      <h2 id="resultsTitle">🏁 Kết quả <button type="button" id="resultsClose" aria-label="Đóng">✕</button></h2>
+      <table class="results"><tbody id="resultsBody"></tbody></table>
+      <p class="note" id="resultsNote"></p>
+      <div class="actions">
+        <button type="button" class="primary" id="again">🏁 Đua tiếp</button>
+        <button type="button" id="leaveRace">Thôi, xem thôi</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/dua-xe.js"></script>
+</body>
+</html>

@@ -586,6 +586,17 @@ export function createExploreUI({ stage, session, showToast, extraButtons = [], 
     arriveAt(destination) {
       if (['hall', 'courtyard', 'overlook', 'grove', 'park', 'flowers', 'library', 'garden', 'pets', 'farm', 'myfarm', 'memorial'].includes(destination)) arrival = destination;
     },
+    // Máy ảnh 📷: camera ra trước mặt nhân vật (selfie) hoặc về sau lưng. false khi không xoay được (đang ngồi bồ đoàn…).
+    faceCamera(front) {
+      return api?.faceCamera?.(front) || false;
+    },
+    // Máy ảnh 📷: nút ✨ Tương tác đang bấm được (chỉ ngoài sân, không bận việc khác) thì bấm hộ để nhân vật tạo dáng.
+    pose() {
+      const button = bar.querySelector('[data-emote="act"]');
+      if (!button || bar.hidden || button.hidden || button.disabled) return false;
+      button.click();
+      return true;
+    },
     // Đi bộ tới một điểm (Tới chỗ bạn). Trả false khi chưa ở chế độ đi lại.
     walkTo(point, then) {
       return api?.walkTo?.(point, then) || false;

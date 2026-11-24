@@ -85,6 +85,36 @@ function turnsOf(shape) {
   return { key, out };
 }
 
+// Tương quan hình: suy độ dịch từng thuộc tính chỉ từ A → B rồi áp vào C (không gọi hàm của bộ sinh).
+function analogyAnswer(item) {
+  const mod = { s: 4, c: 4, n: 3, z: 3, f: 2 };
+  const indexOf = (attr, value) => (attr === 'n' ? value - 1 : value);
+  const valueOf = (attr, value) => (attr === 'n' ? value + 1 : value);
+  return Object.fromEntries(Object.keys(mod).map((attr) => {
+    const delta = (indexOf(attr, item.b[attr]) - indexOf(attr, item.a[attr]) + mod[attr]) % mod[attr];
+    return [attr, valueOf(attr, (indexOf(attr, item.c[attr]) + delta) % mod[attr])];
+  }));
+}
+
+// Cân hình: vét mọi trọng lượng nguyên dương 1–12; đề hợp lý phải có đúng một bộ nghiệm và một giá trị đích.
+function balanceSolutions(item) {
+  const solutions = [];
+  const weights = Array(item.symbols.length).fill(1);
+  const total = (icons) => icons.reduce((sum, icon) => sum + weights[icon], 0);
+  const visit = (index) => {
+    if (index < weights.length) {
+      for (let value = 1; value <= 12; value += 1) {
+        weights[index] = value;
+        visit(index + 1);
+      }
+      return;
+    }
+    if (item.equations.every((equation) => total(equation.icons) === equation.total)) solutions.push({ weights: [...weights], target: total(item.target) });
+  };
+  visit(0);
+  return solutions;
+}
+
 // Tính nhẩm: tự tính biểu thức (không dùng hàm của bộ sinh đề).
 const mathValue = (text) => Function(`return ${text.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/(\d+)²/g, '($1*$1)').replace(/(\d+)%/g, '($1/100)')}`)();
 
@@ -122,6 +152,19 @@ test('trí tuệ: đề sinh từ seed — cùng seed cùng đề, phương án 
           assert.ok(fits.length >= 1, `${where}: có phép khớp hai hàng đầu`);
           assert.ok(fits.every((value) => value === item.options[answers[index]]), `${where}: mọi cách hiểu cùng một đáp án`);
         }
+        if (item.kind === 'analogy') {
+          const expected = analogyAnswer(item);
+          const expectedKey = JSON.stringify(expected);
+          assert.equal(item.options.filter((option) => JSON.stringify(option) === expectedKey).length, 1, `${where}: đúng một hình áp dụng cùng biến đổi`);
+          assert.equal(JSON.stringify(item.options[answers[index]]), expectedKey, where);
+        }
+        if (item.kind === 'balance') {
+          const solutions = balanceSolutions(item);
+          assert.equal(solutions.length, 1, `${where}: hệ cân có đúng một nghiệm nguyên dương`);
+          const answer = item.options[answers[index]];
+          assert.equal(solutions[0].target, answer, `${where}: đáp án bằng giá trị nhóm cuối`);
+          assert.equal(item.options.filter((value) => value === answer).length, 1, `${where}: đúng một phương án đúng`);
+        }
         if (item.kind === 'series') assert.ok(item.terms.every((value) => Number.isInteger(value) && value >= 0), where);
       });
     }
@@ -136,7 +179,7 @@ test('trí tuệ: đề sinh từ seed — cùng seed cùng đề, phương án 
   }
 });
 
-test('trí tuệ: 80 % câu khó — Test IQ 16 / 20, Đố hình / Đố số 8 / 10, Tính nhẩm / Màu mực 4 / 5; đủ loại câu', () => {
+test('trí tuệ: 80 % câu khó — Test IQ 24 / 30, Đố hình / Đố số 8 / 10, Tính nhẩm / Màu mực 4 / 5; đủ loại câu', () => {
   const hard = (items) => items.filter((item) => item.level >= HARD_LEVEL).length;
   for (const seed of [1, 99, 4242]) {
     const iq = buildPuzzle('iq', seed).problem.items;
@@ -179,7 +222,7 @@ test('trí tuệ: chấm điểm từng trò, lượt gõ ngược của chuông
   assert.equal(gradePuzzle('stroop', seed, buildPuzzle('stroop', seed).answers.slice(0, 30), 3_000).code, 'TOO_FAST');
   const iq = buildPuzzle('iq', seed).answers;
   const graded = gradePuzzle('iq', seed, iq, 300_000);
-  assert.deepEqual([graded.points, graded.byKind], [20, { matrix: 5, rotation: 5, series: 5, numgrid: 5 }]);
+  assert.deepEqual([graded.points, graded.byKind], [30, { matrix: 5, rotation: 5, series: 5, numgrid: 5, analogy: 5, balance: 5 }]);
   assert.equal(gradePuzzle('series', seed, [9], 10_000).code, 'INVALID');
   assert.equal(gradePuzzle('series', seed, 'x', 10_000).code, 'INVALID');
 });
@@ -246,13 +289,34 @@ test('trí tuệ: chuỗi ngày làm đủ 5 trò, bỏ một ngày là tính l�
   assert.equal((await view()).me.streak, 1);
 });
 
+test('trí tuệ: dữ liệu bài IQ 20 câu cũ được giữ tổng và quy đổi được sang bài 30 câu', () => {
+  const accounts = createAccountStore();
+  accounts.database.exec(`
+    CREATE TABLE brain_iq (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT,
+      display_name TEXT NOT NULL,
+      correct INTEGER NOT NULL,
+      iq INTEGER NOT NULL,
+      ms INTEGER NOT NULL,
+      at INTEGER NOT NULL
+    );
+    INSERT INTO brain_iq (account_id, display_name, correct, iq, ms, at)
+    VALUES ('old-account', 'Bài cũ', 10, 103, 300000, 1);
+  `);
+  createBrainStore({ db: accounts.database, secret: SECRET });
+  const old = accounts.database.prepare('SELECT correct, total FROM brain_iq').get();
+  assert.deepEqual([old.correct, old.total], [10, 20]);
+  assert.equal((old.correct * IQ_ITEMS) / old.total, 15, '10/20 được quy thành 15/30 khi lập mẫu so sánh');
+});
+
 test('trí tuệ: Test IQ vui — chỉ số theo số câu đúng, lưu kết quả tốt nhất, Bảng vàng chỉ có thành viên', async () => {
   const { view, play, binh } = setup();
   const { round, answer } = await play('iq', (solution) => solution.map((value, index) => (index < 15 ? value : null)), { waitMs: 300_000 });
-  assert.equal(round.problem.items.length, 20);
-  assert.equal(round.limitMs, 900_000);
+  assert.equal(round.problem.items.length, IQ_ITEMS);
+  assert.equal(round.limitMs, BRAIN_LIMITS.iq);
   const expected = iqIndex(15, []);
-  assert.deepEqual([answer.json.correct, answer.json.total, answer.json.index, answer.json.percent, answer.json.calibrated], [15, 20, expected.index, null, false]);
+  assert.deepEqual([answer.json.correct, answer.json.total, answer.json.index, answer.json.percent, answer.json.calibrated], [15, IQ_ITEMS, expected.index, null, false]);
   assert.equal(IQ_KINDS.reduce((sum, kind) => sum + answer.json.strengths[kind], 0), 15);
   assert.equal(answer.json.strengths.seconds, 300);
   assert.equal(answer.json.best, expected.index);
@@ -266,14 +330,14 @@ test('trí tuệ: Test IQ vui — chỉ số theo số câu đúng, lưu kết q
 
 test('trí tuệ: chỉ số tham khảo tăng theo số câu đúng, kẹp 70–145, đủ mẫu thì theo người chơi thật', () => {
   let last = 0;
-  for (let correct = 0; correct <= 20; correct += 1) {
+  for (let correct = 0; correct <= IQ_ITEMS; correct += 1) {
     const { index } = iqIndex(correct, []);
     assert.ok(index >= last && index >= 70 && index <= 145, `${correct} → ${index}`);
     last = index;
   }
   assert.equal(iqIndex(IQ_PRIOR.mean, []).index, 100);
   assert.equal(percentileOf(5, [1, 5, 9, 9]), 0.375);
-  const small = Array.from({ length: IQ_PERCENT_MIN }, (_, index) => index % 21);
+  const small = Array.from({ length: IQ_PERCENT_MIN }, (_, index) => index % (IQ_ITEMS + 1));
   assert.equal(typeof iqIndex(10, small).percent, 'number');
   assert.equal(iqIndex(10, small).calibrated, false);
   const big = Array.from({ length: IQ_SAMPLE_MIN }, () => 5);

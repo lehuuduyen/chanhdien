@@ -48,6 +48,9 @@ test('sảnh công bố chánh điện, Cinema và phòng game với sức chứ
   }, {
     id: 'tienlen-1', type: 'tienlen', name: 'Tiến Lên #1', status: 'open', participantCount: 0,
     maxParticipants: 500, seats: undefined, lang: 'vi',
+  }, {
+    id: 'duaxe-1', type: 'race', name: 'Đua xe #1', status: 'open', participantCount: 0,
+    maxParticipants: 80, seats: undefined, lang: 'vi',
   }]);
 });
 

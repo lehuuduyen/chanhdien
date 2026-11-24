@@ -1,5 +1,5 @@
 // Khu Trí tuệ (app 🧠 trong điện thoại chánh điện; API apps/api/brain.mjs): "Đề hôm nay" 5 trò luyện não (Nhớ tiếng
-// chuông, Ma trận hoa sen, Dãy số, Tính nhẩm, Màu mực), "Test IQ vui" 20 câu / 10 phút ra chỉ số tham khảo, Bảng vàng,
+// chuông, Ma trận hoa sen, Dãy số, Tính nhẩm, Màu mực), "Test IQ vui" 30 câu / 20 phút ra chỉ số tham khảo, Bảng vàng,
 // ảnh kết quả 9:16 để chia sẻ. Server ra đề và chấm; trang chỉ vẽ đề, đếm giờ, gửi lựa chọn. Không thưởng xu.
 // Chữ ở brain-text.js (vi / en / zh / es). Chữ người dùng (tên trên Bảng vàng) chỉ qua textContent / fillText.
 import { lang, onLangChange } from '/thien-i18n.js';
@@ -7,7 +7,7 @@ import { brainText } from '/brain-text.js';
 
 const GAMES = ['bells', 'matrix', 'series', 'math', 'stroop'];
 // Loại câu của Test IQ (mỗi loại 5 câu), theo thứ tự hiện thanh điểm mạnh.
-const IQ_KINDS = ['matrix', 'rotation', 'series', 'numgrid'];
+const IQ_KINDS = ['matrix', 'rotation', 'series', 'numgrid', 'analogy', 'balance'];
 const ICONS = { bells: '🔔', matrix: '🪷', series: '🔢', math: '🧮', stroop: '🎨' };
 const INSTRUMENTS = ['🔔', '🪵', '🎐', '🥁'];
 // Màu hình ma trận theo chỉ số trong đề: vàng, đỏ, ngọc, lam.
@@ -173,7 +173,7 @@ const loadImage = (src) => new Promise((resolve, reject) => {
 
 // sendRoom(message): gửi tin tới phòng (Đấu trí: challenge.check / cancel / send).
 // selfId(): participantId của mình trong phòng; serverNow(): giờ server (Đố vui đếm giờ theo server).
-export function createBrainUI({ stage, showToast, account, openSignIn, displayName = () => '', muted = () => false, locale = () => undefined, sendRoom = () => false, selfId = () => null, serverNow = () => Date.now() }) {
+export function createBrainUI({ stage, showToast, account, openSignIn, displayName = () => '', muted = () => false, locale = () => undefined, sendRoom = () => false, selfId = () => null, serverNow = () => Date.now(), onDaily = () => {} }) {
   const tr = (key, vars) => brainText(lang(), key, vars);
   const sheet = el('section', 'brain-sheet');
   sheet.hidden = true;
@@ -205,6 +205,26 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
     failed = !response?.ok;
     if (response?.ok) view = response.data;
     if (!sheet.hidden && (!screen || screen.type === 'result')) render();
+    onDaily(dailyStatus());
+  }
+
+  // Đề hôm nay của thành viên: còn mấy trò, chuỗi ngày (tính tới hôm qua khi hôm nay chưa xong), số người đã làm.
+  // null với khách (điểm không lưu nên không nhắc).
+  function dailyStatus() {
+    if (!view?.me || !account()) return null;
+    const done = GAMES.filter((game) => view.me.today?.[game] !== undefined).length;
+    return { day: view.day, done, left: GAMES.length - done, streak: view.me.streak || 0, players: view.players || 0 };
+  }
+
+  // Lời nhắc quay lại (trang hiện thành thông báo trên điện thoại): giữ chuỗi ngày, còn mấy trò, hoặc đề mới đã mở.
+  function reminder(status) {
+    if (!status?.left) return null;
+    const actionLabel = tr('remind.play');
+    if (status.streak > 0) {
+      return { title: tr('remind.streakTitle', { n: status.streak }), text: tr('remind.streakText', { left: status.left, next: status.streak + 1 }), actionLabel };
+    }
+    if (status.done > 0) return { title: tr('remind.leftTitle', { left: status.left }), text: tr('remind.leftText'), actionLabel };
+    return { title: tr('remind.newTitle'), text: status.players > 0 ? tr('remind.newPlayers', { n: status.players }) : tr('remind.newText'), actionLabel };
   }
 
   const errorText = (code) => (code && tr(`err.${code}`) !== `err.${code}` ? tr(`err.${code}`) : tr('error'));
@@ -291,7 +311,7 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
       const list = el('ol', 'brain-history');
       for (const row of history) {
         const item = el('li');
-        item.append(el('b', '', String(row.index)), el('span', '', tr('iq.correct', { n: row.correct })), el('small', '', new Date(row.at).toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })));
+        item.append(el('b', '', String(row.index)), el('span', '', tr('iq.correct', { n: row.correct, total: row.total || 20 })), el('small', '', new Date(row.at).toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })));
         list.append(item);
       }
       parts.push(list);
@@ -415,6 +435,38 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
       const grid = el('div', 'brain-numgrid');
       for (const value of [...item.cells, null]) grid.append(el('span', value === null ? 'missing' : '', value === null ? '?' : value.toLocaleString(locale())));
       board.replaceChildren(grid);
+      options.replaceChildren(...item.options.map((value, choice) => pick('brain-option number', value.toLocaleString(locale()), choice)));
+    } else if (kind === 'analogy') {
+      const card = (cell, missing = false) => {
+        const node = el('span', missing ? 'brain-analogy-card missing' : 'brain-analogy-card');
+        node.append(tile(cell));
+        return node;
+      };
+      const analogy = el('div', 'brain-analogy');
+      analogy.append(card(item.a), el('b', '', '→'), card(item.b), card(item.c), el('b', '', '→'), card(null, true));
+      board.replaceChildren(analogy);
+      options.replaceChildren(...item.options.map((cell, choice) => pick('brain-option', tile(cell), choice)));
+    } else if (kind === 'balance') {
+      const icons = (values) => {
+        const group = el('span', 'brain-balance-icons');
+        values.forEach((value, index) => {
+          if (index) group.append(el('i', '', '+'));
+          const symbol = el('span', 'brain-balance-symbol');
+          symbol.append(tile(item.symbols[value]));
+          group.append(symbol);
+        });
+        return group;
+      };
+      const balance = el('div', 'brain-balance');
+      for (const equation of item.equations) {
+        const row = el('div', 'brain-balance-row');
+        row.append(icons(equation.icons), el('b', '', '='), el('strong', '', equation.total.toLocaleString(locale())));
+        balance.append(row);
+      }
+      const target = el('div', 'brain-balance-row target');
+      target.append(icons(item.target), el('b', '', '='), el('strong', '', '?'));
+      balance.append(target);
+      board.replaceChildren(balance);
       options.replaceChildren(...item.options.map((value, choice) => pick('brain-option number', value.toLocaleString(locale()), choice)));
     } else {
       board.replaceChildren(el('p', 'brain-terms', `${item.terms.map((value) => value.toLocaleString(locale())).join(', ')}, ?`));
@@ -679,7 +731,7 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
   function iqResultPage({ answers, result }) {
     const parts = [];
     const hero = el('div', 'brain-hero iq');
-    hero.append(el('small', '', tr('iq.index')), el('b', 'brain-iq', String(result.index)), el('span', '', tr('iq.correct', { n: result.correct })));
+    hero.append(el('small', '', tr('iq.index')), el('b', 'brain-iq', String(result.index)), el('span', '', tr('iq.correct', { n: result.correct, total: result.total })));
     parts.push(hero);
     parts.push(note(result.percent === null ? tr('iq.calibrating') : tr('iq.percent', { n: result.percent }), 'brain-percent'));
     const bars = el('div', 'brain-bars');
@@ -694,7 +746,7 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
     };
     // Mỗi loại câu 5 câu (ma trận, xoay hình, dãy số, bảng số); thanh thời gian = phần thời gian còn dư.
     const { seconds: spent } = result.strengths;
-    const limit = Math.round((screen.round?.limitMs || 900_000) / 1000);
+    const limit = Math.round((screen.round?.limitMs || 1_200_000) / 1000);
     bars.append(
       ...IQ_KINDS.map((kind) => bar(tr(`iq.${kind}`), result.strengths[kind] || 0, 5, `${result.strengths[kind] || 0}/5`)),
       bar(tr('iq.time'), Math.max(0, limit - spent), limit, tr('iq.minutes', { m: Math.floor(spent / 60), s: spent % 60 })),
@@ -760,11 +812,11 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
         g.fillText(String(result.index), 540, 930);
         g.fillStyle = '#f3e6cc';
         g.font = `500 50px ${sans}`;
-        g.fillText(tr('iq.correct', { n: result.correct }), 540, 1030);
+        g.fillText(tr('iq.correct', { n: result.correct, total: result.total }), 540, 1030);
         if (result.percent !== null) g.fillText(tr('iq.percent', { n: result.percent }), 540, 1100);
         const bars = IQ_KINDS.map((kind) => [tr(`iq.${kind}`), result.strengths[kind] || 0]);
         bars.forEach(([label, value], index) => {
-          const y = 1190 + index * 100;
+          const y = 1175 + index * 66;
           g.textAlign = 'left';
           g.font = `500 40px ${sans}`;
           g.fillStyle = '#cdbb9b';
@@ -773,9 +825,9 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
           g.fillStyle = '#f3e6cc';
           g.fillText(`${value}/5`, 910, y);
           g.fillStyle = 'rgba(255,255,255,.12)';
-          g.fillRect(170, y + 20, 740, 18);
+          g.fillRect(170, y + 14, 740, 14);
           g.fillStyle = '#ecbc4c';
-          g.fillRect(170, y + 20, 740 * (value / 5), 18);
+          g.fillRect(170, y + 14, 740 * (value / 5), 14);
         });
         g.textAlign = 'center';
       } else {
@@ -1257,7 +1309,11 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
 
   return {
     open(name) {
-      if (name) tab = name;
+      // Mở thẳng một thẻ (thông báo nhắc Đề hôm nay, video giới thiệu): bỏ màn hướng dẫn trò còn để lại từ lần trước.
+      if (name) {
+        tab = name;
+        if (screen?.type === 'howto') screen = null;
+      }
       sheet.hidden = false;
       if (screen?.type === 'result') screen = null;
       render();
@@ -1271,6 +1327,16 @@ export function createBrainUI({ stage, showToast, account, openSignIn, displayNa
     // Xin vào ván Đố vui kế tiếp (như nút Tham gia ở thẻ Đố vui).
     joinQuiz: () => sendRoom({ type: 'quiz.join' }),
     get isOpen() { return !sheet.hidden; },
+    // Tải lại Đề hôm nay của mình (cũng gọi onDaily); trả dailyStatus() — null với khách / lỗi mạng.
+    async checkDaily() {
+      if (!account()) {
+        onDaily(null);
+        return null;
+      }
+      await load();
+      return dailyStatus();
+    },
+    reminder,
     accountChanged() {
       view = null;
       if (!sheet.hidden) load();

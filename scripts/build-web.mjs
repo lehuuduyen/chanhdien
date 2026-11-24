@@ -30,6 +30,7 @@ export async function buildWeb(output = path.join(ROOT, 'dist/web')) {
     copyFile(path.join(ROOT, 'packages/room-rules/src/index.mjs'), path.join(destination, 'shared/room-rules.mjs')),
     copyFile(path.join(ROOT, 'packages/prayer-slip/src/index.mjs'), path.join(destination, 'shared/prayer-slip.mjs')),
     copyFile(path.join(ROOT, 'packages/tien-len/src/index.mjs'), path.join(destination, 'shared/tien-len.mjs')),
+    copyFile(path.join(ROOT, 'packages/race/src/index.mjs'), path.join(destination, 'shared/race.mjs')),
     copyFile(path.join(ROOT, 'legacy/index.html'), path.join(destination, 'thien/index.html')),
   ]);
 

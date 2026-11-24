@@ -175,6 +175,21 @@ const tienLenTableId = (value) => typeof value === 'string' && TIENLEN_TABLE_ID.
 const tienLenSeat = (value) => isInteger(value) && value >= 0 && value < TIENLEN_SEATS;
 const tienLenCards = (value, min = 1) => Array.isArray(value) && value.length >= min && value.length <= 13
   && value.every((card) => isInteger(card) && card >= 0 && card <= 51) && new Set(value).size === value.length;
+// Đua xe (phòng duaxe, @chanh-dien/race): idle (chưa ai chờ đua) → lobby (đếm ngược, bot vào lấp chỗ) → grid (xếp lưới,
+// 5 đèn đỏ sáng dần, tắt lúc startAt) → racing → result (bảng kết quả) → lobby / idle. Ngoài lúc đua, ai cũng chạy thử
+// được (practice). Mỗi người: none (đứng xem) | queued (chờ cuộc đua tới) | practice | race. Màu xe là số 0–7. Trạng thái
+// xe do máy người lái tự tính rồi gửi race.car (≤ 20 lần/giây, r = vừa đặt lại xe giữa đường); máy realtime gom 50 ms
+// thành race.cars (mỗi xe kèm t = giờ server nhận gói, để máy xem nội suy). Không có xu; không mang cờ bot.
+export const RACE_PHASES = Object.freeze(['idle', 'lobby', 'grid', 'racing', 'result']);
+export const RACE_MODES = Object.freeze(['none', 'queued', 'practice', 'race']);
+export const RACE_COLORS = 8;
+export const RACE_MAX_CARS = 16;
+const RACE_ID = /^rc-[a-z0-9-]{4,76}$/;
+const raceColor = (value) => isInteger(value) && value >= 0 && value < RACE_COLORS;
+const raceMs = (value) => isInteger(value) && value >= 0 && value <= 3_600_000;
+// Tốc độ xe (m/s, âm = lùi). Trường tên speed vì `v` là phiên bản protocol.
+const raceSpeed = (value) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 200;
+const raceSpot = (value) => isRecord(value) && exactKeys(value, ['x', 'z', 'h']) && isCoord(value.x) && isCoord(value.z) && isAngle(value.h);
 export const WORLD_LIMIT = 1_000;
 export const MOVES_PER_BATCH = 500;
 
@@ -221,6 +236,10 @@ export const CLIENT_MESSAGE_POLICY = Object.freeze({
   'tienlen.play': { roles: ['member', 'moderator', 'host'], rate: '30/10 giây (chung với pass), đúng lượt (4 đôi thông chặt ngoài lượt)' },
   'tienlen.pass': { roles: ['member', 'moderator', 'host'], rate: '30/10 giây (chung với play), đúng lượt' },
   'tienlen.back': { roles: ['member', 'moderator', 'host'], rate: '5/10 giây' },
+  'race.join': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây, xếp chờ cuộc đua tới' },
+  'race.practice': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây, chỉ ngoài lúc xếp lưới / đang đua' },
+  'race.leave': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/10 giây' },
+  'race.car': { roles: ['guest', 'member', 'moderator', 'host'], rate: '20/giây khi đang lái; server gom 50 ms rồi phát' },
   'prayer.announce': { roles: ['guest', 'member', 'moderator', 'host'], rate: '3/10 phút' },
   'friend.request': { roles: ['guest', 'member', 'moderator', 'host'], rate: '5/60 giây' },
   'friend.respond': { roles: ['guest', 'member', 'moderator', 'host'], rate: '10/60 giây' },
@@ -418,6 +437,25 @@ const clientSchemas = {
   },
   'quiz.leave'(message) {
     return exactKeys(message, ['v', 'type', 'requestId']) && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'race.join'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId'], ['color'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && (message.color === undefined || raceColor(message.color));
+  },
+  'race.practice'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId'], ['color'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN)
+      && (message.color === undefined || raceColor(message.color));
+  },
+  'race.leave'(message) {
+    return exactKeys(message, ['v', 'type', 'requestId'])
+      && isString(message.requestId, LIMITS.requestId, ID_PATTERN);
+  },
+  'race.car'(message) {
+    return exactKeys(message, ['v', 'type', 'x', 'z', 'h', 'speed'], ['r'])
+      && isCoord(message.x) && isCoord(message.z) && isAngle(message.h) && raceSpeed(message.speed)
+      && (message.r === undefined || message.r === true);
   },
   'quiz.answer'(message) {
     return exactKeys(message, ['v', 'type', 'requestId', 'index', 'choice'])
@@ -980,6 +1018,62 @@ const serverSchemas = {
       && (message.last === undefined || last(message.last))
       && (message.result === undefined || result(message.result))
       && (message.coins === undefined || (isInteger(message.coins) && message.coins >= 0));
+  },
+  // Đua xe — trạng thái chung (cả phòng): pha, số vòng, các xe đang trên đường (đua / chạy thử), số người chờ đua.
+  // lightsAt: giờ server đèn đỏ đầu tiên sáng (mỗi giây thêm một đèn, đủ 5), startAt: đèn tắt = xuất phát; endAt: hạn chót
+  // (hết pha đếm ngược / hết giờ đua / hết màn kết quả). drivers[].lap: số vòng đã xong, pos: thứ hạng khi đang đua,
+  // best / last: vòng nhanh nhất / vòng vừa xong (ms), done: đã về đích, total: tổng thời gian, dnf: bỏ cuộc / mất kết nối.
+  // quali: vòng dùng để xếp lưới (ms; không có = bốc thăm chỗ). result: bảng kết quả cuộc đua vừa xong (pha result).
+  'race.state'(message) {
+    const driver = (item) => isRecord(item)
+      && exactKeys(item, ['id', 'displayName', 'color', 'mode'], ['skin', 'slot', 'lap', 'pos', 'best', 'last', 'total', 'quali', 'done', 'dnf'])
+      && isString(item.id, LIMITS.participantId, ID_PATTERN)
+      && isString(item.displayName, LIMITS.displayName)
+      && raceColor(item.color)
+      && ['practice', 'race'].includes(item.mode)
+      && (item.skin === undefined || validSkin(item.skin))
+      && (item.slot === undefined || (isInteger(item.slot) && item.slot >= 0 && item.slot < RACE_MAX_CARS))
+      && (item.lap === undefined || (isInteger(item.lap) && item.lap >= 0 && item.lap <= 99))
+      && (item.pos === undefined || (isInteger(item.pos) && item.pos >= 1 && item.pos <= RACE_MAX_CARS))
+      && ['best', 'last', 'total', 'quali'].every((key) => item[key] === undefined || raceMs(item[key]))
+      && ['done', 'dnf'].every((key) => item[key] === undefined || item[key] === true);
+    return exactKeys(message, ['v', 'type', 'epoch', 'phase', 'laps', 'drivers', 'queued'], ['raceId', 'lightsAt', 'startAt', 'endAt', 'result'])
+      && RACE_PHASES.includes(message.phase)
+      && isInteger(message.laps) && message.laps >= 1 && message.laps <= 20
+      && Array.isArray(message.drivers) && message.drivers.length <= RACE_MAX_CARS && message.drivers.every(driver)
+      && isInteger(message.queued) && message.queued >= 0 && message.queued <= 500
+      && (message.raceId === undefined || (typeof message.raceId === 'string' && RACE_ID.test(message.raceId)))
+      && ['lightsAt', 'startAt', 'endAt'].every((key) => message[key] === undefined || (isInteger(message[key]) && message[key] >= 0))
+      && (message.result === undefined || (Array.isArray(message.result) && message.result.length <= RACE_MAX_CARS && message.result.every(driver)));
+  },
+  // Vị trí xe đã gom (mỗi 50 ms): t = giờ server lúc gửi, cars[].t = giờ server nhận gói của xe đó.
+  'race.cars'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 't', 'cars'])
+      && isInteger(message.t) && message.t >= 0
+      && Array.isArray(message.cars) && message.cars.length <= RACE_MAX_CARS
+      && message.cars.every((car) => isRecord(car) && exactKeys(car, ['id', 'x', 'z', 'h', 'speed', 't'])
+        && isString(car.id, LIMITS.participantId, ID_PATTERN)
+        && isCoord(car.x) && isCoord(car.z) && isAngle(car.h) && raceSpeed(car.speed)
+        && isInteger(car.t) && car.t >= 0);
+  },
+  // Một xe vừa xong một vòng (cả phòng): best = vòng nhanh nhất của người đó từ lúc vào phòng, record = nhanh nhất cuộc đua,
+  // invalid = vòng không tính (bị đặt lại xe / gói tin bị bác).
+  'race.lap'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'id', 'lap', 'ms'], ['best', 'record', 'invalid'])
+      && isString(message.id, LIMITS.participantId, ID_PATTERN)
+      && isInteger(message.lap) && message.lap >= 1 && message.lap <= 999
+      && raceMs(message.ms)
+      && ['best', 'record', 'invalid'].every((key) => message[key] === undefined || message[key] === true);
+  },
+  // Riêng từng người: mình đang làm gì, màu xe, ô lưới (đua), chỗ ra đường (spawn, vừa được cho chạy thử / xếp lưới) hoặc
+  // reset (máy chủ bác vị trí vừa gửi — đặt xe về đây).
+  'race.me'(message) {
+    return exactKeys(message, ['v', 'type', 'epoch', 'mode', 'color'], ['slot', 'spawn', 'reset'])
+      && RACE_MODES.includes(message.mode)
+      && raceColor(message.color)
+      && (message.slot === undefined || (isInteger(message.slot) && message.slot >= 0 && message.slot < RACE_MAX_CARS))
+      && (message.spawn === undefined || raceSpot(message.spawn))
+      && (message.reset === undefined || raceSpot(message.reset));
   },
   // Ví kim cương vừa đổi vì việc trong phòng (mở phim): chỉ gửi cho chủ ví để ô 💎 cập nhật ngay.
   // spent: vừa trừ (mở phim), refunded: vừa hoàn (hủy phim, video lỗi, rạp đóng); đúng một trong hai. currency mặc định

@@ -12,6 +12,7 @@ import { createLecture } from '/lecture.js';
 import { createExploreUI } from '/explore-ui.js';
 import { createSettingsMenu } from '/settings-menu.js';
 import { createPhoneUI } from '/phone-ui.js';
+import { createPhotoUI } from '/photo-ui.js';
 import { createBrainUI } from '/brain-ui.js';
 import { createMapUI } from '/map-ui.js';
 import { buildRecitation } from '/prayer-recite.js';
@@ -194,7 +195,7 @@ const explore = createExploreUI({
   onMeritBoardTap: openMeritLedger,
   // Đi nhanh là một app trong điện thoại 📱 (bảng nút đích đặt vào app, không còn nút trên thanh phòng).
   onPlaceChange: (place) => setCurrentPlace(place), travelHost: null,
-  exits: [{ id: 'cinema', icon: '🎬', go: goToCinema }, { id: 'games', icon: '🎲', go: goToGames }],
+  exits: [{ id: 'cinema', icon: '🎬', go: goToCinema }, { id: 'games', icon: '🎲', go: goToGames }, { id: 'race', icon: '🏎️', go: () => goToGames('dua-xe') }],
 });
 hideSeek = createHideSeekUI({ stage: elements.stage, host: elements.roomBar, session, explore, showToast, t, onLangChange, onCoins: () => garden?.refreshCoins() });
 // Nút cất trong điện thoại: còn trong trang (sự kiện, video giới thiệu bấm thẳng vào) nhưng không hiện trên cảnh.
@@ -212,7 +213,7 @@ explore.arriveAt(PARAMS.get('go'));
 
 // Sang phòng game (trang riêng, chơi một mình bằng tiền ảo). Nhớ link phòng chùa để nút Đi nhanh quay về đúng phòng.
 // game: phòng bot mời sang (game.invite); không có thì vào Bầu Cua như nút 🎲.
-const GAME_PAGES = { 'bau-cua': '/game.html', 'tai-xiu': '/tai-xiu.html', loto: '/loto.html' };
+const GAME_PAGES = { 'bau-cua': '/game.html', 'tai-xiu': '/tai-xiu.html', loto: '/loto.html', 'dua-xe': '/dua-xe.html' };
 function goToGames(game) {
   try { sessionStorage.setItem('thien-return', `${location.pathname}${location.search}`); } catch {}
   location.href = GAME_PAGES[game] || '/game.html';
@@ -238,6 +239,8 @@ let social = null;
 let chatCenter = null;
 // Điện thoại 📱 (tạo sau cùng, khi mọi bảng đã có): app Tin nhắn, Đi nhanh, Ví, Linh thú, Cài đặt…
 let phone = null;
+// Máy ảnh / Album (tạo cùng điện thoại, cuối trang).
+let photo = null;
 let chatUnread = 0;
 // Khu Trí tuệ (app 🧠): Đề hôm nay, Test IQ vui, Bảng vàng (brain-ui.js).
 let brain = null;
@@ -321,8 +324,8 @@ function setCurrentPlace(place) {
   if (!inHall) elements.ledger.hidden = true;
   // Bộ vẽ có thể báo vị trí ngay khi còn ở màn tải/cổng vào; chỉ mở hướng dẫn sau khi đã thật sự vào phòng.
   // Đang chơi trốn tìm: không tự mở hướng dẫn khu vực (che cả màn hình giữa ván); lần sau vào khu đó mới hiện.
-  // Đang nhắm mắt ngắm cảnh cũng vậy (hướng dẫn che cảnh).
-  if (session.participantId && elements.gate.hidden && !hideSeek?.engaged() && !eyesClosed) zoneGuide.enter(place);
+  // Đang nhắm mắt ngắm cảnh hay cầm máy ảnh cũng vậy (hướng dẫn che cảnh).
+  if (session.participantId && elements.gate.hidden && !hideSeek?.engaged() && !eyesClosed && !photo?.active) zoneGuide.enter(place);
   requestAnimationFrame(updateInsets);
 }
 
@@ -590,6 +593,8 @@ function accountChanged(account) {
   garden?.accountChanged();
   farmUI?.accountChanged();
   brain?.accountChanged();
+  // Đăng xuất: bỏ số trò Đề hôm nay trên biểu tượng 🧠 (khách không được nhắc).
+  if (!account) phone?.setBadge('brain', 0);
   memorial?.accountChanged();
   communityProject?.accountChanged();
   if (!session.participantId) return;
@@ -712,7 +717,10 @@ async function setViewMode(mode) {
   elements.viewMode.hidden = capacityNeeds3D || !supportsWebGL() || !sceneData.world;
   elements.viewReset.hidden = mode !== '3d';
   elements.eyeToggle.hidden = mode !== '3d';
-  if (mode !== '3d') setEyesClosed(false);
+  if (mode !== '3d') {
+    setEyesClosed(false);
+    photo?.close();
+  }
   try { localStorage.setItem('thien-view', mode); } catch {}
   if (mode === '3d') {
     try {
@@ -761,6 +769,11 @@ function showHint() {
 // lại: #dockProbe rộng đúng phần mép phải bị chiếm (bản dọc, 2D luôn 0).
 function updateInsets() {
   if (!renderer) return;
+  // Máy ảnh 📷: mọi nút đã ẩn, khung ngắm nằm giữa màn nên bỏ khoảng chừa (tâm cảnh về giữa màn).
+  if (photo?.active) {
+    renderer.setInsets({ top: 0, bottom: 0, right: 0 });
+    return;
+  }
   const stage = elements.stage.getBoundingClientRect();
   const top = elements.topBar.getBoundingClientRect().bottom - stage.top + 4;
   const bottom = elements.controls.hidden ? 0 : stage.bottom - elements.controls.getBoundingClientRect().top + 4;
@@ -1163,7 +1176,10 @@ elements.gateForm.addEventListener('submit', async (event) => {
 
 function showHall(visible) {
   // Về cổng (rời phòng): mở mắt lại, không thì cổng nhập pháp danh cũng bị ẩn.
-  if (!visible) setEyesClosed(false);
+  if (!visible) {
+    setEyesClosed(false);
+    photo?.close();
+  }
   elements.gate.hidden = visible;
   elements.controls.hidden = !visible;
   elements.tools.hidden = !visible;
@@ -1175,6 +1191,9 @@ function showHall(visible) {
 function enterHall(name) {
   showHall(true);
   renderer?.activateAssets?.();
+  // Vào phòng xong ít lâu mới nhắc Đề hôm nay (sau lời chào và lời nhắc nông trại).
+  clearTimeout(brainRemindTimer);
+  brainRemindTimer = setTimeout(remindBrain, 9_000);
   if (!eyesClosed) zoneGuide.enter(currentPlace || 'hall');
   if (ARRIVED_FROM_MAP) {
     greeted = false;
@@ -2065,8 +2084,66 @@ brain = createBrainUI({
   sendRoom: (message) => session.send({ requestId: `brain-${crypto.randomUUID()}`, ...message }),
   selfId: () => session.participantId,
   serverNow: () => session.serverNow(),
+  // Số trò Đề hôm nay còn lại hiện trên biểu tượng 🧠 (số "nhẹ": nút 📱 chỉ có chấm, không cộng vào tin chưa đọc).
+  onDaily: (status) => phone?.setBadge('brain', status?.left || 0, { quiet: true }),
 });
 try { if (localStorage.getItem('debug-explore') === '1') window.chanhDienBrain = brain; } catch {}
+
+// Nhắc quay lại mỗi ngày: thành viên vào phòng mà Đề hôm nay chưa xong thì hiện một thông báo trên điện thoại (mỗi máy
+// một lần mỗi ngày theo GARDEN_TIMEZONE — `day` của API), chạm là mở Đề hôm nay. Đang bận (trốn tìm, nhắm mắt, máy
+// ảnh, đang mở Trí tuệ) thì để lần kiểm tra sau. 15 phút xem lại một lần cho số trên biểu tượng 🧠 và lúc qua ngày mới.
+let brainRemindTimer = 0;
+async function remindBrain() {
+  if (!session.participantId || !elements.gate.hidden) return;
+  const status = await brain.checkDaily();
+  if (!status?.left || !accountUI.account) return;
+  let seen = null;
+  try { seen = localStorage.getItem('brain-remind-day'); } catch {}
+  if (seen === status.day) return;
+  if (hideSeek?.engaged() || eyesClosed || photo?.active || brain.isOpen) return;
+  const note = brain.reminder(status);
+  if (!note) return;
+  try { localStorage.setItem('brain-remind-day', status.day); } catch {}
+  phone.notify({ icon: '🧠', ...note, action: () => brain.open('daily') });
+}
+setInterval(() => { if (accountUI.account) remindBrain(); }, 15 * 60_000);
+
+// Máy ảnh 📷 và Album 🖼️ (photo-ui.js): ảnh chỉ lưu trên máy (IndexedDB), không gửi đi đâu.
+photo = createPhotoUI({
+  stage: elements.stage,
+  getCanvas: () => elements.scene3d,
+  getRenderer: () => renderer,
+  explore,
+  locale,
+  placeLabel: () => {
+    const place = explore.place;
+    const key = `travel.${place}`;
+    const name = place && t(key) !== key ? t(key) : t('travel.courtyard');
+    const state = stateOf(parseThienRoomId(session.roomId)?.state || selectedState);
+    return [name, state?.name].filter(Boolean).join(' · ');
+  },
+  onChange: (active) => {
+    if (active) {
+      setEyesClosed(false);
+      // Ô chat đang gõ cũng bị ẩn: bỏ chọn cho bàn phím đóng lại.
+      if (elements.stage.contains(document.activeElement)) document.activeElement.blur?.();
+    } else renderer?.setLabelsHidden?.(eyesClosed);
+    updateInsets();
+  },
+});
+// Trốn tìm bắt đầu (kể cả vào phòng chờ) thì cất máy ảnh: các lớp của trò chơi cần hiện.
+new MutationObserver(() => { if (photo.active && elements.stage.classList.contains('hs-playing')) photo.close(); })
+  .observe(elements.stage, { attributes: true, attributeFilter: ['class'] });
+const cameraBlocked = () => (!explore.active || !session.participantId ? 'phone.only3d' : (hideSeek?.engaged() ? 'photo.busyHideSeek' : null));
+photo.setOpenCamera(() => {
+  const blocked = cameraBlocked();
+  if (blocked) {
+    showToast(t(blocked));
+    return;
+  }
+  phone.close();
+  photo.open();
+});
 
 phone = createPhoneUI({
   stage: elements.stage,
@@ -2084,8 +2161,8 @@ phone = createPhoneUI({
     { id: 'farm', icon: '🌾', label: 'phone.app.farm', page: farmPage },
     { id: 'stopwatch', icon: '⏱️', label: 'sw.chip', run: () => stopwatch.show() },
     { id: 'brain', icon: '🧠', label: 'phone.app.brain', run: () => brain.open() },
-    { id: 'camera', icon: '📷', label: 'phone.app.camera', soon: true },
-    { id: 'album', icon: '🖼️', label: 'phone.app.album', soon: true },
+    { id: 'camera', icon: '📷', label: 'phone.app.camera', run: () => photo.open(), blocked: cameraBlocked },
+    { id: 'album', icon: '🖼️', label: 'phone.app.album', page: photo.albumPage },
     { id: 'shop', icon: '🛍️', label: 'menu.shop', run: openShop },
     { id: 'settings', icon: '⚙️', label: 'phone.app.settings', page: settingsPage },
   ],
@@ -2107,7 +2184,7 @@ phone.setApp('map', {
 });
 // Kiểm tra khi phát triển: localStorage 'debug-explore' = '1' thì window.chanhDienPhone là điện thoại.
 try {
-  if (localStorage.getItem('debug-explore') === '1') Object.assign(window, { chanhDienPhone: phone, chanhDienMap: mapUI });
+  if (localStorage.getItem('debug-explore') === '1') Object.assign(window, { chanhDienPhone: phone, chanhDienMap: mapUI, chanhDienPhoto: photo });
 } catch {}
 
 // Bảng "Tấm lòng thành" thu gọn / mở ra; nhớ lựa chọn trên máy.
