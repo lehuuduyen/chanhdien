@@ -891,6 +891,31 @@ export async function createTempleRenderer3D({ canvas, scene: sceneData, onSeatC
     setLabelsHidden(hidden) {
       setLabelsHidden(scene3d, hidden);
     },
+    // Máy ảnh 📷 (photo-ui.js): vẽ một khung ngay lúc gọi rồi chép vùng rect (điểm CSS trong khung vẽ) sang canvas 2D.
+    // Máy đang hạ chất lượng (độ phân giải 1×) thì riêng khung này vẽ lại ở tỉ lệ `scale` cho ảnh nét, cạnh dài tối đa
+    // `maxSide` điểm ảnh; xong trả lại tỉ lệ cũ. Chép trong cùng lượt vẽ nên không cần preserveDrawingBuffer.
+    capture({ x = 0, y = 0, width = size.width, height = size.height, scale = 2, maxSide = 2560 } = {}) {
+      if (!size.width || !width || !height) return null;
+      const previous = renderer.getPixelRatio();
+      const ratio = Math.max(Math.min(previous, maxSide / Math.max(width, height)), Math.min(scale, maxSide / Math.max(width, height)));
+      if (ratio !== previous) {
+        renderer.setPixelRatio(ratio);
+        renderer.setSize(size.width, size.height, false);
+      }
+      const out = document.createElement('canvas');
+      try {
+        renderer.render(scene3d, camera);
+        out.width = Math.max(1, Math.round(width * ratio));
+        out.height = Math.max(1, Math.round(height * ratio));
+        out.getContext('2d').drawImage(canvas, x * ratio, y * ratio, width * ratio, height * ratio, 0, 0, out.width, out.height);
+      } finally {
+        if (ratio !== previous) {
+          renderer.setPixelRatio(previous);
+          renderer.setSize(size.width, size.height, false);
+        }
+      }
+      return out;
+    },
     // Trời theo giờ thật ở sân: nơi đặt chùa [vĩ độ, kinh độ] (THIEN_PLACES trong room rules); null = ban ngày cố định.
     setSkyPlace(place) {
       skyPlace = Array.isArray(place) && place.length === 2 && place.every(Number.isFinite) ? [...place] : null;

@@ -572,3 +572,31 @@ test('trốn tìm: xin chơi / rời / bắt; trạng thái không mang vị tr�
   assert.equal(parseServerMessage({ ...state, players: [{ id: 'u-a', displayName: 'An', role: 'seeker', caught: false, x: 1 }] }).ok, false, 'không mang vị trí');
   assert.equal(parseServerMessage({ ...state, winner: 'hiders', phase: 'result' }).ok, true);
 });
+
+test('đua xe: vào đua / chạy thử / rời cho cả khách; race.car có tốc độ tên speed; trạng thái không mang cờ bot', () => {
+  const client = (message, role = 'guest') => parseClientMessage({ v: PROTOCOL_VERSION, ...message }, { role }).ok;
+  assert.equal(client({ type: 'race.join', requestId: 'r1' }), true);
+  assert.equal(client({ type: 'race.join', requestId: 'r1', color: 7 }), true);
+  assert.equal(client({ type: 'race.join', requestId: 'r1', color: 8 }), false, 'màu 0–7');
+  assert.equal(client({ type: 'race.practice', requestId: 'r2', color: 0 }), true);
+  assert.equal(client({ type: 'race.leave', requestId: 'r3' }), true);
+  assert.equal(client({ type: 'race.car', x: 12.5, z: -3.2, h: 1.57, speed: 54.3 }), true);
+  assert.equal(client({ type: 'race.car', x: 12.5, z: -3.2, h: 1.57, speed: 54.3, r: true }), true);
+  assert.equal(client({ type: 'race.car', x: 12.5, z: -3.2, h: 1.57, speed: 54.3, r: false }), false, 'r chỉ nhận true');
+  assert.equal(client({ type: 'race.car', x: 12.5, z: -3.2, h: 1.57, speed: 500 }), false, 'tốc độ vô lý');
+  assert.equal(client({ type: 'race.car', x: 5_000, z: 0, h: 0, speed: 0 }), false, 'ngoài thế giới');
+  assert.equal(client({ type: 'race.car', x: 0, z: 0, h: 0, speed: 0, bot: true }), false, 'không trường lạ');
+  const driver = { id: 'u-a', displayName: 'An', color: 2, mode: 'race', slot: 0, lap: 1, pos: 1, best: 38_123, last: 38_500 };
+  const state = { v: PROTOCOL_VERSION, type: 'race.state', epoch: 1, phase: 'racing', laps: 3, drivers: [driver], queued: 0, raceId: 'rc-duaxe-1-abc-1', lightsAt: 1_000, startAt: 7_000, endAt: 300_000 };
+  assert.equal(parseServerMessage(state).ok, true);
+  assert.equal(parseServerMessage({ ...state, drivers: [{ ...driver, bot: true }] }).ok, false, 'không mang cờ bot');
+  assert.equal(parseServerMessage({ ...state, phase: 'result', result: [{ ...driver, done: true, total: 115_000 }] }).ok, true);
+  assert.equal(parseServerMessage({ ...state, raceId: 'xx' }).ok, false);
+  const cars = { v: PROTOCOL_VERSION, type: 'race.cars', epoch: 1, t: 5_000, cars: [{ id: 'u-a', x: 1, z: 2, h: 0.5, speed: 40, t: 4_990 }] };
+  assert.equal(parseServerMessage(cars).ok, true);
+  assert.equal(parseServerMessage({ ...cars, cars: Array.from({ length: 17 }, (_, index) => ({ ...cars.cars[0], id: `u-${index}` })) }).ok, false, 'tối đa 16 xe');
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'race.lap', epoch: 1, id: 'u-a', lap: 2, ms: 37_000, best: true }).ok, true);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'race.lap', epoch: 1, id: 'u-a', lap: 0, ms: 37_000 }).ok, false);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'race.me', epoch: 1, mode: 'race', color: 3, slot: 2, spawn: { x: 1, z: 2, h: 3 } }).ok, true);
+  assert.equal(parseServerMessage({ v: PROTOCOL_VERSION, type: 'race.me', epoch: 1, mode: 'driving', color: 3 }).ok, false);
+});

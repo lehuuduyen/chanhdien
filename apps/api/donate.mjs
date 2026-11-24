@@ -183,6 +183,7 @@ const BOT_ROOM_ALIASES = Object.freeze({
   loto: 'loto-1', 'lo-to': 'loto-1',
   oantuti: 'oantuti-1', 'oan-tu-ti': 'oantuti-1', rps: 'oantuti-1', keobuabao: 'oantuti-1',
   tienlen: 'tienlen-1', 'tien-len': 'tienlen-1',
+  duaxe: 'duaxe-1', 'dua-xe': 'duaxe-1', race: 'duaxe-1',
 });
 
 export function botRoomId(value) {

@@ -1665,6 +1665,22 @@ export function createExplorePlugin({ onMove, onHandBreak, onTapEmpty, onWalkerT
         const self = walkers.get(selfId);
         return self ? { x: self.x, z: self.z, ry: self.ry } : null;
       },
+      // Máy ảnh 📷: xoay camera ra trước mặt nhân vật (chụp selfie, front = true) hoặc về sau lưng như lúc đi. Camera
+      // vẫn bám theo người như thường; kéo màn hình để chỉnh tiếp. false khi chưa có nhân vật / đang xem người khác.
+      faceCamera(front = true) {
+        const self = walkers.get(selfId);
+        if (!self || selfSeated || cameraFollowId || freeCamera) return false;
+        // Theo hình đang vẽ (ngồi ghế đá / xích đu thì thân không đứng ở chỗ server giữ).
+        const pose = { x: self.group?.position.x ?? self.x, z: self.group?.position.z ?? self.z, ry: self.parts?.figure?.rotation.y ?? self.ry };
+        // Trước mặt: gần hơn, thấp ngang ngực (thấy rõ mặt); sau lưng: đúng góc mặc định lúc đi. controls.update() tự
+        // kẹp khoảng cách trong giới hạn của OrbitControls.
+        const distance = front ? followOrbitDistance * 0.62 : followDistance;
+        const side = front ? -1 : 1;
+        controls.target.set(pose.x, followTargetHeight, pose.z);
+        camera.position.set(pose.x + side * Math.sin(pose.ry) * distance, front ? followTargetHeight + 0.35 : followHeight, pose.z + side * Math.cos(pose.ry) * distance);
+        controls.update();
+        return true;
+      },
       // Vừa bấm vào phòng (chưa có nhân vật từ server): đặt camera sẵn ở góc sau lưng chỗ sẽ xuất hiện, để không
       // nhìn cảnh tổng trong chánh điện rồi mới giật ra sân khi server trả lời.
       previewSpawn(pose = walk.spawn) {

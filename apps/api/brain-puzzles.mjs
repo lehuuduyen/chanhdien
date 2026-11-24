@@ -1,9 +1,9 @@
-// Khu Trí tuệ (app 🧠 trong điện thoại chánh điện): sinh đề cho 5 trò của "Đề hôm nay" và 20 câu "Test IQ vui", chấm
+// Khu Trí tuệ (app 🧠 trong điện thoại chánh điện): sinh đề cho 5 trò của "Đề hôm nay" và 30 câu "Test IQ vui", chấm
 // điểm, đổi điểm test ra chỉ số tham khảo. Đề do code tự sinh từ một hạt giống (seed) nên không cạn, không chép đề có bản
 // quyền, và server dựng lại được đúng đề lúc chấm (không phải lưu đáp án). Trình duyệt chỉ nhận đề, không nhận đáp án
 // (trừ những gì phải hiện ra màn hình để chơi: thứ tự chuông, màu mực, phép tính).
 //
-// Độ khó mỗi câu 1–5; từ 3 trở lên là "câu khó". Mọi bài nhiều câu có 80 % câu khó (HARD_SHARE): Test IQ 16 / 20 câu,
+// Độ khó mỗi câu 1–5; từ 3 trở lên là "câu khó". Mọi bài nhiều câu có 80 % câu khó (HARD_SHARE): Test IQ 24 / 30 câu,
 // Đố hình và Đố số của Đề hôm nay 8 / 10 câu, Tính nhẩm và Màu mực 4 / 5 câu.
 //
 // Loại câu (kind):
@@ -14,6 +14,8 @@
 //              hai dãy, xen kẽ hai phép, giai thừa…); tìm số kế tiếp.
 //   numgrid  — Bảng số: mỗi hàng 3 số theo cùng một phép (a + b, a × b, (a + b) × 2, a² + b, tổng hàng không đổi…);
 //              tìm số còn thiếu. Hai hàng đầu chỉ khớp đúng một phép.
+//   analogy  — Tương quan hình: nhìn A đổi thành B rồi áp dụng đúng các thay đổi hình / màu / số lượng / cỡ / nét cho C.
+//   balance  — Cân hình: suy ra giá trị từng biểu tượng từ 2–3 phương trình hình rồi tính nhóm hình cuối.
 // Trò (mỗi trò tối đa 100 điểm, Đề hôm nay tối đa 500):
 //   bells  — Nhớ tiếng chuông: chuông / mõ / khánh / trống vang theo thứ tự, gõ lại; mỗi lượt dài thêm một tiếng. Từ
 //            chuỗi 5 tiếng, lượt lẻ (5, 7, 9…) phải gõ NGƯỢC lại.
@@ -24,7 +26,7 @@
 
 export const BRAIN_GAMES = Object.freeze(['bells', 'matrix', 'series', 'math', 'stroop']);
 // Thời gian tối đa mỗi lượt (ms). Server cho thêm BRAIN_SLACK_MS cho trễ mạng / máy chậm.
-export const BRAIN_LIMITS = Object.freeze({ bells: 180_000, matrix: 150_000, series: 150_000, math: 60_000, stroop: 40_000, iq: 900_000, duel: 180_000 });
+export const BRAIN_LIMITS = Object.freeze({ bells: 180_000, matrix: 150_000, series: 150_000, math: 60_000, stroop: 40_000, iq: 1_200_000, duel: 180_000 });
 export const BRAIN_SLACK_MS = 15_000;
 export const HARD_SHARE = 0.8;
 export const HARD_LEVEL = 3;
@@ -32,15 +34,14 @@ export const BELL_SEQUENCE = 14;
 export const BELL_START = 3;
 export const QUIZ_ITEMS = 10;
 export const SPEED_ITEMS = 60;
-export const IQ_ITEMS = 20;
-export const IQ_KINDS = Object.freeze(['matrix', 'rotation', 'series', 'numgrid']);
+export const IQ_ITEMS = 30;
+export const IQ_KINDS = Object.freeze(['matrix', 'rotation', 'series', 'numgrid', 'analogy', 'balance']);
 // Đấu trí 1–1 (khiêu chiến trong phòng): hai bên cùng một đề DUEL_ITEMS câu, ai đúng nhiều hơn thắng, bằng thì ai nhanh hơn.
 export const DUEL_ITEMS = 10;
-// Đố vui nhiều người (phòng chánh điện): QUIZ_ROOM_ITEMS câu, 2 dễ rồi 10 khó (83 %), đủ 4 loại; máy realtime giữ đáp án.
+// Đố vui nhiều người (phòng chánh điện): QUIZ_ROOM_ITEMS câu, 2 dễ rồi 10 khó (83 %), đủ 6 loại; máy realtime giữ đáp án.
 export const QUIZ_ROOM_ITEMS = 12;
-// Chỉ số tham khảo khi chưa đủ người làm bài: giả định số câu đúng phân bố chuẩn quanh 9 / 20 (bài có 16 câu khó), độ
-// lệch 3,5.
-export const IQ_PRIOR = Object.freeze({ mean: 9, sd: 3.5 });
+// Chỉ số tham khảo khi chưa đủ người làm bài: giữ cùng tỉ lệ với thang cũ 9 ± 3,5 / 20 sau khi tăng lên 30 câu.
+export const IQ_PRIOR = Object.freeze({ mean: 13.5, sd: 5.25 });
 // Đủ IQ_SAMPLE_MIN bài đã làm thì tính theo người chơi thật; hiện "cao hơn X % người làm bài" từ IQ_PERCENT_MIN bài.
 export const IQ_SAMPLE_MIN = 100;
 export const IQ_PERCENT_MIN = 30;
@@ -430,6 +431,115 @@ export function numgridItem(random, level) {
   }
 }
 
+// ---- Tương quan hình ----
+// A → B cho biết một phép đổi trên tối đa ba thuộc tính. Người chơi áp dụng đúng phép đó cho C. Mọi thuộc tính đều là
+// vòng hữu hạn, vì vậy A và B xác định duy nhất độ dịch; test có thể suy ngược đáp án mà không dùng bí mật của bộ sinh.
+const ANALOGY_ATTRS = ['s', 'c', 'n', 'z', 'f'];
+const ANALOGY_MOD = { s: 4, c: 4, n: 3, z: 3, f: 2 };
+const analogyIndex = (attr, value) => (attr === 'n' ? value - 1 : value);
+const analogyValue = (attr, value) => (attr === 'n' ? value + 1 : value);
+const cellKey = (cell) => ANALOGY_ATTRS.map((attr) => cell[attr]).join(':');
+
+export function analogyTarget(a, b, c) {
+  const out = { ...c };
+  for (const attr of ANALOGY_ATTRS) {
+    const mod = ANALOGY_MOD[attr];
+    const delta = (analogyIndex(attr, b[attr]) - analogyIndex(attr, a[attr]) + mod) % mod;
+    out[attr] = analogyValue(attr, (analogyIndex(attr, c[attr]) + delta) % mod);
+  }
+  return out;
+}
+
+const randomCell = (random) => ({
+  s: int(random, 0, 3), c: int(random, 0, 3), n: int(random, 1, 3), z: int(random, 0, 2), f: int(random, 0, 1),
+});
+
+export function analogyItem(random, level) {
+  const hard = clamp(level, 1, 5);
+  const eligible = hard >= 4 ? ANALOGY_ATTRS : ANALOGY_ATTRS.filter((attr) => attr !== 'f');
+  const changed = shuffle(random, eligible).slice(0, [1, 1, 2, 2, 3][hard - 1]);
+  const delta = Object.fromEntries(ANALOGY_ATTRS.map((attr) => [attr, changed.includes(attr) ? int(random, 1, ANALOGY_MOD[attr] - 1) : 0]));
+  const apply = (cell, direction = 1) => Object.fromEntries(ANALOGY_ATTRS.map((attr) => {
+    const mod = ANALOGY_MOD[attr];
+    return [attr, analogyValue(attr, (analogyIndex(attr, cell[attr]) + direction * delta[attr] + mod * 2) % mod)];
+  }));
+  const a = randomCell(random);
+  const b = apply(a);
+  const c = randomCell(random);
+  const answer = apply(c);
+  const candidates = [];
+  // Bẫy hợp lý: quên một thay đổi, đổi ngược một thuộc tính, hoặc đổi thừa một thuộc tính không có trong A → B.
+  for (const attr of changed) {
+    candidates.push({ ...answer, [attr]: c[attr] });
+    candidates.push({ ...answer, [attr]: apply(c, -1)[attr] });
+  }
+  for (const attr of shuffle(random, ANALOGY_ATTRS)) {
+    const mod = ANALOGY_MOD[attr];
+    candidates.push({ ...answer, [attr]: analogyValue(attr, (analogyIndex(attr, answer[attr]) + 1) % mod) });
+  }
+  const seen = new Set([cellKey(answer)]);
+  const options = [answer];
+  for (const candidate of shuffle(random, candidates)) {
+    const key = cellKey(candidate);
+    if (options.length < 4 && !seen.has(key)) {
+      seen.add(key);
+      options.push(candidate);
+    }
+  }
+  const order = shuffle(random, options);
+  return { problem: { kind: 'analogy', level: hard, a, b, c, options: order }, answer: order.indexOf(answer) };
+}
+
+// ---- Cân hình ----
+// Các phương trình được tạo thành chuỗi: phương trình đầu xác định hình A, phương trình sau dùng giá trị đã biết để tìm
+// B rồi C. Nhờ vậy hệ có đúng một nghiệm nguyên dương; phương án cuối không xuất hiện nguyên xi trong các phương trình.
+const repeated = (value, count) => Array.from({ length: count }, () => value);
+const iconTotal = (icons, weights) => icons.reduce((sum, icon) => sum + weights[icon], 0);
+
+export function balanceItem(random, level) {
+  const hard = clamp(level, 1, 5);
+  const count = hard <= 2 ? 2 : 3;
+  const weights = shuffle(random, [2, 3, 4, 5, 6, 7, 8, 9]).slice(0, count);
+  const symbols = Array.from({ length: count }, (_, index) => ({
+    s: (index + int(random, 0, 3)) % 4,
+    c: (index * 2 + int(random, 0, 3)) % 4,
+    n: 1,
+    z: 1,
+    f: index === 2 && hard >= 5 ? 1 : 0,
+  }));
+  // Nếu hai hình ngẫu nhiên vô tình giống nhau thì đổi màu để mỗi ẩn có ký hiệu riêng.
+  for (let index = 1; index < symbols.length; index += 1) {
+    while (symbols.slice(0, index).some((symbol) => cellKey(symbol) === cellKey(symbols[index]))) symbols[index].c = (symbols[index].c + 1) % 4;
+  }
+  const firstCount = hard >= 4 ? 3 : 2;
+  const equations = [{ icons: repeated(0, firstCount), total: weights[0] * firstCount }];
+  if (count >= 2) {
+    const bCount = hard >= 2 ? 2 : 1;
+    const icons = [0, ...repeated(1, bCount)];
+    equations.push({ icons, total: iconTotal(icons, weights) });
+  }
+  if (count === 3) {
+    const cCount = hard >= 4 ? 2 : 1;
+    const icons = [1, ...repeated(2, cCount)];
+    equations.push({ icons, total: iconTotal(icons, weights) });
+  }
+  const target = hard === 1 ? [1]
+    : hard === 2 ? [1, 1]
+      : hard === 3 ? [2]
+        : hard === 4 ? [0, 2]
+          : [0, 1, 2, 2];
+  const answer = iconTotal(target, weights);
+  const candidates = shuffle(random, [
+    ...weights,
+    answer + 1, answer - 1, answer + 2, answer - 2,
+    answer + weights[0], answer - weights[0],
+  ]);
+  const options = [answer];
+  for (const value of candidates) if (options.length < 4 && value > 0 && !options.includes(value)) options.push(value);
+  const order = shuffle(random, options);
+  return { problem: { kind: 'balance', level: hard, symbols, equations, target, options: order }, answer: order.indexOf(answer) };
+}
+
 // ---- Tính nhẩm ----
 // Câu dễ: cộng / trừ / nhân bảng cửu chương. Câu khó: hai bước (nhân chia trước cộng trừ, có ngoặc), bình phương,
 // phần trăm, nhân số hai chữ số với một chữ số, chia ra kết quả hai chữ số, trừ có nhớ.
@@ -549,22 +659,23 @@ function stroopItem(random, index) {
 // ---- Thứ tự câu: 80 % câu khó ----
 // Đố hình / Đố số 10 câu: 2 câu dễ mở đầu rồi 8 câu khó tăng dần.
 const QUIZ_LEVELS = [1, 2, 3, 3, 4, 4, 4, 5, 5, 5];
-// Test IQ 20 câu: 4 câu dễ (mỗi loại một câu, trừ xoay hình vốn đã khó) rồi 16 câu khó, mỗi loại 4 câu, khó dần.
+// Test IQ 30 câu: 6 câu dễ (mỗi loại một câu) rồi 24 câu khó, mỗi loại 4 câu, khó dần.
 const IQ_PLAN = [
-  ['matrix', 1], ['series', 1], ['numgrid', 2], ['matrix', 2],
-  ['series', 3], ['rotation', 3], ['numgrid', 3], ['matrix', 3],
-  ['series', 4], ['matrix', 4], ['rotation', 4], ['numgrid', 4], ['series', 4], ['rotation', 4],
-  ['matrix', 5], ['numgrid', 5], ['series', 5], ['rotation', 5], ['rotation', 5], ['numgrid', 5],
+  ['matrix', 1], ['analogy', 1], ['series', 1], ['balance', 2], ['numgrid', 2], ['rotation', 2],
+  ['matrix', 3], ['series', 3], ['analogy', 3], ['balance', 3], ['rotation', 3], ['numgrid', 3],
+  ['analogy', 4], ['matrix', 4], ['balance', 4], ['series', 4], ['numgrid', 4], ['rotation', 4],
+  ['balance', 4], ['rotation', 4], ['matrix', 4], ['numgrid', 4], ['analogy', 4], ['series', 4],
+  ['matrix', 5], ['numgrid', 5], ['series', 5], ['rotation', 5], ['analogy', 5], ['balance', 5],
 ];
-const MAKERS = { matrix: matrixItem, rotation: rotationItem, series: seriesItem, numgrid: numgridItem };
-// Đấu trí: 2 câu dễ rồi 8 câu khó, đủ 4 loại.
+const MAKERS = { matrix: matrixItem, rotation: rotationItem, series: seriesItem, numgrid: numgridItem, analogy: analogyItem, balance: balanceItem };
+// Đấu trí / Đố vui dùng cả 6 loại để người chơi gặp nhiều kiểu suy luận hơn.
 const QUIZ_ROOM_PLAN = [
-  ['series', 1], ['matrix', 2], ['numgrid', 3], ['rotation', 3], ['series', 3], ['matrix', 4],
-  ['numgrid', 4], ['rotation', 4], ['series', 5], ['matrix', 5], ['numgrid', 5], ['rotation', 5],
+  ['matrix', 1], ['series', 2], ['analogy', 3], ['balance', 3], ['rotation', 3], ['numgrid', 3],
+  ['matrix', 4], ['series', 4], ['analogy', 4], ['balance', 4], ['rotation', 5], ['numgrid', 5],
 ];
 const DUEL_PLAN = [
-  ['matrix', 2], ['series', 2], ['rotation', 3], ['numgrid', 3], ['matrix', 4],
-  ['series', 4], ['rotation', 4], ['numgrid', 4], ['matrix', 5], ['series', 5],
+  ['matrix', 2], ['series', 2], ['analogy', 3], ['balance', 3], ['rotation', 3],
+  ['numgrid', 3], ['matrix', 4], ['series', 4], ['rotation', 5], ['numgrid', 5],
 ];
 
 // ---- Dựng đề theo seed ----
@@ -689,7 +800,7 @@ export function percentileOf(value, sample) {
   return (below + equal / 2) / sample.length;
 }
 
-// correct: số câu đúng / 20; sample: số câu đúng của các bài đã làm. Chỉ số = 100 + 15 × z theo vị trí trong người chơi
+// correct: số câu đúng / 30; sample: số câu đúng đã quy về thang 30. Chỉ số = 100 + 15 × z theo vị trí trong người chơi
 // thật (đủ mẫu) hoặc theo phân bố giả định (chưa đủ), kẹp 70–145. percent chỉ có khi đủ người làm bài thật.
 export function iqIndex(correct, sample) {
   const real = sample.length >= IQ_SAMPLE_MIN;

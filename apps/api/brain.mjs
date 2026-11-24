@@ -1,5 +1,5 @@
 // Khu Trí tuệ (app 🧠 trong điện thoại chánh điện): "Đề hôm nay" 5 trò (ai cũng cùng đề trong ngày theo GARDEN_TIMEZONE)
-// và "Test IQ vui" 20 câu (16 câu khó) / 15 phút ra chỉ số tham khảo. Đề sinh ở brain-puzzles.mjs; server ra đề, giữ đáp án, chấm.
+// và "Test IQ vui" 30 câu (24 câu khó) / 20 phút ra chỉ số tham khảo. Đề sinh ở brain-puzzles.mjs; server ra đề, giữ đáp án, chấm.
 // Không thưởng xu (giống Bấm Giờ): thành viên được lưu điểm ngày, chuỗi ngày làm đủ 5 trò, chỉ số tốt nhất, lên Bảng
 // vàng. Khách chơi được hết, không lưu điểm ngày; bài Test IQ của khách vẫn được tính vào mẫu so sánh (không lên Bảng
 // vàng). Mỗi trò Đề hôm nay chỉ lần đầu trong ngày được tính điểm, các lần sau là chơi tập.
@@ -75,6 +75,7 @@ export function createBrainStore({ db, secret, timeZone = 'America/Los_Angeles',
       account_id TEXT,
       display_name TEXT NOT NULL,
       correct INTEGER NOT NULL,
+      total INTEGER NOT NULL DEFAULT 20,
       iq INTEGER NOT NULL,
       ms INTEGER NOT NULL,
       at INTEGER NOT NULL
@@ -104,6 +105,9 @@ export function createBrainStore({ db, secret, timeZone = 'America/Los_Angeles',
     CREATE INDEX IF NOT EXISTS brain_quiz_results_at ON brain_quiz_results (at);
     CREATE INDEX IF NOT EXISTS brain_iq_account ON brain_iq (account_id, at);
   `);
+  // Bài cũ có 20 câu; giữ tổng số để quy đổi mẫu so sánh đúng sau khi bài tăng lên 30 câu.
+  const iqColumns = new Set(db.prepare('PRAGMA table_info(brain_iq)').all().map((column) => column.name));
+  if (!iqColumns.has('total')) db.exec('ALTER TABLE brain_iq ADD COLUMN total INTEGER NOT NULL DEFAULT 20');
   const query = {
     insertRound: db.prepare('INSERT INTO brain_rounds (id, account_id, game, day, seed, practice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     round: db.prepare('SELECT * FROM brain_rounds WHERE id = ?'),
@@ -117,9 +121,9 @@ export function createBrainStore({ db, secret, timeZone = 'America/Los_Angeles',
     boardToday: db.prepare(`SELECT MAX(display_name) AS name, SUM(points) AS total, COUNT(*) AS games, MAX(at) AS last
       FROM brain_daily WHERE day = ? GROUP BY account_id ORDER BY total DESC, last ASC LIMIT ?`),
     playersToday: db.prepare('SELECT COUNT(DISTINCT account_id) AS count FROM brain_daily WHERE day = ?'),
-    iqSample: db.prepare('SELECT correct FROM brain_iq WHERE at > ?'),
-    saveIq: db.prepare('INSERT INTO brain_iq (account_id, display_name, correct, iq, ms, at) VALUES (?, ?, ?, ?, ?, ?)'),
-    iqHistory: db.prepare('SELECT iq, correct, ms, at FROM brain_iq WHERE account_id = ? ORDER BY at DESC, id DESC LIMIT ?'),
+    iqSample: db.prepare('SELECT correct, total FROM brain_iq WHERE at > ?'),
+    saveIq: db.prepare('INSERT INTO brain_iq (account_id, display_name, correct, total, iq, ms, at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    iqHistory: db.prepare('SELECT iq, correct, total, ms, at FROM brain_iq WHERE account_id = ? ORDER BY at DESC, id DESC LIMIT ?'),
     iqBest: db.prepare('SELECT MAX(iq) AS best FROM brain_iq WHERE account_id = ?'),
     iqBoard: db.prepare(`SELECT MAX(display_name) AS name, MAX(iq) AS best, MIN(at) AS first FROM brain_iq
       WHERE account_id IS NOT NULL AND at > ? GROUP BY account_id ORDER BY best DESC, first ASC LIMIT ?`),
@@ -185,7 +189,7 @@ export function createBrainStore({ db, secret, timeZone = 'America/Los_Angeles',
           today: todayOf(accountId, day),
           streak: streak(accountId),
           bestIq: query.iqBest.get(accountId).best ?? null,
-          iq: query.iqHistory.all(accountId, HISTORY_LIMIT).map((row) => ({ index: row.iq, correct: row.correct, ms: row.ms, at: row.at })),
+          iq: query.iqHistory.all(accountId, HISTORY_LIMIT).map((row) => ({ index: row.iq, correct: row.correct, total: row.total, ms: row.ms, at: row.at })),
           quiz: { ...query.quizMine.get(accountId, now() - QUIZ_BOARD_DAYS * DAY_MS) },
         },
         board,
@@ -291,12 +295,13 @@ export function createBrainStore({ db, secret, timeZone = 'America/Los_Angeles',
       }
 
       if (round.game === 'iq') {
-        const sample = query.iqSample.all(at - IQ_SAMPLE_DAYS * DAY_MS).map((row) => row.correct);
+        const sample = query.iqSample.all(at - IQ_SAMPLE_DAYS * DAY_MS)
+          .map((row) => (row.correct * IQ_ITEMS) / Math.max(1, row.total || 20));
         const result = iqIndex(graded.correct, sample);
-        query.saveIq.run(accountId || null, name || '?', graded.correct, result.index, Math.round(elapsed), at);
+        query.saveIq.run(accountId || null, name || '?', graded.correct, IQ_ITEMS, result.index, Math.round(elapsed), at);
         return {
           ok: true, game: 'iq', correct: graded.correct, total: IQ_ITEMS, index: result.index, percent: result.percent, calibrated: result.calibrated,
-          // Số câu đúng theo loại (ma trận, xoay hình, dãy số, bảng số; mỗi loại 5 câu) và thời gian làm bài.
+          // Số câu đúng theo 6 loại (mỗi loại 5 câu) và thời gian làm bài.
           strengths: { ...graded.byKind, seconds: Math.round(elapsed / 1000) },
           solution: graded.solution, best: accountId ? query.iqBest.get(accountId).best : null,
         };

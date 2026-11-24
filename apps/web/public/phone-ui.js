@@ -22,7 +22,7 @@ const button = (className, text) => {
 };
 
 export function createPhoneUI({ stage, apps, status = [], parked: parkedHost = null, showToast = () => {}, locale = () => undefined }) {
-  const list = apps.map((app) => ({ ...app, badge: 0 }));
+  const list = apps.map((app) => ({ ...app, badge: 0, quiet: false }));
 
   // ---- Nút 📱 (trang đặt vào thanh chat) ----
   // Hình điện thoại vẽ bằng SVG theo màu chữ (emoji 📱 đen gần như mất trên nền tối của thanh chat).
@@ -70,6 +70,48 @@ export function createPhoneUI({ stage, apps, status = [], parked: parkedHost = n
   homeBar.append(el('i'));
   frame.append(bar, home, page, homeBar);
   sheet.append(frame);
+
+  // Thông báo kiểu điện thoại: thẻ trượt xuống đầu màn, chạm là chạy việc (vd: mở Trí tuệ), ✕ hoặc sau vài giây thì
+  // tự cất. Mỗi lúc một thẻ, thẻ sau xếp hàng.
+  const notice = el('div', 'phone-notice');
+  notice.hidden = true;
+  notice.setAttribute('role', 'status');
+  const noticeMain = button('phone-notice-main');
+  const noticeIcon = el('span', 'phone-notice-icon');
+  const noticeText = el('span', 'phone-notice-text');
+  const noticeTitle = el('b');
+  const noticeBody = el('small');
+  noticeText.append(noticeTitle, noticeBody);
+  const noticeGo = el('span', 'phone-notice-go');
+  noticeMain.append(noticeIcon, noticeText, noticeGo);
+  const noticeX = button('phone-notice-x', '✕');
+  notice.append(noticeMain, noticeX);
+  const notices = [];
+  let noticeShown = null;
+  let noticeTimer = 0;
+  function nextNotice() {
+    clearTimeout(noticeTimer);
+    noticeShown = notices.shift() || null;
+    notice.hidden = !noticeShown;
+    if (!noticeShown) return;
+    noticeIcon.textContent = noticeShown.icon || '📱';
+    noticeTitle.textContent = noticeShown.title || '';
+    noticeBody.textContent = noticeShown.text || '';
+    noticeBody.hidden = !noticeShown.text;
+    noticeGo.textContent = noticeShown.actionLabel ? `${noticeShown.actionLabel} ›` : '';
+    noticeGo.hidden = !noticeShown.actionLabel;
+    notice.classList.remove('in');
+    void notice.offsetWidth;
+    notice.classList.add('in');
+    noticeTimer = setTimeout(nextNotice, noticeShown.ms || 9_000);
+  }
+  noticeMain.addEventListener('click', () => {
+    const action = noticeShown?.action;
+    nextNotice();
+    action?.();
+  });
+  noticeX.addEventListener('click', nextNotice);
+  stage.append(notice);
 
   const parked = parkedHost || el('div', 'phone-parked');
   parked.hidden = true;
@@ -119,7 +161,11 @@ export function createPhoneUI({ stage, apps, status = [], parked: parkedHost = n
       app.soonNode.hidden = !app.soon;
       app.tile.setAttribute('aria-label', app.badge ? `${t(app.label)} (${app.badge})` : t(app.label));
     }
-    const total = list.reduce((sum, app) => sum + app.badge, 0);
+    // Số "nhẹ" (vd: Trí tuệ còn mấy trò hôm nay) chỉ hiện trên biểu tượng app, không cộng vào số trên nút 📱 (số đó
+    // dành cho tin chưa đọc); nút 📱 chỉ có một chấm nhỏ.
+    const total = list.reduce((sum, app) => sum + (app.quiet ? 0 : app.badge), 0);
+    const dot = !total && list.some((app) => app.quiet && app.badge);
+    openButton.classList.toggle('has-dot', dot);
     // Cạnh ô chat chỗ hẹp: chỉ biểu tượng + số tin chưa xem (như nút 💬 trước đây).
     unreadCount.textContent = total ? (total > 99 ? '99+' : String(total)) : '';
     unreadCount.hidden = !total;
@@ -128,6 +174,7 @@ export function createPhoneUI({ stage, apps, status = [], parked: parkedHost = n
     openButton.title = t('phone.title');
     sheet.setAttribute('aria-label', t('phone.title'));
     closeButton.setAttribute('aria-label', t('close'));
+    noticeX.setAttribute('aria-label', t('close'));
     back.setAttribute('aria-label', t('phone.back'));
     homeBar.setAttribute('aria-label', t('phone.home'));
     if (current) pageTitle.textContent = t(current.label);
@@ -216,14 +263,22 @@ export function createPhoneUI({ stage, apps, status = [], parked: parkedHost = n
     open: (appId) => setOpen(true, appId),
     close: () => setOpen(false),
     home: showHome,
-    // Số chưa xem trên biểu tượng app; nút 📱 hiện tổng.
-    setBadge(id, count) {
+    // Số chưa xem trên biểu tượng app; nút 📱 hiện tổng. quiet: số nhắc việc (không phải tin chưa đọc) — chỉ hiện trên
+    // biểu tượng app, nút 📱 có chấm nhỏ thay vì cộng số.
+    setBadge(id, count, { quiet = false } = {}) {
       const app = list.find((item) => item.id === id);
       if (!app) return;
       app.badge = Math.max(0, Number(count) || 0);
+      app.quiet = Boolean(quiet);
       app.badgeNode.hidden = !app.badge;
       app.badgeNode.textContent = app.badge > 99 ? '99+' : String(app.badge);
+      app.badgeNode.classList.toggle('quiet', app.quiet);
       label();
+    },
+    // Thông báo { icon, title, text, actionLabel, action, ms }: thẻ đầu màn (xem `notice` ở trên).
+    notify(item) {
+      notices.push(item);
+      if (!noticeShown) nextNotice();
     },
     // App làm sau (Bản đồ, Máy ảnh, Album) gắn vào khi đã có: phone.setApp('map', { run, soon: false }).
     setApp(id, patch) {

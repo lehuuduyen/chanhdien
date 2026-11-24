@@ -1,4 +1,4 @@
-// `node scripts/promo-video.mjs [--film tour|garden|farm|stopwatch|hieu-y|chanh-dien|canh|tri-tue] [--base http://localhost:3000] [--out .data/promo/promo.mp4] [--state vn] [--url lotusgather.online]`
+// `node scripts/promo-video.mjs [--film tour|garden|farm|stopwatch|hieu-y|chanh-dien|canh|tri-tue|dua-xe] [--base http://localhost:3000] [--out .data/promo/promo.mp4] [--state vn] [--url lotusgather.online]`
 // `node scripts/promo-video.mjs --setup-only`: chỉ chuẩn bị dữ liệu máy dev rồi thôi (để tự quay màn hình /promo.html).
 // --film garden: clip ~33 giây ở Vườn Công Đức (gieo, tưới, hái, đem bán), mặc định ghi .data/promo/promo-garden.mp4.
 // --film farm: clip ~47 giây ở Phước Điền (gieo, tưới, thu hoạch, gà, bò, chợ, thăm hàng xóm), mặc định ghi
@@ -13,6 +13,9 @@
 // định ghi .data/promo/promo-canh.mp4.
 // --film tri-tue: clip ~40 giây khu Trí tuệ (Tàng Kinh Các, Bảng vàng, Đố hình, Đố số, Màu mực, Test IQ, ảnh kết quả, Đố vui
 // cả phòng), mặc định ghi .data/promo/promo-tri-tue.mp4. Cần bot trong sân (BOTS_THIEN) để Đố vui có người chơi cùng.
+// --film dua-xe: clip ~41 giây phòng Đua xe (cả trường đua, chạy thử, xếp lưới, 5 đèn, xuất phát, vào cua 1), mặc định ghi
+// .data/promo/promo-dua-xe.mp4. Chỉ mở trang đua; lúc bắt đầu quay mới bấm Vào đua (phòng phải đang trống, script chờ cuộc
+// đua cũ xong), bot của phòng lấp lưới.
 // --url: địa chỉ web trên màn cuối, mặc định lotusgather.online.
 //
 // Quay video giới thiệu 9:16 (1080×1920) từ apps/web/public/promo.html bằng Chrome chạy ngầm có GPU rồi ghép MP4 bằng
@@ -59,7 +62,7 @@ const option = (name, fallback) => {
   return value;
 };
 const FILM = option('--film', 'tour');
-const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y', 'chanh-dien', 'canh', 'tri-tue'];
+const FILMS = ['tour', 'garden', 'farm', 'stopwatch', 'hieu-y', 'chanh-dien', 'canh', 'tri-tue', 'dua-xe'];
 if (!FILMS.includes(FILM)) throw new Error(`--film phải là một trong: ${FILMS.join(', ')}`);
 const BASE = option('--base', 'http://localhost:3000').replace(/\/$/, '');
 const OUT = path.resolve(ROOT, option('--out', FILM === 'tour' ? '.data/promo/promo.mp4' : `.data/promo/promo-${FILM}.mp4`));
@@ -314,6 +317,12 @@ async function openChrome() {
 async function main() {
   const alive = await fetch(`${BASE}/promo.html`).then((response) => response.ok, () => false);
   if (!alive) throw new Error(`Không mở được ${BASE}/promo.html — chạy \`npm run dev\` trước (hoặc --base <địa chỉ web>).`);
+  // API / realtime chạy từ trước khi có khu Trí tuệ thì trang vẫn mở (web đọc file mới) nhưng không xin được đề: các cảnh
+  // đứng ở màn hướng dẫn Đố hình. Dừng trước khi quay để không ghi đè video cũ.
+  if (FILM === 'tri-tue') {
+    const brainApi = await fetch(`${BASE}/api/v1/brain`).then((response) => response.status, () => 0);
+    if (brainApi !== 200) throw new Error(`API ở ${BASE} chưa có khu Trí tuệ (GET /api/v1/brain trả ${brainApi || 'lỗi mạng'}) — server đang chạy bản cũ: tắt \`npm run dev\` rồi chạy lại (BOTS_THIEN=30 npm run dev).`);
+  }
   const account = LOCAL && !NO_SETUP ? await setup() : null;
   if (SETUP_ONLY) {
     if (account) console.log(`Mở ${BASE}/promo.html, đăng nhập tài khoản trên ở cổng chánh điện trước nếu muốn quay cảnh đánh bài.`);
@@ -342,11 +351,17 @@ async function main() {
   const query = new URLSearchParams({ record: '1', film: FILM, state: STATE, ...(URL_TEXT ? { url: URL_TEXT } : {}) });
   await cmd('Page.navigate', { url: `${BASE}/promo.html?${query}` });
   for (let index = 0; index < 60 && !(await evaluate('Boolean(window.promo)').catch(() => false)); index += 1) await sleep(500);
-  console.log({ garden: '… tải chánh điện 3D, chọn luống ở Vườn Công Đức', farm: '… tải chánh điện 3D, đi vào Phước Điền', stopwatch: '… tải chánh điện 3D, bốc đề Bấm Giờ', 'hieu-y': '… tải chánh điện 3D, nắm tay một người bạn', 'chanh-dien': '… tải chánh điện 3D, chờ người ngồi thiền', canh: '… tải chánh điện 3D, phong cảnh các bang', 'tri-tue': '… tải chánh điện 3D, ngồi bàn đá Tàng Kinh Các, xin đề Trí tuệ' }[FILM] || '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
-  await evaluate('window.promo.prepare()');
+  console.log({ garden: '… tải chánh điện 3D, chọn luống ở Vườn Công Đức', farm: '… tải chánh điện 3D, đi vào Phước Điền', stopwatch: '… tải chánh điện 3D, bốc đề Bấm Giờ', 'hieu-y': '… tải chánh điện 3D, nắm tay một người bạn', 'chanh-dien': '… tải chánh điện 3D, chờ người ngồi thiền', canh: '… tải chánh điện 3D, phong cảnh các bang', 'tri-tue': '… tải chánh điện 3D, ngồi bàn đá Tàng Kinh Các, xin đề Trí tuệ', 'dua-xe': '… mở phòng Đua xe, chờ đường đua trống' }[FILM] || '… tải các cảnh (chánh điện 3D, rạp phim, phòng game)');
+  const readChecks = () => evaluate("[...document.querySelectorAll('#checks li')].map((li) => `${li.className === 'ok' ? '✓' : '!'} ${li.textContent}`).join('\\n')");
+  try {
+    await evaluate('window.promo.prepare()');
+  } catch (error) {
+    // Lỗi chi tiết của từng trang nằm trong danh sách kiểm tra (lỗi trả về chỉ là "Chánh điện 3D chưa sẵn sàng").
+    console.log(await readChecks().catch(() => ''));
+    throw error;
+  }
   const endAt = await evaluate('window.promo.endAt');
-  const checks = await evaluate("[...document.querySelectorAll('#checks li')].map((li) => `${li.className === 'ok' ? '✓' : '!'} ${li.textContent}`).join('\\n')");
-  console.log(checks);
+  console.log(await readChecks());
   // Chờ máy ổn định (bóng đổ, shader) rồi mới quay.
   await sleep(4_000);
 
