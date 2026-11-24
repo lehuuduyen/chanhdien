@@ -10,12 +10,6 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 const KERB = 1.2;
 const CAR_LENGTH = 5.4;
 const TAU = Math.PI * 2;
-const wrap = (angle) => {
-  let value = angle % TAU;
-  if (value > Math.PI) value -= TAU;
-  if (value <= -Math.PI) value += TAU;
-  return value;
-};
 
 // Ảnh vẽ bằng canvas (lặp lại): nhựa, cỏ, sỏi, kerb, rào, khán giả, cửa pit, vạch đích.
 function canvasTexture(width, height, draw, { repeat = true, srgb = true } = {}) {
@@ -193,7 +187,6 @@ function blockCar(color) {
     mesh.position.set(x, 0.36, z);
     group.add(mesh);
   }
-  group.traverse((child) => { if (child.isMesh) child.castShadow = true; });
   return group;
 }
 
@@ -222,6 +215,9 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
   sun.shadow.normalBias = 0.02;
   scene.add(sun, sun.target);
   const sunOffset = new THREE.Vector3(-70, 120, 50);
+  const shadowRight = new THREE.Vector3(0, 1, 0).cross(sunOffset).normalize();
+  const shadowUp = sunOffset.clone().normalize().cross(shadowRight);
+  const shadowTexel = (sun.shadow.camera.right - sun.shadow.camera.left) / sun.shadow.mapSize.x;
 
   // Khung bao đường đua (đặt mặt đất, cây, camera bay vòng).
   let minX = Infinity; let maxX = -Infinity; let minZ = Infinity; let maxZ = -Infinity;
@@ -590,6 +586,7 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
       });
       scene.add(group);
       for (const mesh of standMeshes.get(entry) || []) mesh.visible = false;
+      renderer.shadowMap.needsUpdate = true;
       return group;
     }).catch((error) => {
       console.warn('Đua xe: không tải được công trình', spec.url, error?.message);
@@ -600,6 +597,19 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
 
   // ---- Xe ----
   const cars = new Map();
+  // Bóng tiếp xúc dùng chung một texture, di chuyển cùng xe ở mọi khung hình.
+  const contactTexture = canvasTexture(64, 64, (ctx, w, h) => {
+    const radius = w / 2;
+    const gradient = ctx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+    gradient.addColorStop(0, 'rgba(0,0,0,0.65)');
+    gradient.addColorStop(0.55, 'rgba(0,0,0,0.48)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, h);
+  }, { repeat: false });
+  textures.push(contactTexture);
+  const contactGeometry = new THREE.PlaneGeometry(3.5, CAR_LENGTH * 1.3).rotateX(-Math.PI / 2);
+  const contactMaterial = new THREE.MeshBasicMaterial({ map: contactTexture, transparent: true, depthWrite: false });
   let template = null;
   const ready = loader.loadAsync(modelUrl).then((gltf) => {
     const model = gltf.scene;
@@ -618,7 +628,7 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
     outer.add(holder);
     outer.traverse((child) => {
       if (!child.isMesh) return;
-      child.castShadow = true;
+      child.castShadow = false;
       child.receiveShadow = false;
     });
     template = outer;
@@ -661,7 +671,10 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
   function ensureCar(id, info) {
     let car = cars.get(id);
     if (!car) {
-      car = { id, color: info.color ?? 0, root: new THREE.Group(), body: null, bodyResources: new Set(), label: null, name: '', pitch: 0, roll: 0, lastSpeed: 0, lastH: 0 };
+      car = { id, color: info.color ?? 0, root: new THREE.Group(), body: null, bodyResources: new Set(), label: null, name: '', lastSpeed: 0 };
+      const contactShadow = new THREE.Mesh(contactGeometry, contactMaterial);
+      contactShadow.position.y = 0.055;
+      car.root.add(contactShadow);
       scene.add(car.root);
       cars.set(id, car);
       dressCar(car);
@@ -695,9 +708,7 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
   const cameraTarget = new THREE.Vector3(center.x, 0, center.z);
   const wanted = new THREE.Vector3();
   const look = new THREE.Vector3();
-  const shadowInterval = lowPower ? 1 / 20 : 1 / 30;
-  let shadowElapsed = shadowInterval;
-  let shake = 0;
+  const shadowAnchor = new THREE.Vector3(Infinity, 0, Infinity);
   let orbit = 0;
   let aspect = 1;
   // Góc máy đặt tay (chỉ cho máy quay clip giới thiệu): { pos, at, fov } thay camera bám xe / bay vòng.
@@ -710,21 +721,13 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
     scene,
     camera,
     renderer,
-    // info: { x, z, h, speed, color, name, self, impact }
+    // info: { x, z, h, speed, color, name, self }
     setCar(id, info) {
       const car = ensureCar(id, info);
-      const dt = 1 / 60;
-      const accel = (info.speed - car.lastSpeed) / dt;
-      const yawRate = wrap(info.h - car.lastH) / dt;
       car.lastSpeed = info.speed;
-      car.lastH = info.h;
-      // Chúi khi phanh, ngửa khi tăng tốc, nghiêng khi vào cua (rất nhẹ — xe đua thấp, cứng).
-      car.pitch += (Math.max(-0.03, Math.min(0.03, -accel * 0.0012)) - car.pitch) * 0.15;
-      car.roll += (Math.max(-0.035, Math.min(0.035, yawRate * info.speed * 0.00035)) - car.roll) * 0.15;
       car.root.position.set(info.x, 0, info.z);
-      car.root.rotation.set(car.pitch, info.h, car.roll, 'YXZ');
+      car.root.rotation.y = info.h;
       if (car.label) car.label.visible = labels;
-      if (info.impact && focus === id) shake = Math.max(shake, info.impact);
       car.seen = true;
     },
     removeCar(id) {
@@ -812,19 +815,20 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
       }
       camera.updateProjectionMatrix();
       camera.position.copy(cameraPosition);
-      if (shake > 0.01) {
-        camera.position.x += (Math.random() - 0.5) * shake * 0.5;
-        camera.position.y += (Math.random() - 0.5) * shake * 0.3;
-        shake *= Math.exp(-dt * 6);
-      }
       camera.lookAt(cameraTarget);
-      // Bóng đổ bám theo chỗ camera đang nhìn.
-      shadowElapsed += dt;
-      if (shadowElapsed >= shadowInterval) {
-        shadowElapsed %= shadowInterval;
-        const anchor = car ? car.root.position : cameraTarget;
-        sun.target.position.copy(anchor);
-        sun.position.copy(anchor).add(sunOffset);
+      // Shadow map chỉ vẽ cảnh tĩnh. Giữ vùng chiếu cố định giữa các ô để hạn chế nhấp nháy.
+      const anchor = car ? car.root.position : cameraTarget;
+      const x = Math.round(anchor.x / 8) * 8;
+      const z = Math.round(anchor.z / 8) * 8;
+      if (x !== shadowAnchor.x || z !== shadowAnchor.z) {
+        shadowAnchor.set(x, 0, z);
+        sun.target.position.copy(shadowAnchor);
+        // Canh theo lưới texel của đèn để bóng tĩnh giữ cùng mẫu khi đổi ô.
+        const right = shadowAnchor.dot(shadowRight);
+        const up = shadowAnchor.dot(shadowUp);
+        sun.target.position.addScaledVector(shadowRight, Math.round(right / shadowTexel) * shadowTexel - right);
+        sun.target.position.addScaledVector(shadowUp, Math.round(up / shadowTexel) * shadowTexel - up);
+        sun.position.copy(sun.target.position).add(sunOffset);
         renderer.shadowMap.needsUpdate = true;
       }
       renderer.render(scene, camera);
@@ -834,6 +838,8 @@ export function createRaceRenderer({ canvas, track, modelUrl = '/models/race/car
     },
     dispose() {
       for (const id of cars.keys()) this.removeCar(id);
+      contactGeometry.dispose();
+      contactMaterial.dispose();
       for (const texture of textures) texture.dispose();
       renderer.dispose();
     },

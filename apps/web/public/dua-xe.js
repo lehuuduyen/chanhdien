@@ -61,6 +61,14 @@ let people = 0;
 let myId = null;
 let driving = false;
 let own = null;
+const previousOwnPose = { x: 0, z: 0, h: 0, v: 0 };
+const ownRenderPose = { self: true };
+function rememberOwnPose() {
+  previousOwnPose.x = own.x;
+  previousOwnPose.z = own.z;
+  previousOwnPose.h = own.h;
+  previousOwnPose.v = own.v;
+}
 let tracker = null;
 let acc = 0;
 let lastSend = 0;
@@ -182,6 +190,8 @@ function onMe(message) {
   if (message.reset && own) {
     Object.assign(own, { x: message.reset.x, z: message.reset.z, h: message.reset.h, v: 0, vl: 0 });
     placeCar(own, track);
+    rememberOwnPose();
+    acc = 0;
     tracker?.taint();
   }
   renderColors();
@@ -191,6 +201,7 @@ function onMe(message) {
 // ---- Lái xe ----
 function startDriving(spawn) {
   own = placeCar(createCar(spawn), track);
+  rememberOwnPose();
   tracker = createLapTracker(track);
   if (me.mode === 'race' && state?.startAt) tracker.startRace(state.startAt);
   tracker.update(own.x, own.z, session.serverNow());
@@ -321,6 +332,7 @@ function frame(now) {
       acc += dt;
       let steps = 0;
       while (acc >= STEP && steps < 8) {
+        rememberOwnPose();
         stepCar(own, command, STEP, track);
         for (const other of others) {
           const hit = collideCars(own, other);
@@ -338,9 +350,19 @@ function frame(now) {
         send('race.car', { x: out.x, z: out.z, h: out.h, speed: out.speed, ...(rescueNext ? { r: true } : {}) });
         rescueNext = false;
       }
-    } else acc = 0;
+    } else {
+      rememberOwnPose();
+      acc = 0;
+    }
     const mine = driversById.get(myId);
-    view.setCar(myId, { x: own.x, z: own.z, h: own.h, speed: own.v, color: mine?.color ?? me.color ?? 0, self: true, impact: own.impact });
+    // Xe và camera cùng dùng vị trí nội suy giữa hai bước mô phỏng.
+    const blend = Math.min(1, acc / STEP);
+    ownRenderPose.x = previousOwnPose.x + (own.x - previousOwnPose.x) * blend;
+    ownRenderPose.z = previousOwnPose.z + (own.z - previousOwnPose.z) * blend;
+    ownRenderPose.h = wrapAngle(previousOwnPose.h + wrapAngle(own.h - previousOwnPose.h) * blend);
+    ownRenderPose.speed = previousOwnPose.v + (own.v - previousOwnPose.v) * blend;
+    ownRenderPose.color = mine?.color ?? me.color ?? 0;
+    view.setCar(myId, ownRenderPose);
     audio.engine(Math.abs(own.v), command.throttle);
     if (own.impact > 0.6) audio.bump(own.impact * 10);
   } else {
@@ -726,6 +748,8 @@ el.rescue.addEventListener('click', () => {
   const spot = rescuePoint(track, own.s);
   Object.assign(own, { x: spot.x, z: spot.z, h: spot.h, v: 0, vl: 0 });
   placeCar(own, track);
+  rememberOwnPose();
+  acc = 0;
   tracker?.taint();
   rescueNext = true;
 });
