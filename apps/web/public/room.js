@@ -9,6 +9,9 @@ import { loadShopCharacters } from '/shop-models.js';
 import { theaterSeats } from '/engine/theater.mjs';
 import { avatarNode, titleBadge } from '/badges.js';
 import { guardWebGL } from '/webgl-guard.js';
+import { recordVisit } from '/visit.js';
+
+recordVisit('cinema');
 
 const PROTOCOL_VERSION = 3;
 const RESUME_WINDOW_MS = 60_000;

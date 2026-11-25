@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#2a0606">
   <meta name="robots" content="noindex, follow">
+  <meta name="description" content="Bầu Cua Tôm Cá online chơi chung cả phòng bằng xu ảo, không đổi ra tiền thật. Miễn phí trên điện thoại ở LotusGather.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="LotusGather">
+  <meta property="og:locale" content="vi_VN">
+  <meta property="og:title" content="Bầu Cua Tôm Cá online · LotusGather">
+  <meta property="og:description" content="Bầu Cua Tôm Cá online chơi chung cả phòng bằng xu ảo, không đổi ra tiền thật. Miễn phí trên điện thoại ở LotusGather.">
+  <meta property="og:url" content="https://lotusgather.online/game.html">
+  <meta property="og:image" content="https://lotusgather.online/og/games.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Bầu Cua Tôm Cá online · LotusGather">
+  <meta name="twitter:description" content="Bầu Cua Tôm Cá online chơi chung cả phòng bằng xu ảo, không đổi ra tiền thật. Miễn phí trên điện thoại ở LotusGather.">
+  <meta name="twitter:image" content="https://lotusgather.online/og/games.jpg">
   <!-- Cài như ứng dụng (PWA): mở từ màn hình chính là toàn màn hình, không còn thanh địa chỉ (manifest.webmanifest). -->
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
@@ -236,6 +250,9 @@
 
   <script type="module">
     import { currentCinemaHref } from '/region-cinema.js';
+    import { recordVisit } from '/visit.js';
+
+    recordVisit('baucua');
 
     // ---- Dữ liệu ----
     const PROTOCOL_VERSION = 3;

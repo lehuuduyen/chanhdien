@@ -214,6 +214,9 @@
   <script type="module">
     import { currentCinemaHref } from '/region-cinema.js';
     import { rememberCompanion } from '/pet-companion-sync.js';
+    import { recordVisit } from '/visit.js';
+
+    recordVisit('shop');
 
     const $ = (id) => document.getElementById(id);
     // Tên/mô tả hiển thị của từng món (danh mục và giá do server trả).
