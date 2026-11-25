@@ -1,5 +1,8 @@
 import { cinemaRoomId, THIEN_RULES, US_STATES } from '/shared/room-rules.mjs';
 import { initHomeI18n } from '/home-i18n.js';
+import { recordVisit } from '/visit.js';
+
+recordVisit('home');
 
 let stateCode = 'vn';
 try {

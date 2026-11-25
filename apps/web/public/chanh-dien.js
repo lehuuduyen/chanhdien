@@ -36,6 +36,9 @@ import { createBootLoader, waitFor } from '/boot-loader.js';
 import { createAppInstall } from '/app-install.js';
 import { renderChibiPortraits } from '/chibi-preview.js';
 import { ageForBirthYear, starKeyForAge } from '/shared/prayer-slip.mjs';
+import { recordVisit } from '/visit.js';
+
+recordVisit('temple');
 
 const PARAMS = new URLSearchParams(location.search);
 // URL chỉ mang mã mời được mã hóa; roomId thật được API giải mã và không xuất hiện trên thanh địa chỉ.
@@ -1382,9 +1385,23 @@ elements.eyeToggle.addEventListener('click', () => setEyesClosed(!eyesClosed));
 onLangChange(renderEyeToggle);
 renderEyeToggle();
 elements.nextTrack.addEventListener('click', () => audio.nextTrack());
+// Tên điền sẵn cho khách lần đầu (theo ngôn ngữ phòng) + số để hai khách cùng tên vẫn phân biệt được.
+const GUEST_NAMES = {
+  vi: ['Tâm An', 'Diệu Hạnh', 'Minh Tâm', 'Thiện Tâm', 'An Lạc', 'Tịnh Tâm', 'Diệu Hiền', 'Thanh Tịnh', 'Bình An', 'Diệu Ngọc', 'Minh An', 'Từ Tâm', 'Hỷ Lạc', 'Như Ý', 'Tuệ Minh', 'Liên Hoa'],
+  en: ['Lotus', 'Calm River', 'Quiet Pine', 'Morning Bell', 'Gentle Rain', 'Still Lake', 'Kind Heart', 'Bright Moon'],
+  zh: ['蓮心', '靜心', '安樂', '慧明', '善緣', '清淨', '如意', '明月'],
+  es: ['Loto', 'Río Sereno', 'Pino Tranquilo', 'Campana', 'Lluvia Suave', 'Lago Quieto', 'Luna Clara', 'Buen Corazón'],
+};
+function guestName(lang) {
+  const list = GUEST_NAMES[lang] || GUEST_NAMES.vi;
+  return `${list[Math.floor(Math.random() * list.length)]} ${100 + Math.floor(Math.random() * 900)}`;
+}
+
 function roomInviteUrl() {
   const shared = new URL('/chanh-dien.html', location.origin);
   shared.searchParams.set('invite', currentInviteCode);
+  // Nguồn "moi" trong thống kê người tới (/nguon): biết bao nhiêu người vào nhờ bạn mời.
+  shared.searchParams.set('src', 'moi');
   return shared.href;
 }
 
@@ -2254,6 +2271,11 @@ async function start() {
   if (invalidInvite) elements.gateError.textContent = t('gate.invalidInvite');
   setInterval(refreshEventConfig, 60_000);
   try { elements.dharma.value = localStorage.getItem('phapdanh') || localStorage.getItem('displayName') || ''; } catch {}
+  // Khách lần đầu: điền sẵn tên để chỉ cần bấm "Vào chánh điện"; chạm vào ô thì chọn hết chữ để gõ đè tên mình.
+  if (!elements.dharma.value) {
+    elements.dharma.value = guestName(selectedLang);
+    elements.dharma.addEventListener('focus', () => elements.dharma.select(), { once: true });
+  }
   for (const item of elements.skins.querySelectorAll('button[data-skin]')) item.setAttribute('aria-pressed', String(item.dataset.skin === mySkin));
   // Ảnh Nam/Nữ dựng từ mô hình 3D (áo tràng ở chùa, đồ thường ngày ở rạp); không có WebGL thì giữ ảnh vẽ sẵn.
   renderChibiPortraits([

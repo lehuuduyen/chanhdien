@@ -21,12 +21,22 @@ test('SEO công khai đúng trang chính, có canonical, sitemap và robots cho 
     ['/', 'https://lotusgather.online/'],
     ['/chanh-dien.html', 'https://lotusgather.online/chanh-dien.html'],
     ['/room.html', 'https://lotusgather.online/room.html'],
+    // Đua xe không dùng xu nên được lập chỉ mục; các phòng game có xu cược vẫn noindex (bên dưới).
+    ['/dua-xe.html', 'https://lotusgather.online/dua-xe.html'],
   ];
   for (const [pathname, canonical] of indexed) {
     const html = readFileSync(resolveWebFile(pathname), 'utf8');
     assert.match(html, /<meta name="description" content="[^"]{50,}"/i, pathname);
     assert.match(html, new RegExp(`<link rel="canonical" href="${canonical.replaceAll('.', '\\.')}">`), pathname);
     assert.match(html, /<meta name="robots" content="index, follow,/i, pathname);
+  }
+  // Ảnh chia sẻ link 1200×630 (Facebook, Zalo, Messenger) cho trang chủ và các trang vào; file ảnh phải có thật.
+  for (const pathname of ['/', '/chanh-dien.html', '/room.html', '/dua-xe.html', '/tien-len.html', '/loto.html', '/game.html', '/tai-xiu.html', '/oan-tu-ti.html']) {
+    const html = readFileSync(resolveWebFile(pathname), 'utf8');
+    const image = html.match(/<meta property="og:image" content="https:\/\/lotusgather\.online(\/og\/[a-z-]+\.jpg)">/);
+    assert.ok(image, `${pathname}: og:image 1200×630`);
+    assert.ok(resolveWebFile(image[1]), `${pathname}: ${image[1]} có thật`);
+    assert.match(html, /<meta name="twitter:card" content="summary_large_image">/, pathname);
   }
   const home = readFileSync(resolveWebFile('/'), 'utf8');
   assert.match(home, /<script type="application\/ld\+json">[\s\S]*"@type": "WebSite"[\s\S]*"@type": "WebApplication"/);

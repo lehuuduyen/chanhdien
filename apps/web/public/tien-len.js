@@ -3,6 +3,9 @@
 // Tên người chơi chỉ đưa ra màn hình qua textContent.
 import { currentCinemaHref } from '/region-cinema.js';
 import { beats, classify, isFreeChop, playOptions, rankOf, RANKS, smartSelect, suitOf, SUITS, TIENLEN_MODES, TIENLEN_STAKES, tienLenMinCoins } from '/shared/tien-len.mjs';
+import { recordVisit } from '/visit.js';
+
+recordVisit('tienlen');
 
 const PROTOCOL_VERSION = 3;
 const ROOM_ID = 'tienlen-1';

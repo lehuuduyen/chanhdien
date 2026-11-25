@@ -6,7 +6,8 @@ import { internalKey } from '@chanh-dien/session-token';
 import { handleApiRequest } from '../server.mjs';
 import { openFriendLinks } from '../friend-links.mjs';
 import {
-  createVisitorStats, nextReportAt, startVisitorReports, visitorReportHours, visitorReportText, visitorStatsTelegramCommand,
+  createVisitorStats, nextReportAt, shiftDay, startVisitorReports, visitorReportHours, visitorReportText, visitSource,
+  visitorStatsTelegramCommand,
 } from '../visitor-stats.mjs';
 
 // Phần hỏi tuổi + đồng ý điều khoản bắt buộc khi đăng ký qua API.
@@ -17,6 +18,7 @@ const HOOK = 'telegram-hook-secret';
 const TZ = 'America/Los_Angeles';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 // 13:30 ngày 17/11/2026 giờ California (UTC−8).
 const AT_1330 = Date.parse('2026-11-17T21:30:00Z');
 
@@ -95,6 +97,57 @@ test('tin Telegram ghi đủ số liệu, khung giờ địa phương, không t�
   assert.equal(visitorStatsTelegramCommand('/thongke', null, { now }), null);
 });
 
+test('mở trang theo nguồn → vào phòng; người mới quay lại hôm sau / trong 7 ngày; /nguon', () => {
+  const { stats, advance, now } = store(AT_1330 - DAY);
+  assert.equal(shiftDay('2026-11-30', 1), '2026-12-01');
+  assert.equal(shiftDay('2026-03-01', -1), '2026-02-28');
+  assert.deepEqual(['TT-DuaXe', ' fb ', 'x y', '-a', 'a'.repeat(33), 42].map(visitSource), ['tt-duaxe', 'fb', '', '', '', '']);
+  // Hôm trước (16/11): người cũ P đã vào.
+  stats.recordJoin({ ip: '7.7.7.7', roomId: 'thien-ca-vi-1' });
+  advance(DAY);
+  // 17/11: A (khách) mở trang đua xe từ clip TikTok rồi vào; B mở trang chủ rồi bỏ đi; thành viên M mở từ cùng clip (chữ
+  // hoa vẫn cùng nguồn) rồi vào; C vào mà trang không gửi lượt mở; P quay lại (không phải người mới).
+  assert.equal(stats.recordOpen({ ip: '1.1.1.1', page: 'race', src: 'tt-duaxe' }), true);
+  assert.equal(stats.recordOpen({ ip: '1.1.1.1', page: 'temple', src: '' }), true, 'cùng ngày: giữ trang + nguồn đầu tiên');
+  stats.recordJoin({ ip: '1.1.1.1', roomId: 'duaxe-1' });
+  stats.recordOpen({ ip: '2.2.2.2', page: 'home', src: '' });
+  stats.recordOpen({ accountId: 'a-member-0001', page: 'home', src: 'TT-DuaXe' });
+  stats.recordJoin({ accountId: 'a-member-0001', roomId: 'thien-ca-vi-1' });
+  stats.recordJoin({ ip: '3.3.3.3', roomId: 'loto-1' });
+  stats.recordJoin({ ip: '7.7.7.7', roomId: 'thien-ca-vi-1' });
+  assert.equal(stats.recordOpen({ ip: '4.4.4.4', page: 'admin', src: 'x' }), false, 'trang lạ không ghi');
+  const today = stats.report({ start: now() - 2 * HOUR, end: now() });
+  assert.deepEqual(today.opens, {
+    total: 3, joined: 2,
+    sources: [{ src: 'tt-duaxe', opens: 2, joined: 2 }, { src: '', opens: 1, joined: 0 }],
+  });
+  const text = visitorReportText(today);
+  assert.match(text, /Mở trang từ 0h: 3 người · vào phòng 2 \(67%\)/);
+  assert.match(text, /tt-duaxe 2→2 · vào thẳng 1→0/);
+  // 18/11: A quay lại; 24/11: C quay lại.
+  advance(DAY);
+  stats.recordJoin({ ip: '1.1.1.1', roomId: 'duaxe-1' });
+  advance(DAY);
+  const day3 = stats.journey(now());
+  assert.deepEqual(day3.nextDay, { cohort: 3, back: 1 }, 'người mới 17/11: A, M, C; chỉ A vào lại 18/11');
+  assert.deepEqual(day3.sources.find((item) => item.src === 'tt-duaxe'), { src: 'tt-duaxe', opens: 2, joined: 2, cohort: 2, back: 1 });
+  assert.deepEqual(day3.sources.find((item) => item.src === ''), { src: '', opens: 1, joined: 0, cohort: 2, back: 1 }, 'không có lượt mở thì tính vào thẳng: P (mới 16/11, vào lại 17/11) và C');
+  advance(4 * DAY);
+  stats.recordJoin({ ip: '3.3.3.3', roomId: 'loto-1' });
+  advance(2 * DAY);
+  // 25/11 = 17/11 + 8: người mới 17/11 có vào lại trong 18–24/11.
+  const week = stats.journey(now());
+  assert.deepEqual(week.week, { cohort: 3, back: 2 });
+  const sources = visitorStatsTelegramCommand('/nguon', stats, { now });
+  assert.match(sources, /Nguồn người tới · 7 ngày tới 25\/11/);
+  assert.match(sources, /trong 7 ngày 2\/3 \(67%\)/);
+  assert.equal(visitorStatsTelegramCommand('/nguon@ChanhDienBot', stats, { now }), sources);
+  // Dọn sổ: lượt mở cũ hơn KEEP_DAYS ngày bị xóa cùng lượt vào.
+  advance(3 * DAY);
+  stats.prune();
+  assert.equal(stats.journey(now()).sources.length, 0);
+});
+
 test('báo định kỳ: hẹn tới giờ chẵn, gửi một tin mỗi mốc', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: AT_1330 });
   const accounts = createAccountStore();
@@ -157,4 +210,10 @@ test('qua API: vé vào phòng ghi người vào, presence realtime báo ngườ
   });
   assert.match(reply.json.text, /Đang online: 3 \(thành viên 1 · khách 2\)/);
   assert.match(reply.json.text, /Đã vào trong 2 giờ qua: 3 người/);
+  // Lượt mở trang: cùng origin, trang hợp lệ; trang lạ trả ok false; trang khác gửi hộ bị chặn.
+  const visit = (body, headers = {}) => request(options, 'POST', '/api/v1/visit', { body, headers: { 'x-real-ip': '5.5.5.5', ...headers } });
+  assert.deepEqual((await visit({ page: 'race', src: 'tt-duaxe' })).json, { ok: true });
+  assert.deepEqual((await visit({ page: 'nope' })).json, { ok: false });
+  assert.equal((await visit({ page: 'home' }, { origin: 'https://trang-la.example' })).status, 403);
+  assert.equal(visitorStats.report({ start: Date.now() - HOUR }).opens.sources[0].src, 'tt-duaxe');
 });

@@ -84,7 +84,7 @@ const cleanName = (value) => String(value || '').replace(/\s+/g, ' ').trim().sli
 // dung hai trang đó thì tăng phiên bản.
 export const MIN_ACCOUNT_AGE = 13;
 export const ADULT_AGE = 18;
-export const TERMS_VERSION = '2026-11-18';
+export const TERMS_VERSION = '2026-11-24';
 
 // Tuổi tròn theo tháng + năm sinh; trùng tháng sinh thì chưa tính là đã qua sinh nhật (chọn phía an toàn).
 export function ageFrom(year, month, at = Date.now()) {

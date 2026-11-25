@@ -9,7 +9,7 @@ import {
 } from '@chanh-dien/room-rules';
 import { createJoinTicket, DEFAULT_LOCAL_SECRET, verifyRoomInvite } from '@chanh-dien/session-token';
 import { corsHeaders, json, readJson } from './http.mjs';
-import { currentAccount, handleAuthRequest, loginRewardView, openAccountStore } from './auth.mjs';
+import { currentAccount, handleAuthRequest, loginRewardView, openAccountStore, sameOrigin } from './auth.mjs';
 import { handleThienRequest } from './thien.mjs';
 import { handleGardenBotRequest, handleGardenRequest, openGardenStore } from './garden.mjs';
 import { handleFarmRequest } from './farm.mjs';
@@ -179,6 +179,27 @@ export async function handleApiRequest(req, res, options = {}) {
     const located = await locateRoom(locateMatch[1], options);
     if (!located) json(req, res, 503, { error: 'no_realtime_node' });
     else json(req, res, 200, { roomId: locateMatch[1], ...located });
+    return;
+  }
+  // Một lần mở trang (trang chủ, chánh điện, rạp, phòng game, shop) kèm nguồn link: chỉ để thống kê người tới
+  // (visitor-stats.mjs), không trả gì.
+  if (req.method === 'POST' && pathname === '/api/v1/visit') {
+    if (!sameOrigin(req)) {
+      json(req, res, 403, { error: 'forbidden_origin' });
+      return;
+    }
+    let input;
+    try {
+      input = await readJson(req);
+    } catch {
+      json(req, res, 400, { error: 'invalid_json' });
+      return;
+    }
+    const account = currentAccount(req, options);
+    const saved = options.visitorStats?.recordOpen({
+      accountId: account?.id || null, ip: visitorIp(req), page: input?.page, src: input?.src,
+    }) ?? false;
+    json(req, res, 200, { ok: saved });
     return;
   }
   if (req.method === 'POST' && pathname === '/api/v1/rooms/join') {

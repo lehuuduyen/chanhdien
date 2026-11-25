@@ -10,6 +10,9 @@ import {
   buildTrack, CAR_COLORS, collideCars, createCar, createDriver, createLapTracker, driveBot, placeCar, rescuePoint, roundCar, STEP, stepCar,
   wrapAngle,
 } from '/shared/race.mjs';
+import { recordVisit } from '/visit.js';
+
+recordVisit('race');
 
 const ROOM_ID = 'duaxe-1';
 const SEND_MS = 50;
